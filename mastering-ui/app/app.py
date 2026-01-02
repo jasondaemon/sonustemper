@@ -3,6 +3,7 @@ import shutil
 import subprocess
 import shlex
 import re
+import threading
 from pathlib import Path
 from datetime import datetime
 import os
@@ -1125,16 +1126,12 @@ def master_pack(
         base_cmd += ["--mono_bass", str(mono_bass)]
     if guardrails:
         base_cmd += ["--guardrails"]
-    try:
-        return subprocess.check_output(base_cmd, text=True, stderr=subprocess.STDOUT)
-    except subprocess.CalledProcessError as e:
-        msg = e.output or str(e)
-        # If the underlying script still dislikes guardrails, retry without the flag.
-        if guardrails and "unrecognized arguments: --guardrails" in msg:
-            base_cmd = [c for c in base_cmd if c != "--guardrails"]
-            try:
-                return subprocess.check_output(base_cmd, text=True, stderr=subprocess.STDOUT)
-            except subprocess.CalledProcessError as e2:
-                msg = e2.output or str(e2) or msg
-        detail = {"error": msg or "pack_failed", "cmd": " ".join(base_cmd), "script": str(chosen)}
-        raise HTTPException(status_code=500, detail=detail)
+    def run_pack():
+        try:
+            subprocess.check_output(base_cmd, text=True, stderr=subprocess.STDOUT)
+        except subprocess.CalledProcessError as e:
+            # Log to stderr; UI will refresh Previous Runs anyway.
+            print(f"[master-pack] failed: {e.output or e}", file=sys.stderr)
+
+    threading.Thread(target=run_pack, daemon=True).start()
+    return JSONResponse({"message": "pack started (async); outputs will appear in Previous Runs", "script": str(chosen)})
