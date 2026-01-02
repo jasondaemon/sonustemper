@@ -1126,12 +1126,12 @@ def master_pack(
     try:
         return subprocess.check_output(base_cmd, text=True, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as e:
-        msg = e.output or ""
+        msg = e.output or str(e)
         # If the underlying script still dislikes guardrails, retry without the flag.
         if guardrails and "unrecognized arguments: --guardrails" in msg:
             base_cmd = [c for c in base_cmd if c != "--guardrails"]
             try:
                 return subprocess.check_output(base_cmd, text=True, stderr=subprocess.STDOUT)
             except subprocess.CalledProcessError as e2:
-                msg = e2.output or msg
-        raise HTTPException(status_code=500, detail=msg)
+                msg = e2.output or str(e2) or msg
+        raise HTTPException(status_code=500, detail=msg or "pack_failed")
