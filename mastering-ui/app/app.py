@@ -1106,16 +1106,14 @@ def master_pack(
     mono_bass: float | None = Form(None),
     guardrails: int = Form(0),
 ):
-    # Choose best available master_pack.py (prefer repo copy, fall back to /nfs)
-    candidates = [
-        Path(__file__).resolve().parent.parent / "mastering" / "master_pack.py",
-        Path(__file__).resolve().parent / "master_pack.py",
-        Path.cwd() / "mastering" / "master_pack.py",
-        MASTER_PACK,
-    ]
-    chosen = next((c for c in candidates if c and Path(c).exists()), MASTER_PACK)
-    use_python = str(chosen).endswith(".py")
-    base_cmd = (["python3", str(chosen)] if use_python else [str(chosen)])
+    # Always prefer repo master_pack.py so we run the updated logic even if /nfs version is stale
+    repo_pack = Path(__file__).resolve().parent.parent / "mastering" / "master_pack.py"
+    if repo_pack.exists():
+        chosen = repo_pack
+        base_cmd = ["python3", str(repo_pack)]
+    else:
+        chosen = MASTER_PACK
+        base_cmd = [str(MASTER_PACK)]
     base_cmd += ["--infile", infile, "--strength", str(strength)]
     if lufs is not None:
         base_cmd += ["--lufs", str(lufs)]
