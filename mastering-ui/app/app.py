@@ -1099,18 +1099,23 @@ def master_pack(
     mono_bass: float | None = Form(None),
     guardrails: int = Form(0),
 ):
-    cmd = [str(MASTER_PACK), "--infile", infile, "--strength", str(strength)]
+    base_cmd = [str(MASTER_PACK), "--infile", infile, "--strength", str(strength)]
     if lufs is not None:
-        cmd += ["--lufs", str(lufs)]
+        base_cmd += ["--lufs", str(lufs)]
     if tp is not None:
-        cmd += ["--tp", str(tp)]
+        base_cmd += ["--tp", str(tp)]
     if width is not None:
-        cmd += ["--width", str(width)]
+        base_cmd += ["--width", str(width)]
     if mono_bass is not None:
-        cmd += ["--mono_bass", str(mono_bass)]
+        base_cmd += ["--mono_bass", str(mono_bass)]
     if guardrails:
-        cmd += ["--guardrails"]
+        base_cmd += ["--guardrails"]
     try:
-        return subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT)
+        return subprocess.check_output(base_cmd, text=True, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as e:
-        raise HTTPException(status_code=500, detail=e.output)
+        # Fallback for environments with older master_pack.py lacking guardrails flag
+        msg = e.output or ""
+        if guardrails and "unrecognized arguments: --guardrails" in msg:
+            fallback_cmd = [c for c in base_cmd if c != "--guardrails"]
+            return subprocess.check_output(fallback_cmd, text=True, stderr=subprocess.STDOUT)
+        raise HTTPException(status_code=500, detail=msg)
