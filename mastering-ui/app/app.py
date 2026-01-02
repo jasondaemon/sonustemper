@@ -402,11 +402,12 @@ select, input[type="text"], input[type="file"]{
           <select id="infile"></select>
         </div>
 
-        <div class="control-row" style="align-items:flex-start;">
+        <div class="control-row" style="align-items:flex-start; margin-top:8px;">
           <label style="min-width:140px;">Presets</label>
           <div id="packPresetsBox" class="small" style="flex:1; display:flex; flex-wrap:wrap; gap:8px;"></div>
           <div class="small" style="display:flex; flex-direction:column; gap:6px;">
             <button class="btnGhost" type="button" onclick="selectAllPackPresets()">Select all</button>
+            <button class="btnGhost" type="button" onclick="clearAllPackPresets()">Clear</button>
           </div>
         </div>
 
@@ -458,12 +459,6 @@ select, input[type="text"], input[type="file"]{
         <div class="row" style="margin-top:12px;">
           <button class="btn" id="runPackBtn" onclick="runPack()">Run Master</button>
         </div>
-
-        <details style="margin-top:12px; margin-bottom:10px;">
-          <summary class="small" style="cursor:pointer; user-select:none;">Presets</summary>
-          <div id="packPresetsBox" class="small" style="margin-top:8px; display:flex; flex-wrap:wrap; gap:10px;"></div>
-          <button class="btnGhost" type="button" onclick="selectAllPackPresets()">Select all</button>
-        </details>
 
         <div class="hr"></div>
 
@@ -778,6 +773,14 @@ function selectAllPackPresets(){
   const checks = [...box.querySelectorAll('input[type=checkbox]')];
   checks.forEach(c => { c.checked = true; });
   try { localStorage.setItem(PACK_PRESETS_KEY, checks.map(c=>c.value).join(",")); } catch {}
+}
+function clearAllPackPresets(){
+  const box = document.getElementById('packPresetsBox');
+  if (!box) return;
+  const checks = [...box.querySelectorAll('input[type=checkbox]')];
+  checks.forEach(c => { c.checked = false; });
+  try { localStorage.setItem(PACK_PRESETS_KEY, ""); } catch {}
+  updatePackButtonState();
 }
 function getSelectedPresets(){
   const box = document.getElementById('packPresetsBox');
