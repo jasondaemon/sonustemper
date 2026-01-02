@@ -38,6 +38,12 @@ def read_run_metrics(folder: Path) -> dict | None:
     except Exception:
         return None
 
+def read_first_wav_metrics(folder: Path) -> dict | None:
+    wavs = sorted([p for p in folder.iterdir() if p.is_file() and p.suffix.lower() == ".wav"])
+    if not wavs:
+        return None
+    return read_metrics_for_wav(wavs[0])
+
 
 
 
@@ -846,7 +852,7 @@ def recent(limit: int = 30):
     items = []
     for d in folders[:limit]:
         mp3s = sorted([f.name for f in d.iterdir() if f.is_file() and f.suffix.lower()==".mp3"])
-        metrics = read_run_metrics(d)
+        metrics = read_run_metrics(d) or read_first_wav_metrics(d)
         items.append({
             "song": d.name,
             "folder": f"/out/{d.name}/",
@@ -893,6 +899,8 @@ def run_metrics(song: str):
     if not folder.exists() or not folder.is_dir():
         raise HTTPException(status_code=404, detail="run_not_found")
     m = read_run_metrics(folder)
+    if not m:
+        m = read_first_wav_metrics(folder)
     if not m:
         raise HTTPException(status_code=404, detail="metrics_not_found")
     return m
