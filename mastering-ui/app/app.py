@@ -890,6 +890,8 @@ async function runOne(){
 
 async function runPack(){
   clearOutList(); setLinks(''); setResult('Running A/B pack...'); setMetricsPanel('(waiting)');
+  setStatus("A/B pack running...");
+  try { localStorage.setItem("packInFlight", String(Date.now())); } catch {}
 
   const infile = document.getElementById('infile').value;
   const strength = document.getElementById('strength').value;
@@ -906,6 +908,8 @@ async function runPack(){
 
   // Auto-refresh lists/runs after job completes
   try { await refreshAll(); } catch (e) { console.error('post-job refreshAll failed', e); }
+  setStatus("");
+  try { localStorage.removeItem("packInFlight"); } catch {}
 }
 
 async function deleteSong(song){
@@ -944,6 +948,11 @@ document.addEventListener('DOMContentLoaded', () => {
     wireUI();
     initLoudnessMode();
     setMetricsPanel('(none)');
+    // Restore pack-in-flight status if page refreshed mid-run (10 min window)
+    try {
+      const ts = parseInt(localStorage.getItem("packInFlight") || "0", 10);
+      if (ts && (Date.now() - ts) < 10*60*1000) setStatus("A/B pack running...");
+    } catch {}
 
     // Ensure only one audio element plays at a time
     document.addEventListener('play', (ev) => {
