@@ -340,6 +340,10 @@ select, input[type="text"], input[type="file"]{
         <div class="small">Job output:</div>
         <div id="result" class="result">(waiting)</div>
 
+        <div class="hr"></div>
+        <div class="small">Metrics</div>
+        <div id="metricsPanel" class="small" style="margin-top:6px;"></div>
+
         <div id="links" class="links small" style="margin-top:10px;"></div>
         <div id="outlist" class="outlist"></div>
       </div>
@@ -475,10 +479,15 @@ async function refreshRecent() {
     for (const it of items) {
       const div = document.createElement('div');
       div.className = 'outitem';
+      const m = it.metrics || {};
+      const summary = (m.output && (m.output.I !== undefined || m.output.TP !== undefined))
+        ? `LUFS ${fmtMetric(m.output.I, '')} / TP ${fmtMetric(m.output.TP, ' dB')}`
+        : 'metrics: —';
       div.innerHTML = `
         <div class="runRow">
           <div class="runLeft">
             <div class="mono"><a class="linkish" href="#" onclick="loadSong('${it.song}'); return false;">${it.song || it.name}</a></div>
+            <div class="small" style="opacity:.8;">${summary}</div>
             <div class="small">
               ${it.folder ? `<a class="linkish" href="${it.folder}" target="_blank">folder</a>` : ''}
               ${it.ab ? `&nbsp;|&nbsp;<a class="linkish" href="${it.ab}" target="_blank">A/B page</a>` : ''}
@@ -606,6 +615,43 @@ async function refreshAll() {
 function setResult(text){ document.getElementById('result').textContent = text || '(no output)'; }
 function setLinks(html){ document.getElementById('links').innerHTML = html || ''; }
 function clearOutList(){ document.getElementById('outlist').innerHTML = ''; }
+function setMetricsPanel(html){ document.getElementById('metricsPanel').innerHTML = html || '<span style="opacity:.7;">(none)</span>'; }
+
+function fmtMetric(v, suffix=""){
+  if (v === null || v === undefined) return "—";
+  if (typeof v === "number" && Number.isFinite(v)) return `${v}${suffix}`;
+  return String(v);
+}
+
+function renderMetricsTable(m){
+  if (!m || typeof m !== 'object') return '<span style="opacity:.7;">(metrics unavailable)</span>';
+  const rows = [
+    ["Integrated LUFS", fmtMetric(m?.input?.I, " LUFS"), fmtMetric(m?.output?.I, " LUFS")],
+    ["True/Peak", fmtMetric(m?.input?.TP, " dB"), fmtMetric(m?.output?.TP, " dB")],
+    ["Short-term max", fmtMetric(m?.input?.short_term_max, " LUFS"), fmtMetric(m?.output?.short_term_max, " LUFS")],
+    ["Crest factor", fmtMetric(m?.input?.crest_factor, " dB"), fmtMetric(m?.output?.crest_factor, " dB")],
+    ["Stereo corr", fmtMetric(m?.input?.stereo_corr), fmtMetric(m?.output?.stereo_corr)],
+    ["Duration", fmtMetric(m?.input?.duration_sec, " s"), fmtMetric(m?.output?.duration_sec, " s")],
+  ];
+  return `
+    <table style="width:100%; border-collapse:collapse; font-size:12px;">
+      <thead>
+        <tr style="text-align:left;">
+          <th style="padding:4px 6px; color:#cfe0f1;">Metric</th>
+          <th style="padding:4px 6px; color:#cfe0f1;">Input</th>
+          <th style="padding:4px 6px; color:#cfe0f1;">Output</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map(r => `<tr>
+          <td style="padding:4px 6px; border-top:1px solid var(--line);">${r[0]}</td>
+          <td style="padding:4px 6px; border-top:1px solid var(--line);">${r[1]}</td>
+          <td style="padding:4px 6px; border-top:1px solid var(--line);">${r[2]}</td>
+        </tr>`).join("")}
+      </tbody>
+    </table>
+  `;
+}
 
 function appendOverrides(fd){
   const addIfChecked = (chkId, inputId, key) => {
@@ -648,6 +694,20 @@ async function loadSong(song){
     `;
     out.appendChild(div);
   });
+
+  // Fetch run-level metrics
+  try {
+    const mr = await fetch(`/api/metrics?song=${encodeURIComponent(song)}`, { cache: 'no-store' });
+    if (mr.ok) {
+      const mjson = await mr.json();
+      setMetricsPanel(renderMetricsTable(mjson));
+    } else {
+      setMetricsPanel('<span style="opacity:.7;">(metrics unavailable)</span>');
+    }
+  } catch (e) {
+    console.error(e);
+    setMetricsPanel('<span style="opacity:.7;">(metrics unavailable)</span>');
+  }
 }
 
 async function showOutputsFromText(text){
@@ -663,7 +723,7 @@ async function showOutputsFromText(text){
 }
 
 async function runOne(){
-  clearOutList(); setLinks(''); setResult('Running...');
+  clearOutList(); setLinks(''); setResult('Running...'); setMetricsPanel('(waiting)');
 
   const infile = document.getElementById('infile').value;
   const preset = document.getElementById('preset').value;
@@ -685,7 +745,7 @@ async function runOne(){
 }
 
 async function runPack(){
-  clearOutList(); setLinks(''); setResult('Running A/B pack...');
+  clearOutList(); setLinks(''); setResult('Running A/B pack...'); setMetricsPanel('(waiting)');
 
   const infile = document.getElementById('infile').value;
   const strength = document.getElementById('strength').value;
@@ -739,6 +799,7 @@ document.addEventListener('DOMContentLoaded', () => {
   try {
     wireUI();
     initLoudnessMode();
+    setMetricsPanel('(none)');
     refreshAll();
   } catch(e){
     console.error(e);
