@@ -922,6 +922,18 @@ document.addEventListener('DOMContentLoaded', () => {
     wireUI();
     initLoudnessMode();
     setMetricsPanel('(none)');
+
+    // Ensure only one audio element plays at a time
+    document.addEventListener('play', (ev) => {
+      if (!(ev.target && ev.target.tagName === 'AUDIO')) return;
+      const audios = document.querySelectorAll('audio');
+      audios.forEach(a => {
+        if (a !== ev.target && !a.paused) {
+          try { a.pause(); } catch(_){}
+        }
+      });
+    }, true);
+
     refreshAll();
   } catch(e){
     console.error(e);
