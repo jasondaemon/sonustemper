@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-import argparse, json, shlex, subprocess, sys, re
+import argparse, json, shlex, subprocess, sys, re, os
 from pathlib import Path
 
-PRESET_DIR = Path("/mnt/external-ssd/mastering/presets")
-IN_DIR = Path("/nfs/mastering/in")
-OUT_DIR = Path("/nfs/mastering/out")
+DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
+IN_DIR = Path(os.getenv("IN_DIR", str(DATA_DIR / "in")))
+OUT_DIR = Path(os.getenv("OUT_DIR", str(DATA_DIR / "out")))
+PRESET_DIR = Path(os.getenv("PRESET_DIR", "/presets"))
 
 DEFAULT_PRESETS = [
     "clean","warm","rock","loud","acoustic","modern",
@@ -17,8 +18,7 @@ def clamp(v, lo, hi):
 def db_to_lin(db: float) -> float:
     return 10 ** (db / 20.0)
 
-def docker_ffmpeg(cmdline: str):
-    cmd = ["docker","exec","-i","preset-master","bash","-lc", cmdline]
+def run_cmd(cmd: list[str]):
     return subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
 
 def build_filters(preset: dict, strength: float, lufs_override, tp_override, width: float) -> str:
@@ -58,31 +58,31 @@ def build_filters(preset: dict, strength: float, lufs_override, tp_override, wid
     return ",".join(chain)
 
 def run_ffmpeg_wav(input_path: Path, output_path: Path, af: str):
-    r = docker_ffmpeg(
-        f"ffmpeg -y -hide_banner -loglevel error "
-        f"-i {shlex.quote(str(input_path))} "
-        f"-af {shlex.quote(af)} "
-        f"-ar 48000 -ac 2 -c:a pcm_s24le "
-        f"{shlex.quote(str(output_path))}"
-    )
+    r = run_cmd([
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-i", str(input_path),
+        "-af", af,
+        "-ar", "48000", "-ac", "2", "-c:a", "pcm_s24le",
+        str(output_path)
+    ])
     if r.returncode != 0:
         raise RuntimeError(r.stderr.strip() or "ffmpeg failed")
 
 def make_mp3(wav_path: Path, mp3_path: Path):
-    r = docker_ffmpeg(
-        f"ffmpeg -y -hide_banner -loglevel error "
-        f"-i {shlex.quote(str(wav_path))} "
-        f"-c:a libmp3lame -b:a 320k "
-        f"{shlex.quote(str(mp3_path))}"
-    )
+    r = run_cmd([
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-i", str(wav_path),
+        "-c:a", "libmp3lame", "-b:a", "320k",
+        str(mp3_path)
+    ])
     if r.returncode != 0:
         raise RuntimeError(r.stderr.strip() or "mp3 encode failed")
 
 def measure_loudness(wav_path: Path) -> dict:
-    r = docker_ffmpeg(
-        f"ffmpeg -hide_banner -nostats -i {shlex.quote(str(wav_path))} "
-        f"-filter_complex ebur128=peak=true -f null -"
-    )
+    r = run_cmd([
+        "ffmpeg", "-hide_banner", "-nostats", "-i", str(wav_path),
+        "-filter_complex", "ebur128=peak=true", "-f", "null", "-"
+    ])
     txt = (r.stderr or "") + "\n" + (r.stdout or "")
 
     flags = re.IGNORECASE
@@ -157,6 +157,9 @@ def main():
     ap.add_argument("--guardrails", action="store_true", help="Enable width guardrails")
     ap.add_argument("--guard_max_width", type=float, default=1.1, help="Maximum width when guardrails engaged")
     args = ap.parse_args()
+
+    IN_DIR.mkdir(parents=True, exist_ok=True)
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
 
     strength = clamp(args.strength, 0, 100) / 100.0
 

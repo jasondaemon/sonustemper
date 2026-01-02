@@ -4,6 +4,6 @@ services:
     container_name: preset-master
     restart: unless-stopped
     volumes:
-      - /nfs:/nfs
-      - /mnt/external-ssd:/mnt/external-ssd
+      - ../data:/data
+      - ../presets:/presets:ro
     entrypoint: sleep infinity

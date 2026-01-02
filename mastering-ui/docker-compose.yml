@@ -1,12 +1,23 @@
 services:
   mastering-ui:
-    build: .
+    build:
+      context: ..
+      dockerfile: Dockerfile
     container_name: mastering-ui
     restart: unless-stopped
-    user: "0:0"
     ports:
-      - "8383:8383"
+      - "${PORT:-8383}:8383"
+    environment:
+      DATA_DIR: "/data"
+      IN_DIR: "/data/in"
+      OUT_DIR: "/data/out"
+      PRESET_DIR: "/presets"
+      MASTERING_BUILD: "docker"
     volumes:
-      - /nfs:/nfs
-      - /mnt/external-ssd:/mnt/external-ssd
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ../data:/data
+      - ../presets:/presets:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8383/health').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

@@ -5,6 +5,7 @@ import shlex
 import re
 import threading
 import sys
+import tempfile
 from pathlib import Path
 from datetime import datetime
 import os
@@ -12,16 +13,28 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-IN_DIR = Path("/nfs/mastering/in")
-OUT_DIR = Path("/nfs/mastering/out")
-PRESET_DIR = Path("/mnt/external-ssd/mastering/presets")
+DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
+IN_DIR = Path(os.getenv("IN_DIR", str(DATA_DIR / "in")))
+OUT_DIR = Path(os.getenv("OUT_DIR", str(DATA_DIR / "out")))
+PRESET_DIR = Path(os.getenv("PRESET_DIR", "/presets"))
 
-MASTER_ONE = Path("/nfs/mastering/master.py")
-MASTER_PACK = Path("/nfs/mastering/master_pack.py")
+APP_DIR = Path(__file__).resolve().parent
+_default_master = APP_DIR / "mastering" / "master.py"
+_default_pack = APP_DIR / "mastering" / "master_pack.py"
+if not _default_master.exists():
+    try:
+        _default_master = APP_DIR.parents[2] / "mastering" / "master.py"
+        _default_pack = APP_DIR.parents[2] / "mastering" / "master_pack.py"
+    except Exception:
+        pass
+
+MASTER_ONE = Path(os.getenv("MASTER_ONE", str(_default_master)))
+MASTER_PACK = Path(os.getenv("MASTER_PACK", str(_default_pack)))
 
 app = FastAPI()
 
 OUT_DIR.mkdir(parents=True, exist_ok=True)
+IN_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/out", StaticFiles(directory=str(OUT_DIR), html=True), name="out")
 
 def read_metrics_for_wav(wav: Path) -> dict | None:
@@ -66,18 +79,14 @@ def wrap_metrics(song: str, metrics: dict | None) -> dict | None:
         "output": metrics,
     }
 
-# --- Metrics augmentation (fallback) ---
-
-def docker_ffmpeg(cmdline: str):
-    return subprocess.run(
-        ["docker","exec","-i","preset-master","bash","-lc", cmdline],
-        text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False
-    )
+def run_cmd(cmd: list[str]) -> subprocess.CompletedProcess:
+    return subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
 
 def docker_ffprobe_json(path: Path) -> dict:
-    r = docker_ffmpeg(
-        f"ffprobe -v quiet -print_format json -show_format -show_streams {shlex.quote(str(path))}"
-    )
+    r = run_cmd([
+        "ffprobe", "-v", "quiet", "-print_format", "json",
+        "-show_format", "-show_streams", str(path)
+    ])
     if r.returncode != 0:
         return {}
     try:
@@ -89,10 +98,10 @@ def docker_ffprobe_json(path: Path) -> dict:
             return {}
 
 def measure_loudness(path: Path) -> dict:
-    r = docker_ffmpeg(
-        f"ffmpeg -hide_banner -nostats -i {shlex.quote(str(path))} "
-        f"-filter_complex ebur128=peak=true -f null -"
-    )
+    r = run_cmd([
+        "ffmpeg", "-hide_banner", "-nostats", "-i", str(path),
+        "-filter_complex", "ebur128=peak=true", "-f", "null", "-"
+    ])
     if r.returncode != 0:
         return {}
     txt = (r.stderr or "") + "\n" + (r.stdout or "")
@@ -156,6 +165,16 @@ def fill_input_metrics(song: str, m: dict, folder: Path) -> dict:
         pass
     return m
 
+def _writable(dir_path: Path) -> bool:
+    try:
+        dir_path.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=dir_path)
+        os.close(fd)
+        Path(tmp).unlink(missing_ok=True)
+        return True
+    except Exception:
+        return False
+
 
 
 
@@ -183,7 +202,7 @@ def fmt_metrics(m: dict | None) -> str:
 
 
 def bust_url(song: str, filename: str) -> str:
-    fp = Path('/nfs/mastering/out') / song / filename
+    fp = OUT_DIR / song / filename
     try:
         v = int(fp.stat().st_mtime)
     except Exception:
@@ -566,8 +585,8 @@ input[type="range"]{
       <div>
         <h1>Local Mastering <span style="font-size:12px;opacity:.65">(build {{BUILD_STAMP}})</span></h1>
         <div class="sub">
-          <span class="pill">IN: <span class="mono">/nfs/mastering/in</span></span>
-          <span class="pill">OUT: <span class="mono">/nfs/mastering/out</span></span>
+          <span class="pill">IN: <span class="mono">{{IN_DIR}}</span></span>
+          <span class="pill">OUT: <span class="mono">{{OUT_DIR}}</span></span>
         </div>
       </div>
       <div class="row">
@@ -582,7 +601,7 @@ input[type="range"]{
         <form id="uploadForm">
           <div class="row">
             <input type="file" id="file" name="file" accept=".wav,.mp3,.flac,.aiff,.aif" required />
-            <button class="btn2" type="submit">Upload to /in</button>
+            <button class="btn2" type="submit">Upload to {{IN_DIR}}</button>
           </div>
         </form>
         <div id="uploadResult" class="small" style="margin-top:10px;"></div>
@@ -1235,7 +1254,7 @@ async function showOutputsFromText(text){
   const lines = (text || '').split('\n').map(x => x.trim()).filter(Boolean);
   if (!lines.length) return;
 
-  const m = lines[0].match(/\/nfs\/mastering\/out\/([^\/]+)\//);
+  const m = lines[0].match(/\/out\/([^\/]+)\//);
   if (!m) return;
   const song = m[1];
 
@@ -1308,7 +1327,7 @@ async function runPack(){
 }
 
 async function deleteSong(song){
-  if (!confirm(`Delete all outputs for "${song}"? This removes /nfs/mastering/out/${song}/`)) return;
+  if (!confirm(`Delete all outputs for "${song}"? This removes {{OUT_DIR}}/${song}/`)) return;
 
   const r = await fetch(`/api/song/${encodeURIComponent(song)}`, { method:'DELETE' });
   const j = await r.json();
@@ -1400,6 +1419,8 @@ def index():
     html = html.replace("{{BUILD_STAMP}}", BUILD_STAMP)
     html = html.replace("{{ preset_meta_json }}", json.dumps(PRESET_META))
     html = html.replace("{{ loudness_profiles_json }}", json.dumps(LOUDNESS_PROFILES))
+    html = html.replace("{{IN_DIR}}", str(IN_DIR))
+    html = html.replace("{{OUT_DIR}}", str(OUT_DIR))
     return HTMLResponse(html)
 
 @app.get("/api/files")
@@ -1408,17 +1429,16 @@ def list_files():
     files = sorted([p.name for p in IN_DIR.iterdir()
                     if p.is_file() and p.suffix.lower() in [".wav",".mp3",".flac",".aiff",".aif"]])
     presets = sorted([p.stem for p in PRESET_DIR.iterdir()
-                      if p.is_file() and p.suffix.lower()==".json"])
+                      if p.is_file() and p.suffix.lower()==".json"]) if PRESET_DIR.exists() else []
     return {"files": files, "presets": presets}
 
 
 @app.get("/api/presets")
 def presets():
     # Return list of preset names derived from preset files on disk
-    preset_dir = Path("/nfs/mastering/presets")
-    if not preset_dir.exists():
+    if not PRESET_DIR.exists():
         return []
-    names = sorted([p.stem for p in preset_dir.glob("*.txt")])
+    names = sorted([p.stem for p in PRESET_DIR.glob("*.txt")])
     return names
 
 
@@ -1472,6 +1492,26 @@ def outlist(song: str):
                 "metrics": fmt_metrics(m),
             })
     return {"items": items}
+
+@app.get("/health")
+def health():
+    ffmpeg_ok = shutil.which("ffmpeg") is not None
+    ffprobe_ok = shutil.which("ffprobe") is not None
+    preset_exists = PRESET_DIR.exists()
+    preset_count = len(list(PRESET_DIR.glob("*.json"))) if preset_exists else 0
+    in_w = _writable(IN_DIR)
+    out_w = _writable(OUT_DIR)
+    ok = ffmpeg_ok and ffprobe_ok and preset_exists and preset_count >= 0
+    payload = {
+        "ffmpeg_ok": ffmpeg_ok,
+        "ffprobe_ok": ffprobe_ok,
+        "in_dir_writable": in_w,
+        "out_dir_writable": out_w,
+        "preset_dir_exists": preset_exists,
+        "preset_files_count": preset_count,
+        "build_stamp": BUILD_STAMP,
+    }
+    return JSONResponse(payload, status_code=200 if ok else 503)
 
 @app.get("/api/metrics")
 def run_metrics(song: str):
@@ -1538,7 +1578,7 @@ def master_pack(
     guardrails: int = Form(0),
     presets: str | None = Form(None),
 ):
-    # Always prefer repo master_pack.py so we run the updated logic even if /nfs version is stale
+    # Always prefer repo master_pack.py so we run the updated logic even if a host version is stale
     repo_pack = Path(__file__).resolve().parent.parent / "mastering" / "master_pack.py"
     if repo_pack.exists():
         chosen = repo_pack

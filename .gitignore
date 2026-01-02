@@ -27,3 +27,7 @@ Thumbs.db
 *.swo
 *.tmp
 *~
+.env
+data/
+*.wav
+*.mp3
