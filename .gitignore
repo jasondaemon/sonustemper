@@ -1,0 +1,15 @@
+# Generated output/audio
+mastering/out/
+mastering/in/*.wav
+mastering/in/*.mp3
+mastering/in/*.flac
+mastering/in/*.aiff
+mastering/in/*.aif
+
+# Python
+__pycache__/
+*.pyc
+
+# OS/editor
+.DS_Store
+.vscode/

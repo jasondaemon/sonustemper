@@ -1,0 +1,9 @@
+services:
+  preset-master:
+    image: jrottenberg/ffmpeg:6.1-ubuntu
+    container_name: preset-master
+    restart: unless-stopped
+    volumes:
+      - /nfs:/nfs
+      - /mnt/external-ssd:/mnt/external-ssd
+    entrypoint: sleep infinity

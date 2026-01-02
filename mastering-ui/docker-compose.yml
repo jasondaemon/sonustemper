@@ -1,0 +1,12 @@
+services:
+  mastering-ui:
+    build: .
+    container_name: mastering-ui
+    restart: unless-stopped
+    user: "0:0"
+    ports:
+      - "8383:8383"
+    volumes:
+      - /nfs:/nfs
+      - /mnt/external-ssd:/mnt/external-ssd
+      - /var/run/docker.sock:/var/run/docker.sock
