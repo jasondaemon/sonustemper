@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import argparse, json, shlex, subprocess, sys, re
+import argparse, json, shlex, subprocess, sys, re, datetime
 from pathlib import Path
 
 PRESET_DIR = Path("/mnt/external-ssd/mastering/presets")
@@ -52,6 +52,20 @@ def docker_ffmpeg(cmdline: str):
     cmd = ["docker","exec","-i","preset-master","bash","-lc", cmdline]
     return subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
 
+def docker_ffprobe_json(path: Path) -> dict:
+    r = docker_ffmpeg(
+        f"ffprobe -v quiet -print_format json -show_format -show_streams {shlex.quote(str(path))}"
+    )
+    if r.returncode != 0:
+        return {}
+    try:
+        return json.loads(r.stdout)
+    except Exception:
+        try:
+            return json.loads(r.stderr)
+        except Exception:
+            return {}
+
 def run_ffmpeg_wav(input_path: Path, output_path: Path, af: str):
     r = docker_ffmpeg(
         f"ffmpeg -y -hide_banner -loglevel error "
@@ -98,6 +112,29 @@ def measure_loudness(wav_path: Path) -> dict:
     if I is None and LRA is None and TP is None:
         return {"error":"ebur128_parse_failed","raw_tail":txt[-2500:]}
     return {"I": I, "LRA": LRA, "TP": TP}
+
+
+def basic_metrics(path: Path) -> dict:
+    info = docker_ffprobe_json(path)
+    duration = None
+    try:
+        duration = float(info.get("format", {}).get("duration"))
+    except Exception:
+        duration = None
+
+    loud = measure_loudness(path)
+    m = {
+        "I": loud.get("I") if isinstance(loud, dict) else None,
+        "TP": loud.get("TP") if isinstance(loud, dict) else None,
+        "LRA": loud.get("LRA") if isinstance(loud, dict) else None,
+        "short_term_max": None,
+        "crest_factor": None,
+        "stereo_corr": None,
+        "duration_sec": duration,
+    }
+    if isinstance(loud, dict) and "error" in loud:
+        m["error"] = loud.get("error")
+    return m
 
 
 def write_metrics(wav_out: Path, target_lufs: float, ceiling_db: float, width: float):
@@ -188,6 +225,25 @@ def main():
     make_mp3(wav_out, mp3_out)
 
     write_metrics(wav_out, target_lufs, ceiling_db, width)
+
+    # Run-level metrics (input + output)
+    run_metrics = {
+        "version": 1,
+        "run_id": song_dir.name,
+        "created_at": datetime.datetime.utcnow().isoformat() + "Z",
+        "preset": args.preset,
+        "strength": int(strength * 100),
+        "overrides": {
+            "lufs": args.lufs,
+            "tp": args.tp,
+            "width": args.width,
+            "mono_bass": None,  # not used in this script
+        },
+        "input": basic_metrics(infile),
+        "output": basic_metrics(wav_out),
+    }
+    (song_dir / "metrics.json").write_text(json.dumps(run_metrics, indent=2), encoding="utf-8")
+
     write_playlist_html(song_dir, infile.stem)
 
     print(str(wav_out))
