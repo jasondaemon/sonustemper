@@ -457,6 +457,12 @@ select, input[type="text"], input[type="file"]{
           <button class="btn2" onclick="runPack()">Run A/B Pack</button>
         </div>
 
+        <details style="margin-top:12px; margin-bottom:10px;">
+          <summary class="small" style="cursor:pointer; user-select:none;">Pack presets (choose before Run A/B Pack)</summary>
+          <div id="packPresetsBox" class="small" style="margin-top:8px; display:flex; flex-wrap:wrap; gap:10px;"></div>
+          <button class="btnGhost" type="button" onclick="selectAllPackPresets()">Select all</button>
+        </details>
+
         <div class="hr"></div>
 
         <div class="small">Job output:</div>
@@ -465,12 +471,6 @@ select, input[type="text"], input[type="file"]{
         <div class="hr"></div>
         <div class="small">Metrics</div>
         <div id="metricsPanel" class="small" style="margin-top:6px;"></div>
-
-        <details style="margin-top:10px;">
-          <summary class="small" style="cursor:pointer; user-select:none;">Pack presets (choose before Run A/B Pack)</summary>
-          <div id="packPresetsBox" class="small" style="margin-top:8px; display:flex; flex-wrap:wrap; gap:10px;"></div>
-          <button class="btnGhost" type="button" onclick="selectAllPackPresets()">Select all</button>
-        </details>
 
         <div id="links" class="links small" style="margin-top:10px;"></div>
         <div id="outlist" class="outlist"></div>
