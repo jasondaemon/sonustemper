@@ -466,6 +466,14 @@ select, input[type="text"], input[type="file"]{
         <div class="small">Metrics</div>
         <div id="metricsPanel" class="small" style="margin-top:6px;"></div>
 
+        <div class="hr"></div>
+        <div class="small">A/B Pack presets (choose before Run A/B Pack)</div>
+        <div class="control-row">
+          <label style="min-width:160px;">Pack presets</label>
+          <select id="packPresets" multiple size="5" style="min-width:220px; max-width:100%;"></select>
+          <button class="btnGhost" type="button" onclick="selectAllPackPresets()">Select all</button>
+        </div>
+
         <div id="links" class="links small" style="margin-top:10px;"></div>
         <div id="outlist" class="outlist"></div>
       </div>
@@ -488,6 +496,7 @@ const LOUDNESS_MODE_KEY = "loudnessMode";
 const LOUDNESS_MANUAL_KEY = "loudnessManualValues";
 const LOUDNESS_ORDER = ["apple", "streaming", "loud", "manual"];
 const GUARDRAILS_KEY = "widthGuardrailsEnabled";
+const PACK_PRESETS_KEY = "packPresets";
 
 function setLoudnessHint(text){
   const el = document.getElementById('loudnessHint');
@@ -727,12 +736,27 @@ async function refreshAll() {
 
     // Populate presets
     presetSel.innerHTML = "";
+    const packSel = document.getElementById("packPresets");
+    const prevPack = new Set(((localStorage.getItem(PACK_PRESETS_KEY) || "")).split(",").filter(Boolean));
     (data.presets || []).forEach(pr => {
       const o = document.createElement("option");
       o.value = pr;
       o.textContent = pr;
       presetSel.appendChild(o);
+      if (packSel) {
+        const op = o.cloneNode(true);
+        packSel.appendChild(op);
+      }
     });
+    if (packSel) {
+      const havePrev = [...packSel.options].some(o => prevPack.has(o.value));
+      [...packSel.options].forEach(o => {
+        o.selected = havePrev ? prevPack.has(o.value) : true;
+      });
+      if (!havePrev) {
+        try { localStorage.setItem(PACK_PRESETS_KEY, [...packSel.options].map(o=>o.value).join(",")); } catch {}
+      }
+    }
 
     // restore selection if possible
     if (prevIn && [...infileSel.options].some(o => o.value === prevIn)) infileSel.value = prevIn;
@@ -750,6 +774,12 @@ function setResult(text){ document.getElementById('result').textContent = text |
 function setLinks(html){ document.getElementById('links').innerHTML = html || ''; }
 function clearOutList(){ document.getElementById('outlist').innerHTML = ''; }
 function setMetricsPanel(html){ document.getElementById('metricsPanel').innerHTML = html || '<span style="opacity:.7;">(none)</span>'; }
+function selectAllPackPresets(){
+  const sel = document.getElementById('packPresets');
+  if (!sel) return;
+  [...sel.options].forEach(o => o.selected = true);
+  try { localStorage.setItem(PACK_PRESETS_KEY, [...sel.options].map(o=>o.value).join(",")); } catch {}
+}
 
 function fmtMetric(v, suffix=""){
   if (v === null || v === undefined) return "—";
@@ -895,10 +925,16 @@ async function runPack(){
 
   const infile = document.getElementById('infile').value;
   const strength = document.getElementById('strength').value;
+  const packSel = document.getElementById('packPresets');
+  const chosenPresets = packSel ? [...packSel.selectedOptions].map(o=>o.value) : [];
+  if (packSel) {
+    try { localStorage.setItem(PACK_PRESETS_KEY, chosenPresets.join(",")); } catch {}
+  }
 
   const fd = new FormData();
   fd.append('infile', infile);
   fd.append('strength', strength);
+  if (chosenPresets.length) fd.append('presets', chosenPresets.join(","));
   appendOverrides(fd);
 
   const r = await fetch('/api/master-pack', { method:'POST', body: fd });
