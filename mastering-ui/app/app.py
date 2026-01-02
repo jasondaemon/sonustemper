@@ -189,6 +189,165 @@ def bust_url(song: str, filename: str) -> str:
         v = 0
     return f"/out/{song}/{filename}?v={v}"
 
+PRESET_META = {
+    "acoustic": {
+        "title": "Acoustic",
+        "intent": "Natural, open master that preserves transients and room while gently controlling peaks.",
+        "dsp": [
+            "Gentle wideband EQ for clarity: subtle low-mid cleanup; airy top lift only if needed.",
+            "Light compression (low ratio) to smooth macro-dynamics without ‘pinning’ the mix.",
+            "Transient-friendly limiting; avoids aggressive clipping.",
+            "Stereo kept natural; avoids over-widening; bass stability prioritized."
+        ],
+        "bestFor": ["singer-songwriter", "folk", "acoustic pop", "live room recordings"],
+        "watchOut": ["If the mix is already bright, top lift can accentuate pick/cymbal edge."],
+        "stacking": {"role": "Base", "combinesWellWith": ["warm", "clean"], "avoidWith": ["loud"]}
+    },
+    "blues_country": {
+        "title": "Blues / Country",
+        "intent": "Warm, forward midrange with controlled low end and ‘glued’ dynamics.",
+        "dsp": [
+            "Low-end tightening to keep kick/bass defined without modern hyper-sub emphasis.",
+            "Midrange presence shaping for vocal/guitar forwardness (classic ‘radio’ focus).",
+            "Bus-style compression ‘glue’ with slower timing to keep groove breathing.",
+            "Limiter set for musical level, not maximum loudness."
+        ],
+        "bestFor": ["blues rock", "country", "americana", "roots"],
+        "watchOut": ["Too much glue can soften snare crack if the mix is already compressed."],
+        "stacking": {"role": "Base", "combinesWellWith": ["warm", "clean"], "avoidWith": ["loud"]}
+    },
+    "clean": {
+        "title": "Clean",
+        "intent": "Transparent mastering: minimal coloration, just correction + safe loudness.",
+        "dsp": [
+            "Corrective EQ only (narrow-ish cuts over boosts).",
+            "Conservative dynamics: little-to-no saturation; no intentional grit.",
+            "Limiter focused on peak safety and translation, not character.",
+            "Stereo integrity prioritized; avoids artificial width."
+        ],
+        "bestFor": ["already-great mixes", "pop", "modern worship", "anything needing transparency"],
+        "watchOut": ["May feel ‘too polite’ on aggressive genres unless paired with a character preset."],
+        "stacking": {"role": "Base / Utility", "combinesWellWith": ["warm", "loud", "modern"], "avoidWith": []}
+    },
+    "foe_acoustic": {
+        "title": "FOE – Acoustic",
+        "intent": "FOE acoustic identity: cinematic clarity, controlled lows, and slightly enhanced emotional lift.",
+        "dsp": [
+            "Low-mid contour to reduce boxiness and keep intimacy (voice/guitar separation).",
+            "Presence shaping tuned to FOE vocal clarity without harshness.",
+            "Slight harmonic enhancement for perceived richness (very subtle saturation).",
+            "Limiter set for consistency; preserves transient feel."
+        ],
+        "bestFor": ["FOE acoustic releases", "hybrid acoustic-rock ballads"],
+        "watchOut": ["If the mix has edgy sibilance, presence shaping can expose it—de-ess in mix first."],
+        "stacking": {"role": "Base (project-voiced)", "combinesWellWith": ["clean", "warm"], "avoidWith": ["loud"]}
+    },
+    "foe_metal": {
+        "title": "FOE – Metal",
+        "intent": "FOE metal identity: aggressive but controlled loudness, tight low end, and forward bite without collapse.",
+        "dsp": [
+            "Sub/low tightening: controls boom; stabilizes palm-mute energy.",
+            "Low-mid management to reduce mud under dense guitars.",
+            "Presence/attack emphasis (upper mids) to keep riffs articulate.",
+            "More assertive limiting (optionally clip-safe), tuned to keep impact.",
+            "Stereo discipline: avoids ‘phasey’ width; keeps low end mono-stable."
+        ],
+        "bestFor": ["FOE metalcore/industrial", "dense guitars", "big drums"],
+        "watchOut": ["Can exaggerate harsh cymbals/upper-mids if mix is already hot—tame in mix."],
+        "stacking": {"role": "Base (project-voiced)", "combinesWellWith": ["clean"], "avoidWith": ["warm", "acoustic"]}
+    },
+    "loud": {
+        "title": "Loud",
+        "intent": "Level-first finishing pass to compete in perceived loudness while staying within true-peak safety.",
+        "dsp": [
+            "More assertive limiting with careful release to avoid pumping.",
+            "Optional mild clipping/soft saturation for density (keep subtle).",
+            "Maintains target true-peak ceiling; prioritizes punch over raw LUFS."
+        ],
+        "bestFor": ["clients requesting ‘hotter’ masters", "rock/metal/pop when mix can handle it"],
+        "watchOut": ["Will reduce dynamic range; can flatten transients on already-limited mixes."],
+        "stacking": {"role": "Finisher", "combinesWellWith": ["clean", "modern", "rock"], "avoidWith": ["acoustic"]}
+    },
+    "modern": {
+        "title": "Modern",
+        "intent": "Contemporary tonal balance with tighter low end, clean top, and controlled density.",
+        "dsp": [
+            "Low-end shaping to match modern translation (phones, earbuds, cars).",
+            "Slight top clarity lift and low-mid cleanup for ‘hi-fi’ feel.",
+            "Moderate bus compression for density without vintage sag.",
+            "Limiter tuned for clean loudness, not grit."
+        ],
+        "bestFor": ["modern pop/rock", "EDM-adjacent mixes", "modern worship"],
+        "watchOut": ["Can feel clinical if the mix wanted vintage warmth—pair with Warm if needed."],
+        "stacking": {"role": "Base", "combinesWellWith": ["clean", "loud"], "avoidWith": ["blues_country"]}
+    },
+    "rock": {
+        "title": "Rock",
+        "intent": "Punch-forward rock master with snare impact, controlled lows, and energetic mids.",
+        "dsp": [
+            "Low-end tightening + midrange energy to keep guitars/vocals forward.",
+            "Bus compression with medium timing to enhance punch + cohesion.",
+            "Limiter tuned to keep drum transients alive.",
+            "Stereo kept solid; avoids extreme width."
+        ],
+        "bestFor": ["alt rock", "hard rock", "classic-leaning modern rock"],
+        "watchOut": ["If mix is mid-heavy, may need less mid push; avoid stacking with Warm too strongly."],
+        "stacking": {"role": "Base", "combinesWellWith": ["loud", "clean"], "avoidWith": ["acoustic"]}
+    },
+    "warm": {
+        "title": "Warm",
+        "intent": "Adds thickness and smoothness: reduces brittleness, rounds edges, and enhances body.",
+        "dsp": [
+            "Gentle high-shelf restraint / smoothing (tames brittle top).",
+            "Low-mid/body enhancement (broad strokes; careful).",
+            "Soft saturation for warmth and perceived loudness without harshness.",
+            "Dynamics tuned to feel relaxed, not aggressively pinned."
+        ],
+        "bestFor": ["bright mixes", "thin sources", "vintage-leaning material", "acoustic that needs body"],
+        "watchOut": ["Can get muddy if the mix already has low-mid buildup—watch 200–400 Hz."],
+        "stacking": {"role": "Flavor", "combinesWellWith": ["clean", "acoustic", "blues_country"], "avoidWith": ["foe_metal", "loud"]}
+    }
+}
+
+LOUDNESS_PROFILES = {
+    "apple": {
+        "title": "Apple Music",
+        "targetLUFS": -16,
+        "truePeakDBTP": -1.0,
+        "notes": ["Streaming normalization oriented; preserves dynamics."],
+        "rationale": ["Commonly cited reference level for Apple Music normalization."],
+        "typicalUse": ["Apple ecosystem releases"],
+        "caution": ["Master for sound first; LUFS is not the goal by itself."]
+    },
+    "spotify": {
+        "title": "Spotify",
+        "targetLUFS": -14,
+        "truePeakDBTP": -1.0,
+        "notes": ["Common normalization reference; keep encoding headroom."],
+        "rationale": ["Frequently cited Spotify reference target."],
+        "typicalUse": ["General streaming releases"],
+        "caution": ["Listener normalization settings can change outcomes."]
+    },
+    "youtube": {
+        "title": "YouTube",
+        "targetLUFS": -14,
+        "truePeakDBTP": -1.0,
+        "notes": ["Normalization typical; aim for clean encode headroom."],
+        "rationale": ["Common reference level for YouTube loudness normalization."],
+        "typicalUse": ["YouTube uploads / lyric videos"],
+        "caution": ["Behavior varies; master for sound first."]
+    },
+    "custom": {
+        "title": "Custom",
+        "targetLUFS": None,
+        "truePeakDBTP": None,
+        "notes": ["Reflects your active override values if enabled."],
+        "rationale": ["Shows effective loudness currently applied by the UI."],
+        "typicalUse": ["Manual or experimental targeting"],
+        "caution": ["Extreme targets can reduce dynamics or cause distortion."]
+    }
+}
+
 BUILD_STAMP = os.getenv("MASTERING_BUILD")
 if not BUILD_STAMP:
     try:
@@ -353,10 +512,46 @@ input[type="range"]{
 }
 
 /* Make selects fluid */
-select, input[type="text"], input[type="file"]{
-  max-width:100%;
-  min-width:0 !important;
+    select, input[type="text"], input[type="file"]{
+      max-width:100%;
+      min-width:0 !important;
+    }
+  </style>
+
+<style>
+.drawer-backdrop{
+  position:fixed; inset:0; background:rgba(0,0,0,0.35); backdrop-filter: blur(2px);
+  z-index:999; transition: opacity .2s ease;
 }
+.info-drawer{
+  position:fixed; top:0; right:0; width:420px; max-width:90vw; height:100%;
+  background:#0f151d; border-left:1px solid var(--line); box-shadow: -6px 0 18px rgba(0,0,0,0.35);
+  z-index:1000; transform: translateX(100%); transition: transform .25s ease;
+  display:flex; flex-direction:column; padding:16px;
+}
+@media (max-width: 768px){
+  .info-drawer{ width:100%; height:65vh; top:auto; bottom:0; border-left:0; border-top:1px solid var(--line); transform: translateY(100%); }
+}
+.drawer-header{ display:flex; justify-content:space-between; align-items:center; gap:10px; }
+.drawer-header h2{ margin:0; font-size:16px; color:#e7eef6; }
+.drawer-subtitle{ color:var(--muted); font-size:12px; }
+.drawer-body{ margin-top:12px; overflow:auto; padding-right:6px; display:flex; flex-direction:column; gap:10px; }
+.drawer-section h3{ margin:0 0 6px 0; font-size:13px; color:#cfe0f1; }
+.drawer-section ul{ margin:0; padding-left:18px; color:#d7e6f5; font-size:12px; }
+.drawer-section .chips{ display:flex; flex-wrap:wrap; gap:6px; }
+.drawer-section .chip{ padding:6px 10px; border:1px solid var(--line); border-radius:12px; font-size:12px; color:#d7e6f5; background:#0f151d; }
+.hidden{ display:none !important; }
+.info-btn{
+  border:1px solid var(--line);
+  background:#0f151d;
+  color:var(--muted);
+  border-radius:50%;
+  width:22px; height:22px;
+  display:inline-flex; align-items:center; justify-content:center;
+  cursor:pointer;
+  font-size:12px;
+}
+.info-btn:hover{ color:var(--text); border-color:var(--accent); }
 </style>
 
 </head>
@@ -421,7 +616,10 @@ select, input[type="text"], input[type="file"]{
 
         <div class="control-row">
           <label>Loudness Mode</label>
-          <select id="loudnessMode"></select>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <select id="loudnessMode"></select>
+            <button class="info-btn" type="button" data-info-type="loudness" aria-label="About loudness profiles">ⓘ</button>
+          </div>
         </div>
         <div class="small" id="loudnessHint" style="margin-top:-6px; margin-bottom:6px; color:var(--muted);"></div>
 
@@ -738,7 +936,7 @@ async function refreshAll() {
         const wrap = document.createElement('label');
         wrap.style = "display:flex; align-items:center; gap:6px; padding:4px 8px; border:1px solid var(--line); border-radius:10px;";
         const checked = havePrev ? prevPack.has(pr) : (idx === 0);
-        wrap.innerHTML = `<input type="checkbox" value="${pr}" ${checked ? 'checked' : ''}> ${pr}`;
+        wrap.innerHTML = `<input type="checkbox" value="${pr}" ${checked ? 'checked' : ''}> ${pr} <button class="info-btn" type="button" data-info-type="preset" data-id="${pr}" aria-label="About ${pr}">ⓘ</button>`;
         const input = wrap.querySelector('input');
         input.addEventListener('change', () => {
           try { localStorage.setItem(PACK_PRESETS_KEY, getSelectedPresets().join(",")); } catch {}
@@ -791,6 +989,143 @@ function updatePackButtonState(){
   const btn = document.getElementById('runPackBtn');
   if (!btn) return;
   btn.disabled = getSelectedPresets().length === 0;
+}
+
+function initInfoDrawer(){
+  const drawer = document.getElementById('infoDrawer');
+  const backdrop = document.getElementById('drawerBackdrop');
+  const closeBtn = document.getElementById('drawerClose');
+  const titleEl = document.getElementById('drawerTitle');
+  const subEl = document.getElementById('drawerSubtitle');
+  const bodyEl = document.getElementById('drawerBody');
+  let lastFocus = null;
+
+  const closeDrawer = () => {
+    drawer.classList.add('hidden');
+    backdrop.classList.add('hidden');
+    if (lastFocus) {
+      try { lastFocus.focus(); } catch(_){}
+    }
+  };
+
+  const openDrawer = (title, subtitle, bodyHTML, trigger) => {
+    lastFocus = trigger || null;
+    titleEl.textContent = title || '';
+    subEl.textContent = subtitle || '';
+    bodyEl.innerHTML = bodyHTML || '';
+    drawer.classList.remove('hidden');
+    backdrop.classList.remove('hidden');
+    drawer.focus();
+  };
+
+  const renderList = (items) => {
+    if (!items || !items.length) return '<div class="small" style="opacity:.7;">—</div>';
+    return `<ul>${items.map(i=>`<li>${i}</li>`).join('')}</ul>`;
+  };
+
+  const renderChips = (items) => {
+    if (!items || !items.length) return '<div class="small" style="opacity:.7;">—</div>';
+    return `<div class="chips">${items.map(i=>`<span class="chip">${i}</span>`).join('')}</div>`;
+  };
+
+  const renderPresetDrawer = (id) => {
+    const m = (window.PRESET_META || {})[id];
+    if (!m) return;
+    const stacking = m.stacking || {};
+    const body = `
+      <div class="drawer-section">
+        <h3>Intent</h3>
+        <div class="small">${m.intent || ''}</div>
+      </div>
+      <div class="drawer-section">
+        <h3>DSP Meaning</h3>
+        ${renderList(m.dsp || [])}
+      </div>
+      <div class="drawer-section">
+        <h3>Best For</h3>
+        ${renderChips(m.bestFor || [])}
+      </div>
+      <div class="drawer-section">
+        <h3>Watch Out</h3>
+        ${renderList(m.watchOut || [])}
+      </div>
+      <div class="drawer-section">
+        <h3>Stacking</h3>
+        <div class="small">Role: ${stacking.role || '—'}</div>
+        <div class="small" style="margin-top:6px;">Combines well with:</div>
+        ${renderChips(stacking.combinesWellWith || [])}
+        <div class="small" style="margin-top:6px;">Avoid with:</div>
+        ${renderChips(stacking.avoidWith || [])}
+      </div>
+    `;
+    openDrawer(m.title || id, stacking.role || '', body, document.querySelector(`.info-btn[data-id="${id}"]`));
+  };
+
+  const renderLoudnessDrawer = () => {
+    const profiles = window.LOUDNESS_PROFILES || {};
+    const sel = document.getElementById('loudnessMode');
+    const currentId = sel ? sel.value : 'apple';
+    const prof = profiles[currentId] || {};
+
+    const overrideLufs = document.getElementById('useLufs')?.checked ? document.getElementById('lufs')?.value : null;
+    const overrideTp = document.getElementById('useTp')?.checked ? document.getElementById('tp')?.value : null;
+
+    const currentLufs = overrideLufs !== null && overrideLufs !== undefined ? overrideLufs : prof.targetLUFS;
+    const currentTp = overrideTp !== null && overrideTp !== undefined ? overrideTp : prof.truePeakDBTP;
+
+    const tableRows = Object.entries(profiles).map(([k,v]) => {
+      const l = v.targetLUFS; const t = v.truePeakDBTP;
+      return `<tr><td style="padding:4px 6px;">${v.title || k}</td><td style="padding:4px 6px;">${l ?? '—'}</td><td style="padding:4px 6px;">${t ?? '—'}</td></tr>`;
+    }).join('');
+
+    const body = `
+      <div class="drawer-section">
+        <h3>Current profile</h3>
+        <div class="small">Target LUFS: ${currentLufs ?? '—'} | TP ceiling: ${currentTp ?? '—'}</div>
+        <div class="small" style="margin-top:6px;">Notes:</div>
+        ${renderList(prof.notes || [])}
+      </div>
+      <div class="drawer-section">
+        <h3>Rationale</h3>
+        ${renderList(prof.rationale || [])}
+      </div>
+      <div class="drawer-section">
+        <h3>Typical use</h3>
+        ${renderChips(prof.typicalUse || [])}
+      </div>
+      <div class="drawer-section">
+        <h3>Caution</h3>
+        ${renderList(prof.caution || [])}
+      </div>
+      <div class="drawer-section">
+        <h3>Profiles</h3>
+        <table style="width:100%; border-collapse:collapse; font-size:12px;">
+          <thead>
+            <tr><th style="text-align:left; padding:4px 6px;">Profile</th><th style="text-align:left; padding:4px 6px;">LUFS</th><th style="text-align:left; padding:4px 6px;">TP (dBTP)</th></tr>
+          </thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+        <div class="small" style="margin-top:6px;">Defaults are editable via Override controls.</div>
+      </div>
+    `;
+    openDrawer("Loudness Profiles", prof.title || currentId, body, document.querySelector('.info-btn[data-info-type="loudness"]'));
+  };
+
+  backdrop.addEventListener('click', closeDrawer);
+  closeBtn.addEventListener('click', closeDrawer);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
+
+  document.body.addEventListener('click', (e) => {
+    const btn = e.target.closest('.info-btn');
+    if (!btn) return;
+    e.preventDefault(); e.stopPropagation();
+    const type = btn.getAttribute('data-info-type');
+    if (type === 'preset') {
+      renderPresetDrawer(btn.getAttribute('data-id'));
+    } else if (type === 'loudness') {
+      renderLoudnessDrawer();
+    }
+  });
 }
 
 function fmtMetric(v, suffix=""){
@@ -1026,12 +1361,34 @@ document.addEventListener('DOMContentLoaded', () => {
     }, true);
 
     refreshAll();
+    initInfoDrawer();
   } catch(e){
     console.error(e);
     setStatus("UI init error (open console)");
   }
 });
 </script>
+
+<script>
+window.PRESET_META = {{ preset_meta_json }};
+window.LOUDNESS_PROFILES = {{ loudness_profiles_json }};
+</script>
+
+<div id="drawerBackdrop" class="drawer-backdrop hidden" tabindex="-1"></div>
+<aside id="infoDrawer"
+       class="info-drawer hidden"
+       role="dialog"
+       aria-modal="true"
+       aria-labelledby="drawerTitle">
+  <div class="drawer-header">
+    <div>
+      <h2 id="drawerTitle"></h2>
+      <div id="drawerSubtitle" class="drawer-subtitle"></div>
+    </div>
+    <button id="drawerClose" aria-label="Close">✕</button>
+  </div>
+  <div id="drawerBody" class="drawer-body"></div>
+</aside>
 
 </body>
 </html>
