@@ -394,7 +394,8 @@ function wireUI() {
     update();
 
     if (chk) {
-      const syncEnabled = () => { slider.disabled = !chk.checked; };
+      // Keep sliders usable even when override is off; checkbox only gates payload
+      const syncEnabled = () => { slider.disabled = false; };
       chk.addEventListener('change', syncEnabled);
       syncEnabled();
     }
