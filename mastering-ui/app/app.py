@@ -440,6 +440,11 @@ select, input[type="text"], input[type="file"]{
           </div>
 
           <div class="control-row">
+            <label><input type="checkbox" id="guardrails"> Enable Width Guardrails</label>
+            <div class="small" style="color:var(--muted);">Keeps lows mono-ish and softly caps extreme width if risky.</div>
+          </div>
+
+          <div class="control-row">
             <label><input type="checkbox" id="ov_mono_bass"> Mono Bass Below (Hz)</label>
             <input type="range" id="mono_bass" min="60" max="200" step="5" value="120">
             <span class="pill" id="monoBassVal">120</span>
@@ -481,6 +486,7 @@ const LOUDNESS_MODES = {
 const LOUDNESS_MODE_KEY = "loudnessMode";
 const LOUDNESS_MANUAL_KEY = "loudnessManualValues";
 const LOUDNESS_ORDER = ["apple", "streaming", "loud", "manual"];
+const GUARDRAILS_KEY = "widthGuardrailsEnabled";
 
 function setLoudnessHint(text){
   const el = document.getElementById('loudnessHint');
@@ -683,6 +689,16 @@ function wireUI() {
       el.addEventListener('change', trackManual);
     }
   });
+
+  // Guardrails toggle persistence
+  const guardrails = document.getElementById('guardrails');
+  if (guardrails) {
+    const stored = localStorage.getItem(GUARDRAILS_KEY);
+    guardrails.checked = stored === null ? true : stored === '1';
+    guardrails.addEventListener('change', () => {
+      try { localStorage.setItem(GUARDRAILS_KEY, guardrails.checked ? '1' : '0'); } catch {}
+    });
+  }
 }
 
 async function refreshAll() {
@@ -745,6 +761,7 @@ function renderMetricsTable(m){
   const output = m.output || m; // accept flat metrics as output-only
   const input = m.input || {};
   const deltas = m.deltas || {};
+  const guard = m.guardrails || {};
   const rows = [
     ["Integrated LUFS", fmtMetric(input?.I, " LUFS"), fmtMetric(output?.I, " LUFS")],
     ["Δ LUFS (out-in)", "", fmtMetric(typeof deltas?.I === 'number' ? deltas.I : null, " LUFS")],
@@ -754,6 +771,8 @@ function renderMetricsTable(m){
     ["Crest factor", fmtMetric(input?.crest_factor, " dB"), fmtMetric(output?.crest_factor, " dB")],
     ["Stereo corr", fmtMetric(input?.stereo_corr), fmtMetric(output?.stereo_corr)],
     ["Duration", fmtMetric(input?.duration_sec, " s"), fmtMetric(output?.duration_sec, " s")],
+    ["Guardrails", guard.enabled ? "on" : "off", guard.enabled ? `${fmtMetric(guard.width_requested)} → ${fmtMetric(guard.width_applied)}` : "—"],
+    ["Guard reason", "", guard.reason ? guard.reason : "—"],
   ];
   return `
     <table style="width:100%; border-collapse:collapse; font-size:12px;">
@@ -785,6 +804,8 @@ function appendOverrides(fd){
   addIfChecked('useTp', 'tp', 'tp');
   addIfChecked('ov_width', 'width', 'width');
   addIfChecked('ov_mono_bass', 'mono_bass', 'mono_bass');
+  const guardrails = document.getElementById('guardrails');
+  if (guardrails && guardrails.checked) fd.append('guardrails', '1');
 }
 
 async function loadSong(song){
@@ -1050,6 +1071,7 @@ def master(
     tp: float | None = Form(None),
     width: float | None = Form(None),
     mono_bass: float | None = Form(None),
+    guardrails: int = Form(0),
 ):
     cmd = [str(MASTER_ONE), "--preset", preset, "--infile", infile, "--strength", str(strength)]
     if lufs is not None:
@@ -1060,6 +1082,8 @@ def master(
         cmd += ["--width", str(width)]
     if mono_bass is not None:
         cmd += ["--mono_bass", str(mono_bass)]
+    if guardrails:
+        cmd += ["--guardrails"]
     try:
         return subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as e:
