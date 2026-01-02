@@ -29,6 +29,15 @@ def read_metrics_for_wav(wav: Path) -> dict | None:
     except Exception:
         return {"error": "metrics_read_failed"}
 
+def read_run_metrics(folder: Path) -> dict | None:
+    mp = folder / "metrics.json"
+    if not mp.exists():
+        return None
+    try:
+        return json.loads(mp.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
 
 
 
@@ -776,11 +785,13 @@ def recent(limit: int = 30):
     items = []
     for d in folders[:limit]:
         mp3s = sorted([f.name for f in d.iterdir() if f.is_file() and f.suffix.lower()==".mp3"])
+        metrics = read_run_metrics(d)
         items.append({
             "song": d.name,
             "folder": f"/out/{d.name}/",
             "ab": f"/out/{d.name}/index.html",
             "mp3": f"/out/{d.name}/{mp3s[0]}" if mp3s else None,
+            "metrics": metrics,
         })
     return {"items": items}
 
@@ -814,6 +825,16 @@ def outlist(song: str):
                 "metrics": fmt_metrics(m),
             })
     return {"items": items}
+
+@app.get("/api/metrics")
+def run_metrics(song: str):
+    folder = OUT_DIR / song
+    if not folder.exists() or not folder.is_dir():
+        raise HTTPException(status_code=404, detail="run_not_found")
+    m = read_run_metrics(folder)
+    if not m:
+        raise HTTPException(status_code=404, detail="metrics_not_found")
+    return m
 
 @app.post("/api/upload")
 async def upload(file: UploadFile = File(...)):
