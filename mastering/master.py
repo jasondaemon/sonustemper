@@ -12,7 +12,7 @@ def clamp(v, lo, hi):
 def db_to_lin(db: float) -> float:
     return 10 ** (db / 20.0)
 
-def build_filters(preset: dict, strength: float, lufs_override, tp_override, width: float) -> str:
+def build_filters(preset: dict, strength: float, lufs_override, tp_override, width: float | None) -> str:
     eq = preset.get("eq", [])
     comp = preset.get("compressor", {})
     lim = preset.get("limiter", {})
@@ -45,6 +45,9 @@ def build_filters(preset: dict, strength: float, lufs_override, tp_override, wid
     chain.extend(eq_terms)
     chain.append(comp_f)
     chain.append(lim_f)
+    if width is not None and abs(width - 1.0) > 1e-3:
+        # gently widen/narrow via side level scaling
+        chain.append(f"stereotools=slev={width}")
     chain.append(loud_f)
     return ",".join(chain)
 
@@ -190,6 +193,8 @@ def main():
     ap.add_argument("--lufs", type=float, default=None)
     ap.add_argument("--tp", type=float, default=None)
     ap.add_argument("--width", type=float, default=None, help="Stereo width multiplier (extrastereo). 1.0 = unchanged")
+    ap.add_argument("--guardrails", action="store_true", help="Enable width guardrails")
+    ap.add_argument("--guard_max_width", type=float, default=1.1, help="Maximum width when guardrails engaged")
     args = ap.parse_args()
 
     strength = clamp(args.strength, 0, 100) / 100.0
@@ -215,8 +220,22 @@ def main():
     lim = preset.get('limiter', {}) or {}
     ceiling_db = float(args.tp) if args.tp is not None else float(lim.get('ceiling', -1.0))
     # Width: override > preset > 1.0
-    width = float(args.width) if getattr(args, 'width', None) is not None else float(preset.get('width', 1.0))
-    af = build_filters(preset, strength, args.lufs, args.tp, width)
+    width_requested = float(args.width) if getattr(args, 'width', None) is not None else float(preset.get('width', 1.0))
+    width_applied = width_requested
+    guardrails_info = {"enabled": bool(args.guardrails), "width_requested": width_requested, "width_applied": width_applied}
+    if args.guardrails:
+        guard_max = float(args.guard_max_width or 1.1)
+        if width_applied > guard_max:
+            width_applied = guard_max
+            guardrails_info["width_applied"] = width_applied
+            guardrails_info["guard_max_width"] = guard_max
+            guardrails_info["reason"] = "clamped_max"
+        else:
+            guardrails_info["guard_max_width"] = guard_max
+            guardrails_info["reason"] = "none"
+    else:
+        guardrails_info["reason"] = "disabled"
+    af = build_filters(preset, strength, args.lufs, args.tp, width_applied)
 
     wav_out = song_dir / f"{infile.stem}__{args.preset}_S{int(strength*100)}.wav"
     run_ffmpeg_wav(infile, wav_out, af)
@@ -224,7 +243,7 @@ def main():
     mp3_out = wav_out.with_suffix(".mp3")
     make_mp3(wav_out, mp3_out)
 
-    write_metrics(wav_out, target_lufs, ceiling_db, width)
+    write_metrics(wav_out, target_lufs, ceiling_db, width_applied)
 
     # Run-level metrics (input + output)
     run_metrics = {
@@ -236,9 +255,10 @@ def main():
         "overrides": {
             "lufs": args.lufs,
             "tp": args.tp,
-            "width": args.width,
+            "width": width_requested,
             "mono_bass": None,  # not used in this script
         },
+        "guardrails": guardrails_info,
         "input": basic_metrics(infile),
         "output": basic_metrics(wav_out),
     }
