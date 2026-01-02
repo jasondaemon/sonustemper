@@ -13,3 +13,17 @@ __pycache__/
 # OS/editor
 .DS_Store
 .vscode/
+
+# --- Synology / DSM metadata ---
+@eaDir/
+**/@eaDir/
+.DS_Store
+**/.DS_Store
+Thumbs.db
+**/Thumbs.db
+
+# --- General noise ---
+*.swp
+*.swo
+*.tmp
+*~
