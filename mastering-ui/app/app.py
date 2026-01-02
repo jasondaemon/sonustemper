@@ -1087,7 +1087,14 @@ def master(
     try:
         return subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as e:
-        raise HTTPException(status_code=500, detail=e.output)
+        msg = e.output or ""
+        if guardrails and "unrecognized arguments: --guardrails" in msg:
+            fallback_cmd = [c for c in cmd if c != "--guardrails"]
+            try:
+                return subprocess.check_output(fallback_cmd, text=True, stderr=subprocess.STDOUT)
+            except subprocess.CalledProcessError as e2:
+                raise HTTPException(status_code=500, detail=e2.output)
+        raise HTTPException(status_code=500, detail=msg)
 
 @app.post("/api/master-pack")
 def master_pack(
