@@ -466,13 +466,11 @@ select, input[type="text"], input[type="file"]{
         <div class="small">Metrics</div>
         <div id="metricsPanel" class="small" style="margin-top:6px;"></div>
 
-        <div class="hr"></div>
-        <div class="small">A/B Pack presets (choose before Run A/B Pack)</div>
-        <div class="control-row">
-          <label style="min-width:160px;">Pack presets</label>
-          <select id="packPresets" multiple size="5" style="min-width:220px; max-width:100%;"></select>
+        <details style="margin-top:10px;">
+          <summary class="small" style="cursor:pointer; user-select:none;">Pack presets (choose before Run A/B Pack)</summary>
+          <div id="packPresetsBox" class="small" style="margin-top:8px; display:flex; flex-wrap:wrap; gap:10px;"></div>
           <button class="btnGhost" type="button" onclick="selectAllPackPresets()">Select all</button>
-        </div>
+        </details>
 
         <div id="links" class="links small" style="margin-top:10px;"></div>
         <div id="outlist" class="outlist"></div>
@@ -736,25 +734,29 @@ async function refreshAll() {
 
     // Populate presets
     presetSel.innerHTML = "";
-    const packSel = document.getElementById("packPresets");
+    const packBox = document.getElementById("packPresetsBox");
     const prevPack = new Set(((localStorage.getItem(PACK_PRESETS_KEY) || "")).split(",").filter(Boolean));
     (data.presets || []).forEach(pr => {
       const o = document.createElement("option");
       o.value = pr;
       o.textContent = pr;
       presetSel.appendChild(o);
-      if (packSel) {
-        const op = o.cloneNode(true);
-        packSel.appendChild(op);
+      if (packBox) {
+        const id = `pack-${pr}`;
+        const wrap = document.createElement('label');
+        wrap.style = "display:flex; align-items:center; gap:6px; padding:4px 8px; border:1px solid var(--line); border-radius:10px;";
+        wrap.innerHTML = `<input type="checkbox" id="${id}" value="${pr}" ${prevPack.size ? (prevPack.has(pr) ? 'checked' : '') : 'checked'}> ${pr}`;
+        packBox.appendChild(wrap);
       }
     });
-    if (packSel) {
-      const havePrev = [...packSel.options].some(o => prevPack.has(o.value));
-      [...packSel.options].forEach(o => {
-        o.selected = havePrev ? prevPack.has(o.value) : true;
-      });
+    if (packBox) {
+      const checks = [...packBox.querySelectorAll('input[type=checkbox]')];
+      const havePrev = checks.some(c => prevPack.has(c.value));
+      checks.forEach(c => { c.checked = havePrev ? prevPack.has(c.value) : true; });
       if (!havePrev) {
-        try { localStorage.setItem(PACK_PRESETS_KEY, [...packSel.options].map(o=>o.value).join(",")); } catch {}
+        try { localStorage.setItem(PACK_PRESETS_KEY, checks.map(c=>c.value).join(",")); } catch {}
+      } else {
+        try { localStorage.setItem(PACK_PRESETS_KEY, checks.filter(c=>c.checked).map(c=>c.value).join(",")); } catch {}
       }
     }
 
@@ -775,10 +777,11 @@ function setLinks(html){ document.getElementById('links').innerHTML = html || ''
 function clearOutList(){ document.getElementById('outlist').innerHTML = ''; }
 function setMetricsPanel(html){ document.getElementById('metricsPanel').innerHTML = html || '<span style="opacity:.7;">(none)</span>'; }
 function selectAllPackPresets(){
-  const sel = document.getElementById('packPresets');
-  if (!sel) return;
-  [...sel.options].forEach(o => o.selected = true);
-  try { localStorage.setItem(PACK_PRESETS_KEY, [...sel.options].map(o=>o.value).join(",")); } catch {}
+  const box = document.getElementById('packPresetsBox');
+  if (!box) return;
+  const checks = [...box.querySelectorAll('input[type=checkbox]')];
+  checks.forEach(c => { c.checked = true; });
+  try { localStorage.setItem(PACK_PRESETS_KEY, checks.map(c=>c.value).join(",")); } catch {}
 }
 
 function fmtMetric(v, suffix=""){
@@ -925,9 +928,9 @@ async function runPack(){
 
   const infile = document.getElementById('infile').value;
   const strength = document.getElementById('strength').value;
-  const packSel = document.getElementById('packPresets');
-  const chosenPresets = packSel ? [...packSel.selectedOptions].map(o=>o.value) : [];
-  if (packSel) {
+  const packBox = document.getElementById('packPresetsBox');
+  const chosenPresets = packBox ? [...packBox.querySelectorAll('input[type=checkbox]:checked')].map(c=>c.value) : [];
+  if (packBox) {
     try { localStorage.setItem(PACK_PRESETS_KEY, chosenPresets.join(",")); } catch {}
   }
 
