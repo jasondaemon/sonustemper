@@ -1120,9 +1120,20 @@ def master_pack(
     try:
         return subprocess.check_output(base_cmd, text=True, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as e:
-        # Fallback for environments with older master_pack.py lacking guardrails flag
         msg = e.output or ""
+        # Fallback for environments with older master_pack.py lacking guardrails flag
         if guardrails and "unrecognized arguments: --guardrails" in msg:
-            fallback_cmd = [c for c in base_cmd if c != "--guardrails"]
-            return subprocess.check_output(fallback_cmd, text=True, stderr=subprocess.STDOUT)
+            base_cmd = [c for c in base_cmd if c != "--guardrails"]
+            try:
+                return subprocess.check_output(base_cmd, text=True, stderr=subprocess.STDOUT)
+            except subprocess.CalledProcessError as e2:
+                msg = e2.output or msg
+        # Fallback to repo-local script via python in case /nfs/mastering/master_pack.py is outdated
+        repo_pack = Path(__file__).resolve().parent.parent / "mastering" / "master_pack.py"
+        if repo_pack.exists():
+            alt_cmd = ["python3", str(repo_pack)] + base_cmd[1:]  # drop original script path
+            try:
+                return subprocess.check_output(alt_cmd, text=True, stderr=subprocess.STDOUT)
+            except subprocess.CalledProcessError as e3:
+                msg = msg or e3.output
         raise HTTPException(status_code=500, detail=msg)
