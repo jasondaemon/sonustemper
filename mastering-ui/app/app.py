@@ -735,6 +735,7 @@ async function refreshAll() {
     // Populate presets
     presetSel.innerHTML = "";
     const packBox = document.getElementById("packPresetsBox");
+    if (packBox) packBox.innerHTML = "";
     const prevPack = new Set(((localStorage.getItem(PACK_PRESETS_KEY) || "")).split(",").filter(Boolean));
     (data.presets || []).forEach(pr => {
       const o = document.createElement("option");
