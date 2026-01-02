@@ -1,6 +1,8 @@
 import json
 import shutil
 import subprocess
+import shlex
+import re
 from pathlib import Path
 from datetime import datetime
 import os
@@ -61,6 +63,94 @@ def wrap_metrics(song: str, metrics: dict | None) -> dict | None:
         "input": None,
         "output": metrics,
     }
+
+# --- Metrics augmentation (fallback) ---
+
+def docker_ffmpeg(cmdline: str):
+    return subprocess.run(
+        ["docker","exec","-i","preset-master","bash","-lc", cmdline],
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False
+    )
+
+def docker_ffprobe_json(path: Path) -> dict:
+    r = docker_ffmpeg(
+        f"ffprobe -v quiet -print_format json -show_format -show_streams {shlex.quote(str(path))}"
+    )
+    if r.returncode != 0:
+        return {}
+    try:
+        return json.loads(r.stdout)
+    except Exception:
+        try:
+            return json.loads(r.stderr)
+        except Exception:
+            return {}
+
+def measure_loudness(path: Path) -> dict:
+    r = docker_ffmpeg(
+        f"ffmpeg -hide_banner -nostats -i {shlex.quote(str(path))} "
+        f"-filter_complex ebur128=peak=true -f null -"
+    )
+    txt = (r.stderr or "") + "\n" + (r.stdout or "")
+    flags = re.IGNORECASE
+    mI   = re.findall(r"\\bI:\\s*([\\-\\d\\.]+)\\s*LUFS\\b", txt, flags)
+    mLRA = re.findall(r"\\bLRA:\\s*([\\-\\d\\.]+)\\s*LU\\b", txt, flags)
+    mTPK = re.findall(r"\\bTPK:\\s*([\\-\\d\\.]+)\\s*dBFS\\b", txt, flags) or re.findall(r"\\bTPK:\\s*([\\-\\d\\.]+)\\b", txt, flags)
+    mPeak = re.findall(r"\\bPeak:\\s*([\\-\\d\\.]+)\\s*dBFS\\b", txt, flags)
+    I   = float(mI[-1]) if mI else None
+    LRA = float(mLRA[-1]) if mLRA else None
+    TP  = float((mTPK[-1] if mTPK else (mPeak[-1] if mPeak else None))) if (mTPK or mPeak) else None
+    return {"I": I, "LRA": LRA, "TP": TP}
+
+def basic_metrics(path: Path) -> dict:
+    info = docker_ffprobe_json(path)
+    duration = None
+    try:
+        duration = float(info.get("format", {}).get("duration"))
+    except Exception:
+        duration = None
+    loud = measure_loudness(path)
+    m = {
+        "I": loud.get("I"),
+        "TP": loud.get("TP"),
+        "LRA": loud.get("LRA"),
+        "short_term_max": None,
+        "crest_factor": None,
+        "stereo_corr": None,
+        "duration_sec": duration,
+    }
+    return m
+
+def find_input_file(song: str) -> Path | None:
+    candidates = sorted([p for p in IN_DIR.iterdir() if p.is_file() and p.stem == song])
+    return candidates[0] if candidates else None
+
+def fill_input_metrics(song: str, m: dict, folder: Path) -> dict:
+    if not m:
+        return m
+    if m.get("input") and m["input"].get("I") is not None:
+        return m
+    inp = find_input_file(song)
+    if not inp:
+        return m
+    try:
+        m["input"] = basic_metrics(inp)
+        out = m.get("output") or {}
+        deltas = {}
+        if isinstance(m["input"].get("I"), (int, float)) and isinstance(out.get("I"), (int, float)):
+            deltas["I"] = out["I"] - m["input"]["I"]
+        if isinstance(m["input"].get("TP"), (int, float)) and isinstance(out.get("TP"), (int, float)):
+            deltas["TP"] = out["TP"] - m["input"]["TP"]
+        if deltas:
+            m["deltas"] = deltas
+        # Persist back so future loads are fast
+        try:
+            (folder / "metrics.json").write_text(json.dumps(m, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+    except Exception:
+        pass
+    return m
 
 
 
@@ -927,6 +1017,7 @@ def run_metrics(song: str):
         m = wrap_metrics(song, read_first_wav_metrics(folder))
     if not m:
         raise HTTPException(status_code=404, detail="metrics_not_found")
+    m = fill_input_metrics(song, m, folder)
     return m
 
 @app.post("/api/upload")
