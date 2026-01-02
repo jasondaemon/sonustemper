@@ -942,7 +942,12 @@ async function runPack(){
 
   const r = await fetch('/api/master-pack', { method:'POST', body: fd });
   const t = await r.text();
-  setResult(t);
+  try {
+    const j = JSON.parse(t);
+    setResult(JSON.stringify(j, null, 2));
+  } catch {
+    setResult(t);
+  }
   await showOutputsFromText(t);
 
   // Auto-refresh lists/runs after job completes
@@ -1154,6 +1159,7 @@ def master_pack(
     width: float | None = Form(None),
     mono_bass: float | None = Form(None),
     guardrails: int = Form(0),
+    presets: str | None = Form(None),
 ):
     # Always prefer repo master_pack.py so we run the updated logic even if /nfs version is stale
     repo_pack = Path(__file__).resolve().parent.parent / "mastering" / "master_pack.py"
@@ -1164,6 +1170,8 @@ def master_pack(
         chosen = MASTER_PACK
         base_cmd = [str(MASTER_PACK)]
     base_cmd += ["--infile", infile, "--strength", str(strength)]
+    if presets:
+        base_cmd += ["--presets", presets]
     if lufs is not None:
         base_cmd += ["--lufs", str(lufs)]
     if tp is not None:
