@@ -402,9 +402,12 @@ select, input[type="text"], input[type="file"]{
           <select id="infile"></select>
         </div>
 
-        <div class="control-row">
-          <label>Preset</label>
-          <select id="preset"></select>
+        <div class="control-row" style="align-items:flex-start;">
+          <label style="min-width:140px;">Presets</label>
+          <div id="packPresetsBox" class="small" style="flex:1; display:flex; flex-wrap:wrap; gap:8px;"></div>
+          <div class="small" style="display:flex; flex-direction:column; gap:6px;">
+            <button class="btnGhost" type="button" onclick="selectAllPackPresets()">Select all</button>
+          </div>
         </div>
 
         <div class="control-row">
@@ -453,8 +456,7 @@ select, input[type="text"], input[type="file"]{
         </div>
 
         <div class="row" style="margin-top:12px;">
-          <button class="btn" onclick="runOne()">Master (single)</button>
-          <button class="btn2" onclick="runPack()">Run A/B Pack</button>
+          <button class="btn" id="runPackBtn" onclick="runPack()">Run Master</button>
         </div>
 
         <details style="margin-top:12px; margin-bottom:10px;">
@@ -717,11 +719,10 @@ async function refreshAll() {
     const data = await r.json();
 
     const infileSel = document.getElementById("infile");
-    const presetSel = document.getElementById("preset");
-    if (!infileSel || !presetSel) throw new Error("Missing #infile or #preset element");
+    const packBox = document.getElementById("packPresetsBox");
+    if (!infileSel) throw new Error("Missing #infile element");
 
     const prevIn = infileSel.value;
-    const prevPreset = presetSel.value;
 
     // Populate input files
     infileSel.innerHTML = "";
@@ -732,38 +733,32 @@ async function refreshAll() {
       infileSel.appendChild(o);
     });
 
-    // Populate presets
-    presetSel.innerHTML = "";
-    const packBox = document.getElementById("packPresetsBox");
-    if (packBox) packBox.innerHTML = "";
-    const prevPack = new Set(((localStorage.getItem(PACK_PRESETS_KEY) || "")).split(",").filter(Boolean));
-    (data.presets || []).forEach(pr => {
-      const o = document.createElement("option");
-      o.value = pr;
-      o.textContent = pr;
-      presetSel.appendChild(o);
-      if (packBox) {
-        const id = `pack-${pr}`;
+    // Populate presets as checkboxes
+    if (packBox) {
+      packBox.innerHTML = "";
+      const prevPack = new Set(((localStorage.getItem(PACK_PRESETS_KEY) || "")).split(",").filter(Boolean));
+      const presets = data.presets || [];
+      const havePrev = presets.some(p => prevPack.has(p));
+      presets.forEach((pr, idx) => {
         const wrap = document.createElement('label');
         wrap.style = "display:flex; align-items:center; gap:6px; padding:4px 8px; border:1px solid var(--line); border-radius:10px;";
-        wrap.innerHTML = `<input type="checkbox" id="${id}" value="${pr}" ${prevPack.size ? (prevPack.has(pr) ? 'checked' : '') : 'checked'}> ${pr}`;
+        const checked = havePrev ? prevPack.has(pr) : (idx === 0);
+        wrap.innerHTML = `<input type="checkbox" value="${pr}" ${checked ? 'checked' : ''}> ${pr}`;
+        const input = wrap.querySelector('input');
+        input.addEventListener('change', () => {
+          try { localStorage.setItem(PACK_PRESETS_KEY, getSelectedPresets().join(",")); } catch {}
+          updatePackButtonState();
+        });
         packBox.appendChild(wrap);
+      });
+      if (!havePrev && presets.length) {
+        try { localStorage.setItem(PACK_PRESETS_KEY, presets[0]); } catch {}
       }
-    });
-    if (packBox) {
-      const checks = [...packBox.querySelectorAll('input[type=checkbox]')];
-      const havePrev = checks.some(c => prevPack.has(c.value));
-      checks.forEach(c => { c.checked = havePrev ? prevPack.has(c.value) : true; });
-      if (!havePrev) {
-        try { localStorage.setItem(PACK_PRESETS_KEY, checks.map(c=>c.value).join(",")); } catch {}
-      } else {
-        try { localStorage.setItem(PACK_PRESETS_KEY, checks.filter(c=>c.checked).map(c=>c.value).join(",")); } catch {}
-      }
+      updatePackButtonState();
     }
 
     // restore selection if possible
     if (prevIn && [...infileSel.options].some(o => o.value === prevIn)) infileSel.value = prevIn;
-    if (prevPreset && [...presetSel.options].some(o => o.value === prevPreset)) presetSel.value = prevPreset;
 
     setStatus("");
   } catch (e) {
@@ -783,6 +778,16 @@ function selectAllPackPresets(){
   const checks = [...box.querySelectorAll('input[type=checkbox]')];
   checks.forEach(c => { c.checked = true; });
   try { localStorage.setItem(PACK_PRESETS_KEY, checks.map(c=>c.value).join(",")); } catch {}
+}
+function getSelectedPresets(){
+  const box = document.getElementById('packPresetsBox');
+  if (!box) return [];
+  return [...box.querySelectorAll('input[type=checkbox]:checked')].map(c=>c.value);
+}
+function updatePackButtonState(){
+  const btn = document.getElementById('runPackBtn');
+  if (!btn) return;
+  btn.disabled = getSelectedPresets().length === 0;
 }
 
 function fmtMetric(v, suffix=""){
