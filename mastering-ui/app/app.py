@@ -4,6 +4,7 @@ import subprocess
 import shlex
 import re
 import threading
+import sys
 from pathlib import Path
 from datetime import datetime
 import os
@@ -532,6 +533,10 @@ input[type="range"]{
 @media (max-width: 768px){
   .info-drawer{ width:100%; height:65vh; top:auto; bottom:0; border-left:0; border-top:1px solid var(--line); transform: translateY(100%); }
 }
+.info-drawer.open{ transform: translateX(0); }
+@media (max-width: 768px){
+  .info-drawer.open{ transform: translateY(0); }
+}
 .drawer-header{ display:flex; justify-content:space-between; align-items:center; gap:10px; }
 .drawer-header h2{ margin:0; font-size:16px; color:#e7eef6; }
 .drawer-subtitle{ color:var(--muted); font-size:12px; }
@@ -1001,7 +1006,8 @@ function initInfoDrawer(){
   let lastFocus = null;
 
   const closeDrawer = () => {
-    drawer.classList.add('hidden');
+    drawer.classList.remove('open');
+    setTimeout(() => drawer.classList.add('hidden'), 150);
     backdrop.classList.add('hidden');
     if (lastFocus) {
       try { lastFocus.focus(); } catch(_){}
@@ -1014,6 +1020,7 @@ function initInfoDrawer(){
     subEl.textContent = subtitle || '';
     bodyEl.innerHTML = bodyHTML || '';
     drawer.classList.remove('hidden');
+    setTimeout(() => drawer.classList.add('open'), 10);
     backdrop.classList.remove('hidden');
     drawer.focus();
   };
@@ -1396,7 +1403,11 @@ window.LOUDNESS_PROFILES = {{ loudness_profiles_json }};
 
 @app.get("/", response_class=HTMLResponse)
 def index():
-    return HTML_TEMPLATE.replace("{{BUILD_STAMP}}", BUILD_STAMP)
+    html = HTML_TEMPLATE
+    html = html.replace("{{BUILD_STAMP}}", BUILD_STAMP)
+    html = html.replace("{{ preset_meta_json }}", json.dumps(PRESET_META))
+    html = html.replace("{{ loudness_profiles_json }}", json.dumps(LOUDNESS_PROFILES))
+    return HTMLResponse(html)
 
 @app.get("/api/files")
 def list_files():
