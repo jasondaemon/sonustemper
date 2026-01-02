@@ -242,6 +242,18 @@ def main():
         "input": basic_metrics(infile),
         "output": basic_metrics(wav_out),
     }
+    try:
+        i = run_metrics.get("input") or {}
+        o = run_metrics.get("output") or {}
+        deltas = {}
+        if isinstance(i.get("I"), (int, float)) and isinstance(o.get("I"), (int, float)):
+            deltas["I"] = o["I"] - i["I"]
+        if isinstance(i.get("TP"), (int, float)) and isinstance(o.get("TP"), (int, float)):
+            deltas["TP"] = o["TP"] - i["TP"]
+        if deltas:
+            run_metrics["deltas"] = deltas
+    except Exception:
+        pass
     (song_dir / "metrics.json").write_text(json.dumps(run_metrics, indent=2), encoding="utf-8")
 
     write_playlist_html(song_dir, infile.stem)

@@ -652,9 +652,12 @@ function renderMetricsTable(m){
   if (!m || typeof m !== 'object') return '<span style="opacity:.7;">(metrics unavailable)</span>';
   const output = m.output || m; // accept flat metrics as output-only
   const input = m.input || {};
+  const deltas = m.deltas || {};
   const rows = [
     ["Integrated LUFS", fmtMetric(input?.I, " LUFS"), fmtMetric(output?.I, " LUFS")],
+    ["Δ LUFS (out-in)", "", fmtMetric(typeof deltas?.I === 'number' ? deltas.I : null, " LUFS")],
     ["True/Peak", fmtMetric(input?.TP, " dB"), fmtMetric(output?.TP, " dB")],
+    ["Δ TP (out-in)", "", fmtMetric(typeof deltas?.TP === 'number' ? deltas.TP : null, " dB")],
     ["Short-term max", fmtMetric(input?.short_term_max, " LUFS"), fmtMetric(output?.short_term_max, " LUFS")],
     ["Crest factor", fmtMetric(input?.crest_factor, " dB"), fmtMetric(output?.crest_factor, " dB")],
     ["Stereo corr", fmtMetric(input?.stereo_corr), fmtMetric(output?.stereo_corr)],
