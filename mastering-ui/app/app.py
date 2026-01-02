@@ -201,8 +201,8 @@ PRESET_META = {
             "Stereo kept natural; avoids over-widening; bass stability prioritized."
         ],
         "bestFor": ["singer-songwriter", "folk", "acoustic pop", "live room recordings"],
-        "watchOut": ["If the mix is already bright, top lift can accentuate pick/cymbal edge."],
-        "stacking": {"role": "Base", "combinesWellWith": ["warm", "clean"], "avoidWith": ["loud"]}
+        "watchOut": ["If the mix is already bright, extra air can accentuate pick/cymbal edge."],
+        "abNotes": ["Listen for: vocal realism, room tone, and transient snap without harshness."]
     },
     "blues_country": {
         "title": "Blues / Country",
@@ -215,7 +215,7 @@ PRESET_META = {
         ],
         "bestFor": ["blues rock", "country", "americana", "roots"],
         "watchOut": ["Too much glue can soften snare crack if the mix is already compressed."],
-        "stacking": {"role": "Base", "combinesWellWith": ["warm", "clean"], "avoidWith": ["loud"]}
+        "abNotes": ["Listen for: vocal/guitar forwardness and groove ‘bounce’ staying intact."]
     },
     "clean": {
         "title": "Clean",
@@ -228,7 +228,7 @@ PRESET_META = {
         ],
         "bestFor": ["already-great mixes", "pop", "modern worship", "anything needing transparency"],
         "watchOut": ["May feel ‘too polite’ on aggressive genres unless paired with a character preset."],
-        "stacking": {"role": "Base / Utility", "combinesWellWith": ["warm", "loud", "modern"], "avoidWith": []}
+        "abNotes": ["Use as a reference: compare others against Clean to hear coloration choices."]
     },
     "foe_acoustic": {
         "title": "FOE – Acoustic",
@@ -241,7 +241,7 @@ PRESET_META = {
         ],
         "bestFor": ["FOE acoustic releases", "hybrid acoustic-rock ballads"],
         "watchOut": ["If the mix has edgy sibilance, presence shaping can expose it—de-ess in mix first."],
-        "stacking": {"role": "Base (project-voiced)", "combinesWellWith": ["clean", "warm"], "avoidWith": ["loud"]}
+        "abNotes": ["Listen for: FOE-style vocal clarity and cinematic lift without sounding hyped."]
     },
     "foe_metal": {
         "title": "FOE – Metal",
@@ -255,19 +255,19 @@ PRESET_META = {
         ],
         "bestFor": ["FOE metalcore/industrial", "dense guitars", "big drums"],
         "watchOut": ["Can exaggerate harsh cymbals/upper-mids if mix is already hot—tame in mix."],
-        "stacking": {"role": "Base (project-voiced)", "combinesWellWith": ["clean"], "avoidWith": ["warm", "acoustic"]}
+        "abNotes": ["Listen for: guitar articulation + drum punch staying intact at higher density."]
     },
     "loud": {
         "title": "Loud",
-        "intent": "Level-first finishing pass to compete in perceived loudness while staying within true-peak safety.",
+        "intent": "Level-forward master for a denser, hotter option while still respecting true-peak safety.",
         "dsp": [
             "More assertive limiting with careful release to avoid pumping.",
             "Optional mild clipping/soft saturation for density (keep subtle).",
             "Maintains target true-peak ceiling; prioritizes punch over raw LUFS."
         ],
-        "bestFor": ["clients requesting ‘hotter’ masters", "rock/metal/pop when mix can handle it"],
+        "bestFor": ["when you want a ‘hotter’ option", "rock/metal/pop if the mix can handle it"],
         "watchOut": ["Will reduce dynamic range; can flatten transients on already-limited mixes."],
-        "stacking": {"role": "Finisher", "combinesWellWith": ["clean", "modern", "rock"], "avoidWith": ["acoustic"]}
+        "abNotes": ["Compare against Clean/Modern: does it feel louder without getting smaller?"]
     },
     "modern": {
         "title": "Modern",
@@ -279,12 +279,12 @@ PRESET_META = {
             "Limiter tuned for clean loudness, not grit."
         ],
         "bestFor": ["modern pop/rock", "EDM-adjacent mixes", "modern worship"],
-        "watchOut": ["Can feel clinical if the mix wanted vintage warmth—pair with Warm if needed."],
-        "stacking": {"role": "Base", "combinesWellWith": ["clean", "loud"], "avoidWith": ["blues_country"]}
+        "watchOut": ["Can feel clinical if you wanted vintage warmth—compare with Warm/Blues-Country."],
+        "abNotes": ["Listen for: tight low end + clean top without harshness or thinness."]
     },
     "rock": {
         "title": "Rock",
-        "intent": "Punch-forward rock master with snare impact, controlled lows, and energetic mids.",
+        "intent": "Punch-forward rock option with snare impact, controlled lows, and energetic mids.",
         "dsp": [
             "Low-end tightening + midrange energy to keep guitars/vocals forward.",
             "Bus compression with medium timing to enhance punch + cohesion.",
@@ -292,21 +292,21 @@ PRESET_META = {
             "Stereo kept solid; avoids extreme width."
         ],
         "bestFor": ["alt rock", "hard rock", "classic-leaning modern rock"],
-        "watchOut": ["If mix is mid-heavy, may need less mid push; avoid stacking with Warm too strongly."],
-        "stacking": {"role": "Base", "combinesWellWith": ["loud", "clean"], "avoidWith": ["acoustic"]}
+        "watchOut": ["If the mix is mid-heavy, may need less mid push; avoid stacking with Warm too strongly."],
+        "abNotes": ["Listen for: snare ‘crack’, vocal presence, and guitar bite without fatigue."]
     },
     "warm": {
         "title": "Warm",
-        "intent": "Adds thickness and smoothness: reduces brittleness, rounds edges, and enhances body.",
+        "intent": "Thicker, smoother option: rounds edges, reduces brittleness, and enhances body.",
         "dsp": [
-            "Gentle high-shelf restraint / smoothing (tames brittle top).",
+            "Gentle top smoothing (tames brittle highs).",
             "Low-mid/body enhancement (broad strokes; careful).",
             "Soft saturation for warmth and perceived loudness without harshness.",
             "Dynamics tuned to feel relaxed, not aggressively pinned."
         ],
         "bestFor": ["bright mixes", "thin sources", "vintage-leaning material", "acoustic that needs body"],
         "watchOut": ["Can get muddy if the mix already has low-mid buildup—watch 200–400 Hz."],
-        "stacking": {"role": "Flavor", "combinesWellWith": ["clean", "acoustic", "blues_country"], "avoidWith": ["foe_metal", "loud"]}
+        "abNotes": ["Compare with Modern/Clean: does it add body without losing clarity?"]
     }
 }
 
@@ -1035,11 +1035,11 @@ function initInfoDrawer(){
     return `<div class="chips">${items.map(i=>`<span class="chip">${i}</span>`).join('')}</div>`;
   };
 
-  const renderPresetDrawer = (id) => {
-    const m = (window.PRESET_META || {})[id];
-    if (!m) return;
-    const stacking = m.stacking || {};
-    const body = `
+    const renderPresetDrawer = (id) => {
+      const m = (window.PRESET_META || {})[id];
+      if (!m) return;
+      const body = `
+      <div class="small" style="margin-bottom:8px;">Each preset produces its own mastered version for A/B comparison.</div>
       <div class="drawer-section">
         <h3>Intent</h3>
         <div class="small">${m.intent || ''}</div>
@@ -1056,17 +1056,10 @@ function initInfoDrawer(){
         <h3>Watch Out</h3>
         ${renderList(m.watchOut || [])}
       </div>
-      <div class="drawer-section">
-        <h3>Stacking</h3>
-        <div class="small">Role: ${stacking.role || '—'}</div>
-        <div class="small" style="margin-top:6px;">Combines well with:</div>
-        ${renderChips(stacking.combinesWellWith || [])}
-        <div class="small" style="margin-top:6px;">Avoid with:</div>
-        ${renderChips(stacking.avoidWith || [])}
-      </div>
+      ${m.abNotes ? `<div class="drawer-section"><h3>What to listen for</h3>${renderList(m.abNotes)}</div>` : ''}
     `;
-    openDrawer(m.title || id, stacking.role || '', body, document.querySelector(`.info-btn[data-id="${id}"]`));
-  };
+    openDrawer(m.title || id, '', body, document.querySelector(`.info-btn[data-id="${id}"]`));
+    };
 
   const renderLoudnessDrawer = () => {
     const profiles = window.LOUDNESS_PROFILES || {};
