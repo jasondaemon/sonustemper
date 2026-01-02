@@ -1138,4 +1138,5 @@ def master_pack(
                 return subprocess.check_output(base_cmd, text=True, stderr=subprocess.STDOUT)
             except subprocess.CalledProcessError as e2:
                 msg = e2.output or str(e2) or msg
-        raise HTTPException(status_code=500, detail=msg or "pack_failed")
+        detail = {"error": msg or "pack_failed", "cmd": " ".join(base_cmd), "script": str(chosen)}
+        raise HTTPException(status_code=500, detail=detail)
