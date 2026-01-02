@@ -944,7 +944,14 @@ async function runPack(){
   const t = await r.text();
   try {
     const j = JSON.parse(t);
-    setResult(JSON.stringify(j, null, 2));
+    if (j && typeof j === 'object') {
+      const parts = [];
+      if (j.message) parts.push(String(j.message));
+      if (j.script) parts.push(`script: ${j.script}`);
+      setResult(parts.join('\n') || t);
+    } else {
+      setResult(t);
+    }
   } catch {
     setResult(t);
   }
