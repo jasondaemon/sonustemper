@@ -153,6 +153,7 @@ def main():
     ap.add_argument("--lufs", type=float, default=None)
     ap.add_argument("--tp", type=float, default=None)
     ap.add_argument("--width", type=float, default=None, help="Stereo width multiplier (extrastereo). 1.0 = unchanged")
+    ap.add_argument("--mono_bass", type=float, default=None, help="(unused in pack) accepted for compatibility")
     ap.add_argument("--guardrails", action="store_true", help="Enable width guardrails")
     ap.add_argument("--guard_max_width", type=float, default=1.1, help="Maximum width when guardrails engaged")
     args = ap.parse_args()
