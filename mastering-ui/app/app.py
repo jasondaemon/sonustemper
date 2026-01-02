@@ -91,12 +91,14 @@ def measure_loudness(path: Path) -> dict:
         f"ffmpeg -hide_banner -nostats -i {shlex.quote(str(path))} "
         f"-filter_complex ebur128=peak=true -f null -"
     )
+    if r.returncode != 0:
+        return {}
     txt = (r.stderr or "") + "\n" + (r.stdout or "")
     flags = re.IGNORECASE
-    mI   = re.findall(r"\\bI:\\s*([\\-\\d\\.]+)\\s*LUFS\\b", txt, flags)
-    mLRA = re.findall(r"\\bLRA:\\s*([\\-\\d\\.]+)\\s*LU\\b", txt, flags)
-    mTPK = re.findall(r"\\bTPK:\\s*([\\-\\d\\.]+)\\s*dBFS\\b", txt, flags) or re.findall(r"\\bTPK:\\s*([\\-\\d\\.]+)\\b", txt, flags)
-    mPeak = re.findall(r"\\bPeak:\\s*([\\-\\d\\.]+)\\s*dBFS\\b", txt, flags)
+    mI   = re.findall(r"\bI:\s*([\-0-9\.]+)\s*LUFS\b", txt, flags)
+    mLRA = re.findall(r"\bLRA:\s*([\-0-9\.]+)\s*LU\b", txt, flags)
+    mTPK = re.findall(r"\bTPK:\s*([\-0-9\.]+)\s*dBFS\b", txt, flags) or re.findall(r"\bTPK:\s*([\-0-9\.]+)\b", txt, flags)
+    mPeak = re.findall(r"\bPeak:\s*([\-0-9\.]+)\s*dBFS\b", txt, flags)
     I   = float(mI[-1]) if mI else None
     LRA = float(mLRA[-1]) if mLRA else None
     TP  = float((mTPK[-1] if mTPK else (mPeak[-1] if mPeak else None))) if (mTPK or mPeak) else None
