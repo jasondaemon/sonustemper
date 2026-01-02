@@ -289,6 +289,12 @@ select, input[type="text"], input[type="file"]{
 
         <div class="hr"></div>
 
+        <div class="control-row">
+          <label>Loudness Mode</label>
+          <select id="loudnessMode"></select>
+        </div>
+        <div class="small" id="loudnessHint" style="margin-top:-6px; margin-bottom:6px; color:var(--muted);"></div>
+
         <div id="overrides">
           <div class="control-row">
             <label><input type="checkbox" id="useLufs"> Override Target LUFS</label>
@@ -335,6 +341,110 @@ select, input[type="text"], input[type="file"]{
 function setStatus(msg) {
   const el = document.getElementById('statusMsg');
   if (el) el.textContent = msg;
+}
+
+const LOUDNESS_MODES = {
+  apple: { label: "Apple Music", lufs: -16.0, tp: -1.0, hint: "Target -16 LUFS / -1.0 dBTP" },
+  streaming: { label: "Streaming Safe", lufs: -14.0, tp: -1.0, hint: "Target -14 LUFS / -1.0 dBTP" },
+  loud: { label: "Loud", lufs: -9.0, tp: -0.8, hint: "Target -9 LUFS / -0.8 dBTP" },
+  manual: { label: "Manual", hint: "Use LUFS/TP sliders (optional)" },
+};
+const LOUDNESS_MODE_KEY = "loudnessMode";
+const LOUDNESS_MANUAL_KEY = "loudnessManualValues";
+const LOUDNESS_ORDER = ["apple", "streaming", "loud", "manual"];
+
+function setLoudnessHint(text){
+  const el = document.getElementById('loudnessHint');
+  if (el) el.textContent = text || '';
+}
+
+function setSliderValue(id, value){
+  const el = document.getElementById(id);
+  if (!el || value === undefined || value === null) return;
+  el.value = value;
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+function loadManualLoudness(){
+  try {
+    const raw = localStorage.getItem(LOUDNESS_MANUAL_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+function saveManualLoudness(){
+  const mode = getCurrentLoudnessMode();
+  if (mode !== 'manual') return;
+  const payload = {
+    lufs: document.getElementById('lufs')?.value,
+    tp: document.getElementById('tp')?.value,
+    useLufs: document.getElementById('useLufs')?.checked,
+    useTp: document.getElementById('useTp')?.checked,
+  };
+  try { localStorage.setItem(LOUDNESS_MANUAL_KEY, JSON.stringify(payload)); } catch {}
+}
+
+function getCurrentLoudnessMode(){
+  const sel = document.getElementById('loudnessMode');
+  if (sel && sel.value) return sel.value;
+  const stored = localStorage.getItem(LOUDNESS_MODE_KEY);
+  if (stored && LOUDNESS_MODES[stored]) return stored;
+  return "apple";
+}
+
+function applyLoudnessMode(modeKey, { fromInit=false } = {}){
+  const cfg = LOUDNESS_MODES[modeKey] || LOUDNESS_MODES.apple;
+  const sel = document.getElementById('loudnessMode');
+  if (sel && sel.value !== modeKey) sel.value = modeKey;
+  try { localStorage.setItem(LOUDNESS_MODE_KEY, modeKey); } catch {}
+
+  const lock = modeKey !== 'manual';
+  const lufsInput = document.getElementById('lufs');
+  const tpInput = document.getElementById('tp');
+  const useLufs = document.getElementById('useLufs');
+  const useTp = document.getElementById('useTp');
+
+  if (lock) {
+    if (lufsInput) { lufsInput.disabled = true; setSliderValue('lufs', cfg.lufs); }
+    if (tpInput) { tpInput.disabled = true; setSliderValue('tp', cfg.tp); }
+    if (useLufs) { useLufs.checked = true; useLufs.disabled = true; }
+    if (useTp) { useTp.checked = true; useTp.disabled = true; }
+  } else {
+    if (lufsInput) lufsInput.disabled = false;
+    if (tpInput) tpInput.disabled = false;
+    if (useLufs) useLufs.disabled = false;
+    if (useTp) useTp.disabled = false;
+
+    const manual = loadManualLoudness();
+    if (manual) {
+      if (manual.lufs !== undefined && manual.lufs !== null) setSliderValue('lufs', manual.lufs);
+      if (manual.tp !== undefined && manual.tp !== null) setSliderValue('tp', manual.tp);
+      if (useLufs && typeof manual.useLufs === 'boolean') useLufs.checked = manual.useLufs;
+      if (useTp && typeof manual.useTp === 'boolean') useTp.checked = manual.useTp;
+    }
+  }
+
+  setLoudnessHint(cfg.hint || "");
+}
+
+function initLoudnessMode(){
+  const sel = document.getElementById('loudnessMode');
+  if (!sel) return;
+  sel.innerHTML = '';
+  LOUDNESS_ORDER.forEach(key => {
+    const cfg = LOUDNESS_MODES[key];
+    if (!cfg) return;
+    const o = document.createElement('option');
+    o.value = key;
+    o.textContent = cfg.label;
+    sel.appendChild(o);
+  });
+
+  const initial = getCurrentLoudnessMode();
+  sel.value = LOUDNESS_MODES[initial] ? initial : "apple";
+  sel.addEventListener('change', () => applyLoudnessMode(sel.value));
+  applyLoudnessMode(sel.value, { fromInit: true });
 }
 
 async function refreshRecent() {
@@ -426,6 +536,18 @@ function wireUI() {
   bind('ov_mono_bass', 'mono_bass', 'monoBassVal', (v)=>String(parseInt(v,10)));
 
   // If your IDs are different, this will silently no-op rather than crash.
+
+  const trackManual = () => saveManualLoudness();
+  const lufsInput = document.getElementById('lufs');
+  const tpInput = document.getElementById('tp');
+  const useLufs = document.getElementById('useLufs');
+  const useTp = document.getElementById('useTp');
+  [lufsInput, tpInput, useLufs, useTp].forEach(el => {
+    if (el) {
+      el.addEventListener('input', trackManual);
+      el.addEventListener('change', trackManual);
+    }
+  });
 }
 
 async function refreshAll() {
@@ -607,6 +729,7 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
 document.addEventListener('DOMContentLoaded', () => {
   try {
     wireUI();
+    initLoudnessMode();
     refreshAll();
   } catch(e){
     console.error(e);
