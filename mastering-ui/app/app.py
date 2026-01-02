@@ -1097,6 +1097,7 @@ def master_pack(
     tp: float | None = Form(None),
     width: float | None = Form(None),
     mono_bass: float | None = Form(None),
+    guardrails: int = Form(0),
 ):
     cmd = [str(MASTER_PACK), "--infile", infile, "--strength", str(strength)]
     if lufs is not None:
@@ -1107,6 +1108,8 @@ def master_pack(
         cmd += ["--width", str(width)]
     if mono_bass is not None:
         cmd += ["--mono_bass", str(mono_bass)]
+    if guardrails:
+        cmd += ["--guardrails"]
     try:
         return subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as e:

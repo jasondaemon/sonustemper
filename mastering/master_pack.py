@@ -153,6 +153,8 @@ def main():
     ap.add_argument("--lufs", type=float, default=None)
     ap.add_argument("--tp", type=float, default=None)
     ap.add_argument("--width", type=float, default=None, help="Stereo width multiplier (extrastereo). 1.0 = unchanged")
+    ap.add_argument("--guardrails", action="store_true", help="Enable width guardrails")
+    ap.add_argument("--guard_max_width", type=float, default=1.1, help="Maximum width when guardrails engaged")
     args = ap.parse_args()
 
     strength = clamp(args.strength, 0, 100) / 100.0
@@ -178,12 +180,22 @@ def main():
         with open(preset_path, "r") as f:
             preset = json.load(f)
 
-        af = build_filters(preset, strength, args.lufs, args.tp, width)
+        target_lufs = float(args.lufs) if args.lufs is not None else float(preset.get("lufs", -14))
+        lim = preset.get("limiter", {}) or {}
+        ceiling_db = float(args.tp) if args.tp is not None else float(lim.get("ceiling", -1.0))
+        width_req = float(args.width) if args.width is not None else float(preset.get("width", 1.0))
+        width_applied = width_req
+        if args.guardrails:
+            guard_max = float(args.guard_max_width or 1.1)
+            if width_applied > guard_max:
+                width_applied = guard_max
+
+        af = build_filters(preset, strength, args.lufs, args.tp, width_applied)
         wav_out = song_dir / f"{infile.stem}__{p}_S{int(strength*100)}.wav"
 
         run_ffmpeg_wav(infile, wav_out, af)
         make_mp3(wav_out, wav_out.with_suffix(".mp3"))
-        write_metrics(wav_out, target_lufs, ceiling_db, width)
+        write_metrics(wav_out, target_lufs, ceiling_db, width_applied)
 
         outputs.append(str(wav_out))
 
