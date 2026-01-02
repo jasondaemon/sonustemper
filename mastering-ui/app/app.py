@@ -281,41 +281,30 @@ select, input[type="text"], input[type="file"]{
 
         <div class="hr"></div>
 
-        <div class="row">
-          <div class="toggle">
-            <input type="checkbox" id="useLufs" />
-            
-<div class="control-row">
-  <div id="overrides">
-<label><input type="checkbox" id="useLufs"> Override Target LUFS</label>
-  <input type="range" id="lufs" min="-20" max="-8" step="0.5" value="-14">
-  <span class="pill" id="lufs_val">-14 LUFS</span>
-</div>
+        <div id="overrides">
+          <div class="control-row">
+            <label><input type="checkbox" id="useLufs"> Override Target LUFS</label>
+            <input type="range" id="lufs" min="-20" max="-8" step="0.5" value="-14">
+            <span class="pill" id="lufsVal">-14.0 LUFS</span>
+          </div>
 
-<div class="control-row">
-  <label><input type="checkbox" id="useTp"> Override True Peak (TP)</label>
-  <input type="range" id="tp" min="-3.0" max="0.0" step="0.1" value="-1.0">
-  <span class="pill" id="tp_val">-1.0 dBTP</span>
-</div>
+          <div class="control-row">
+            <label><input type="checkbox" id="useTp"> Override True Peak (TP)</label>
+            <input type="range" id="tp" min="-3.0" max="0.0" step="0.1" value="-1.0">
+            <span class="pill" id="tpVal">-1.0 dBTP</span>
+          </div>
 
-<div class="control-row">
-  <label><input type="checkbox" id="ov_width"> Override Stereo Width</label>
-  <input type="range" id="width" min="0.90" max="1.40" step="0.01" value="1.12">
-  <span class="pill" id="width_val">1.12</span>
-</div>
+          <div class="control-row">
+            <label><input type="checkbox" id="ov_width"> Override Stereo Width</label>
+            <input type="range" id="width" min="0.90" max="1.40" step="0.01" value="1.12">
+            <span class="pill" id="widthVal">1.12</span>
+          </div>
 
-<div class="control-row">
-  <label><input type="checkbox" id="ov_mono_bass"> Mono Bass Below (Hz)</label>
-  <input type="range" id="mono_bass" min="60" max="200" step="5" value="120">
-  <span class="pill" id="mono_bass_val">120</span>
-</div>
-</div>
-
-</div>
-
-          <input type="range" id="tp" min="-3" max="-0.1" step="0.1" value="-1.0"
-                 oninput="tpVal.textContent=this.value">
-          <span class="pill"><span id="tpVal">-1.0</span> dBTP</span>
+          <div class="control-row">
+            <label><input type="checkbox" id="ov_mono_bass"> Mono Bass Below (Hz)</label>
+            <input type="range" id="mono_bass" min="60" max="200" step="5" value="120">
+            <span class="pill" id="monoBassVal">120</span>
+          </div>
         </div>
 
         <div class="row" style="margin-top:12px;">
@@ -336,32 +325,16 @@ select, input[type="text"], input[type="file"]{
 
 <script>
 function setStatus(msg) {
-
-  const el = document.getElementById("statusMsg");
-
+  const el = document.getElementById('statusMsg');
   if (el) el.textContent = msg;
-
 }
-
-
-
-document.addEventListener("DOMContentLoaded", () => {
-
-  // populate dropdowns immediately on load
-
-  refreshAll();
-
-});
-
-
-
 
 async function refreshRecent() {
   const el = document.getElementById('recent');
   if (!el) return;
 
   try {
-    const r = await fetch('/api/runs');
+    const r = await fetch('/api/recent?limit=30', { cache: 'no-store' });
     const data = await r.json();
 
     el.innerHTML = '';
@@ -373,54 +346,34 @@ async function refreshRecent() {
     }
 
     for (const it of items) {
-      const row = document.createElement('div');
-      row.className = 'runRow';
-      row.style = 'display:flex; gap:10px; align-items:center; justify-content:space-between; padding:10px; border:1px solid rgba(255,255,255,.06); border-radius:12px; margin-bottom:10px;';
-
-      const left = document.createElement('div');
-      left.style = 'min-width:0;';
-      left.innerHTML = `
-        <div style="font-weight:600; margin-bottom:6px;">${it.name || it.song}</div>
-        ${it.wav ? `<audio controls preload="none" style="width:320px; max-width:100%;" src="${it.wav}"></audio>` : ``}
-        <div style="margin-top:6px; font-size:12px; opacity:.75;">${it.metrics || ''}</div>
+      const div = document.createElement('div');
+      div.className = 'outitem';
+      div.innerHTML = `
+        <div class="runRow">
+          <div class="runLeft">
+            <div class="mono"><a class="linkish" href="#" onclick="loadSong('${it.song}'); return false;">${it.song || it.name}</a></div>
+            <div class="small">
+              ${it.folder ? `<a class="linkish" href="${it.folder}" target="_blank">folder</a>` : ''}
+              ${it.ab ? `&nbsp;|&nbsp;<a class="linkish" href="${it.ab}" target="_blank">A/B page</a>` : ''}
+            </div>
+          </div>
+          <div class="runBtns">
+            <button class="btnGhost" onclick="loadSong('${it.song}')">Load</button>
+            <button class="btnDanger" onclick="deleteSong('${it.song}')">Delete</button>
+          </div>
+        </div>
+        ${it.mp3 ? `<audio controls preload="none" src="${it.mp3}"></audio>` : `<div class="small">No previews yet</div>`}
       `;
+      el.appendChild(div);
+    }
 
-      const right = document.createElement('div');
-      right.style = 'display:flex; gap:8px; flex-shrink:0;';
-      right.innerHTML = `
-        ${it.ab ? `<a class="btnGhost" target="_blank" href="${it.ab}">A/B page</a>` : ``}
-        ${it.mp3 ? `<a class="btnGhost" target="_blank" href="${it.mp3}">MP3</a>` : ``}
-        ${it.wav ? `<a class="btnGhost" target="_blank" href="${it.wav}">WAV</a>` : ``}
-        <button class="btnDanger" onclick="deleteRun('${(it.song||'').replace(/'/g, "\\'")}')">Delete</button>
-      `;
-
-      row.appendChild(left);
-      row.appendChild(right);
-      el.appendChild(row);
+    const last = localStorage.getItem("lastSong");
+    if (last && items.find(x => x.song === last)) {
+      // Optional auto-restore could be added here if desired.
     }
   } catch (e) {
     console.error('refreshRecent failed', e);
   }
-}
-
-async function deleteRun(song) {
-  if (!song) return;
-  if (!confirm(`Delete output folder for "${song}"?`)) return;
-  try {
-    const r = await fetch('/api/runs/' + encodeURIComponent(song), { method: 'DELETE' });
-    const t = await r.text();
-    console.log(t);
-  } catch (e) {
-    console.error(e);
-  }
-  try { await refreshAll(); } catch(e) {}
-}
-
-
-
-function setStatus(msg) {
-  const el = document.getElementById('statusMsg');
-  if (el) el.textContent = msg;
 }
 
 function wireUI() {
@@ -465,11 +418,6 @@ function wireUI() {
 
   // If your IDs are different, this will silently no-op rather than crash.
 }
-
-window.addEventListener('DOMContentLoaded', () => {
-  try { wireUI(); } catch(e) { console.error(e); setStatus("UI init error (open console)"); }
-});
-
 
 async function refreshAll() {
   try {
@@ -519,11 +467,16 @@ function setResult(text){ document.getElementById('result').textContent = text |
 function setLinks(html){ document.getElementById('links').innerHTML = html || ''; }
 function clearOutList(){ document.getElementById('outlist').innerHTML = ''; }
 
-function appendLufsTp(fd){
-  const useLufs = document.getElementById('useLufs').checked;
-  const useTp = document.getElementById('useTp').checked;
-  if (useLufs) fd.append('lufs', document.getElementById('lufs').value);
-  if (useTp) fd.append('tp', document.getElementById('tp').value);
+function appendOverrides(fd){
+  const addIfChecked = (chkId, inputId, key) => {
+    const chk = document.getElementById(chkId);
+    const input = document.getElementById(inputId);
+    if (chk && input && chk.checked) fd.append(key, input.value);
+  };
+  addIfChecked('useLufs', 'lufs', 'lufs');
+  addIfChecked('useTp', 'tp', 'tp');
+  addIfChecked('ov_width', 'width', 'width');
+  addIfChecked('ov_mono_bass', 'mono_bass', 'mono_bass');
 }
 
 async function loadSong(song){
@@ -566,7 +519,7 @@ async function showOutputsFromText(text){
   const song = m[1];
 
   await loadSong(song);
-  await loadRecent();
+  await refreshRecent();
 }
 
 async function runOne(){
@@ -580,19 +533,15 @@ async function runOne(){
   fd.append('infile', infile);
   fd.append('preset', preset);
   fd.append('strength', strength);
-  appendLufsTp(fd);
-if (ov_width.checked) { fd.append('width', String(width.value)); }
-if (ov_mono_bass.checked) { fd.append('mono_bass', String(mono_bass.value)); }
+  appendOverrides(fd);
 
-fetch('/api/master', { method:'POST', body: fd });
+  const r = await fetch('/api/master', { method:'POST', body: fd });
   const t = await r.text();
   setResult(t);
   await showOutputsFromText(t);
 
   // Auto-refresh lists after a run so outputs + previous runs appear
   try { await refreshAll(); } catch (e) { console.error(e); }
-    // Auto-refresh lists/runs after job completes
-    try { await refreshAll(); } catch (e) { console.error('post-job refreshAll failed', e); }
 }
 
 async function runPack(){
@@ -604,53 +553,15 @@ async function runPack(){
   const fd = new FormData();
   fd.append('infile', infile);
   fd.append('strength', strength);
-  appendLufsTp(fd);
+  appendOverrides(fd);
 
   const r = await fetch('/api/master-pack', { method:'POST', body: fd });
   const t = await r.text();
   setResult(t);
   await showOutputsFromText(t);
 
-    // Auto-refresh lists/runs after job completes
-    try { await refreshAll(); } catch (e) { console.error('post-job refreshAll failed', e); }
-}
-
-async function loadRecent(){
-  const r = await fetch('/api/recent?limit=30');
-  const j = await r.json();
-
-  const el = document.getElementById('recent');
-  el.innerHTML = '';
-  j.items.forEach(it => {
-    const div = document.createElement('div');
-    div.className = 'outitem';
-
-    div.innerHTML = `
-      <div class="runRow">
-        <div class="runLeft">
-          <div class="mono"><a class="linkish" href="#" onclick="loadSong('${it.song}'); return false;">${it.song}</a></div>
-          <div class="small">
-            <a class="linkish" href="${it.folder}" target="_blank">folder</a>
-            &nbsp;|&nbsp;
-            <a class="linkish" href="${it.ab}" target="_blank">A/B page</a>
-          </div>
-        </div>
-        <div class="runBtns">
-          <button class="btnGhost" onclick="loadSong('${it.song}')">Load</button>
-          <button class="btnDanger" onclick="deleteSong('${it.song}')">Delete</button>
-        </div>
-      </div>
-      ${it.mp3 ? `<audio controls preload="none" src="${it.mp3}"></audio>` : `<div class="small">No MP3 previews yet</div>`}
-    `;
-    el.appendChild(div);
-  });
-
-  const last = localStorage.getItem("lastSong");
-  if (last && j.items.find(x => x.song === last)) {
-    // Don't auto-load if user is mid-run; just a friendly restore
-    // Uncomment if you want always-on restore:
-    // await loadSong(last);
-  }
+  // Auto-refresh lists/runs after job completes
+  try { await refreshAll(); } catch (e) { console.error('post-job refreshAll failed', e); }
 }
 
 async function deleteSong(song){
@@ -659,7 +570,7 @@ async function deleteSong(song){
   const r = await fetch(`/api/song/${encodeURIComponent(song)}`, { method:'DELETE' });
   const j = await r.json();
   setResult(j.message || 'Deleted.');
-  await loadRecent();
+  await refreshRecent();
 
   const last = localStorage.getItem("lastSong");
   if (last === song) {
@@ -681,16 +592,17 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
   const j = await r.json();
   document.getElementById('uploadResult').textContent = j.message;
   
-      try { await refreshAll(); } catch (e) { console.error('post-upload refreshAll failed', e); }
-await refreshAll();
+  try { await refreshAll(); } catch (e) { console.error('post-upload refreshAll failed', e); }
 });
 
-refreshAll();
-</script>
-
-<script>
 document.addEventListener('DOMContentLoaded', () => {
-  try { refreshAll(); } catch(e){ console.error(e); }
+  try {
+    wireUI();
+    refreshAll();
+  } catch(e){
+    console.error(e);
+    setStatus("UI init error (open console)");
+  }
 });
 </script>
 
@@ -793,10 +705,6 @@ def master(
         cmd += ["--lufs", str(lufs)]
     if tp is not None:
         cmd += ["--tp", str(tp)]
-    if width is not None:
-        cmd += ["--width", str(width)]
-    if mono_bass is not None:
-        cmd += ["--mono_bass", str(mono_bass)]
     if width is not None:
         cmd += ["--width", str(width)]
     if mono_bass is not None:
