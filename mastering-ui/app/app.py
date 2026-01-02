@@ -460,7 +460,7 @@ select, input[type="text"], input[type="file"]{
         </div>
 
         <details style="margin-top:12px; margin-bottom:10px;">
-          <summary class="small" style="cursor:pointer; user-select:none;">Pack presets (choose before Run A/B Pack)</summary>
+          <summary class="small" style="cursor:pointer; user-select:none;">Presets</summary>
           <div id="packPresetsBox" class="small" style="margin-top:8px; display:flex; flex-wrap:wrap; gap:10px;"></div>
           <button class="btnGhost" type="button" onclick="selectAllPackPresets()">Select all</button>
         </details>
