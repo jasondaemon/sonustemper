@@ -44,6 +44,24 @@ def read_first_wav_metrics(folder: Path) -> dict | None:
         return None
     return read_metrics_for_wav(wavs[0])
 
+def wrap_metrics(song: str, metrics: dict | None) -> dict | None:
+    """Normalize metrics to always have .output/.input keys for UI consumption."""
+    if not metrics:
+        return None
+    if isinstance(metrics, dict) and ("input" in metrics or "output" in metrics):
+        return metrics
+    # Assume flat metrics (per-wav) -> treat as output-only
+    return {
+        "version": 1,
+        "run_id": song,
+        "created_at": None,
+        "preset": None,
+        "strength": None,
+        "overrides": {},
+        "input": None,
+        "output": metrics,
+    }
+
 
 
 
@@ -486,8 +504,9 @@ async function refreshRecent() {
       const div = document.createElement('div');
       div.className = 'outitem';
       const m = it.metrics || {};
-      const summary = (m.output && (m.output.I !== undefined || m.output.TP !== undefined))
-        ? `LUFS ${fmtMetric(m.output.I, '')} / TP ${fmtMetric(m.output.TP, ' dB')}`
+      const outMetrics = m.output || m;
+      const summary = (outMetrics && (outMetrics.I !== undefined || outMetrics.TP !== undefined))
+        ? `LUFS ${fmtMetric(outMetrics.I, '')} / TP ${fmtMetric(outMetrics.TP, ' dB')}`
         : 'metrics: —';
       div.innerHTML = `
         <div class="runRow">
@@ -631,13 +650,15 @@ function fmtMetric(v, suffix=""){
 
 function renderMetricsTable(m){
   if (!m || typeof m !== 'object') return '<span style="opacity:.7;">(metrics unavailable)</span>';
+  const output = m.output || m; // accept flat metrics as output-only
+  const input = m.input || {};
   const rows = [
-    ["Integrated LUFS", fmtMetric(m?.input?.I, " LUFS"), fmtMetric(m?.output?.I, " LUFS")],
-    ["True/Peak", fmtMetric(m?.input?.TP, " dB"), fmtMetric(m?.output?.TP, " dB")],
-    ["Short-term max", fmtMetric(m?.input?.short_term_max, " LUFS"), fmtMetric(m?.output?.short_term_max, " LUFS")],
-    ["Crest factor", fmtMetric(m?.input?.crest_factor, " dB"), fmtMetric(m?.output?.crest_factor, " dB")],
-    ["Stereo corr", fmtMetric(m?.input?.stereo_corr), fmtMetric(m?.output?.stereo_corr)],
-    ["Duration", fmtMetric(m?.input?.duration_sec, " s"), fmtMetric(m?.output?.duration_sec, " s")],
+    ["Integrated LUFS", fmtMetric(input?.I, " LUFS"), fmtMetric(output?.I, " LUFS")],
+    ["True/Peak", fmtMetric(input?.TP, " dB"), fmtMetric(output?.TP, " dB")],
+    ["Short-term max", fmtMetric(input?.short_term_max, " LUFS"), fmtMetric(output?.short_term_max, " LUFS")],
+    ["Crest factor", fmtMetric(input?.crest_factor, " dB"), fmtMetric(output?.crest_factor, " dB")],
+    ["Stereo corr", fmtMetric(input?.stereo_corr), fmtMetric(output?.stereo_corr)],
+    ["Duration", fmtMetric(input?.duration_sec, " s"), fmtMetric(output?.duration_sec, " s")],
   ];
   return `
     <table style="width:100%; border-collapse:collapse; font-size:12px;">
@@ -852,7 +873,7 @@ def recent(limit: int = 30):
     items = []
     for d in folders[:limit]:
         mp3s = sorted([f.name for f in d.iterdir() if f.is_file() and f.suffix.lower()==".mp3"])
-        metrics = read_run_metrics(d) or read_first_wav_metrics(d)
+        metrics = wrap_metrics(d.name, read_run_metrics(d) or read_first_wav_metrics(d))
         items.append({
             "song": d.name,
             "folder": f"/out/{d.name}/",
@@ -898,9 +919,9 @@ def run_metrics(song: str):
     folder = OUT_DIR / song
     if not folder.exists() or not folder.is_dir():
         raise HTTPException(status_code=404, detail="run_not_found")
-    m = read_run_metrics(folder)
+    m = wrap_metrics(song, read_run_metrics(folder))
     if not m:
-        m = read_first_wav_metrics(folder)
+        m = wrap_metrics(song, read_first_wav_metrics(folder))
     if not m:
         raise HTTPException(status_code=404, detail="metrics_not_found")
     return m
