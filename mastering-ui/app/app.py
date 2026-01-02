@@ -2,6 +2,7 @@ import json
 import shutil
 import subprocess
 from pathlib import Path
+from datetime import datetime
 import os
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -62,7 +63,14 @@ def bust_url(song: str, filename: str) -> str:
         v = 0
     return f"/out/{song}/{filename}?v={v}"
 
-HTML = r"""
+BUILD_STAMP = os.getenv("MASTERING_BUILD")
+if not BUILD_STAMP:
+    try:
+        BUILD_STAMP = datetime.fromtimestamp(Path(__file__).stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        BUILD_STAMP = "dev"
+
+HTML_TEMPLATE = r"""
 <!doctype html>
 <html>
 <head>
@@ -230,7 +238,7 @@ select, input[type="text"], input[type="file"]{
   <div class="wrap">
     <div class="top">
       <div>
-        <h1>Local Mastering <span style="font-size:12px;opacity:.65">(build 2026-01-02 09:06:17)</span></h1>
+        <h1>Local Mastering <span style="font-size:12px;opacity:.65">(build {{BUILD_STAMP}})</span></h1>
         <div class="sub">
           <span class="pill">IN: <span class="mono">/nfs/mastering/in</span></span>
           <span class="pill">OUT: <span class="mono">/nfs/mastering/out</span></span>
@@ -456,7 +464,7 @@ async function refreshAll() {
     if (prevIn && [...infileSel.options].some(o => o.value === prevIn)) infileSel.value = prevIn;
     if (prevPreset && [...presetSel.options].some(o => o.value === prevPreset)) presetSel.value = prevPreset;
 
-    setStatus("Fetched lists; populated dropdowns.");
+    setStatus("");
   } catch (e) {
     console.error("refreshAll failed:", e);
     setStatus("ERROR loading lists (open console)");
@@ -613,7 +621,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 @app.get("/", response_class=HTMLResponse)
 def index():
-    return HTML
+    return HTML_TEMPLATE.replace("{{BUILD_STAMP}}", BUILD_STAMP)
 
 @app.get("/api/files")
 def list_files():
