@@ -400,10 +400,18 @@ def load_preset_meta() -> dict:
 
 BUILD_STAMP = os.getenv("MASTERING_BUILD")
 if not BUILD_STAMP:
+    git_rev = None
     try:
-        BUILD_STAMP = datetime.fromtimestamp(Path(__file__).stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+        git_rev = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
     except Exception:
-        BUILD_STAMP = "dev"
+        git_rev = None
+    if git_rev:
+        BUILD_STAMP = f"dev-{git_rev}"
+    else:
+        try:
+            BUILD_STAMP = datetime.fromtimestamp(Path(__file__).stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            BUILD_STAMP = "dev"
 
 HTML_TEMPLATE = r"""
 <!doctype html>
