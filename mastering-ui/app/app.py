@@ -1320,7 +1320,7 @@ async function loadSong(song, skipEmpty=false){
   });
 
   // Fetch run-level metrics
-  if (hasPlayable && anyMetricsStrings) {
+  if (hasPlayable) {
     try {
       const mr = await fetch(`/api/metrics?song=${encodeURIComponent(song)}`, { cache: 'no-store' });
       if (mr.ok) {
