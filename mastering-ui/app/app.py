@@ -1455,6 +1455,7 @@ function startRunPolling(files) {
         stopRunPolling();
         setStatus("");
         setResult("Job complete.");
+        try { await refreshRecent(); } catch(e) { console.debug('recent refresh after polling stop failed', e); }
       }
     } catch (e) {
       console.debug("poll error", e);
