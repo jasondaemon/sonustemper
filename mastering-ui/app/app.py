@@ -1279,7 +1279,8 @@ async function loadSong(song, skipEmpty=false){
 
   const r = await fetch(`/api/outlist?song=${encodeURIComponent(song)}`);
   const j = await r.json();
-  if (skipEmpty && (!j.items || !j.items.length)) return false;
+  const hasItems = j.items && j.items.length > 0;
+  if (skipEmpty && !hasItems) return false;
 
   const out = document.getElementById('outlist');
   out.innerHTML = '';
@@ -1300,7 +1301,7 @@ async function loadSong(song, skipEmpty=false){
   });
 
   // Fetch run-level metrics
-  if (j.items && j.items.length) {
+  if (hasItems) {
     try {
       const mr = await fetch(`/api/metrics?song=${encodeURIComponent(song)}`, { cache: 'no-store' });
       if (mr.ok) {
@@ -1314,7 +1315,7 @@ async function loadSong(song, skipEmpty=false){
       setMetricsPanel('<span style="opacity:.7;">(metrics unavailable)</span>');
     }
   }
-  return j.items && j.items.length > 0;
+  return hasItems;
 }
 
 async function showOutputsFromText(text){
