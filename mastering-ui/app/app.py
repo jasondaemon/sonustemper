@@ -1018,10 +1018,15 @@ async function refreshAll() {
   await refreshRecent();
 }
 
-function setResult(text){ document.getElementById('result').textContent = text || '(no output)'; }
+function setResult(text){ const el=document.getElementById('result'); if(el) el.textContent = text || '(no output)'; }
+function setResultHTML(html){ const el=document.getElementById('result'); if(el) el.innerHTML = html || ''; }
 function setLinks(html){ document.getElementById('links').innerHTML = html || ''; }
 function clearOutList(){ document.getElementById('outlist').innerHTML = ''; }
 function setMetricsPanel(html){ document.getElementById('metricsPanel').innerHTML = html || '<span style="opacity:.7;">(none)</span>'; }
+function cleanResultText(t){
+  const lines = (t || '').split('\n').map(l=>l.trim()).filter(l => l && !l.toLowerCase().startsWith('script:'));
+  return lines.join('\n') || '(no output yet)';
+}
 function selectAllPackPresets(){
   const box = document.getElementById('packPresetsBox');
   if (!box) return;
@@ -1321,7 +1326,7 @@ async function showOutputsFromText(text){
 async function runOne(){
   clearOutList(); setLinks(''); setResult('Running...'); setMetricsPanel('(waiting)');
   setStatus("Running master...");
-  setResult('<span class="spinner">Running master…</span>');
+  setResultHTML('<span class="spinner">Running master…</span>');
 
   const infile = document.getElementById('infile').value;
   const song = (infile || '').replace(/\.[^.]+$/, '') || infile;
@@ -1337,7 +1342,7 @@ async function runOne(){
   startRunPolling(song);
   const r = await fetch('/api/master', { method:'POST', body: fd });
   const t = await r.text();
-  setResult(t);
+  setResult(cleanResultText(t));
   await showOutputsFromText(t);
 
   // Auto-refresh lists after a run so outputs + previous runs appear
@@ -1347,7 +1352,7 @@ async function runOne(){
 async function runPack(){
   clearOutList(); setLinks(''); setResult('Running A/B pack...'); setMetricsPanel('(waiting)');
   setStatus("A/B pack running...");
-  setResult('<span class="spinner">Running A/B pack…</span>');
+  setResultHTML('<span class="spinner">Running A/B pack…</span>');
   try { localStorage.setItem("packInFlight", String(Date.now())); } catch {}
 
   const infile = document.getElementById('infile').value;
@@ -1371,15 +1376,13 @@ async function runPack(){
   try {
     const j = JSON.parse(t);
     if (j && typeof j === 'object') {
-      const parts = [];
-      if (j.message) parts.push(String(j.message));
-      if (j.script) parts.push(`script: ${j.script}`);
-      setResult(parts.join('\n') || t);
+      const msg = j.message || '';
+      setResult(msg || '(run submitted)');
     } else {
-      setResult(t);
+      setResult(cleanResultText(t));
     }
   } catch {
-    setResult(t);
+    setResult(cleanResultText(t));
   }
   await showOutputsFromText(t);
 
