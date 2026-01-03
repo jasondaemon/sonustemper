@@ -1419,12 +1419,14 @@ function appendOverrides(fd){
 
 let runPollTimer = null;
 let runPollFiles = [];
+let runPollSeen = new Set();
 function stopRunPolling() {
   if (runPollTimer) {
     clearInterval(runPollTimer);
     runPollTimer = null;
   }
   runPollFiles = [];
+  runPollSeen = new Set();
 }
 
 function startRunPolling(files) {
@@ -1432,17 +1434,24 @@ function startRunPolling(files) {
   const arr = Array.isArray(files) ? files : [];
   if (!arr.length) return;
   runPollFiles = [...arr];
+  runPollSeen = new Set();
   setStatus(`Processing ${arr.join(', ')}`);
   runPollTimer = setInterval(async () => {
     try {
       let anyProcessing = false;
-      let allPlayable = true;
+      let pending = new Set(runPollFiles);
       for (const f of runPollFiles) {
         const res = await loadSong(f, true);
-        if (!res || !res.hasPlayable) allPlayable = false;
-        if (res && res.processing) anyProcessing = true;
+        if (res && res.processing) {
+          anyProcessing = true;
+          runPollSeen.add(f);
+        }
+        if (runPollSeen.has(f) && res && res.hasPlayable && !res.processing) {
+          pending.delete(f);
+        }
+        // if never seen processing, keep pending to avoid early stop
       }
-      if (allPlayable && !anyProcessing) {
+      if (!anyProcessing && pending.size === 0) {
         stopRunPolling();
         setStatus("");
         setResult("Job complete.");
