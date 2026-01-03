@@ -104,6 +104,15 @@ def measure_loudness(wav_path: Path) -> dict:
 
 def write_metrics(wav_out: Path, target_lufs: float, ceiling_db: float, width: float):
     m = measure_loudness(wav_out)
+    # add duration
+    try:
+        info = docker_ffprobe_json(wav_out)
+        dur = float(info.get("format", {}).get("duration")) if info else None
+        if dur is not None:
+            if isinstance(m, dict):
+                m["duration_sec"] = dur
+    except Exception:
+        pass
     if isinstance(m, dict) and 'error' not in m:
         m['target_I'] = float(target_lufs)
         m['target_TP'] = float(ceiling_db)
