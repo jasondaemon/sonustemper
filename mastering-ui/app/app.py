@@ -626,9 +626,14 @@ input[type="range"]{
 }
 .info-btn:hover{ color:var(--text); border-color:var(--accent); }
 .section-gap{
-  border-top:1px solid var(--line);
+  border-top:1px solid rgba(255,255,255,0.14);
   margin:22px 0 12px 0;
   padding-top:14px;
+}
+.section-gap.strong{
+  border-top:1px solid rgba(255,255,255,0.18);
+  margin:26px 0 18px 0;
+  padding-top:16px;
 }
 .section-title{ margin:0 0 6px 0; font-size:14px; color:#cfe0f1; }
 </style>
@@ -662,7 +667,7 @@ input[type="range"]{
         </form>
         <div id="uploadResult" class="small" style="margin-top:10px;"></div>
 
-        <div class="section-gap"></div>
+        <div class="section-gap strong"></div>
 
         <h2>Previous Runs</h2>
         <div class="small">Click a run to load outputs. Delete removes the entire song output folder.</div>
@@ -759,11 +764,11 @@ input[type="range"]{
           <button class="btnGhost" id="runBulkBtn" onclick="runBulk()">Run on selected files</button>
         </div>
 
-        <div class="section-gap"></div>
+        <div class="section-gap strong"></div>
         <h3 class="section-title">Job Output</h3>
         <div id="result" class="result">(waiting)</div>
 
-        <div class="section-gap"></div>
+        <div class="section-gap strong"></div>
         <h3 class="section-title">Metrics</h3>
         <div id="metricsPanel" class="small" style="margin-top:6px;"></div>
 
