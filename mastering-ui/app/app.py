@@ -625,7 +625,11 @@ input[type="range"]{
   font-size:12px;
 }
 .info-btn:hover{ color:var(--text); border-color:var(--accent); }
-.section-gap{ border-top:1px solid var(--line); margin:16px 0 0 0; padding-top:12px; }
+.section-gap{
+  border-top:1px solid var(--line);
+  margin:22px 0 12px 0;
+  padding-top:14px;
+}
 .section-title{ margin:0 0 6px 0; font-size:14px; color:#cfe0f1; }
 </style>
 
