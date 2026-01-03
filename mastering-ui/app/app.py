@@ -1009,18 +1009,17 @@ async function refreshAll() {
 
     const infileSel = document.getElementById("infile");
     const packBox = document.getElementById("packPresetsBox");
-    if (!infileSel) throw new Error("Missing #infile element");
-
-    const prevIn = infileSel.value;
-
-    // Populate input files
-    infileSel.innerHTML = "";
-    (data.files || []).forEach(f => {
-      const o = document.createElement("option");
-      o.value = f;
-      o.textContent = f;
-      infileSel.appendChild(o);
-    });
+    if (infileSel) {
+      const prevIn = infileSel.value;
+      infileSel.innerHTML = "";
+      (data.files || []).forEach(f => {
+        const o = document.createElement("option");
+        o.value = f;
+        o.textContent = f;
+        infileSel.appendChild(o);
+      });
+      if (prevIn && [...infileSel.options].some(o => o.value === prevIn)) infileSel.value = prevIn;
+    }
 
     // Populate presets as checkboxes
     if (packBox) {
