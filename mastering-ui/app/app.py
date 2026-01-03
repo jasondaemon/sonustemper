@@ -21,15 +21,15 @@ PRESET_DIR = Path(os.getenv("PRESET_DIR", "/presets"))
 APP_DIR = Path(__file__).resolve().parent
 _default_master = APP_DIR / "mastering" / "master.py"
 _default_pack = APP_DIR / "mastering" / "master_pack.py"
-if not _default_master.exists():
+if not _default_pack.exists():
     try:
-        _default_master = APP_DIR.parents[2] / "mastering" / "master.py"
         _default_pack = APP_DIR.parents[2] / "mastering" / "master_pack.py"
+        _default_master = APP_DIR.parents[2] / "mastering" / "master.py"
     except Exception:
         pass
 
-MASTER_ONE = Path(os.getenv("MASTER_ONE", str(_default_master)))
-MASTER_PACK = Path(os.getenv("MASTER_PACK", str(_default_pack)))
+# Use master_pack.py as the unified mastering script (handles single or multiple presets/files)
+MASTER_SCRIPT = Path(os.getenv("MASTER_SCRIPT", str(_default_pack)))
 
 app = FastAPI()
 
@@ -2032,7 +2032,7 @@ def master(
     mono_bass: float | None = Form(None),
     guardrails: int = Form(0),
 ):
-    cmd = [str(MASTER_ONE), "--preset", preset, "--infile", infile, "--strength", str(strength)]
+    cmd = ["python3", str(MASTER_SCRIPT), "--infile", infile, "--strength", str(strength), "--presets", preset]
     if lufs is not None:
         cmd += ["--lufs", str(lufs)]
     if tp is not None:
@@ -2066,15 +2066,7 @@ def master_pack(
     guardrails: int = Form(0),
     presets: str | None = Form(None),
 ):
-    # Always prefer repo master_pack.py so we run the updated logic even if a host version is stale
-    repo_pack = Path(__file__).resolve().parent.parent / "mastering" / "master_pack.py"
-    if repo_pack.exists():
-        chosen = repo_pack
-        base_cmd = ["python3", str(repo_pack)]
-    else:
-        chosen = MASTER_PACK
-        base_cmd = [str(MASTER_PACK)]
-    base_cmd += ["--infile", infile, "--strength", str(strength)]
+    base_cmd = ["python3", str(MASTER_SCRIPT), "--infile", infile, "--strength", str(strength)]
     if presets:
         base_cmd += ["--presets", presets]
     if lufs is not None:
@@ -2097,7 +2089,7 @@ def master_pack(
             print(f"[master-pack] started infile={infile} presets={presets} strength={strength}", file=sys.stderr)
 
     threading.Thread(target=run_pack, daemon=True).start()
-    return JSONResponse({"message": "pack started (async); outputs will appear in Previous Runs", "script": str(chosen)})
+    return JSONResponse({"message": "pack started (async); outputs will appear in Previous Runs", "script": str(MASTER_SCRIPT)})
 
 @app.post("/api/master-bulk")
 def master_bulk(
@@ -2114,9 +2106,7 @@ def master_bulk(
     if not files:
         raise HTTPException(status_code=400, detail="no_files")
 
-    repo_pack = Path(__file__).resolve().parent.parent / "mastering" / "master_pack.py"
-    chosen = repo_pack if repo_pack.exists() else MASTER_PACK
-    base_cmd = ["python3", str(chosen)] if repo_pack.exists() else [str(chosen)]
+    base_cmd = ["python3", str(MASTER_SCRIPT)]
 
     results = []
     def run_all():
