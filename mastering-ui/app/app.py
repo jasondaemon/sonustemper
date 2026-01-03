@@ -1235,6 +1235,29 @@ function appendOverrides(fd){
   if (guardrails && guardrails.checked) fd.append('guardrails', '1');
 }
 
+let runPollTimer = null;
+function stopRunPolling() {
+  if (runPollTimer) {
+    clearInterval(runPollTimer);
+    runPollTimer = null;
+  }
+  setStatus("");
+  try { localStorage.removeItem("packInFlight"); } catch {}
+}
+
+function startRunPolling(song) {
+  stopRunPolling();
+  if (!song) return;
+  setStatus(`Processing ${song}...`);
+  runPollTimer = setInterval(async () => {
+    try {
+      await loadSong(song);
+    } catch (e) {
+      console.debug("poll error", e);
+    }
+  }, 3000);
+}
+
 async function loadSong(song){
   localStorage.setItem("lastSong", song);
 
@@ -1296,6 +1319,7 @@ async function runOne(){
   clearOutList(); setLinks(''); setResult('Running...'); setMetricsPanel('(waiting)');
 
   const infile = document.getElementById('infile').value;
+  const song = (infile || '').replace(/\.[^.]+$/, '') || infile;
   const preset = document.getElementById('preset').value;
   const strength = document.getElementById('strength').value;
 
@@ -1305,8 +1329,10 @@ async function runOne(){
   fd.append('strength', strength);
   appendOverrides(fd);
 
+  startRunPolling(song);
   const r = await fetch('/api/master', { method:'POST', body: fd });
   const t = await r.text();
+  stopRunPolling();
   setResult(t);
   await showOutputsFromText(t);
 
@@ -1320,6 +1346,7 @@ async function runPack(){
   try { localStorage.setItem("packInFlight", String(Date.now())); } catch {}
 
   const infile = document.getElementById('infile').value;
+  const song = (infile || '').replace(/\.[^.]+$/, '') || infile;
   const strength = document.getElementById('strength').value;
   const packBox = document.getElementById('packPresetsBox');
   const chosenPresets = packBox ? [...packBox.querySelectorAll('input[type=checkbox]:checked')].map(c=>c.value) : [];
@@ -1333,8 +1360,10 @@ async function runPack(){
   if (chosenPresets.length) fd.append('presets', chosenPresets.join(","));
   appendOverrides(fd);
 
+  startRunPolling(song);
   const r = await fetch('/api/master-pack', { method:'POST', body: fd });
   const t = await r.text();
+  stopRunPolling();
   try {
     const j = JSON.parse(t);
     if (j && typeof j === 'object') {
@@ -1352,8 +1381,7 @@ async function runPack(){
 
   // Auto-refresh lists/runs after job completes
   try { await refreshAll(); } catch (e) { console.error('post-job refreshAll failed', e); }
-  setStatus("");
-  try { localStorage.removeItem("packInFlight"); } catch {}
+  stopRunPolling();
 }
 
 async function deleteSong(song){
