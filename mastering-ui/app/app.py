@@ -679,6 +679,7 @@ input[type="range"]{
 
       <div class="card">
         <h2>Master</h2>
+        <div class="hidden"><select id="infile"></select></div>
 
         <div class="control-row" style="align-items:flex-start; margin-top:6px;">
           <label style="min-width:140px;">Input files</label>
@@ -1512,7 +1513,12 @@ async function runOne(){
   setStatus("Running master...");
   setResultHTML('<span class="spinner">Running master…</span>');
 
-  const infile = document.getElementById('infile').value;
+  const files = getSelectedBulkFiles();
+  if (!files.length) {
+    alert("Select at least one input file.");
+    return;
+  }
+  const infile = files[0];
   const song = (infile || '').replace(/\.[^.]+$/, '') || infile;
   const preset = document.getElementById('preset').value;
   const strength = document.getElementById('strength').value;
