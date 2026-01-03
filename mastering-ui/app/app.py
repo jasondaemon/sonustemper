@@ -1099,7 +1099,11 @@ function setResult(text){ const el=document.getElementById('result'); if(el) el.
 function setResultHTML(html){ const el=document.getElementById('result'); if(el) el.innerHTML = html || ''; }
 function setLinks(html){ document.getElementById('links').innerHTML = html || ''; }
 function clearOutList(){ document.getElementById('outlist').innerHTML = ''; }
-function setMetricsPanel(html){ document.getElementById('metricsPanel').innerHTML = html || '<span style="opacity:.7;">(none)</span>'; }
+function setMetricsPanel(html){
+  const el = document.getElementById('metricsPanel');
+  if (!el) return;
+  el.innerHTML = html || '<span style="opacity:.7;">(none)</span>';
+}
 function startJobLog(message){
   setResultHTML(`<div id="joblog" class="mono"><div>${message || 'Processing...'}</div></div>`);
 }
@@ -1396,6 +1400,13 @@ function fmtMetric(v, suffix=""){
   if (typeof v === "number" && Number.isFinite(v)) return `${v}${suffix}`;
   return String(v);
 }
+function fmtCompactIO(inputM, outputM){
+  const iI = fmtMetric(inputM?.I, " LUFS");
+  const iTP = fmtMetric(inputM?.TP, " dB");
+  const oI = fmtMetric(outputM?.I, " LUFS");
+  const oTP = fmtMetric(outputM?.TP, " dB");
+  return `In: I ${iI} / TP ${iTP} · Out: I ${oI} / TP ${oTP}`;
+}
 
 function renderMetricsTable(m){
   if (!m || typeof m !== 'object') return '<span style="opacity:.7;">(metrics unavailable)</span>';
@@ -1453,6 +1464,7 @@ let runPollTimer = null;
 let runPollFiles = [];
 let runPollSeen = new Set();
 let runPollDone = new Set();
+let lastRunInputMetrics = null;
 function stopRunPolling() {
   if (runPollTimer) {
     clearInterval(runPollTimer);
@@ -1522,6 +1534,7 @@ async function loadSong(song, skipEmpty=false){
     `);
   }
 
+  lastRunInputMetrics = null;
   const r = await fetch(`/api/outlist?song=${encodeURIComponent(song)}`);
   const j = await r.json();
   const hasItems = j.items && j.items.length > 0;
@@ -1540,6 +1553,18 @@ async function loadSong(song, skipEmpty=false){
 
   let hasPlayable = false;
   let anyMetricsStrings = false;
+
+  // Preload input metrics once per run when interactive
+  if (!opts.quiet && hasItems) {
+    try {
+      const mr = await fetch(`/api/metrics?song=${encodeURIComponent(song)}`, { cache: 'no-store' });
+      if (mr.ok) {
+        const mjson = await mr.json();
+        lastRunInputMetrics = mjson.input || null;
+      }
+    } catch (e) { console.debug('metrics preload failed', e); }
+  }
+
   if (!opts.quiet) {
     const out = document.getElementById('outlist');
     out.innerHTML = '';
@@ -1547,11 +1572,13 @@ async function loadSong(song, skipEmpty=false){
       const audioSrc = it.mp3 || it.wav || null;
       if (audioSrc) hasPlayable = true;
       if (it.metrics) anyMetricsStrings = true;
+      const compact = fmtCompactIO(lastRunInputMetrics, it.metrics_obj || {});
       const div = document.createElement('div');
       div.className = 'outitem';
       div.innerHTML = `
         <div class="mono">${it.name}</div>
-        ${it.metrics ? `<div class="small">${it.metrics}</div>` : `<div class="small">metrics: (not available yet)</div>`}
+        <div class="small">${compact || ''}</div>
+        ${it.metrics ? `<div class="small" style="opacity:.8;">${it.metrics}</div>` : `<div class="small" style="opacity:.8;">metrics: (not available yet)</div>`}
         ${audioSrc ? `<audio controls preload="none" src="${audioSrc}"></audio>` : ''}
         <div class="small">
           ${it.wav ? `<a class="linkish" href="${it.wav}" target="_blank">WAV</a>` : ''}
@@ -1575,21 +1602,7 @@ async function loadSong(song, skipEmpty=false){
     processing = false;
   }
 
-  // Fetch run-level metrics (only when user explicitly loads)
-  if (!opts.quiet && hasPlayable && !processing) {
-    try {
-      const mr = await fetch(`/api/metrics?song=${encodeURIComponent(song)}`, { cache: 'no-store' });
-      if (mr.ok) {
-        const mjson = await mr.json();
-        setMetricsPanel(renderMetricsTable(mjson));
-      } else {
-        setMetricsPanel('<span style="opacity:.7;">(metrics unavailable)</span>');
-      }
-    } catch (e) {
-      console.error(e);
-      setMetricsPanel('<span style="opacity:.7;">(metrics unavailable)</span>');
-    }
-  }
+  // No standalone metrics panel now; compact metrics are shown per output entry.
   if (!opts.quiet && hasPlayable && processing) {
     setResult("Outputs updating...");
   }
@@ -1894,8 +1907,9 @@ def outlist(song: str):
                 "wav": f"/out/{song}/{w.name}",
                 "mp3": f"/out/{song}/{mp3s[stem]}" if stem in mp3s else None,
                 "ab": f"/out/{song}/index.html",
-                "metrics": fmt_metrics(m),
-            })
+            "metrics": fmt_metrics(m),
+            "metrics_obj": m,
+        })
     return {"items": items}
 
 @app.get("/favicon.ico")
