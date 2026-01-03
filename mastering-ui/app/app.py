@@ -1632,6 +1632,9 @@ async function loadSong(song, skipEmpty=false){
   if (!opts.quiet) {
     const out = document.getElementById('outlist');
     out.innerHTML = '';
+    if (j.input) {
+      lastRunInputMetrics = j.input;
+    }
     j.items.forEach(it => {
       const audioSrc = it.mp3 || it.wav || null;
       if (audioSrc) hasPlayable = true;
@@ -1958,6 +1961,16 @@ def delete_upload(name: str):
 def outlist(song: str):
     folder = OUT_DIR / song
     items = []
+    input_m = None
+    try:
+        m_full = wrap_metrics(song, read_run_metrics(folder))
+        if not m_full:
+            m_full = wrap_metrics(song, read_first_wav_metrics(folder))
+        if m_full:
+            m_full = fill_input_metrics(song, m_full, folder)
+            input_m = m_full.get("input")
+    except Exception:
+        pass
     if folder.exists() and folder.is_dir():
         wavs = sorted([p for p in folder.iterdir() if p.is_file() and p.suffix.lower()==".wav"])
         mp3s = {p.stem: p.name for p in folder.iterdir() if p.is_file() and p.suffix.lower()==".mp3"}
@@ -1983,7 +1996,7 @@ def outlist(song: str):
             "metrics": fmt_metrics(m),
             "metrics_obj": m,
         })
-    return {"items": items}
+    return {"items": items, "input": input_m}
 
 @app.get("/favicon.ico")
 def favicon():
