@@ -1257,8 +1257,8 @@ function startRunPolling(song) {
   setStatus(`Processing ${song}...`);
   runPollTimer = setInterval(async () => {
     try {
-      const hadOutputs = await loadSong(song, true);
-      if (hadOutputs) {
+      const res = await loadSong(song, true);
+      if (res && res.hasPlayable) {
         stopRunPolling();
         setStatus("");
       }
@@ -1280,11 +1280,13 @@ async function loadSong(song, skipEmpty=false){
   const r = await fetch(`/api/outlist?song=${encodeURIComponent(song)}`);
   const j = await r.json();
   const hasItems = j.items && j.items.length > 0;
-  if (skipEmpty && !hasItems) return false;
+  if (skipEmpty && !hasItems) return { hasItems:false, hasPlayable:false };
 
   const out = document.getElementById('outlist');
   out.innerHTML = '';
+  let hasPlayable = false;
   j.items.forEach(it => {
+    if (it.mp3 || it.wav) hasPlayable = true;
     const div = document.createElement('div');
     div.className = 'outitem';
     div.innerHTML = `
@@ -1315,7 +1317,7 @@ async function loadSong(song, skipEmpty=false){
       setMetricsPanel('<span style="opacity:.7;">(metrics unavailable)</span>');
     }
   }
-  return hasItems;
+  return { hasItems, hasPlayable };
 }
 
 async function showOutputsFromText(text){
