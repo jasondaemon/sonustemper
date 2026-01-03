@@ -649,6 +649,19 @@ input[type="range"]{
   color:#d7e6f5;
 }
 .ioRow .label{ opacity:.75; }
+.ioTable{
+  width:100%;
+  border-collapse:collapse;
+  font-size:12px;
+  margin:6px 0 4px 0;
+}
+.ioTable th, .ioTable td{
+  padding:2px 6px;
+  text-align:left;
+  white-space:nowrap;
+}
+.ioTable th{ opacity:.75; }
+.ioTable td{ opacity:.9; }
 </style>
 
 </head>
@@ -1405,6 +1418,13 @@ function fmtMetric(v, suffix=""){
   if (typeof v === "number" && Number.isFinite(v)) return `${v}${suffix}`;
   return String(v);
 }
+function fmtDelta(out, inp, suffix=""){
+  if (out === null || out === undefined || inp === null || inp === undefined) return "";
+  if (typeof out !== "number" || typeof inp !== "number") return "";
+  const d = out - inp;
+  const sign = d > 0 ? "+" : "";
+  return ` (${sign}${d.toFixed(1)}${suffix})`;
+}
 function fmtCompactIO(inputM, outputM){
   const iI = fmtMetric(inputM?.I, " LUFS");
   const iTP = fmtMetric(inputM?.TP, " dB");
@@ -1420,9 +1440,27 @@ function fmtCompactIO(inputM, outputM){
   const oCorr = fmtMetric(outputM?.stereo_corr, "");
   const oDur = fmtMetric(outputM?.duration_sec, " s");
 
-  const inLine = `In: I ${iI} / TP ${iTP} / LRA ${iLRA} / CF ${iCF} / Corr ${iCorr} / Dur ${iDur}`;
-  const outLine = `Out: I ${oI} / TP ${oTP} / LRA ${oLRA} / CF ${oCF} / Corr ${oCorr} / Dur ${oDur}`;
-  return `<div class="label">${inLine}</div><div>${outLine}</div>`;
+  const rowIn = `
+    <tr>
+      <th>In</th>
+      <td>I ${iI}</td>
+      <td>TP ${iTP}</td>
+      <td>LRA ${iLRA}</td>
+      <td>CF ${iCF}</td>
+      <td>Corr ${iCorr}</td>
+      <td>Dur ${iDur}</td>
+    </tr>`;
+  const rowOut = `
+    <tr>
+      <th>Out</th>
+      <td>I ${oI}${fmtDelta(outputM?.I, inputM?.I)}</td>
+      <td>TP ${oTP}${fmtDelta(outputM?.TP, inputM?.TP, " dB")}</td>
+      <td>LRA ${oLRA}${fmtDelta(outputM?.LRA, inputM?.LRA)}</td>
+      <td>CF ${oCF}${fmtDelta(outputM?.crest_factor, inputM?.crest_factor, " dB")}</td>
+      <td>Corr ${oCorr}${fmtDelta(outputM?.stereo_corr, inputM?.stereo_corr)}</td>
+      <td>Dur ${oDur}${fmtDelta(outputM?.duration_sec, inputM?.duration_sec, " s")}</td>
+    </tr>`;
+  return `<table class="ioTable">${rowIn}${rowOut}</table>`;
 }
 
 function renderMetricsTable(m){
@@ -1596,7 +1634,6 @@ async function loadSong(song, skipEmpty=false){
       div.innerHTML = `
         <div class="mono">${it.name}</div>
         ${ioBlock}
-        ${it.metrics ? `<div class="small" style="opacity:.8;">${it.metrics}</div>` : `<div class="small" style="opacity:.8;">metrics: (not available yet)</div>`}
         ${audioSrc ? `<audio controls preload="none" src="${audioSrc}"></audio>` : ''}
         <div class="small">
           ${it.wav ? `<a class="linkish" href="${it.wav}" target="_blank">WAV</a>` : ''}
