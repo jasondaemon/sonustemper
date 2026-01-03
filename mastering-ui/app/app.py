@@ -1433,6 +1433,7 @@ function appendOverrides(fd){
 let runPollTimer = null;
 let runPollFiles = [];
 let runPollSeen = new Set();
+let runPollDone = new Set();
 function stopRunPolling() {
   if (runPollTimer) {
     clearInterval(runPollTimer);
@@ -1440,6 +1441,7 @@ function stopRunPolling() {
   }
   runPollFiles = [];
   runPollSeen = new Set();
+   runPollDone = new Set();
 }
 
 function startRunPolling(files) {
@@ -1460,8 +1462,9 @@ function startRunPolling(files) {
           runPollSeen.add(f);
         }
         if (res && res.hasPlayable && !res.processing) {
-          if (!runPollSeen.has(f)) {
+          if (!runPollDone.has(f)) {
             appendJobLog(`Finished ${f}`);
+            runPollDone.add(f);
           }
           pending.delete(f);
           runPollSeen.add(f);
