@@ -1408,9 +1408,21 @@ function fmtMetric(v, suffix=""){
 function fmtCompactIO(inputM, outputM){
   const iI = fmtMetric(inputM?.I, " LUFS");
   const iTP = fmtMetric(inputM?.TP, " dB");
+  const iLRA = fmtMetric(inputM?.LRA, "");
+  const iCF = fmtMetric(inputM?.crest_factor, " dB");
+  const iCorr = fmtMetric(inputM?.stereo_corr, "");
+  const iDur = fmtMetric(inputM?.duration_sec, " s");
+
   const oI = fmtMetric(outputM?.I, " LUFS");
   const oTP = fmtMetric(outputM?.TP, " dB");
-  return `<div class="label">In: I ${iI} / TP ${iTP}</div><div>Out: I ${oI} / TP ${oTP}</div>`;
+  const oLRA = fmtMetric(outputM?.LRA, "");
+  const oCF = fmtMetric(outputM?.crest_factor, " dB");
+  const oCorr = fmtMetric(outputM?.stereo_corr, "");
+  const oDur = fmtMetric(outputM?.duration_sec, " s");
+
+  const inLine = `In: I ${iI} / TP ${iTP} / LRA ${iLRA} / CF ${iCF} / Corr ${iCorr} / Dur ${iDur}`;
+  const outLine = `Out: I ${oI} / TP ${oTP} / LRA ${oLRA} / CF ${oCF} / Corr ${oCorr} / Dur ${oDur}`;
+  return `<div class="label">${inLine}</div><div>${outLine}</div>`;
 }
 
 function renderMetricsTable(m){
