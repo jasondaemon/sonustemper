@@ -1306,7 +1306,7 @@ async function loadSong(song, skipEmpty=false){
   });
 
   // Fetch run-level metrics
-  if (hasItems) {
+  if (!skipEmpty || hasPlayable) {
     try {
       const mr = await fetch(`/api/metrics?song=${encodeURIComponent(song)}`, { cache: 'no-store' });
       if (mr.ok) {
@@ -1336,8 +1336,6 @@ async function showOutputsFromText(text){
 
   await loadSong(song);
   await refreshRecent();
-  stopRunPolling();
-  setStatus("");
 }
 
 async function runOne(){
