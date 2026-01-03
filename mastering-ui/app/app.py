@@ -1461,7 +1461,7 @@ function fmtCompactIO(inputM, outputM){
     { key:"W",   label:"W",   suffix:"",     tip:"Width factor applied" },
   ];
 
-  const header = `<tr><th></th>${cols.map(c=>`<th title="${c.tip}">${c.label}</th>`).join('')}</tr>`;
+  const header = `<tr><th><button class="info-btn" type="button" data-info-type="metrics" aria-label="About metrics">ⓘ</button></th>${cols.map(c=>`<th>${c.label}</th>`).join('')}</tr>`;
 
   const rowIn = `<tr><th title="Input metrics">In</th>${cols.map(c=>{
     const v = metricVal(inputM, c.key);
