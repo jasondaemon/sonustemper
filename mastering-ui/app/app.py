@@ -1477,9 +1477,15 @@ async function loadSong(song, skipEmpty=false){
   const hasItems = j.items && j.items.length > 0;
   if (skipEmpty && !hasItems) return { hasItems:false, hasPlayable:false };
   let processing = false;
+  let markerMtime = 0;
   try {
     const pr = await fetch(`/out/${song}/.processing`, { method:'GET', cache:'no-store' });
     processing = pr.ok;
+    if (pr.ok) {
+      const head = await fetch(`/out/${song}/.processing`, { method:'HEAD', cache:'no-store' });
+      const lm = head.headers.get("last-modified");
+      if (lm) markerMtime = Date.parse(lm) || 0;
+    }
   } catch(e){}
 
   const out = document.getElementById('outlist');
@@ -1504,6 +1510,12 @@ async function loadSong(song, skipEmpty=false){
     `;
     out.appendChild(div);
   });
+
+  if (processing && hasPlayable && markerMtime && (Date.now() - markerMtime > 15000)) {
+    // marker looks stale; drop it so UI can advance
+    try { await fetch(`/out/${song}/.processing`, { method:'DELETE' }); } catch(_){ }
+    processing = false;
+  }
 
   // Fetch run-level metrics
   if (hasPlayable && !processing) {
