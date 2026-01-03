@@ -474,6 +474,11 @@ HTML_TEMPLATE = r"""
     .runBtns{ display:flex; gap:8px; }
     .linkish{ color:#ffd3b3; text-decoration:none; }
     .linkish:hover{ text-decoration:underline; }
+    .hidden{ display:none !important; }
+    .manage-wrap{ padding:14px; border:1px solid var(--line); border-radius:14px; background:#0b121d; margin-top:10px; }
+    .manage-list{ display:flex; flex-direction:column; gap:8px; }
+    .manage-item{ display:flex; justify-content:space-between; align-items:center; padding:8px 10px; border:1px solid var(--line); border-radius:10px; }
+    .smallBtn{ padding:6px 10px; font-size:12px; border-radius:10px; border:1px solid var(--line); background:#0f151d; color:#d7e6f5; cursor:pointer; }
   </style>
 
 <style>
@@ -626,7 +631,7 @@ input[type="range"]{
   <div class="wrap">
     <div class="top">
       <div>
-        <h1>SonusTemper <span style="font-size:12px;opacity:.65">(build {{BUILD_STAMP}})</span></h1>
+        <h1>SonusTemper</h1>
         <div class="sub">
           <span class="pill">IN: <span class="mono">{{IN_DIR}}</span></span>
           <span class="pill">OUT: <span class="mono">{{OUT_DIR}}</span></span>
@@ -638,13 +643,14 @@ input[type="range"]{
       </div>
     </div>
 
-    <div class="grid">
-      <div class="card">
+<div class="grid">
+      <div class="card" id="masterView">
         <h2>Upload</h2>
         <form id="uploadForm">
           <div class="row">
             <input type="file" id="file" name="file" accept=".wav,.mp3,.flac,.aiff,.aif" required />
             <button class="btn2" type="submit">Upload to {{IN_DIR}}</button>
+            <button class="btnGhost" type="button" onclick="showManage()">Manage uploads & runs</button>
           </div>
         </form>
         <div id="uploadResult" class="small" style="margin-top:10px;"></div>
@@ -654,6 +660,21 @@ input[type="range"]{
         <h2>Previous Runs</h2>
         <div class="small">Click a run to load outputs. Delete removes the entire song output folder.</div>
         <div id="recent" class="outlist" style="margin-top:10px;"></div>
+      </div>
+
+      <div class="card hidden" id="manageView">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <h2>Manage uploads & runs</h2>
+          <button class="btnGhost" type="button" onclick="showMaster()">Return to Mastering</button>
+        </div>
+        <div class="manage-wrap">
+          <h3 style="margin:0 0 8px 0;">Uploaded files</h3>
+          <div id="manageUploads" class="manage-list small"></div>
+        </div>
+        <div class="manage-wrap">
+          <h3 style="margin:0 0 8px 0;">Runs</h3>
+          <div id="manageRuns" class="manage-list small"></div>
+        </div>
       </div>
 
       <div class="card">
@@ -1061,6 +1082,61 @@ function updatePackButtonState(){
   const btn = document.getElementById('runPackBtn');
   if (!btn) return;
   btn.disabled = getSelectedPresets().length === 0;
+}
+function showManage(){
+  document.getElementById('masterView').classList.add('hidden');
+  document.getElementById('manageView').classList.remove('hidden');
+  renderManage();
+}
+function showMaster(){
+  document.getElementById('masterView').classList.remove('hidden');
+  document.getElementById('manageView').classList.add('hidden');
+}
+async function renderManage(){
+  const uploadsDiv = document.getElementById('manageUploads');
+  const runsDiv = document.getElementById('manageRuns');
+  uploadsDiv.innerHTML = '<div class="small">Loading...</div>';
+  runsDiv.innerHTML = '<div class="small">Loading...</div>';
+  try{
+    const filesResp = await fetch("/api/files", { cache:'no-store' });
+    const files = filesResp.ok ? (await filesResp.json()).files || [] : [];
+    uploadsDiv.innerHTML = files.length ? '' : '<div class="small" style="opacity:.7;">No uploads</div>';
+    files.forEach(f => {
+      const row = document.createElement('div');
+      row.className = 'manage-item';
+      row.innerHTML = `<span class="mono">${f}</span><button class="smallBtn" data-upload="${f}">Delete</button>`;
+      uploadsDiv.appendChild(row);
+    });
+  }catch(e){ uploadsDiv.innerHTML = '<div class="small" style="color:#f99;">Error loading uploads</div>'; }
+  try{
+    const runsResp = await fetch("/api/recent?limit=200", { cache:'no-store' });
+    const runs = runsResp.ok ? (await runsResp.json()).items || [] : [];
+    runsDiv.innerHTML = runs.length ? '' : '<div class="small" style="opacity:.7;">No runs</div>';
+    runs.forEach(r => {
+      const row = document.createElement('div');
+      row.className = 'manage-item';
+      row.innerHTML = `<span class="mono">${r.song}</span><button class="smallBtn" data-run="${r.song}">Delete</button>`;
+      runsDiv.appendChild(row);
+    });
+  }catch(e){ runsDiv.innerHTML = '<div class="small" style="color:#f99;">Error loading runs</div>'; }
+  uploadsDiv.querySelectorAll('button[data-upload]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const name = btn.getAttribute('data-upload');
+      if(!confirm(`Delete upload "${name}" from {{IN_DIR}}?`)) return;
+      await fetch(`/api/upload/${encodeURIComponent(name)}`, { method:'DELETE' });
+      renderManage();
+      refreshAll();
+    });
+  });
+  runsDiv.querySelectorAll('button[data-run]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const name = btn.getAttribute('data-run');
+      if(!confirm(`Delete all outputs for "${name}"?`)) return;
+      await fetch(`/api/song/${encodeURIComponent(name)}`, { method:'DELETE' });
+      renderManage();
+      refreshAll();
+    });
+  });
 }
 
 function initInfoDrawer(){
@@ -1587,6 +1663,16 @@ def delete_song(song: str):
         return {"message": f"Nothing to delete for {song}."}
     shutil.rmtree(target)
     return {"message": f"Deleted outputs for {song}."}
+
+@app.delete("/api/upload/{name}")
+def delete_upload(name: str):
+    target = (IN_DIR / name).resolve()
+    if IN_DIR.resolve() not in target.parents:
+        raise HTTPException(status_code=400, detail="Invalid path")
+    if not target.exists():
+        return {"message": f"Nothing to delete for {name}."}
+    target.unlink()
+    return {"message": f"Deleted upload {name}."}
 
 @app.get("/api/outlist")
 def outlist(song: str):
