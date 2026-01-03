@@ -1425,41 +1425,42 @@ function fmtDelta(out, inp, suffix=""){
   const sign = d > 0 ? "+" : "";
   return ` (${sign}${d.toFixed(1)}${suffix})`;
 }
+function metricVal(m, key){
+  if (!m) return null;
+  switch(key){
+    case "I": return m.I;
+    case "TP": return m.TP;
+    case "LRA": return m.LRA;
+    case "CF": return m.crest_factor;
+    case "Corr": return m.stereo_corr;
+    case "Dur": return m.duration_sec;
+    case "W": return m.W !== undefined ? m.W : (m.width !== undefined ? m.width : null);
+    default: return null;
+  }
+}
 function fmtCompactIO(inputM, outputM){
-  const iI = fmtMetric(inputM?.I, " LUFS");
-  const iTP = fmtMetric(inputM?.TP, " dB");
-  const iLRA = fmtMetric(inputM?.LRA, "");
-  const iCF = fmtMetric(inputM?.crest_factor, " dB");
-  const iCorr = fmtMetric(inputM?.stereo_corr, "");
-  const iDur = fmtMetric(inputM?.duration_sec, " s");
+  const cols = [
+    { key:"I",   label:"I",   suffix:" LUFS", tip:"Integrated loudness (LUFS)" },
+    { key:"TP",  label:"TP",  suffix:" dB",  tip:"True peak (dBTP)" },
+    { key:"LRA", label:"LRA", suffix:"",     tip:"Loudness range" },
+    { key:"CF",  label:"CF",  suffix:" dB",  tip:"Crest factor" },
+    { key:"Corr",label:"Corr",suffix:"",     tip:"Stereo correlation" },
+    { key:"Dur", label:"Dur", suffix:" s",   tip:"Duration (seconds)" },
+    { key:"W",   label:"W",   suffix:"",     tip:"Width factor applied" },
+  ];
 
-  const oI = fmtMetric(outputM?.I, " LUFS");
-  const oTP = fmtMetric(outputM?.TP, " dB");
-  const oLRA = fmtMetric(outputM?.LRA, "");
-  const oCF = fmtMetric(outputM?.crest_factor, " dB");
-  const oCorr = fmtMetric(outputM?.stereo_corr, "");
-  const oDur = fmtMetric(outputM?.duration_sec, " s");
+  const rowIn = `<tr><th title="Input metrics">In</th>${cols.map(c=>{
+    const v = metricVal(inputM, c.key);
+    return `<td title="${c.tip}">${fmtMetric(v, c.suffix)}</td>`;
+  }).join('')}</tr>`;
 
-  const rowIn = `
-    <tr>
-      <th>In</th>
-      <td>I ${iI}</td>
-      <td>TP ${iTP}</td>
-      <td>LRA ${iLRA}</td>
-      <td>CF ${iCF}</td>
-      <td>Corr ${iCorr}</td>
-      <td>Dur ${iDur}</td>
-    </tr>`;
-  const rowOut = `
-    <tr>
-      <th>Out</th>
-      <td>I ${oI}${fmtDelta(outputM?.I, inputM?.I)}</td>
-      <td>TP ${oTP}${fmtDelta(outputM?.TP, inputM?.TP, " dB")}</td>
-      <td>LRA ${oLRA}${fmtDelta(outputM?.LRA, inputM?.LRA)}</td>
-      <td>CF ${oCF}${fmtDelta(outputM?.crest_factor, inputM?.crest_factor, " dB")}</td>
-      <td>Corr ${oCorr}${fmtDelta(outputM?.stereo_corr, inputM?.stereo_corr)}</td>
-      <td>Dur ${oDur}${fmtDelta(outputM?.duration_sec, inputM?.duration_sec, " s")}</td>
-    </tr>`;
+  const rowOut = `<tr><th title="Output metrics">Out</th>${cols.map(c=>{
+    const vOut = metricVal(outputM, c.key);
+    const vIn = metricVal(inputM, c.key);
+    const delta = fmtDelta(vOut, vIn, c.suffix);
+    return `<td title="${c.tip}">${fmtMetric(vOut, c.suffix)}${delta}</td>`;
+  }).join('')}</tr>`;
+
   return `<table class="ioTable">${rowIn}${rowOut}</table>`;
 }
 
