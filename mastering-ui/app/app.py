@@ -672,27 +672,6 @@ input[type="range"]{
         <div id="uploadResult" class="small" style="margin-top:10px;"></div>
       </div>
 
-      <div class="card" id="recentCard">
-        <h2>Previous Runs</h2>
-        <div class="small">Click a run to load outputs. Delete removes the entire song output folder.</div>
-        <div id="recent" class="outlist" style="margin-top:10px;"></div>
-      </div>
-
-      <div class="card hidden" id="manageView">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <h2>Manage uploads & runs</h2>
-          <button class="btnGhost" type="button" onclick="showMaster()">Return to Mastering</button>
-        </div>
-        <div class="manage-wrap">
-          <h3 style="margin:0 0 8px 0;">Uploaded files</h3>
-          <div id="manageUploads" class="manage-list small"></div>
-        </div>
-        <div class="manage-wrap">
-          <h3 style="margin:0 0 8px 0;">Runs</h3>
-          <div id="manageRuns" class="manage-list small"></div>
-        </div>
-      </div>
-
       <div class="card">
         <h2>Master</h2>
         <div class="hidden"><select id="infile"></select></div>
@@ -769,6 +748,12 @@ input[type="range"]{
         </div>
       </div>
 
+      <div class="card" id="recentCard">
+        <h2>Previous Runs</h2>
+        <div class="small">Click a run to load outputs. Delete removes the entire song output folder.</div>
+        <div id="recent" class="outlist" style="margin-top:10px;"></div>
+      </div>
+
       <div class="card">
         <h2>Job Output</h2>
         <div id="result" class="result">(waiting)</div>
@@ -779,6 +764,21 @@ input[type="range"]{
 
         <div id="links" class="links small" style="margin-top:10px;"></div>
         <div id="outlist" class="outlist"></div>
+      </div>
+
+      <div class="card hidden" id="manageView">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <h2>Manage uploads & runs</h2>
+          <button class="btnGhost" type="button" onclick="showMaster()">Return to Mastering</button>
+        </div>
+        <div class="manage-wrap">
+          <h3 style="margin:0 0 8px 0;">Uploaded files</h3>
+          <div id="manageUploads" class="manage-list small"></div>
+        </div>
+        <div class="manage-wrap">
+          <h3 style="margin:0 0 8px 0;">Runs</h3>
+          <div id="manageRuns" class="manage-list small"></div>
+        </div>
       </div>
     </div>
   </div>
