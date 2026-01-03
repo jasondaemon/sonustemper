@@ -1449,6 +1449,8 @@ function fmtCompactIO(inputM, outputM){
     { key:"W",   label:"W",   suffix:"",     tip:"Width factor applied" },
   ];
 
+  const header = `<tr><th></th>${cols.map(c=>`<th title="${c.tip}">${c.label}</th>`).join('')}</tr>`;
+
   const rowIn = `<tr><th title="Input metrics">In</th>${cols.map(c=>{
     const v = metricVal(inputM, c.key);
     return `<td title="${c.tip}">${fmtMetric(v, c.suffix)}</td>`;
@@ -1461,7 +1463,7 @@ function fmtCompactIO(inputM, outputM){
     return `<td title="${c.tip}">${fmtMetric(vOut, c.suffix)}${delta}</td>`;
   }).join('')}</tr>`;
 
-  return `<table class="ioTable">${rowIn}${rowOut}</table>`;
+  return `<table class="ioTable">${header}${rowIn}${rowOut}</table>`;
 }
 
 function renderMetricsTable(m){
