@@ -113,7 +113,7 @@ def write_metrics(wav_out: Path, target_lufs: float, ceiling_db: float, width: f
             m['tp_margin'] = float(ceiling_db) - float(m['TP'])
     wav_out.with_suffix('.metrics.json').write_text(json.dumps(m, indent=2), encoding='utf-8')
 
-def write_playlist_html(folder: Path, title: str):
+def write_playlist_html(folder: Path, title: str, source_name: str):
     mp3s = sorted([f for f in folder.iterdir() if f.is_file() and f.suffix.lower() == ".mp3"])
     rows = []
     for f in mp3s:
@@ -129,18 +129,52 @@ def write_playlist_html(folder: Path, title: str):
 <meta charset="utf-8">
 <title>{title} - A/B Pack</title>
 <style>
-  body {{ font-family: -apple-system, system-ui, sans-serif; margin: 24px; max-width: 980px; }}
+  :root {{
+    --bg: #0c1118;
+    --card: #0f1621;
+    --text: #e7eef6;
+    --muted: #a9b7c8;
+    --line: #1e2633;
+    --accent: #38bdf8;
+  }}
+  body {{
+    font-family: -apple-system, system-ui, sans-serif;
+    margin: 24px;
+    max-width: 1100px;
+    background: radial-gradient(circle at 20% 20%, rgba(56,189,248,0.06), transparent 32%), var(--bg);
+    color: var(--text);
+  }}
   h2 {{ margin: 0 0 6px 0; }}
-  .small {{ color:#666; margin-bottom: 16px; }}
-  .row {{ display:flex; gap:16px; align-items:center; padding: 10px 0; border-bottom: 1px solid #eee; }}
-  .name {{ width: 520px; font-family: ui-monospace, Menlo, monospace; font-size: 13px; }}
+  .small {{ color:var(--muted); margin-bottom: 16px; }}
+  .card {{
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+  }}
+  .row {{ display:flex; gap:16px; align-items:center; padding: 12px 0; border-bottom: 1px solid var(--line); }}
+  .name {{ width: 520px; font-family: ui-monospace, Menlo, monospace; font-size: 13px; color:var(--text); }}
   audio {{ width: 420px; }}
+  .pill {{ display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:12px; background:rgba(255,255,255,0.06); border:1px solid var(--line); color:var(--text); font-size:12px; }}
+  .btn {{ display:inline-block; padding:8px 14px; border-radius:8px; background:var(--accent); color:#041019; font-weight:600; text-decoration:none; }}
+  .header {{ display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:12px; }}
 </style>
 </head>
 <body>
-  <h2>{title} — A/B Pack</h2>
-  <div class="small">MP3 previews generated locally. WAV masters are in the same folder.</div>
-  {''.join(rows) if rows else '<p>No MP3 previews found.</p>'}
+  <div class="header">
+    <div>
+      <h2>{title} — A/B Pack</h2>
+      <div class="small">Source file: <span class="pill">{source_name}</span></div>
+      <div class="small">MP3 previews generated locally. WAV masters are in the same folder.</div>
+    </div>
+    <div>
+      <a class="btn" href="/">Return to SonusTemper</a>
+    </div>
+  </div>
+  <div class="card">
+    {''.join(rows) if rows else '<p class="small">No MP3 previews found.</p>'}
+  </div>
 </body>
 </html>"""
     (folder / "index.html").write_text(html, encoding="utf-8")
@@ -211,7 +245,7 @@ def main():
 
             outputs.append(str(wav_out))
 
-        write_playlist_html(song_dir, infile.stem)
+        write_playlist_html(song_dir, infile.stem, infile.name)
         print("\n".join(outputs))
     finally:
         if marker:

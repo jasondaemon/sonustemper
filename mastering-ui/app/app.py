@@ -954,11 +954,10 @@ async function refreshRecent(force=false) {
       div.innerHTML = `
         <div class="runRow">
           <div class="runLeft">
-            <div class="mono"><a class="linkish" href="#" onclick="loadSong('${it.song}'); return false;">${it.song || it.name}</a></div>
+            <div class="mono" style="font-weight:600;">${it.song || it.name}</div>
             <div class="small" style="opacity:.8;">${summary}</div>
             <div class="small">
-              ${it.folder ? `<a class="linkish" href="${it.folder}" target="_blank">folder</a>` : ''}
-              ${it.ab ? `&nbsp;|&nbsp;<a class="linkish" href="${it.ab}" target="_blank">A/B page</a>` : ''}
+              ${it.ab || it.folder ? `<a class="linkish" href="${it.ab || it.folder}" target="_blank">Full Job Index</a>` : ''}
             </div>
           </div>
           <div class="runBtns">
