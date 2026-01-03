@@ -691,7 +691,7 @@ input[type="range"]{
     </div>
 
 <div class="grid" id="masterView">
-      <div class="card" id="uploadCard">
+      <div class="card masterPane" id="uploadCard">
         <h2>Upload</h2>
         <form id="uploadForm">
           <div class="row">
@@ -707,7 +707,7 @@ input[type="range"]{
         <div id="result" class="result">(waiting)</div>
       </div>
 
-      <div class="card">
+      <div class="card masterPane">
         <h2>Master</h2>
         <div class="hidden"><select id="infile"></select></div>
 
@@ -783,13 +783,13 @@ input[type="range"]{
         </div>
       </div>
 
-      <div class="card" id="recentCard">
+      <div class="card masterPane" id="recentCard">
         <h2>Previous Runs</h2>
         <div class="small">Click a run to load outputs. Delete removes the entire song output folder.</div>
         <div id="recent" class="outlist" style="margin-top:10px;"></div>
       </div>
 
-      <div class="card">
+      <div class="card masterPane">
         <h2>Job Output</h2>
         <div id="outlist" class="outlist"></div>
       </div>
@@ -1198,13 +1198,15 @@ function updatePackButtonState(){
   btn.disabled = getSelectedPresets().length === 0;
 }
 function showManage(){
-  document.getElementById('masterView').classList.add('hidden');
-  document.getElementById('manageView').classList.remove('hidden');
+  document.querySelectorAll('.masterPane').forEach(el => el.classList.add('hidden'));
+  const mv = document.getElementById('manageView');
+  if (mv) mv.classList.remove('hidden');
   renderManage();
 }
 function showMaster(){
-  document.getElementById('masterView').classList.remove('hidden');
-  document.getElementById('manageView').classList.add('hidden');
+  document.querySelectorAll('.masterPane').forEach(el => el.classList.remove('hidden'));
+  const mv = document.getElementById('manageView');
+  if (mv) mv.classList.add('hidden');
 }
 async function renderManage(){
   const uploadsDiv = document.getElementById('manageUploads');
