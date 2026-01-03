@@ -249,8 +249,9 @@ def main():
             guardrails_info["reason"] = "disabled"
         af = build_filters(preset, strength, args.lufs, args.tp, width_applied)
 
-        wav_out = song_dir / f"{infile.stem}__{args.preset}_S{int(strength*100)}.wav"
-        run_ffmpeg_wav(infile, wav_out, af)
+    wav_out = song_dir / f"{infile.stem}__{args.preset}_S{int(strength*100)}.wav"
+    print(f"[master] start infile={infile} preset={args.preset} strength={int(strength*100)} width={width_applied}", file=sys.stderr, flush=True)
+    run_ffmpeg_wav(infile, wav_out, af)
 
         mp3_out = wav_out.with_suffix(".mp3")
         make_mp3(wav_out, mp3_out)
@@ -290,7 +291,8 @@ def main():
 
         write_playlist_html(song_dir, infile.stem)
 
-        print(str(wav_out))
+    print(str(wav_out))
+    print(f"[master] done infile={infile} preset={args.preset}", file=sys.stderr, flush=True)
     finally:
         if marker:
             try:

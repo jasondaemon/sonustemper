@@ -1955,6 +1955,8 @@ def master_pack(
         except subprocess.CalledProcessError as e:
             # Log to stderr; UI will refresh Previous Runs anyway.
             print(f"[master-pack] failed: {e.output or e}", file=sys.stderr)
+        else:
+            print(f"[master-pack] started infile={infile} presets={presets} strength={strength}", file=sys.stderr)
 
     threading.Thread(target=run_pack, daemon=True).start()
     return JSONResponse({"message": "pack started (async); outputs will appear in Previous Runs", "script": str(chosen)})
@@ -1995,10 +1997,13 @@ def master_bulk(
             if guardrails:
                 cmd += ["--guardrails"]
             try:
+                print(f"[master-bulk] start file={f} presets={presets}", file=sys.stderr)
                 subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT)
                 results.append({"file": f, "status": "ok"})
+                print(f"[master-bulk] done file={f}", file=sys.stderr)
             except subprocess.CalledProcessError as e:
                 results.append({"file": f, "status": "error", "error": e.output})
+                print(f"[master-bulk] failed file={f}: {e.output or e}", file=sys.stderr)
 
     threading.Thread(target=run_all, daemon=True).start()
     return JSONResponse({"message": f"bulk started for {len(files)} file(s)", "script": str(chosen)})
