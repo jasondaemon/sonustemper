@@ -625,6 +625,8 @@ input[type="range"]{
   font-size:12px;
 }
 .info-btn:hover{ color:var(--text); border-color:var(--accent); }
+.section-gap{ border-top:1px solid var(--line); margin:16px 0 0 0; padding-top:12px; }
+.section-title{ margin:0 0 6px 0; font-size:14px; color:#cfe0f1; }
 </style>
 
 </head>
@@ -656,7 +658,7 @@ input[type="range"]{
         </form>
         <div id="uploadResult" class="small" style="margin-top:10px;"></div>
 
-        <div class="hr"></div>
+        <div class="section-gap"></div>
 
         <h2>Previous Runs</h2>
         <div class="small">Click a run to load outputs. Delete removes the entire song output folder.</div>
@@ -753,13 +755,12 @@ input[type="range"]{
           <button class="btnGhost" id="runBulkBtn" onclick="runBulk()">Run on selected files</button>
         </div>
 
-        <div class="hr"></div>
-
-        <div class="small">Job output:</div>
+        <div class="section-gap"></div>
+        <h3 class="section-title">Job Output</h3>
         <div id="result" class="result">(waiting)</div>
 
-        <div class="hr"></div>
-        <div class="small">Metrics</div>
+        <div class="section-gap"></div>
+        <h3 class="section-title">Metrics</h3>
         <div id="metricsPanel" class="small" style="margin-top:6px;"></div>
 
         <div id="links" class="links small" style="margin-top:10px;"></div>
@@ -786,6 +787,7 @@ const LOUDNESS_ORDER = ["apple", "streaming", "loud", "manual"];
 const GUARDRAILS_KEY = "widthGuardrailsEnabled";
 const PACK_PRESETS_KEY = "packPresets";
 const BULK_FILES_KEY = "bulkFilesSelected";
+let suppressRecentDuringRun = false;
 
 function setLoudnessHint(text){
   const el = document.getElementById('loudnessHint');
@@ -881,7 +883,8 @@ function initLoudnessMode(){
   applyLoudnessMode(sel.value, { fromInit: true });
 }
 
-async function refreshRecent() {
+async function refreshRecent(force=false) {
+  if (suppressRecentDuringRun && !force) return;
   const el = document.getElementById('recent');
   if (!el) return;
 
@@ -1441,7 +1444,8 @@ function stopRunPolling() {
   }
   runPollFiles = [];
   runPollSeen = new Set();
-   runPollDone = new Set();
+  runPollDone = new Set();
+  suppressRecentDuringRun = false;
 }
 
 function startRunPolling(files) {
@@ -1474,7 +1478,8 @@ function startRunPolling(files) {
         stopRunPolling();
         setStatus("");
         appendJobLog("Job complete.");
-        try { await refreshRecent(); } catch(e) { console.debug('recent refresh after polling stop failed', e); }
+        suppressRecentDuringRun = false;
+        try { await refreshRecent(true); } catch(e) { console.debug('recent refresh after polling stop failed', e); }
       }
     } catch (e) {
       console.debug("poll error", e);
@@ -1588,6 +1593,7 @@ async function showOutputsFromText(text){
 }
 
 async function runOne(){
+  suppressRecentDuringRun = true;
   clearOutList(); setLinks(''); setMetricsPanel('(waiting)');
   setStatus("Running master...");
   startJobLog('Processing...');
@@ -1596,6 +1602,7 @@ async function runOne(){
   const presets = getSelectedPresets();
   if (!files.length || !presets.length) {
     alert("Select at least one input file and one preset.");
+    suppressRecentDuringRun = false;
     return;
   }
   const song = (files[0] || '').replace(/\.[^.]+$/, '') || files[0];
@@ -1622,6 +1629,7 @@ async function runOne(){
 }
 
 async function runPack(){
+  suppressRecentDuringRun = true;
   clearOutList(); setLinks(''); setMetricsPanel('(waiting)');
   setStatus("A/B pack running...");
   startJobLog('Processing...');
@@ -1631,6 +1639,7 @@ async function runPack(){
   const presets = getSelectedPresets();
   if (!files.length || !presets.length) {
     alert("Select at least one input file and one preset.");
+    suppressRecentDuringRun = false;
     return;
   }
   const strength = document.getElementById('strength').value;
@@ -1656,10 +1665,12 @@ async function runPack(){
 }
 
 async function runBulk(){
+  suppressRecentDuringRun = true;
   const files = getSelectedBulkFiles();
   const presets = getSelectedPresets();
   if (!files.length || !presets.length) {
     alert("Select at least one file and one preset.");
+    suppressRecentDuringRun = false;
     return;
   }
   clearOutList(); setLinks(''); setMetricsPanel('(waiting)');
