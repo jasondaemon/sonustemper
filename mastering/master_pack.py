@@ -262,6 +262,12 @@ def main():
 
     song_dir = OUT_DIR / infile.stem
     song_dir.mkdir(parents=True, exist_ok=True)
+    source_copy = song_dir / infile.name
+    if not source_copy.exists():
+        try:
+            shutil.copy2(infile, source_copy)
+        except Exception:
+            pass
     marker = song_dir / ".processing"
     try:
         marker.write_text("running", encoding="utf-8")

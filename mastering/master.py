@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import argparse, json, shlex, subprocess, sys, re, datetime, os
+import argparse, json, shlex, subprocess, sys, re, datetime, os, shutil
 from pathlib import Path
 
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
@@ -179,14 +179,31 @@ def compact_metrics(m: dict | None):
 
 def write_playlist_html(folder: Path, title: str, source_name: str):
     wavs = sorted([f for f in folder.iterdir() if f.is_file() and f.suffix.lower() == ".wav"])
+    source_file = folder / source_name
+    source_audio = ""
+    if source_file.exists():
+        source_audio = f"""
+        <div class="entry">
+          <div class="entry-left">
+            <div class="name">{source_file.name}</div>
+            <div class="small metrics">Original source</div>
+          </div>
+          <div class="audioCol">
+            <audio controls preload="none" src="{source_file.name}"></audio>
+            <div class="small"><a class="linkish" href="{source_file.name}" download>Download source</a></div>
+          </div>
+        </div>
+        """
     rows = []
     for wav in wavs:
         mp3 = wav.with_suffix(".mp3")
-        metrics = read_metrics_file(wav.with_suffix(".metrics.json"))
+        metrics = read_metrics_file(wav.with_suffix('.metrics.json'))
         rows.append(f"""
-        <div class="row">
-          <div class="name">{wav.name}</div>
-          <div class="small metrics">{compact_metrics(metrics)}</div>
+        <div class="entry">
+          <div class="entry-left">
+            <div class="name">{wav.name}</div>
+            <div class="small metrics">{compact_metrics(metrics)}</div>
+          </div>
           <div class="audioCol">
             <audio controls preload="none" src="{wav.name}"></audio>
             {'<div class="small"><a class="linkish" href="'+wav.name+'" download>Download WAV</a></div>' if wav.exists() else ''}
@@ -224,8 +241,9 @@ def write_playlist_html(folder: Path, title: str, source_name: str):
     padding: 16px;
     box-shadow: 0 10px 30px rgba(0,0,0,0.35);
   }}
-  .row {{ display:flex; gap:16px; align-items:center; padding: 12px 0; border-bottom: 1px solid var(--line); }}
-  .name {{ width: 520px; font-family: ui-monospace, Menlo, monospace; font-size: 13px; color:var(--text); }}
+  .entry {{ display:flex; gap:16px; align-items:center; padding: 12px 0; border-bottom: 1px solid var(--line); }}
+  .entry-left {{ flex:1; display:flex; flex-direction:column; gap:4px; }}
+  .name {{ font-family: ui-monospace, Menlo, monospace; font-size: 13px; color:var(--text); }}
   audio {{ width: 420px; }}
   .pill {{ display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:12px; background:rgba(255,255,255,0.06); border:1px solid var(--line); color:var(--text); font-size:12px; }}
   .btn {{ display:inline-block; padding:8px 14px; border-radius:8px; background:var(--accent); color:#041019; font-weight:600; text-decoration:none; }}
@@ -240,14 +258,16 @@ def write_playlist_html(folder: Path, title: str, source_name: str):
     <div>
       <h2>{title} — Masters</h2>
       <div class="small">Source file: <span class="pill">{source_name}</span></div>
-      <div class="small">MP3 previews generated locally. WAV masters are in this folder too.</div>
+      <div class="small">Source preview:</div>
+      <div class="card" style="padding:10px; margin-top:6px; max-width: 700px;">{source_audio if source_audio else '<div class="small">Source not available.</div>'}</div>
+      <div class="small" style="margin-top:8px;">MP3 previews generated locally. WAV masters are in this folder too.</div>
     </div>
     <div>
       <a class="btn" href="/">Return to SonusTemper</a>
     </div>
   </div>
   <div class="card">
-    {''.join(rows) if rows else '<p class="small">No MP3 previews found.</p>'}
+    {''.join(rows) if rows else '<p class="small">No previews found.</p>'}
   </div>
 </body>
 </html>"""
@@ -285,6 +305,12 @@ def main():
 
     song_dir = OUT_DIR / infile.stem
     song_dir.mkdir(parents=True, exist_ok=True)
+    source_copy = song_dir / infile.name
+    if not source_copy.exists():
+        try:
+            shutil.copy2(infile, source_copy)
+        except Exception:
+            pass
     marker = song_dir / ".processing"
     try:
         marker.write_text("running", encoding="utf-8")
