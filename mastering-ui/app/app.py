@@ -1271,7 +1271,7 @@ function startRunPolling(song) {
   runPollTimer = setInterval(async () => {
     try {
       const res = await loadSong(song, true);
-      if (res && res.hasPlayable) {
+      if (res && res.hasPlayable && !res.processing) {
         stopRunPolling();
         setStatus("");
         setResult("Job complete.");
@@ -1295,6 +1295,11 @@ async function loadSong(song, skipEmpty=false){
   const j = await r.json();
   const hasItems = j.items && j.items.length > 0;
   if (skipEmpty && (!hasItems || (runPollSong && runPollSong !== song))) return { hasItems:false, hasPlayable:false };
+  let processing = false;
+  try {
+    const pr = await fetch(`/out/${song}/.processing`, { method:'GET', cache:'no-store' });
+    processing = pr.ok;
+  } catch(e){}
 
   const out = document.getElementById('outlist');
   out.innerHTML = '';
@@ -1320,7 +1325,7 @@ async function loadSong(song, skipEmpty=false){
   });
 
   // Fetch run-level metrics
-  if (hasPlayable) {
+  if (hasPlayable && !processing) {
     try {
       const mr = await fetch(`/api/metrics?song=${encodeURIComponent(song)}`, { cache: 'no-store' });
       if (mr.ok) {
@@ -1334,10 +1339,10 @@ async function loadSong(song, skipEmpty=false){
       setMetricsPanel('<span style="opacity:.7;">(metrics unavailable)</span>');
     }
   }
-  if (hasPlayable) {
+  if (hasPlayable && processing) {
     setResult("Outputs updating...");
   }
-  return { hasItems, hasPlayable };
+  return { hasItems, hasPlayable, processing };
 }
 
 async function showOutputsFromText(text){

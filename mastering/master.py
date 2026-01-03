@@ -215,71 +215,93 @@ def main():
 
     song_dir = OUT_DIR / infile.stem
     song_dir.mkdir(parents=True, exist_ok=True)
-
-    # Targets (from preset unless overridden)
-    target_lufs = float(args.lufs) if args.lufs is not None else float(preset.get('lufs', -14))
-    lim = preset.get('limiter', {}) or {}
-    ceiling_db = float(args.tp) if args.tp is not None else float(lim.get('ceiling', -1.0))
-    # Width: override > preset > 1.0
-    width_requested = float(args.width) if getattr(args, 'width', None) is not None else float(preset.get('width', 1.0))
-    width_applied = width_requested
-    guardrails_info = {"enabled": bool(args.guardrails), "width_requested": width_requested, "width_applied": width_applied}
-    if args.guardrails:
-        guard_max = float(args.guard_max_width or 1.1)
-        if width_applied > guard_max:
-            width_applied = guard_max
-            guardrails_info["width_applied"] = width_applied
-            guardrails_info["guard_max_width"] = guard_max
-            guardrails_info["reason"] = "clamped_max"
-        else:
-            guardrails_info["guard_max_width"] = guard_max
-            guardrails_info["reason"] = "none"
-    else:
-        guardrails_info["reason"] = "disabled"
-    af = build_filters(preset, strength, args.lufs, args.tp, width_applied)
-
-    wav_out = song_dir / f"{infile.stem}__{args.preset}_S{int(strength*100)}.wav"
-    run_ffmpeg_wav(infile, wav_out, af)
-
-    mp3_out = wav_out.with_suffix(".mp3")
-    make_mp3(wav_out, mp3_out)
-
-    write_metrics(wav_out, target_lufs, ceiling_db, width_applied)
-
-    # Run-level metrics (input + output)
-    run_metrics = {
-        "version": 1,
-        "run_id": song_dir.name,
-        "created_at": datetime.datetime.utcnow().isoformat() + "Z",
-        "preset": args.preset,
-        "strength": int(strength * 100),
-        "overrides": {
-            "lufs": args.lufs,
-            "tp": args.tp,
-            "width": width_requested,
-            "mono_bass": None,  # not used in this script
-        },
-        "guardrails": guardrails_info,
-        "input": basic_metrics(infile),
-        "output": basic_metrics(wav_out),
-    }
+    marker = song_dir / ".processing"
     try:
-        i = run_metrics.get("input") or {}
-        o = run_metrics.get("output") or {}
-        deltas = {}
-        if isinstance(i.get("I"), (int, float)) and isinstance(o.get("I"), (int, float)):
-            deltas["I"] = o["I"] - i["I"]
-        if isinstance(i.get("TP"), (int, float)) and isinstance(o.get("TP"), (int, float)):
-            deltas["TP"] = o["TP"] - i["TP"]
-        if deltas:
-            run_metrics["deltas"] = deltas
+        marker.write_text("running", encoding="utf-8")
     except Exception:
-        pass
-    (song_dir / "metrics.json").write_text(json.dumps(run_metrics, indent=2), encoding="utf-8")
+        marker = None
+    marker = song_dir / ".processing"
+    try:
+        marker.write_text("running", encoding="utf-8")
+    except Exception:
+        marker = None
 
-    write_playlist_html(song_dir, infile.stem)
+    try:
+        # Targets (from preset unless overridden)
+        target_lufs = float(args.lufs) if args.lufs is not None else float(preset.get('lufs', -14))
+        lim = preset.get('limiter', {}) or {}
+        ceiling_db = float(args.tp) if args.tp is not None else float(lim.get('ceiling', -1.0))
+        # Width: override > preset > 1.0
+        width_requested = float(args.width) if getattr(args, 'width', None) is not None else float(preset.get('width', 1.0))
+        width_applied = width_requested
+        guardrails_info = {"enabled": bool(args.guardrails), "width_requested": width_requested, "width_applied": width_applied}
+        if args.guardrails:
+            guard_max = float(args.guard_max_width or 1.1)
+            if width_applied > guard_max:
+                width_applied = guard_max
+                guardrails_info["width_applied"] = width_applied
+                guardrails_info["guard_max_width"] = guard_max
+                guardrails_info["reason"] = "clamped_max"
+            else:
+                guardrails_info["guard_max_width"] = guard_max
+                guardrails_info["reason"] = "none"
+        else:
+            guardrails_info["reason"] = "disabled"
+        af = build_filters(preset, strength, args.lufs, args.tp, width_applied)
 
-    print(str(wav_out))
+        wav_out = song_dir / f"{infile.stem}__{args.preset}_S{int(strength*100)}.wav"
+        run_ffmpeg_wav(infile, wav_out, af)
+
+        mp3_out = wav_out.with_suffix(".mp3")
+        make_mp3(wav_out, mp3_out)
+
+        write_metrics(wav_out, target_lufs, ceiling_db, width_applied)
+
+        # Run-level metrics (input + output)
+        run_metrics = {
+            "version": 1,
+            "run_id": song_dir.name,
+            "created_at": datetime.datetime.utcnow().isoformat() + "Z",
+            "preset": args.preset,
+            "strength": int(strength * 100),
+            "overrides": {
+                "lufs": args.lufs,
+                "tp": args.tp,
+                "width": width_requested,
+                "mono_bass": None,  # not used in this script
+            },
+            "guardrails": guardrails_info,
+            "input": basic_metrics(infile),
+            "output": basic_metrics(wav_out),
+        }
+        try:
+            i = run_metrics.get("input") or {}
+            o = run_metrics.get("output") or {}
+            deltas = {}
+            if isinstance(i.get("I"), (int, float)) and isinstance(o.get("I"), (int, float)):
+                deltas["I"] = o["I"] - i["I"]
+            if isinstance(i.get("TP"), (int, float)) and isinstance(o.get("TP"), (int, float)):
+                deltas["TP"] = o["TP"] - i["TP"]
+            if deltas:
+                run_metrics["deltas"] = deltas
+        except Exception:
+            pass
+        (song_dir / "metrics.json").write_text(json.dumps(run_metrics, indent=2), encoding="utf-8")
+
+        write_playlist_html(song_dir, infile.stem)
+
+        print(str(wav_out))
+    finally:
+        if marker:
+            try:
+                marker.unlink(missing_ok=True)
+            except Exception:
+                pass
+    if marker:
+        try:
+            marker.unlink(missing_ok=True)
+        except Exception:
+            pass
 
 if __name__ == "__main__":
     try:
