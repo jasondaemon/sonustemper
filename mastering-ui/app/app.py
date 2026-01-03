@@ -487,6 +487,7 @@ HTML_TEMPLATE = r"""
     .linkish{ color:#ffd3b3; text-decoration:none; }
     .linkish:hover{ text-decoration:underline; }
     .hidden{ display:none !important; }
+    .footer{ margin-top:18px; text-align:center; font-size:12px; opacity:.75; }
     .manage-wrap{ padding:14px; border:1px solid var(--line); border-radius:14px; background:#0b121d; margin-top:10px; }
     .manage-list{ display:flex; flex-direction:column; gap:8px; }
     .manage-item{ display:flex; justify-content:space-between; align-items:center; padding:8px 10px; border:1px solid var(--line); border-radius:10px; }
@@ -681,10 +682,7 @@ input[type="range"]{
     <div class="top">
       <div>
         <h1>SonusTemper</h1>
-        <div class="sub">
-          <span class="pill">IN: <span class="mono">{{IN_DIR}}</span></span>
-          <span class="pill">OUT: <span class="mono">{{OUT_DIR}}</span></span>
-        </div>
+        <div class="sub">Preset-Based Mastering &amp; Normalization</div>
       </div>
       <div class="row">
         <button class="btnGhost" onclick="refreshAll()">Refresh lists</button>
@@ -692,14 +690,14 @@ input[type="range"]{
       </div>
     </div>
 
-<div class="grid">
+<div class="grid" id="masterView">
       <div class="card" id="uploadCard">
         <h2>Upload</h2>
         <form id="uploadForm">
           <div class="row">
             <input type="file" id="file" name="files" accept=".wav,.mp3,.flac,.aiff,.aif" multiple required />
             <button class="btn2" type="submit">Upload</button>
-            <button class="btnGhost" type="button" onclick="showManage()">Manage</button>
+            <button class="btnGhost" type="button" onclick="showManage()">Manage Files</button>
           </div>
         </form>
         <div id="uploadResult" class="small" style="margin-top:10px;"></div>
@@ -811,6 +809,7 @@ input[type="range"]{
         </div>
       </div>
     </div>
+    <div class="footer">developed by <a class="linkish" href="http://www.jasondaemon.net">jasondaemon.net</a></div>
   </div>
 
 <script>
@@ -957,24 +956,16 @@ async function refreshRecent(force=false) {
     for (const it of items) {
       const div = document.createElement('div');
       div.className = 'outitem';
-      const m = it.metrics || {};
-      const outMetrics = m.output || m;
-      const summary = (outMetrics && (outMetrics.I !== undefined || outMetrics.TP !== undefined))
-        ? `LUFS ${fmtMetric(outMetrics.I, '')} / TP ${fmtMetric(outMetrics.TP, ' dB')}`
-        : 'metrics: —';
       div.innerHTML = `
         <div class="runRow">
           <div class="runLeft">
             <div class="mono" style="font-weight:600;">${it.song || it.name}</div>
-            <div class="small" style="opacity:.8;">${summary}</div>
-            <div class="small"></div>
           </div>
           <div class="runBtns">
             <button class="btnGhost" onclick="loadSong('${it.song}')">Load</button>
             <button class="btnDanger" onclick="deleteSong('${it.song}')">Delete</button>
           </div>
         </div>
-        <div class="small"> <!-- previews removed to keep Job Output as source of truth --></div>
       `;
       el.appendChild(div);
     }
