@@ -19,6 +19,7 @@ OUT_DIR = Path(os.getenv("OUT_DIR", str(DATA_DIR / "out")))
 PRESET_DIR = Path(os.getenv("PRESET_DIR", "/presets"))
 
 APP_DIR = Path(__file__).resolve().parent
+# Deprecated: master.py retained only as a fallback reference; master_pack.py is the unified runner.
 _default_master = APP_DIR / "mastering" / "master.py"
 _default_pack = APP_DIR / "mastering" / "master_pack.py"
 if not _default_pack.exists():
@@ -135,7 +136,17 @@ def basic_metrics(path: Path) -> dict:
     return m
 
 def find_input_file(song: str) -> Path | None:
-    candidates = sorted([p for p in IN_DIR.iterdir() if p.is_file() and p.stem == song])
+    candidates: list[Path] = []
+    try:
+        candidates.extend([p for p in IN_DIR.iterdir() if p.is_file() and p.stem == song])
+    except Exception:
+        pass
+    try:
+        out_folder = OUT_DIR / song
+        candidates.extend([p for p in out_folder.iterdir() if p.is_file() and p.stem == song])
+    except Exception:
+        pass
+    candidates = sorted(candidates)
     return candidates[0] if candidates else None
 
 def fill_input_metrics(song: str, m: dict, folder: Path) -> dict:
@@ -1432,7 +1443,7 @@ function initInfoDrawer(){
 
 function fmtMetric(v, suffix=""){
   if (v === null || v === undefined) return "—";
-  if (typeof v === "number" && Number.isFinite(v)) return `${v}${suffix}`;
+  if (typeof v === "number" && Number.isFinite(v)) return `${v.toFixed(1)}${suffix}`;
   return String(v);
 }
 function fmtDelta(out, inp, suffix=""){
@@ -1961,6 +1972,16 @@ def outlist(song: str):
         for w in wavs:
             stem = w.stem
             m = read_metrics_for_wav(w)
+            if (not m) or ("duration_sec" not in m):
+                try:
+                    info = docker_ffprobe_json(w)
+                    dur = float(info.get("format", {}).get("duration")) if info else None
+                    if m is None:
+                        m = {}
+                    if dur is not None:
+                        m["duration_sec"] = dur
+                except Exception:
+                    pass
             items.append({
                 "name": stem,
                 "wav": f"/out/{song}/{w.name}",
