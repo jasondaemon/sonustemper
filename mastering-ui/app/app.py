@@ -670,6 +670,10 @@ input[type="range"]{
           </div>
         </form>
         <div id="uploadResult" class="small" style="margin-top:10px;"></div>
+
+        <div class="section-gap"></div>
+        <h3 class="section-title">Processing Status</h3>
+        <div id="result" class="result">(waiting)</div>
       </div>
 
       <div class="card">
@@ -756,8 +760,6 @@ input[type="range"]{
 
       <div class="card">
         <h2>Job Output</h2>
-        <div id="result" class="result">(waiting)</div>
-
         <div class="section-gap strong"></div>
         <h3 class="section-title">Metrics</h3>
         <div id="metricsPanel" class="small" style="margin-top:6px;"></div>
