@@ -1297,13 +1297,14 @@ async function loadSong(song, skipEmpty=false){
   out.innerHTML = '';
   let hasPlayable = false;
   j.items.forEach(it => {
-    if (it.mp3 || it.wav) hasPlayable = true;
+    const audioSrc = it.mp3 || it.wav || null;
+    if (audioSrc) hasPlayable = true;
     const div = document.createElement('div');
     div.className = 'outitem';
     div.innerHTML = `
       <div class="mono">${it.name}</div>
       ${it.metrics ? `<div class="small">${it.metrics}</div>` : `<div class="small">metrics: (not available yet)</div>`}
-      ${it.mp3 ? `<audio controls preload="none" src="${it.mp3}"></audio>` : ''}
+      ${audioSrc ? `<audio controls preload="none" src="${audioSrc}"></audio>` : ''}
       <div class="small">
         ${it.wav ? `<a class="linkish" href="${it.wav}" target="_blank">WAV</a>` : ''}
         ${it.mp3 ? `&nbsp;|&nbsp;<a class="linkish" href="${it.mp3}" target="_blank">MP3</a>` : ''}
@@ -1314,7 +1315,7 @@ async function loadSong(song, skipEmpty=false){
   });
 
   // Fetch run-level metrics
-  if (!skipEmpty || hasPlayable) {
+  if (hasPlayable) {
     try {
       const mr = await fetch(`/api/metrics?song=${encodeURIComponent(song)}`, { cache: 'no-store' });
       if (mr.ok) {
