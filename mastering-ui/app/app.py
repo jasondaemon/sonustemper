@@ -1446,10 +1446,10 @@ function startRunPolling(files) {
           anyProcessing = true;
           runPollSeen.add(f);
         }
-        if (runPollSeen.has(f) && res && res.hasPlayable && !res.processing) {
+        if (res && res.hasPlayable && !res.processing) {
           pending.delete(f);
+          runPollSeen.add(f);
         }
-        // if never seen processing, keep pending to avoid early stop
       }
       if (!anyProcessing && pending.size === 0) {
         stopRunPolling();
