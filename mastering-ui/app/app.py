@@ -1244,16 +1244,19 @@ function appendOverrides(fd){
 }
 
 let runPollTimer = null;
+let runPollSong = null;
 function stopRunPolling() {
   if (runPollTimer) {
     clearInterval(runPollTimer);
     runPollTimer = null;
   }
+  runPollSong = null;
 }
 
 function startRunPolling(song) {
   stopRunPolling();
   if (!song) return;
+  runPollSong = song;
   setStatus(`Processing ${song}...`);
   runPollTimer = setInterval(async () => {
     try {
@@ -1280,7 +1283,7 @@ async function loadSong(song, skipEmpty=false){
   const r = await fetch(`/api/outlist?song=${encodeURIComponent(song)}`);
   const j = await r.json();
   const hasItems = j.items && j.items.length > 0;
-  if (skipEmpty && !hasItems) return { hasItems:false, hasPlayable:false };
+  if (skipEmpty && (!hasItems || (runPollSong && runPollSong !== song))) return { hasItems:false, hasPlayable:false };
 
   const out = document.getElementById('outlist');
   out.innerHTML = '';
@@ -1333,6 +1336,8 @@ async function showOutputsFromText(text){
 
   await loadSong(song);
   await refreshRecent();
+  stopRunPolling();
+  setStatus("");
 }
 
 async function runOne(){
