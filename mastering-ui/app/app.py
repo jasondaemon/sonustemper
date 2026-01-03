@@ -1317,6 +1317,9 @@ async function loadSong(song, skipEmpty=false){
       setMetricsPanel('<span style="opacity:.7;">(metrics unavailable)</span>');
     }
   }
+  if (hasPlayable) {
+    setResult("Outputs updating...");
+  }
   return { hasItems, hasPlayable };
 }
 
@@ -1330,8 +1333,6 @@ async function showOutputsFromText(text){
 
   await loadSong(song);
   await refreshRecent();
-  stopRunPolling();
-  setStatus("");
 }
 
 async function runOne(){
