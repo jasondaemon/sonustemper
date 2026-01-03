@@ -1,0 +1,14 @@
+{
+  "name": "FOE Acoustic",
+  "lufs": -12.5,
+  "eq": [
+    { "freq": 120, "gain": 1.4, "q": 1.0 },
+    { "freq": 800, "gain": -0.8, "q": 1.1 },
+    { "freq": 3200, "gain": 2.4, "q": 1.2 },
+    { "freq": 11000, "gain": 1.5, "q": 0.9 }
+  ],
+  "compressor": { "threshold": -18, "ratio": 2.6, "attack": 22, "release": 240 },
+  "limiter": { "ceiling": -1.0 },
+  "mono_bass_hz": 120,
+  "width": 1.12
+}

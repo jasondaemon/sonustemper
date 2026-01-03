@@ -1,0 +1,13 @@
+{
+  "name": "Modern",
+  "lufs": -12,
+  "eq": [
+    { "freq": 100, "gain": 1.2, "q": 1.0 },
+    { "freq": 3500, "gain": 2.2, "q": 1.2 },
+    { "freq": 12000, "gain": 2.0, "q": 0.8 }
+  ],
+  "compressor": { "threshold": -17, "ratio": 2.8, "attack": 20, "release": 200 },
+  "limiter": { "ceiling": -1.0 },
+  "mono_bass_hz": 120,
+  "width": 1.12
+}

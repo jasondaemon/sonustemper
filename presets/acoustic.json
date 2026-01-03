@@ -1,0 +1,12 @@
+{
+  "name": "Acoustic",
+  "lufs": -15,
+  "eq": [
+    { "freq": 120, "gain": 1.0, "q": 0.9 },
+    { "freq": 5000, "gain": 1.2, "q": 1.1 }
+  ],
+  "compressor": { "threshold": -22, "ratio": 1.5, "attack": 50, "release": 350 },
+  "limiter": { "ceiling": -1.2 },
+  "width": 1.12,
+  "mono_bass_hz": 120
+}

@@ -1,0 +1,13 @@
+{
+  "name": "Warm",
+  "lufs": -13,
+  "eq": [
+    { "freq": 120, "gain": 1.8, "q": 1.0 },
+    { "freq": 400, "gain": 1.2, "q": 1.2 },
+    { "freq": 8000, "gain": -0.8, "q": 0.9 }
+  ],
+  "compressor": { "threshold": -18, "ratio": 2.2, "attack": 40, "release": 300 },
+  "limiter": { "ceiling": -1.1 },
+  "mono_bass_hz": 120,
+  "width": 1.08
+}
