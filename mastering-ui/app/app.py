@@ -399,12 +399,15 @@ def load_preset_meta() -> dict:
     return meta
 
 BUILD_STAMP = os.getenv("MASTERING_BUILD")
-if not BUILD_STAMP:
+git_rev = None
+try:
+    git_rev = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
+except Exception:
     git_rev = None
-    try:
-        git_rev = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
-    except Exception:
-        git_rev = None
+if BUILD_STAMP:
+    if git_rev:
+        BUILD_STAMP = f"{BUILD_STAMP}-{git_rev}"
+else:
     if git_rev:
         BUILD_STAMP = f"dev-{git_rev}"
     else:
@@ -1296,9 +1299,11 @@ async function loadSong(song, skipEmpty=false){
   const out = document.getElementById('outlist');
   out.innerHTML = '';
   let hasPlayable = false;
+  let anyMetricsStrings = false;
   j.items.forEach(it => {
     const audioSrc = it.mp3 || it.wav || null;
     if (audioSrc) hasPlayable = true;
+    if (it.metrics) anyMetricsStrings = true;
     const div = document.createElement('div');
     div.className = 'outitem';
     div.innerHTML = `
@@ -1315,7 +1320,7 @@ async function loadSong(song, skipEmpty=false){
   });
 
   // Fetch run-level metrics
-  if (hasPlayable) {
+  if (hasPlayable && anyMetricsStrings) {
     try {
       const mr = await fetch(`/api/metrics?song=${encodeURIComponent(song)}`, { cache: 'no-store' });
       if (mr.ok) {
@@ -1366,7 +1371,11 @@ async function runOne(){
   startRunPolling(song);
   const r = await fetch('/api/master', { method:'POST', body: fd });
   const t = await r.text();
-  setResult(cleanResultText(t));
+  if (t.toLowerCase().includes("pack started") || t.toLowerCase().includes("async")) {
+    setResultHTML('<span class="spinner">Processing…</span>');
+  } else {
+    setResult(cleanResultText(t));
+  }
   await showOutputsFromText(t);
 
   // Auto-refresh lists after a run so outputs + previous runs appear
@@ -1401,12 +1410,24 @@ async function runPack(){
     const j = JSON.parse(t);
     if (j && typeof j === 'object') {
       const msg = j.message || '';
-      setResult(msg || '(run submitted)');
+      if (msg.toLowerCase().includes("started")) {
+        setResultHTML('<span class="spinner">Processing…</span>');
+      } else {
+        setResult(msg || '(run submitted)');
+      }
+    } else {
+      if (t.toLowerCase().includes("pack started") || t.toLowerCase().includes("async")) {
+        setResultHTML('<span class="spinner">Processing…</span>');
+      } else {
+        setResult(cleanResultText(t));
+      }
+    }
+  } catch {
+    if (t.toLowerCase().includes("pack started") || t.toLowerCase().includes("async")) {
+      setResultHTML('<span class="spinner">Processing…</span>');
     } else {
       setResult(cleanResultText(t));
     }
-  } catch {
-    setResult(cleanResultText(t));
   }
   await showOutputsFromText(t);
 
