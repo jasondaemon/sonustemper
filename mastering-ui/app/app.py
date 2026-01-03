@@ -649,8 +649,8 @@ input[type="range"]{
         <form id="uploadForm">
           <div class="row">
             <input type="file" id="file" name="file" accept=".wav,.mp3,.flac,.aiff,.aif" required />
-            <button class="btn2" type="submit">Upload to {{IN_DIR}}</button>
-            <button class="btnGhost" type="button" onclick="showManage()">Manage uploads & runs</button>
+            <button class="btn2" type="submit">Upload</button>
+            <button class="btnGhost" type="button" onclick="showManage()">Manage</button>
           </div>
         </form>
         <div id="uploadResult" class="small" style="margin-top:10px;"></div>
@@ -1139,6 +1139,25 @@ async function renderManage(){
   });
 }
 
+function wireUploadForm(){
+  const form = document.getElementById('uploadForm');
+  const uploadResult = document.getElementById('uploadResult');
+  if (!form) return;
+  form.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const fileInput = document.getElementById('file');
+    if (!fileInput || !fileInput.files.length) return;
+    setResultHTML('<span class="spinner">Uploading…</span>');
+    uploadResult.textContent = 'Uploading...';
+    const fd = new FormData(form);
+    const r = await fetch('/api/upload', { method:'POST', body: fd });
+    const t = await r.text();
+    uploadResult.textContent = r.ok ? 'Upload complete.' : `Upload failed: ${t}`;
+    setResult(r.ok ? 'Upload complete.' : 'Upload failed.');
+    try { await refreshAll(); } catch(_){}
+  });
+}
+
 function initInfoDrawer(){
   const drawer = document.getElementById('infoDrawer');
   const backdrop = document.getElementById('drawerBackdrop');
@@ -1572,6 +1591,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     refreshAll();
     initInfoDrawer();
+    wireUploadForm();
   } catch(e){
     console.error(e);
     setStatus("UI init error (open console)");
