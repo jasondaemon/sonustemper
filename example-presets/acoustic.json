@@ -8,5 +8,15 @@
   "compressor": { "threshold": -22, "ratio": 1.5, "attack": 50, "release": 350 },
   "limiter": { "ceiling": -1.2 },
   "width": 1.12,
-  "mono_bass_hz": 120
+  "mono_bass_hz": 120,
+  "intent": "Natural, open master that preserves transients and room while gently controlling peaks.",
+  "dsp": [
+    "Gentle wideband EQ for clarity: subtle low-mid cleanup; airy top lift only if needed.",
+    "Light compression (low ratio) to smooth macro-dynamics without ‘pinning’ the mix.",
+    "Transient-friendly limiting; avoids aggressive clipping.",
+    "Stereo kept natural; avoids over-widening; bass stability prioritized."
+  ],
+  "bestFor": ["singer-songwriter", "folk", "acoustic pop", "live room recordings"],
+  "watchOut": ["If the mix is already bright, extra air can accentuate pick/cymbal edge."],
+  "abNotes": ["Listen for: vocal realism, room tone, and transient snap without harshness."]
 }

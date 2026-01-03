@@ -9,5 +9,15 @@
   "compressor": { "threshold": -16, "ratio": 3.0, "attack": 15, "release": 180 },
   "limiter": { "ceiling": -1.0 },
   "mono_bass_hz": 130,
-  "width": 1.14
+  "width": 1.14,
+  "intent": "Punch-forward rock option with snare impact, controlled lows, and energetic mids.",
+  "dsp": [
+    "Low-end tightening + midrange energy to keep guitars/vocals forward.",
+    "Bus compression with medium timing to enhance punch + cohesion.",
+    "Limiter tuned to keep drum transients alive.",
+    "Stereo kept solid; avoids extreme width."
+  ],
+  "bestFor": ["alt rock", "hard rock", "classic-leaning modern rock"],
+  "watchOut": ["If the mix is already mid-heavy, this can feel shouty—compare with Clean."],
+  "abNotes": ["Listen for: snare ‘crack’, vocal presence, and guitar bite without fatigue."]
 }

@@ -209,7 +209,7 @@ def bust_url(song: str, filename: str) -> str:
         v = 0
     return f"/out/{song}/{filename}?v={v}"
 
-PRESET_META = {
+PRESET_META_FALLBACK = {
     "acoustic": {
         "title": "Acoustic",
         "intent": "Natural, open master that preserves transients and room while gently controlling peaks.",
@@ -367,6 +367,36 @@ LOUDNESS_PROFILES = {
         "caution": ["Extreme targets can reduce dynamics or cause distortion."]
     }
 }
+
+def load_preset_meta() -> dict:
+    """Load preset metadata from preset JSON files; fall back to baked-in copy."""
+    meta = {}
+    files = list(PRESET_DIR.glob("*.json")) if PRESET_DIR.exists() else []
+    for fp in files:
+        try:
+            data = json.loads(fp.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        pid = fp.stem
+        entry = {}
+        # allow metadata either top-level or nested under "meta"
+        src = data.get("meta", {}) if isinstance(data, dict) else {}
+        # pull top-level descriptive fields too
+        for key in ["intent", "dsp", "bestFor", "watchOut", "abNotes", "title"]:
+            if key in data and data.get(key):
+                src.setdefault(key, data.get(key))
+        entry["title"] = src.get("title") or data.get("name") or pid
+        for key in ["intent", "dsp", "bestFor", "watchOut", "abNotes"]:
+            if src.get(key) is not None:
+                entry[key] = src.get(key)
+        if entry:
+            meta[pid] = entry
+    # Merge with fallback where fields are missing
+    for pid, fb in PRESET_META_FALLBACK.items():
+        cur = meta.get(pid, {})
+        merged = {**fb, **cur}
+        meta[pid] = merged
+    return meta
 
 BUILD_STAMP = os.getenv("MASTERING_BUILD")
 if not BUILD_STAMP:
@@ -1417,7 +1447,7 @@ window.LOUDNESS_PROFILES = {{ loudness_profiles_json }};
 def index():
     html = HTML_TEMPLATE
     html = html.replace("{{BUILD_STAMP}}", BUILD_STAMP)
-    html = html.replace("{{ preset_meta_json }}", json.dumps(PRESET_META))
+    html = html.replace("{{ preset_meta_json }}", json.dumps(load_preset_meta()))
     html = html.replace("{{ loudness_profiles_json }}", json.dumps(LOUDNESS_PROFILES))
     html = html.replace("{{IN_DIR}}", str(IN_DIR))
     html = html.replace("{{OUT_DIR}}", str(OUT_DIR))

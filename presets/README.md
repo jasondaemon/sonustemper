@@ -1,1 +1,1 @@
-Runtime presets live here. Copy the example files from `../example-presets/` into this folder (or place your own preset JSONs) before running the app. This directory is mounted read-only into the container at `/presets`.
+Runtime presets live here. Copy the example files from `../example-presets/` into this folder (or place your own preset JSONs) before running the app. The example files include the descriptive fields used by the info drawer (intent, DSP bullets, etc.). This directory is mounted read-only into the container at `/presets`.
