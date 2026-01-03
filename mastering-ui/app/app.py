@@ -956,16 +956,14 @@ async function refreshRecent(force=false) {
           <div class="runLeft">
             <div class="mono" style="font-weight:600;">${it.song || it.name}</div>
             <div class="small" style="opacity:.8;">${summary}</div>
-            <div class="small">
-              ${it.ab || it.folder ? `<a class="linkish" href="${it.ab || it.folder}" target="_blank">Full Job Index</a>` : ''}
-            </div>
+            <div class="small"></div>
           </div>
           <div class="runBtns">
             <button class="btnGhost" onclick="loadSong('${it.song}')">Load</button>
             <button class="btnDanger" onclick="deleteSong('${it.song}')">Delete</button>
           </div>
         </div>
-        ${it.mp3 ? `<audio controls preload="none" src="${it.mp3}"></audio>` : `<div class="small">No previews yet</div>`}
+        <div class="small"> <!-- previews removed to keep Job Output as source of truth --></div>
       `;
       el.appendChild(div);
     }
@@ -1593,11 +1591,7 @@ async function loadSong(song, skipEmpty=false){
 
   if (!opts.quiet) {
     localStorage.setItem("lastSong", song);
-    setLinks(`
-      Output folder: <a href="/out/${song}/" target="_blank">/out/${song}/</a>
-      &nbsp;|&nbsp;
-      A/B page: <a href="/out/${song}/index.html" target="_blank">index.html</a>
-    `);
+    setLinks('');
   }
 
   lastRunInputMetrics = null;
