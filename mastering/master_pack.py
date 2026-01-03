@@ -122,33 +122,36 @@ def read_metrics_file(path: Path) -> dict | None:
 def compact_metrics(m: dict | None):
     if not m or not isinstance(m, dict):
         return "metrics: —"
-    vals = []
-    if m.get("I") is not None:
-        delta = ""
-        if m.get("target_I") is not None:
-            d = m["I"] - m["target_I"]
-            delta = f" ({'+' if d>0 else ''}{d:.1f})"
-        vals.append(f"I {m['I']:.1f} LUFS{delta}")
-    if m.get("TP") is not None:
-        vals.append(f"TP {m['TP']:.1f} dB")
+    def fmt(v, suffix=""):
+        return "—" if v is None else f"{v:.1f}{suffix}"
+    def delta(v, target):
+        if v is None or target is None:
+            return ""
+        d = v - target
+        return f" ({'+' if d>0 else ''}{d:.1f})"
+    i_line = f"I {fmt(m.get('I'), ' LUFS')}{delta(m.get('I'), m.get('target_I'))} • TP {fmt(m.get('TP'), ' dB')}"
+    extras = []
     if m.get("LRA") is not None:
-        vals.append(f"LRA {m['LRA']:.1f}")
+        extras.append(f"LRA {fmt(m.get('LRA'))}")
     if m.get("width") is not None:
-        vals.append(f"W {m['width']:.2f}")
+        extras.append(f"W {fmt(m.get('width'))}")
     if m.get("duration_sec") is not None:
-        vals.append(f"Dur {m['duration_sec']:.1f}s")
-    return " · ".join(vals) if vals else "metrics: —"
+        extras.append(f"Dur {fmt(m.get('duration_sec'),'s')}")
+    return i_line + ((" • " + " • ".join(extras)) if extras else "")
 
 def write_playlist_html(folder: Path, title: str, source_name: str):
     wavs = sorted([f for f in folder.iterdir() if f.is_file() and f.suffix.lower() == ".wav"])
+    source_audio = f'<audio controls preload="none" src="../in/{source_name}" style="width:100%;"></audio>' if (IN_DIR / source_name).exists() else '<div class="small">Source not available.</div>'
     rows = []
     for wav in wavs:
         mp3 = wav.with_suffix(".mp3")
         metrics = read_metrics_file(wav.with_suffix(".metrics.json"))
         rows.append(f"""
         <div class="row">
-          <div class="name">{wav.name}</div>
-          <div class="small metrics">{compact_metrics(metrics)}</div>
+          <div class="col nameCol">
+            <div class="name">{wav.name}</div>
+            <div class="small metrics">{compact_metrics(metrics)}</div>
+          </div>
           <div class="audioCol">
             <audio controls preload="none" src="{wav.name}"></audio>
             {'<div class="small"><a class="linkish" href="'+wav.name+'" download>Download WAV</a></div>' if wav.exists() else ''}
@@ -187,7 +190,8 @@ def write_playlist_html(folder: Path, title: str, source_name: str):
     box-shadow: 0 10px 30px rgba(0,0,0,0.35);
   }}
   .row {{ display:flex; gap:16px; align-items:center; padding: 12px 0; border-bottom: 1px solid var(--line); }}
-  .name {{ width: 520px; font-family: ui-monospace, Menlo, monospace; font-size: 13px; color:var(--text); }}
+  .nameCol {{ flex:1; display:flex; flex-direction:column; gap:4px; }}
+  .name {{ font-family: ui-monospace, Menlo, monospace; font-size: 13px; color:var(--text); }}
   audio {{ width: 420px; }}
   .pill {{ display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:12px; background:rgba(255,255,255,0.06); border:1px solid var(--line); color:var(--text); font-size:12px; }}
   .btn {{ display:inline-block; padding:8px 14px; border-radius:8px; background:var(--accent); color:#041019; font-weight:600; text-decoration:none; }}
@@ -202,7 +206,9 @@ def write_playlist_html(folder: Path, title: str, source_name: str):
     <div>
       <h2>{title} — A/B Pack</h2>
       <div class="small">Source file: <span class="pill">{source_name}</span></div>
-      <div class="small">MP3 previews generated locally. WAV masters are in the same folder.</div>
+      <div class="small">Source preview:</div>
+      <div class="card" style="padding:10px; margin-top:6px; max-width: 700px;">{source_audio}</div>
+      <div class="small" style="margin-top:8px;">MP3 previews generated locally. WAV masters are in the same folder.</div>
     </div>
     <div>
       <a class="btn" href="/">Return to SonusTemper</a>

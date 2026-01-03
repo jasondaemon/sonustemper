@@ -160,22 +160,22 @@ def read_metrics_file(path: Path) -> dict | None:
 def compact_metrics(m: dict | None):
     if not m or not isinstance(m, dict):
         return "metrics: —"
-    vals = []
-    if m.get("I") is not None:
-        delta = ""
-        if m.get("target_I") is not None:
-            d = m["I"] - m["target_I"]
-            delta = f" ({'+' if d>0 else ''}{d:.1f})"
-        vals.append(f"I {m['I']:.1f} LUFS{delta}")
-    if m.get("TP") is not None:
-        vals.append(f"TP {m['TP']:.1f} dB")
+    def fmt(v, suffix=""):
+        return "—" if v is None else f"{v:.1f}{suffix}"
+    def delta(v, target):
+        if v is None or target is None:
+            return ""
+        d = v - target
+        return f" ({'+' if d>0 else ''}{d:.1f})"
+    i_line = f"I {fmt(m.get('I'), ' LUFS')}{delta(m.get('I'), m.get('target_I'))} • TP {fmt(m.get('TP'), ' dB')}"
+    extras = []
     if m.get("LRA") is not None:
-        vals.append(f"LRA {m['LRA']:.1f}")
+        extras.append(f"LRA {fmt(m.get('LRA'))}")
     if m.get("width") is not None:
-        vals.append(f"W {m['width']:.2f}")
+        extras.append(f"W {fmt(m.get('width'))}")
     if m.get("duration_sec") is not None:
-        vals.append(f"Dur {m['duration_sec']:.1f}s")
-    return " · ".join(vals) if vals else "metrics: —"
+        extras.append(f"Dur {fmt(m.get('duration_sec'),'s')}")
+    return i_line + ((" • " + " • ".join(extras)) if extras else "")
 
 def write_playlist_html(folder: Path, title: str, source_name: str):
     wavs = sorted([f for f in folder.iterdir() if f.is_file() and f.suffix.lower() == ".wav"])
