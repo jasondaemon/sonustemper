@@ -1335,7 +1335,7 @@ async function showOutputsFromText(text){
 }
 
 async function runOne(){
-  clearOutList(); setLinks(''); setResult('Running...'); setMetricsPanel('(waiting)');
+  clearOutList(); setLinks(''); setMetricsPanel('(waiting)');
   setStatus("Running master...");
   setResultHTML('<span class="spinner">Running master…</span>');
 
@@ -1361,7 +1361,7 @@ async function runOne(){
 }
 
 async function runPack(){
-  clearOutList(); setLinks(''); setResult('Running A/B pack...'); setMetricsPanel('(waiting)');
+  clearOutList(); setLinks(''); setMetricsPanel('(waiting)');
   setStatus("A/B pack running...");
   setResultHTML('<span class="spinner">Running A/B pack…</span>');
   try { localStorage.setItem("packInFlight", String(Date.now())); } catch {}
@@ -1568,6 +1568,12 @@ def outlist(song: str):
                 "metrics": fmt_metrics(m),
             })
     return {"items": items}
+
+@app.get("/favicon.ico")
+def favicon():
+    # Minimal inline SVG placeholder to avoid 404 spam
+    svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="12" fill="#1f2937"/><text x="32" y="42" font-size="28" text-anchor="middle" fill="#38bdf8" font-family="Arial, sans-serif">S</text></svg>'
+    return HTMLResponse(content=svg, media_type="image/svg+xml")
 
 @app.get("/health")
 def health():
