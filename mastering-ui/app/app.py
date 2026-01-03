@@ -403,10 +403,9 @@ git_rev = None
 try:
     git_rev = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
 except Exception:
-    git_rev = None
+    git_rev = os.getenv("GIT_REV")
 if BUILD_STAMP:
-    if git_rev:
-        BUILD_STAMP = f"{BUILD_STAMP}-{git_rev}"
+    BUILD_STAMP = f"{BUILD_STAMP}-{git_rev}" if git_rev else BUILD_STAMP
 else:
     if git_rev:
         BUILD_STAMP = f"dev-{git_rev}"
@@ -1275,6 +1274,7 @@ function startRunPolling(song) {
       if (res && res.hasPlayable) {
         stopRunPolling();
         setStatus("");
+        setResult("Job complete.");
       }
     } catch (e) {
       console.debug("poll error", e);
