@@ -1979,30 +1979,26 @@ def master_bulk(
     base_cmd = ["python3", str(chosen)] if repo_pack.exists() else [str(chosen)]
 
     results = []
-    def run_one(fname: str):
-        cmd = base_cmd + ["--infile", fname, "--strength", str(strength)]
-        if presets:
-            cmd += ["--presets", presets]
-        if lufs is not None:
-            cmd += ["--lufs", str(lufs)]
-        if tp is not None:
-            cmd += ["--tp", str(tp)]
-        if width is not None:
-            cmd += ["--width", str(width)]
-        if mono_bass is not None:
-            cmd += ["--mono_bass", str(mono_bass)]
-        if guardrails:
-            cmd += ["--guardrails"]
-        try:
-            subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT)
-            return {"file": fname, "status": "ok"}
-        except subprocess.CalledProcessError as e:
-            return {"file": fname, "status": "error", "error": e.output}
-
     def run_all():
         for f in files:
-            res = run_one(f)
-            results.append(res)
+            cmd = base_cmd + ["--infile", f, "--strength", str(strength)]
+            if presets:
+                cmd += ["--presets", presets]
+            if lufs is not None:
+                cmd += ["--lufs", str(lufs)]
+            if tp is not None:
+                cmd += ["--tp", str(tp)]
+            if width is not None:
+                cmd += ["--width", str(width)]
+            if mono_bass is not None:
+                cmd += ["--mono_bass", str(mono_bass)]
+            if guardrails:
+                cmd += ["--guardrails"]
+            try:
+                subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT)
+                results.append({"file": f, "status": "ok"})
+            except subprocess.CalledProcessError as e:
+                results.append({"file": f, "status": "error", "error": e.output})
 
     threading.Thread(target=run_all, daemon=True).start()
     return JSONResponse({"message": f"bulk started for {len(files)} file(s)", "script": str(chosen)})
