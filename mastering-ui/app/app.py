@@ -1643,7 +1643,6 @@ async function loadSong(song, skipEmpty=false){
         <div class="small">
           ${it.wav ? `<a class="linkish" href="${it.wav}" download>WAV</a>` : ''}
           ${it.mp3 ? `&nbsp;|&nbsp;<a class="linkish" href="${it.mp3}" download>MP3</a>` : ''}
-          ${it.ab ? `&nbsp;|&nbsp;<a class="linkish" href="${it.ab}" target="_blank">A/B</a>` : ''}
         </div>
       `;
       out.appendChild(div);
