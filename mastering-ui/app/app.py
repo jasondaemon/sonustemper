@@ -1460,6 +1460,9 @@ function startRunPolling(files) {
           runPollSeen.add(f);
         }
         if (res && res.hasPlayable && !res.processing) {
+          if (!runPollSeen.has(f)) {
+            appendJobLog(`Finished ${f}`);
+          }
           pending.delete(f);
           runPollSeen.add(f);
         }
