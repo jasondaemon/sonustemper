@@ -1124,7 +1124,11 @@ async function refreshAll() {
 
 function setResult(text){ const el=document.getElementById('result'); if(el) el.textContent = text || '(no output)'; }
 function setResultHTML(html){ const el=document.getElementById('result'); if(el) el.innerHTML = html || ''; }
-function setLinks(html){ document.getElementById('links').innerHTML = html || ''; }
+function setLinks(html){
+  const el = document.getElementById('links');
+  if (!el) return;
+  el.innerHTML = html || '';
+}
 function clearOutList(){ document.getElementById('outlist').innerHTML = ''; }
 function setMetricsPanel(html){
   const el = document.getElementById('metricsPanel');
