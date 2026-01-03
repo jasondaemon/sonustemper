@@ -660,7 +660,7 @@ input[type="range"]{
     </div>
 
 <div class="grid">
-      <div class="card" id="masterView">
+      <div class="card" id="uploadCard">
         <h2>Upload</h2>
         <form id="uploadForm">
           <div class="row">
@@ -670,9 +670,9 @@ input[type="range"]{
           </div>
         </form>
         <div id="uploadResult" class="small" style="margin-top:10px;"></div>
+      </div>
 
-        <div class="section-gap strong"></div>
-
+      <div class="card" id="recentCard">
         <h2>Previous Runs</h2>
         <div class="small">Click a run to load outputs. Delete removes the entire song output folder.</div>
         <div id="recent" class="outlist" style="margin-top:10px;"></div>
@@ -767,9 +767,10 @@ input[type="range"]{
           <button class="btn" id="runPackBtn" onclick="runPack()">Run Master</button>
           <button class="btnGhost" id="runBulkBtn" onclick="runBulk()">Run on selected files</button>
         </div>
+      </div>
 
-        <div class="section-gap strong"></div>
-        <h3 class="section-title">Job Output</h3>
+      <div class="card">
+        <h2>Job Output</h2>
         <div id="result" class="result">(waiting)</div>
 
         <div class="section-gap strong"></div>
