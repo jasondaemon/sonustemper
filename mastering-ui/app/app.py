@@ -1241,8 +1241,6 @@ function stopRunPolling() {
     clearInterval(runPollTimer);
     runPollTimer = null;
   }
-  setStatus("");
-  try { localStorage.removeItem("packInFlight"); } catch {}
 }
 
 function startRunPolling(song) {
@@ -1313,10 +1311,13 @@ async function showOutputsFromText(text){
 
   await loadSong(song);
   await refreshRecent();
+  stopRunPolling();
+  setStatus("");
 }
 
 async function runOne(){
   clearOutList(); setLinks(''); setResult('Running...'); setMetricsPanel('(waiting)');
+  setStatus("Running master...");
 
   const infile = document.getElementById('infile').value;
   const song = (infile || '').replace(/\.[^.]+$/, '') || infile;
@@ -1332,7 +1333,6 @@ async function runOne(){
   startRunPolling(song);
   const r = await fetch('/api/master', { method:'POST', body: fd });
   const t = await r.text();
-  stopRunPolling();
   setResult(t);
   await showOutputsFromText(t);
 
@@ -1363,7 +1363,6 @@ async function runPack(){
   startRunPolling(song);
   const r = await fetch('/api/master-pack', { method:'POST', body: fd });
   const t = await r.text();
-  stopRunPolling();
   try {
     const j = JSON.parse(t);
     if (j && typeof j === 'object') {
@@ -1381,7 +1380,7 @@ async function runPack(){
 
   // Auto-refresh lists/runs after job completes
   try { await refreshAll(); } catch (e) { console.error('post-job refreshAll failed', e); }
-  stopRunPolling();
+  // keep polling until outputs detected
 }
 
 async function deleteSong(song){
