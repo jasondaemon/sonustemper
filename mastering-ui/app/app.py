@@ -785,6 +785,7 @@ const LOUDNESS_MANUAL_KEY = "loudnessManualValues";
 const LOUDNESS_ORDER = ["apple", "streaming", "loud", "manual"];
 const GUARDRAILS_KEY = "widthGuardrailsEnabled";
 const PACK_PRESETS_KEY = "packPresets";
+const BULK_FILES_KEY = "bulkFilesSelected";
 
 function setLoudnessHint(text){
   const el = document.getElementById('loudnessHint');
@@ -1049,13 +1050,23 @@ async function refreshAll() {
     const bulkBox = document.getElementById("bulkFilesBox");
     if (bulkBox) {
       bulkBox.innerHTML = "";
-      (data.files || []).forEach((f, idx) => {
+      const prevBulk = new Set(((localStorage.getItem(BULK_FILES_KEY) || "")).split(",").filter(Boolean));
+      const files = data.files || [];
+      const havePrevBulk = files.some(f => prevBulk.has(f));
+      files.forEach((f, idx) => {
         const wrap = document.createElement("label");
         wrap.style = "display:flex; align-items:center; gap:6px; padding:4px 8px; border:1px solid var(--line); border-radius:10px;";
-        const checked = idx === 0; // default first file selected
+        const checked = havePrevBulk ? prevBulk.has(f) : (idx === 0);
         wrap.innerHTML = `<input type="checkbox" value="${f}" ${checked ? 'checked' : ''}> <span class="mono">${f}</span>`;
+        const input = wrap.querySelector('input');
+        input.addEventListener('change', () => {
+          try { localStorage.setItem(BULK_FILES_KEY, getSelectedBulkFiles().join(",")); } catch {}
+        });
         bulkBox.appendChild(wrap);
       });
+      if (!havePrevBulk && files.length) {
+        try { localStorage.setItem(BULK_FILES_KEY, files[0]); } catch {}
+      }
     }
 
     setStatus("");
@@ -1094,11 +1105,13 @@ function selectAllBulk(){
   const box = document.getElementById('bulkFilesBox');
   if (!box) return;
   box.querySelectorAll('input[type=checkbox]').forEach(c => c.checked = true);
+  try { localStorage.setItem(BULK_FILES_KEY, getSelectedBulkFiles().join(",")); } catch {}
 }
 function clearAllBulk(){
   const box = document.getElementById('bulkFilesBox');
   if (!box) return;
   box.querySelectorAll('input[type=checkbox]').forEach(c => c.checked = false);
+  try { localStorage.setItem(BULK_FILES_KEY, ""); } catch {}
 }
 function getSelectedBulkFiles(){
   const box = document.getElementById('bulkFilesBox');
@@ -1515,32 +1528,29 @@ async function runOne(){
   setResultHTML('<span class="spinner">Running master…</span>');
 
   const files = getSelectedBulkFiles();
-  if (!files.length) {
-    alert("Select at least one input file.");
+  const presets = getSelectedPresets();
+  if (!files.length || !presets.length) {
+    alert("Select at least one input file and one preset.");
     return;
   }
-  const infile = files[0];
-  const song = (infile || '').replace(/\.[^.]+$/, '') || infile;
-  const preset = document.getElementById('preset').value;
+  const song = (files[0] || '').replace(/\.[^.]+$/, '') || files[0];
   const strength = document.getElementById('strength').value;
 
   const fd = new FormData();
-  fd.append('infile', infile);
-  fd.append('preset', preset);
+  fd.append('infiles', files.join(","));
   fd.append('strength', strength);
+  fd.append('presets', presets.join(","));
   appendOverrides(fd);
 
   startRunPolling(song);
-  const r = await fetch('/api/master', { method:'POST', body: fd });
+  const r = await fetch('/api/master-bulk', { method:'POST', body: fd });
   const t = await r.text();
-  if (t.toLowerCase().includes("pack started") || t.toLowerCase().includes("async")) {
-    setResultHTML('<span class="spinner">Processing…</span>');
-  } else {
+  try {
+    const j = JSON.parse(t);
+    setResult(j.message || 'Bulk submitted');
+  } catch {
     setResult(cleanResultText(t));
   }
-  await showOutputsFromText(t);
-
-  // Auto-refresh lists after a run so outputs + previous runs appear
   try { await refreshAll(); } catch (e) { console.error(e); }
 }
 
