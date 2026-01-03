@@ -640,6 +640,15 @@ input[type="range"]{
   background: transparent;
 }
 .section-title{ margin:0 0 6px 0; font-size:14px; color:#cfe0f1; }
+.ioRow{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+  font-size:12px;
+  margin:4px 0;
+  color:#d7e6f5;
+}
+.ioRow .label{ opacity:.75; }
 </style>
 
 </head>
@@ -760,11 +769,7 @@ input[type="range"]{
 
       <div class="card">
         <h2>Job Output</h2>
-        <div class="section-gap strong"></div>
-        <h3 class="section-title">Metrics</h3>
-        <div id="metricsPanel" class="small" style="margin-top:6px;"></div>
-
-        <div id="links" class="links small" style="margin-top:10px;"></div>
+        <div id="links" class="links small" style="margin-top:4px; margin-bottom:6px;"></div>
         <div id="outlist" class="outlist"></div>
       </div>
 
@@ -1405,7 +1410,7 @@ function fmtCompactIO(inputM, outputM){
   const iTP = fmtMetric(inputM?.TP, " dB");
   const oI = fmtMetric(outputM?.I, " LUFS");
   const oTP = fmtMetric(outputM?.TP, " dB");
-  return `In: I ${iI} / TP ${iTP} · Out: I ${oI} / TP ${oTP}`;
+  return `<div class="label">In: I ${iI} / TP ${iTP}</div><div>Out: I ${oI} / TP ${oTP}</div>`;
 }
 
 function renderMetricsTable(m){
@@ -1573,11 +1578,12 @@ async function loadSong(song, skipEmpty=false){
       if (audioSrc) hasPlayable = true;
       if (it.metrics) anyMetricsStrings = true;
       const compact = fmtCompactIO(lastRunInputMetrics, it.metrics_obj || {});
+      const ioBlock = compact ? `<div class="ioRow">${compact}</div>` : '';
       const div = document.createElement('div');
       div.className = 'outitem';
       div.innerHTML = `
         <div class="mono">${it.name}</div>
-        <div class="small">${compact || ''}</div>
+        ${ioBlock}
         ${it.metrics ? `<div class="small" style="opacity:.8;">${it.metrics}</div>` : `<div class="small" style="opacity:.8;">metrics: (not available yet)</div>`}
         ${audioSrc ? `<audio controls preload="none" src="${audioSrc}"></audio>` : ''}
         <div class="small">
