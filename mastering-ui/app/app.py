@@ -648,7 +648,7 @@ input[type="range"]{
         <h2>Upload</h2>
         <form id="uploadForm">
           <div class="row">
-            <input type="file" id="file" name="file" accept=".wav,.mp3,.flac,.aiff,.aif" required />
+            <input type="file" id="file" name="files" accept=".wav,.mp3,.flac,.aiff,.aif" multiple required />
             <button class="btn2" type="submit">Upload</button>
             <button class="btnGhost" type="button" onclick="showManage()">Manage</button>
           </div>
@@ -683,6 +683,14 @@ input[type="range"]{
         <div class="row">
           <label>Input file</label>
           <select id="infile"></select>
+        </div>
+        <div class="control-row" style="align-items:flex-start; margin-top:6px;">
+          <label style="min-width:140px;">Bulk files</label>
+          <div id="bulkFilesBox" class="small" style="flex:1; display:flex; flex-wrap:wrap; gap:8px;"></div>
+          <div class="small" style="display:flex; flex-direction:column; gap:6px;">
+            <button class="btnGhost" type="button" onclick="selectAllBulk()">Select all</button>
+            <button class="btnGhost" type="button" onclick="clearAllBulk()">Clear</button>
+          </div>
         </div>
 
         <div class="control-row" style="align-items:flex-start; margin-top:8px;">
@@ -744,6 +752,7 @@ input[type="range"]{
 
         <div class="row" style="margin-top:12px;">
           <button class="btn" id="runPackBtn" onclick="runPack()">Run Master</button>
+          <button class="btnGhost" id="runBulkBtn" onclick="runBulk()">Run on selected files</button>
         </div>
 
         <div class="hr"></div>
@@ -1041,6 +1050,18 @@ async function refreshAll() {
     // restore selection if possible
     if (prevIn && [...infileSel.options].some(o => o.value === prevIn)) infileSel.value = prevIn;
 
+    // Bulk files checkboxes
+    const bulkBox = document.getElementById("bulkFilesBox");
+    if (bulkBox) {
+      bulkBox.innerHTML = "";
+      (data.files || []).forEach(f => {
+        const wrap = document.createElement("label");
+        wrap.style = "display:flex; align-items:center; gap:6px; padding:4px 8px; border:1px solid var(--line); border-radius:10px;";
+        wrap.innerHTML = `<input type="checkbox" value="${f}"> <span class="mono">${f}</span>`;
+        bulkBox.appendChild(wrap);
+      });
+    }
+
     setStatus("");
   } catch (e) {
     console.error("refreshAll failed:", e);
@@ -1072,6 +1093,21 @@ function clearAllPackPresets(){
   checks.forEach(c => { c.checked = false; });
   try { localStorage.setItem(PACK_PRESETS_KEY, ""); } catch {}
   updatePackButtonState();
+}
+function selectAllBulk(){
+  const box = document.getElementById('bulkFilesBox');
+  if (!box) return;
+  box.querySelectorAll('input[type=checkbox]').forEach(c => c.checked = true);
+}
+function clearAllBulk(){
+  const box = document.getElementById('bulkFilesBox');
+  if (!box) return;
+  box.querySelectorAll('input[type=checkbox]').forEach(c => c.checked = false);
+}
+function getSelectedBulkFiles(){
+  const box = document.getElementById('bulkFilesBox');
+  if (!box) return [];
+  return [...box.querySelectorAll('input[type=checkbox]:checked')].map(c=>c.value);
 }
 function getSelectedPresets(){
   const box = document.getElementById('packPresetsBox');
@@ -1557,6 +1593,43 @@ async function runPack(){
   // keep polling until outputs detected
 }
 
+async function runBulk(){
+  const files = getSelectedBulkFiles();
+  const presets = getSelectedPresets();
+  if (!files.length || !presets.length) {
+    alert("Select at least one file and one preset.");
+    return;
+  }
+  clearOutList(); setLinks(''); setMetricsPanel('(waiting)');
+  setStatus("Bulk run starting...");
+  setResultHTML('<span class="spinner">Running bulk…</span>');
+
+  const infile = document.getElementById('infile').value;
+  const song = (infile || '').replace(/\.[^.]+$/, '') || infile;
+  const strength = document.getElementById('strength').value;
+
+  const fd = new FormData();
+  fd.append('infiles', files.join(","));
+  fd.append('strength', strength);
+  fd.append('presets', presets.join(","));
+  appendOverrides(fd);
+
+  startRunPolling(song);
+  const r = await fetch('/api/master-bulk', { method:'POST', body: fd });
+  const t = await r.text();
+  try {
+    const j = JSON.parse(t);
+    if (j && typeof j === 'object') {
+      setResult(j.message || 'Bulk submitted');
+    } else {
+      setResult(cleanResultText(t));
+    }
+  } catch {
+    setResult(cleanResultText(t));
+  }
+  await refreshAll();
+}
+
 async function deleteSong(song){
   if (!confirm(`Delete all outputs for "${song}"? This removes {{OUT_DIR}}/${song}/`)) return;
 
@@ -1776,11 +1849,14 @@ def run_metrics(song: str):
     return m
 
 @app.post("/api/upload")
-async def upload(file: UploadFile = File(...)):
+async def upload(files: list[UploadFile] = File(...)):
     IN_DIR.mkdir(parents=True, exist_ok=True)
-    dest = IN_DIR / Path(file.filename).name
-    dest.write_bytes(await file.read())
-    return JSONResponse({"message": f"Uploaded: {dest.name}"})
+    saved = []
+    for file in files:
+        dest = IN_DIR / Path(file.filename).name
+        dest.write_bytes(await file.read())
+        saved.append(dest.name)
+    return JSONResponse({"message": f"Uploaded: {', '.join(saved)}"})
 
 @app.post("/api/master")
 def master(
@@ -1857,3 +1933,51 @@ def master_pack(
 
     threading.Thread(target=run_pack, daemon=True).start()
     return JSONResponse({"message": "pack started (async); outputs will appear in Previous Runs", "script": str(chosen)})
+
+@app.post("/api/master-bulk")
+def master_bulk(
+    infiles: str = Form(...),
+    strength: int = Form(80),
+    lufs: float | None = Form(None),
+    tp: float | None = Form(None),
+    width: float | None = Form(None),
+    mono_bass: float | None = Form(None),
+    guardrails: int = Form(0),
+    presets: str | None = Form(None),
+):
+    files = [f.strip() for f in infiles.split(",") if f.strip()]
+    if not files:
+        raise HTTPException(status_code=400, detail="no_files")
+
+    repo_pack = Path(__file__).resolve().parent.parent / "mastering" / "master_pack.py"
+    chosen = repo_pack if repo_pack.exists() else MASTER_PACK
+    base_cmd = ["python3", str(chosen)] if repo_pack.exists() else [str(chosen)]
+
+    results = []
+    def run_one(fname: str):
+        cmd = base_cmd + ["--infile", fname, "--strength", str(strength)]
+        if presets:
+            cmd += ["--presets", presets]
+        if lufs is not None:
+            cmd += ["--lufs", str(lufs)]
+        if tp is not None:
+            cmd += ["--tp", str(tp)]
+        if width is not None:
+            cmd += ["--width", str(width)]
+        if mono_bass is not None:
+            cmd += ["--mono_bass", str(mono_bass)]
+        if guardrails:
+            cmd += ["--guardrails"]
+        try:
+            subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT)
+            return {"file": fname, "status": "ok"}
+        except subprocess.CalledProcessError as e:
+            return {"file": fname, "status": "error", "error": e.output}
+
+    def run_all():
+        for f in files:
+            res = run_one(f)
+            results.append(res)
+
+    threading.Thread(target=run_all, daemon=True).start()
+    return JSONResponse({"message": f"bulk started for {len(files)} file(s)", "script": str(chosen)})
