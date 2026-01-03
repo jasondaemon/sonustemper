@@ -1419,24 +1419,30 @@ function appendOverrides(fd){
 }
 
 let runPollTimer = null;
-let runPollSong = null;
+let runPollFiles = [];
 function stopRunPolling() {
   if (runPollTimer) {
     clearInterval(runPollTimer);
     runPollTimer = null;
   }
-  runPollSong = null;
+  runPollFiles = [];
 }
 
-function startRunPolling(song) {
+function startRunPolling(files) {
   stopRunPolling();
-  if (!song) return;
-  runPollSong = song;
-  setStatus(`Processing ${song}...`);
+  if (!files || !files.length) return;
+  runPollFiles = [...files];
+  setStatus(`Processing ${files.join(', ')}`);
   runPollTimer = setInterval(async () => {
     try {
-      const res = await loadSong(song, true);
-      if (res && res.hasPlayable && !res.processing) {
+      let anyProcessing = false;
+      let allPlayable = true;
+      for (const f of runPollFiles) {
+        const res = await loadSong(f, true);
+        if (!res || !res.hasPlayable) allPlayable = false;
+        if (res && res.processing) anyProcessing = true;
+      }
+      if (allPlayable && !anyProcessing) {
         stopRunPolling();
         setStatus("");
         setResult("Job complete.");
@@ -1459,7 +1465,7 @@ async function loadSong(song, skipEmpty=false){
   const r = await fetch(`/api/outlist?song=${encodeURIComponent(song)}`);
   const j = await r.json();
   const hasItems = j.items && j.items.length > 0;
-  if (skipEmpty && (!hasItems || (runPollSong && runPollSong !== song))) return { hasItems:false, hasPlayable:false };
+  if (skipEmpty && !hasItems) return { hasItems:false, hasPlayable:false };
   let processing = false;
   try {
     const pr = await fetch(`/out/${song}/.processing`, { method:'GET', cache:'no-store' });
