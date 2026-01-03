@@ -824,13 +824,13 @@ const BULK_FILES_KEY = "bulkFilesSelected";
 let suppressRecentDuringRun = false;
 let lastRunInputMetrics = null;
 const METRIC_META = [
-  { key:"I", label:"I", desc:"Integrated loudness (LUFS) averaged over the track." },
-  { key:"TP", label:"TP", desc:"True peak level (dBTP) or peak dBFS if TP unavailable." },
-  { key:"LRA", label:"LRA", desc:"Loudness range; how much the loudness varies." },
-  { key:"CF", label:"CF", desc:"Crest factor; difference between peaks and average level." },
-  { key:"Corr", label:"Corr", desc:"Stereo correlation; 1 is mono/coherent, -1 is out-of-phase." },
+  { key:"I", label:"I", desc:"Integrated loudness (LUFS) averaged over the whole song. Higher (less negative) is louder; aim for musical balance, not just numbers." },
+  { key:"TP", label:"TP", desc:"True Peak (dBTP) or peak dBFS if TP unavailable. Closer to 0 dBTP is louder but riskier; keep headroom for clean playback." },
+  { key:"LRA", label:"LRA", desc:"Loudness Range. Shows how much the loudness moves; higher can feel more dynamic, lower can feel more consistent." },
+  { key:"CF", label:"CF", desc:"Crest Factor (peak vs average). Higher keeps punch/transients; lower feels denser/limited." },
+  { key:"Corr", label:"Corr", desc:"Stereo correlation. 1.0 is mono/coherent, 0 is wide, negative can sound phasey or hollow." },
   { key:"Dur", label:"Dur", desc:"Duration in seconds." },
-  { key:"W", label:"W", desc:"Width factor applied in mastering (if available)." },
+  { key:"W", label:"W", desc:"Width factor applied in mastering (if present). >1 widens, <1 narrows." },
 ];
 
 function setLoudnessHint(text){
@@ -1406,6 +1406,11 @@ function initInfoDrawer(){
     openDrawer("Loudness Profiles", prof.title || currentId, body, document.querySelector('.info-btn[data-info-type="loudness"]'));
   };
 
+  window.openDrawer = openDrawer;
+  window.renderPresetDrawer = renderPresetDrawer;
+  window.renderLoudnessDrawer = renderLoudnessDrawer;
+  window.closeDrawer = closeDrawer;
+
   backdrop.addEventListener('click', closeDrawer);
   closeBtn.addEventListener('click', closeDrawer);
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
@@ -1461,7 +1466,7 @@ function fmtCompactIO(inputM, outputM){
     { key:"W",   label:"W",   suffix:"",     tip:"Width factor applied" },
   ];
 
-  const header = `<tr><th><button class="info-btn" type="button" data-info-type="metrics" aria-label="About metrics">ⓘ</button></th>${cols.map(c=>`<th>${c.label}</th>`).join('')}</tr>`;
+  const header = `<tr><th></th>${cols.map(c=>`<th><span style="display:inline-flex; align-items:center; gap:4px;">${c.label} <button class="info-btn" type="button" data-info-type="metrics" data-id="${c.key}" aria-label="About ${c.label}">ⓘ</button></span></th>`).join('')}</tr>`;
 
   const rowIn = `<tr><th title="Input metrics">In</th>${cols.map(c=>{
     const v = metricVal(inputM, c.key);
@@ -1479,15 +1484,27 @@ function fmtCompactIO(inputM, outputM){
 }
 
 function renderMetricsDrawer(triggerBtn){
+  const id = triggerBtn?.getAttribute('data-id') || null;
+  const meta = METRIC_META.find(m => m.key === id);
+  const title = meta ? `${meta.label}` : "Metrics";
+  const desc = meta ? meta.desc : "Per-output input/output metrics";
   const body = `
     <div class="drawer-section">
-      <h3>Metrics explained</h3>
+      <h3>${title}</h3>
+      <div class="small" style="line-height:1.4;">${desc}</div>
+      <div class="small" style="margin-top:10px;">How it impacts sound:</div>
       <ul>
-        ${METRIC_META.map(meta => `<li><strong>${meta.label}:</strong> ${meta.desc}</li>`).join('')}
+        ${id === "I" ? "<li>Higher (less negative) values are louder; aim for musical balance, not just numbers.</li><li>Lower can preserve dynamics and headroom.</li>" : ""}
+        ${id === "TP" ? "<li>Closer to 0 dBTP is louder but riskier for distortion on playback devices.</li><li>Leaving headroom (-1 dBTP) keeps encodes clean.</li>" : ""}
+        ${id === "LRA" ? "<li>Higher LRA feels more dynamic and cinematic.</li><li>Lower LRA feels consistent and controlled; good for steady loudness.</li>" : ""}
+        ${id === "CF" ? "<li>Higher crest factor keeps punch and transient snap.</li><li>Lower crest factor sounds denser but can feel squashed.</li>" : ""}
+        ${id === "Corr" ? "<li>Positive values keep mix coherent; negative can cause phase issues.</li><li>Extremely low/negative correlation can thin out low end.</li>" : ""}
+        ${id === "Dur" ? "<li>Duration is informational; long tracks may tolerate gentler processing.</li>" : ""}
+        ${id === "W" ? "<li>Width >1 can feel wider and more immersive.</li><li>Width <1 narrows for mono-compatibility; watch for phase.</li>" : ""}
       </ul>
     </div>
   `;
-  openDrawer("Metrics", "Per-output input/output metrics", body, triggerBtn);
+  openDrawer("Metrics", title, body, triggerBtn);
 }
 
 function renderMetricsTable(m){
