@@ -822,6 +822,16 @@ const GUARDRAILS_KEY = "widthGuardrailsEnabled";
 const PACK_PRESETS_KEY = "packPresets";
 const BULK_FILES_KEY = "bulkFilesSelected";
 let suppressRecentDuringRun = false;
+let lastRunInputMetrics = null;
+const METRIC_META = [
+  { key:"I", label:"I", desc:"Integrated loudness (LUFS) averaged over the track." },
+  { key:"TP", label:"TP", desc:"True peak level (dBTP) or peak dBFS if TP unavailable." },
+  { key:"LRA", label:"LRA", desc:"Loudness range; how much the loudness varies." },
+  { key:"CF", label:"CF", desc:"Crest factor; difference between peaks and average level." },
+  { key:"Corr", label:"Corr", desc:"Stereo correlation; 1 is mono/coherent, -1 is out-of-phase." },
+  { key:"Dur", label:"Dur", desc:"Duration in seconds." },
+  { key:"W", label:"W", desc:"Width factor applied in mastering (if available)." },
+];
 
 function setLoudnessHint(text){
   const el = document.getElementById('loudnessHint');
@@ -1409,6 +1419,8 @@ function initInfoDrawer(){
       renderPresetDrawer(btn.getAttribute('data-id'));
     } else if (type === 'loudness') {
       renderLoudnessDrawer();
+    } else if (type === 'metrics') {
+      renderMetricsDrawer(btn);
     }
   });
 }
@@ -1466,42 +1478,20 @@ function fmtCompactIO(inputM, outputM){
   return `<table class="ioTable">${header}${rowIn}${rowOut}</table>`;
 }
 
-function renderMetricsTable(m){
-  if (!m || typeof m !== 'object') return '<span style="opacity:.7;">(metrics unavailable)</span>';
-  const output = m.output || m; // accept flat metrics as output-only
-  const input = m.input || {};
-  const deltas = m.deltas || {};
-  const guard = m.guardrails || {};
-  const rows = [
-    ["Integrated LUFS", fmtMetric(input?.I, " LUFS"), fmtMetric(output?.I, " LUFS")],
-    ["Δ LUFS (out-in)", "", fmtMetric(typeof deltas?.I === 'number' ? deltas.I : null, " LUFS")],
-    ["True/Peak", fmtMetric(input?.TP, " dB"), fmtMetric(output?.TP, " dB")],
-    ["Δ TP (out-in)", "", fmtMetric(typeof deltas?.TP === 'number' ? deltas.TP : null, " dB")],
-    ["Short-term max", fmtMetric(input?.short_term_max, " LUFS"), fmtMetric(output?.short_term_max, " LUFS")],
-    ["Crest factor", fmtMetric(input?.crest_factor, " dB"), fmtMetric(output?.crest_factor, " dB")],
-    ["Stereo corr", fmtMetric(input?.stereo_corr), fmtMetric(output?.stereo_corr)],
-    ["Duration", fmtMetric(input?.duration_sec, " s"), fmtMetric(output?.duration_sec, " s")],
-    ["Guardrails", guard.enabled ? "on" : "off", guard.enabled ? `${fmtMetric(guard.width_requested)} → ${fmtMetric(guard.width_applied)}` : "—"],
-    ["Guard reason", "", guard.reason ? guard.reason : "—"],
-  ];
-  return `
-    <table style="width:100%; border-collapse:collapse; font-size:12px;">
-      <thead>
-        <tr style="text-align:left;">
-          <th style="padding:4px 6px; color:#cfe0f1;">Metric</th>
-          <th style="padding:4px 6px; color:#cfe0f1;">Input</th>
-          <th style="padding:4px 6px; color:#cfe0f1;">Output</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rows.map(r => `<tr>
-          <td style="padding:4px 6px; border-top:1px solid var(--line);">${r[0]}</td>
-          <td style="padding:4px 6px; border-top:1px solid var(--line);">${r[1]}</td>
-          <td style="padding:4px 6px; border-top:1px solid var(--line);">${r[2]}</td>
-        </tr>`).join("")}
-      </tbody>
-    </table>
+function renderMetricsDrawer(triggerBtn){
+  const body = `
+    <div class="drawer-section">
+      <h3>Metrics explained</h3>
+      <ul>
+        ${METRIC_META.map(meta => `<li><strong>${meta.label}:</strong> ${meta.desc}</li>`).join('')}
+      </ul>
+    </div>
   `;
+  openDrawer("Metrics", "Per-output input/output metrics", body, triggerBtn);
+}
+
+function renderMetricsTable(m){
+  return '<span style="opacity:.7;">(metrics unavailable)</span>';
 }
 
 function appendOverrides(fd){
