@@ -31,7 +31,7 @@ uvicorn app:app --reload --port 8383
 ## Data & Presets
 - Inputs: `./data/in`
 - Outputs: `./data/out`
-- Presets: `./presets/*.json` (mounted read-only)
+- Presets: `./presets/*.json` (mounted read-only). A starter set lives in `./example-presets/`; copy them into `./presets/` (or use your own) before running.
 - Selecting multiple presets runs independent masters for A/B comparison (no stacking).
 
 ## Health Check

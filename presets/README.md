@@ -1,0 +1,1 @@
+Runtime presets live here. Copy the example files from `../example-presets/` into this folder (or place your own preset JSONs) before running the app. This directory is mounted read-only into the container at `/presets`.
