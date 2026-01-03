@@ -1971,6 +1971,14 @@ def outlist(song: str):
             input_m = m_full.get("input")
     except Exception:
         pass
+    # Fallback: derive input metrics directly from source if still missing
+    if not input_m:
+        try:
+            src = find_input_file(song)
+            if src:
+                input_m = basic_metrics(src)
+        except Exception:
+            input_m = None
     if folder.exists() and folder.is_dir():
         wavs = sorted([p for p in folder.iterdir() if p.is_file() and p.suffix.lower()==".wav"])
         mp3s = {p.stem: p.name for p in folder.iterdir() if p.is_file() and p.suffix.lower()==".mp3"}
