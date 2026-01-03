@@ -680,12 +680,8 @@ input[type="range"]{
       <div class="card">
         <h2>Master</h2>
 
-        <div class="row">
-          <label>Input file</label>
-          <select id="infile"></select>
-        </div>
         <div class="control-row" style="align-items:flex-start; margin-top:6px;">
-          <label style="min-width:140px;">Bulk files</label>
+          <label style="min-width:140px;">Input files</label>
           <div id="bulkFilesBox" class="small" style="flex:1; display:flex; flex-wrap:wrap; gap:8px;"></div>
           <div class="small" style="display:flex; flex-direction:column; gap:6px;">
             <button class="btnGhost" type="button" onclick="selectAllBulk()">Select all</button>
@@ -1047,17 +1043,15 @@ async function refreshAll() {
       updatePackButtonState();
     }
 
-    // restore selection if possible
-    if (prevIn && [...infileSel.options].some(o => o.value === prevIn)) infileSel.value = prevIn;
-
     // Bulk files checkboxes
     const bulkBox = document.getElementById("bulkFilesBox");
     if (bulkBox) {
       bulkBox.innerHTML = "";
-      (data.files || []).forEach(f => {
+      (data.files || []).forEach((f, idx) => {
         const wrap = document.createElement("label");
         wrap.style = "display:flex; align-items:center; gap:6px; padding:4px 8px; border:1px solid var(--line); border-radius:10px;";
-        wrap.innerHTML = `<input type="checkbox" value="${f}"> <span class="mono">${f}</span>`;
+        const checked = idx === 0; // default first file selected
+        wrap.innerHTML = `<input type="checkbox" value="${f}" ${checked ? 'checked' : ''}> <span class="mono">${f}</span>`;
         bulkBox.appendChild(wrap);
       });
     }
@@ -1108,6 +1102,10 @@ function getSelectedBulkFiles(){
   const box = document.getElementById('bulkFilesBox');
   if (!box) return [];
   return [...box.querySelectorAll('input[type=checkbox]:checked')].map(c=>c.value);
+}
+function getFirstSelectedFile(){
+  const files = getSelectedBulkFiles();
+  return files.length ? files[0] : null;
 }
 function getSelectedPresets(){
   const box = document.getElementById('packPresetsBox');
@@ -1545,7 +1543,12 @@ async function runPack(){
   setResultHTML('<span class="spinner">Running A/B pack…</span>');
   try { localStorage.setItem("packInFlight", String(Date.now())); } catch {}
 
-  const infile = document.getElementById('infile').value;
+  const files = getSelectedBulkFiles();
+  if (!files.length) {
+    alert("Select at least one input file.");
+    return;
+  }
+  const infile = files[0];
   const song = (infile || '').replace(/\.[^.]+$/, '') || infile;
   const strength = document.getElementById('strength').value;
   const packBox = document.getElementById('packPresetsBox');
@@ -1604,8 +1607,7 @@ async function runBulk(){
   setStatus("Bulk run starting...");
   setResultHTML('<span class="spinner">Running bulk…</span>');
 
-  const infile = document.getElementById('infile').value;
-  const song = (infile || '').replace(/\.[^.]+$/, '') || infile;
+  const song = (files[0] || '').replace(/\.[^.]+$/, '') || files[0];
   const strength = document.getElementById('strength').value;
 
   const fd = new FormData();
