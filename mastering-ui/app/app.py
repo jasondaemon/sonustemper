@@ -1512,7 +1512,6 @@ let runPollTimer = null;
 let runPollFiles = [];
 let runPollSeen = new Set();
 let runPollDone = new Set();
-let lastRunInputMetrics = null;
 function stopRunPolling() {
   if (runPollTimer) {
     clearInterval(runPollTimer);
