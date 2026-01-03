@@ -626,14 +626,20 @@ input[type="range"]{
 }
 .info-btn:hover{ color:var(--text); border-color:var(--accent); }
 .section-gap{
-  border-top:1px solid rgba(255,255,255,0.14);
-  margin:22px 0 12px 0;
-  padding-top:14px;
+  border-top:2px solid rgba(255,255,255,0.22);
+  margin:28px 0 16px 0;
+  padding-top:16px;
+  min-height:18px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0));
+  box-shadow: inset 0 1px 0 rgba(0,0,0,0.38);
 }
 .section-gap.strong{
-  border-top:1px solid rgba(255,255,255,0.18);
-  margin:26px 0 18px 0;
-  padding-top:16px;
+  border-top:2px solid rgba(255,255,255,0.30);
+  margin:32px 0 22px 0;
+  padding-top:20px;
+  min-height:22px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0));
+  box-shadow: inset 0 1px 0 rgba(0,0,0,0.5);
 }
 .section-title{ margin:0 0 6px 0; font-size:14px; color:#cfe0f1; }
 </style>
