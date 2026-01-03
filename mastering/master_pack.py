@@ -113,6 +113,28 @@ def write_metrics(wav_out: Path, target_lufs: float, ceiling_db: float, width: f
                 m["duration_sec"] = dur
     except Exception:
         pass
+    # crest factor / correlation
+    try:
+        m_txt = run_cmd([
+            "ffmpeg", "-hide_banner", "-nostats", "-i", str(wav_out),
+            "-filter_complex", "astats=metadata=1:reset=0",
+            "-f", "null", "-"
+        ])
+        txt = (m_txt.stderr or "") + "\n" + (m_txt.stdout or "")
+        flags = re.IGNORECASE
+        peak_matches = re.findall(r"Overall (?:peak|max)_level(?: dB)?[:\\s]+([\\-0-9\\.]+)", txt, flags)
+        rms_matches = re.findall(r"Overall RMS (?:level)?(?: dB)?[:\\s]+([\\-0-9\\.]+)", txt, flags)
+        corr_matches = re.findall(r"Overall (?:correlation|corr(?:elation)?)(?: coefficient)?[:\\s]+([\\-0-9\\.]+)", txt, flags)
+        peak = float(peak_matches[-1]) if peak_matches else None
+        rms = float(rms_matches[-1]) if rms_matches else None
+        corr = float(corr_matches[-1]) if corr_matches else None
+        if isinstance(m, dict):
+            if peak is not None and rms is not None:
+                m["crest_factor"] = peak - rms
+            if corr is not None:
+                m["stereo_corr"] = corr
+    except Exception:
+        pass
     if isinstance(m, dict) and 'error' not in m:
         m['target_I'] = float(target_lufs)
         m['target_TP'] = float(ceiling_db)
@@ -143,6 +165,10 @@ def compact_metrics(m: dict | None):
     extras = []
     if m.get("LRA") is not None:
         extras.append(f"LRA {fmt(m.get('LRA'))}")
+    if m.get("crest_factor") is not None:
+        extras.append(f"CF {fmt(m.get('crest_factor'), ' dB')}")
+    if m.get("stereo_corr") is not None:
+        extras.append(f"Corr {fmt(m.get('stereo_corr'))}")
     if m.get("width") is not None:
         extras.append(f"W {fmt(m.get('width'))}")
     if m.get("duration_sec") is not None:
