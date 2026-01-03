@@ -1081,6 +1081,19 @@ function setResultHTML(html){ const el=document.getElementById('result'); if(el)
 function setLinks(html){ document.getElementById('links').innerHTML = html || ''; }
 function clearOutList(){ document.getElementById('outlist').innerHTML = ''; }
 function setMetricsPanel(html){ document.getElementById('metricsPanel').innerHTML = html || '<span style="opacity:.7;">(none)</span>'; }
+function startJobLog(message){
+  setResultHTML(`<div id="joblog" class="mono"><div>${message || 'Processing...'}</div></div>`);
+}
+function appendJobLog(message){
+  const el = document.getElementById('joblog');
+  if (el) {
+    const div = document.createElement('div');
+    div.textContent = message;
+    el.appendChild(div);
+  } else {
+    setResult(message);
+  }
+}
 function cleanResultText(t){
   const lines = (t || '').split('\n').map(l=>l.trim()).filter(l => l && !l.toLowerCase().startsWith('script:'));
   return lines.join('\n') || '(running…)';
@@ -1441,7 +1454,7 @@ function startRunPolling(files) {
       let anyProcessing = false;
       let pending = new Set(runPollFiles);
       for (const f of runPollFiles) {
-        const res = await loadSong(f, true);
+        const res = await loadSong(f, { skipEmpty: true, quiet: true });
         if (res && res.processing) {
           anyProcessing = true;
           runPollSeen.add(f);
@@ -1454,7 +1467,7 @@ function startRunPolling(files) {
       if (!anyProcessing && pending.size === 0) {
         stopRunPolling();
         setStatus("");
-        setResult("Job complete.");
+        appendJobLog("Job complete.");
         try { await refreshRecent(); } catch(e) { console.debug('recent refresh after polling stop failed', e); }
       }
     } catch (e) {
@@ -1464,18 +1477,28 @@ function startRunPolling(files) {
 }
 
 async function loadSong(song, skipEmpty=false){
-  localStorage.setItem("lastSong", song);
+  let opts = { skipEmpty: false, quiet: false };
+  if (typeof skipEmpty === 'object') {
+    opts.skipEmpty = !!skipEmpty.skipEmpty;
+    opts.quiet = !!skipEmpty.quiet;
+  } else {
+    opts.skipEmpty = !!skipEmpty;
+    opts.quiet = !!skipEmpty; // boolean true from polling implies quiet
+  }
 
-  setLinks(`
-    Output folder: <a href="/out/${song}/" target="_blank">/out/${song}/</a>
-    &nbsp;|&nbsp;
-    A/B page: <a href="/out/${song}/index.html" target="_blank">index.html</a>
-  `);
+  if (!opts.quiet) {
+    localStorage.setItem("lastSong", song);
+    setLinks(`
+      Output folder: <a href="/out/${song}/" target="_blank">/out/${song}/</a>
+      &nbsp;|&nbsp;
+      A/B page: <a href="/out/${song}/index.html" target="_blank">index.html</a>
+    `);
+  }
 
   const r = await fetch(`/api/outlist?song=${encodeURIComponent(song)}`);
   const j = await r.json();
   const hasItems = j.items && j.items.length > 0;
-  if (skipEmpty && !hasItems) return { hasItems:false, hasPlayable:false };
+  if (opts.skipEmpty && !hasItems) return { hasItems:false, hasPlayable:false, processing:false };
   let processing = false;
   let markerMtime = 0;
   try {
@@ -1488,28 +1511,36 @@ async function loadSong(song, skipEmpty=false){
     }
   } catch(e){}
 
-  const out = document.getElementById('outlist');
-  out.innerHTML = '';
   let hasPlayable = false;
   let anyMetricsStrings = false;
-  j.items.forEach(it => {
-    const audioSrc = it.mp3 || it.wav || null;
-    if (audioSrc) hasPlayable = true;
-    if (it.metrics) anyMetricsStrings = true;
-    const div = document.createElement('div');
-    div.className = 'outitem';
-    div.innerHTML = `
-      <div class="mono">${it.name}</div>
-      ${it.metrics ? `<div class="small">${it.metrics}</div>` : `<div class="small">metrics: (not available yet)</div>`}
-      ${audioSrc ? `<audio controls preload="none" src="${audioSrc}"></audio>` : ''}
-      <div class="small">
-        ${it.wav ? `<a class="linkish" href="${it.wav}" target="_blank">WAV</a>` : ''}
-        ${it.mp3 ? `&nbsp;|&nbsp;<a class="linkish" href="${it.mp3}" target="_blank">MP3</a>` : ''}
-        ${it.ab ? `&nbsp;|&nbsp;<a class="linkish" href="${it.ab}" target="_blank">A/B</a>` : ''}
-      </div>
-    `;
-    out.appendChild(div);
-  });
+  if (!opts.quiet) {
+    const out = document.getElementById('outlist');
+    out.innerHTML = '';
+    j.items.forEach(it => {
+      const audioSrc = it.mp3 || it.wav || null;
+      if (audioSrc) hasPlayable = true;
+      if (it.metrics) anyMetricsStrings = true;
+      const div = document.createElement('div');
+      div.className = 'outitem';
+      div.innerHTML = `
+        <div class="mono">${it.name}</div>
+        ${it.metrics ? `<div class="small">${it.metrics}</div>` : `<div class="small">metrics: (not available yet)</div>`}
+        ${audioSrc ? `<audio controls preload="none" src="${audioSrc}"></audio>` : ''}
+        <div class="small">
+          ${it.wav ? `<a class="linkish" href="${it.wav}" target="_blank">WAV</a>` : ''}
+          ${it.mp3 ? `&nbsp;|&nbsp;<a class="linkish" href="${it.mp3}" target="_blank">MP3</a>` : ''}
+          ${it.ab ? `&nbsp;|&nbsp;<a class="linkish" href="${it.ab}" target="_blank">A/B</a>` : ''}
+        </div>
+      `;
+      out.appendChild(div);
+    });
+  } else {
+    j.items.forEach(it => {
+      const audioSrc = it.mp3 || it.wav || null;
+      if (audioSrc) hasPlayable = true;
+      if (it.metrics) anyMetricsStrings = true;
+    });
+  }
 
   if (processing && hasPlayable && markerMtime && (Date.now() - markerMtime > 15000)) {
     // marker looks stale; drop it so UI can advance
@@ -1517,8 +1548,8 @@ async function loadSong(song, skipEmpty=false){
     processing = false;
   }
 
-  // Fetch run-level metrics
-  if (hasPlayable && !processing) {
+  // Fetch run-level metrics (only when user explicitly loads)
+  if (!opts.quiet && hasPlayable && !processing) {
     try {
       const mr = await fetch(`/api/metrics?song=${encodeURIComponent(song)}`, { cache: 'no-store' });
       if (mr.ok) {
@@ -1532,7 +1563,7 @@ async function loadSong(song, skipEmpty=false){
       setMetricsPanel('<span style="opacity:.7;">(metrics unavailable)</span>');
     }
   }
-  if (hasPlayable && processing) {
+  if (!opts.quiet && hasPlayable && processing) {
     setResult("Outputs updating...");
   }
   return { hasItems, hasPlayable, processing };
@@ -1553,7 +1584,7 @@ async function showOutputsFromText(text){
 async function runOne(){
   clearOutList(); setLinks(''); setMetricsPanel('(waiting)');
   setStatus("Running master...");
-  setResultHTML('<span class="spinner">Running master…</span>');
+  startJobLog('Processing...');
 
   const files = getSelectedBulkFiles();
   const presets = getSelectedPresets();
@@ -1563,6 +1594,7 @@ async function runOne(){
   }
   const song = (files[0] || '').replace(/\.[^.]+$/, '') || files[0];
   const strength = document.getElementById('strength').value;
+  const pollFiles = files.map(f => f.replace(/\.[^.]+$/, '') || f);
 
   const fd = new FormData();
   fd.append('infiles', files.join(","));
@@ -1570,14 +1602,15 @@ async function runOne(){
   fd.append('presets', presets.join(","));
   appendOverrides(fd);
 
-  startRunPolling(song);
+  presets.forEach(p => files.forEach(f => appendJobLog(`Queued ${f} with preset ${p}`)));
+  startRunPolling(pollFiles);
   const r = await fetch('/api/master-bulk', { method:'POST', body: fd });
   const t = await r.text();
   try {
     const j = JSON.parse(t);
-    setResult(j.message || 'Bulk submitted');
+    appendJobLog(j.message || 'Bulk submitted');
   } catch {
-    setResult(cleanResultText(t));
+    appendJobLog(cleanResultText(t));
   }
   try { await refreshAll(); } catch (e) { console.error(e); }
 }
@@ -1585,7 +1618,7 @@ async function runOne(){
 async function runPack(){
   clearOutList(); setLinks(''); setMetricsPanel('(waiting)');
   setStatus("A/B pack running...");
-  setResultHTML('<span class="spinner">Running A/B pack…</span>');
+  startJobLog('Processing...');
   try { localStorage.setItem("packInFlight", String(Date.now())); } catch {}
 
   const files = getSelectedBulkFiles();
@@ -1595,6 +1628,7 @@ async function runPack(){
     return;
   }
   const strength = document.getElementById('strength').value;
+  const pollFiles = files.map(f => f.replace(/\.[^.]+$/, '') || f);
 
   const fd = new FormData();
   fd.append('infiles', files.join(","));
@@ -1602,14 +1636,15 @@ async function runPack(){
   fd.append('presets', presets.join(","));
   appendOverrides(fd);
 
-  startRunPolling(files);
+  presets.forEach(p => files.forEach(f => appendJobLog(`Queued ${f} with preset ${p}`)));
+  startRunPolling(pollFiles);
   const r = await fetch('/api/master-bulk', { method:'POST', body: fd });
   const t = await r.text();
   try {
     const j = JSON.parse(t);
-    setResult(j.message || 'Bulk submitted');
+    appendJobLog(j.message || 'Bulk submitted');
   } catch {
-    setResult(cleanResultText(t));
+    appendJobLog(cleanResultText(t));
   }
   try { await refreshAll(); } catch (e) { console.error('post-job refreshAll failed', e); }
 }
@@ -1623,10 +1658,11 @@ async function runBulk(){
   }
   clearOutList(); setLinks(''); setMetricsPanel('(waiting)');
   setStatus("Bulk run starting...");
-  setResultHTML('<span class="spinner">Running bulk…</span>');
+  startJobLog('Processing...');
 
   const song = (files[0] || '').replace(/\.[^.]+$/, '') || files[0];
   const strength = document.getElementById('strength').value;
+  const pollFiles = files.map(f => f.replace(/\.[^.]+$/, '') || f);
 
   const fd = new FormData();
   fd.append('infiles', files.join(","));
@@ -1634,18 +1670,19 @@ async function runBulk(){
   fd.append('presets', presets.join(","));
   appendOverrides(fd);
 
-  startRunPolling(song);
+  presets.forEach(p => files.forEach(f => appendJobLog(`Queued ${f} with preset ${p}`)));
+  startRunPolling(pollFiles);
   const r = await fetch('/api/master-bulk', { method:'POST', body: fd });
   const t = await r.text();
   try {
     const j = JSON.parse(t);
     if (j && typeof j === 'object') {
-      setResult(j.message || 'Bulk submitted');
+      appendJobLog(j.message || 'Bulk submitted');
     } else {
-      setResult(cleanResultText(t));
+      appendJobLog(cleanResultText(t));
     }
   } catch {
-    setResult(cleanResultText(t));
+    appendJobLog(cleanResultText(t));
   }
   await refreshAll();
 }
