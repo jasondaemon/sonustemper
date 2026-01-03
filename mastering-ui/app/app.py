@@ -2134,4 +2134,4 @@ def master_bulk(
                 print(f"[master-bulk] failed file={f}: {e.output or e}", file=sys.stderr)
 
     threading.Thread(target=run_all, daemon=True).start()
-    return JSONResponse({"message": f"bulk started for {len(files)} file(s)", "script": str(chosen)})
+    return JSONResponse({"message": f"bulk started for {len(files)} file(s)", "script": str(MASTER_SCRIPT)})
