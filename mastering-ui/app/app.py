@@ -1429,9 +1429,10 @@ function stopRunPolling() {
 
 function startRunPolling(files) {
   stopRunPolling();
-  if (!files || !files.length) return;
-  runPollFiles = [...files];
-  setStatus(`Processing ${files.join(', ')}`);
+  const arr = Array.isArray(files) ? files : [];
+  if (!arr.length) return;
+  runPollFiles = [...arr];
+  setStatus(`Processing ${arr.join(', ')}`);
   runPollTimer = setInterval(async () => {
     try {
       let anyProcessing = false;
