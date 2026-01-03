@@ -113,14 +113,47 @@ def write_metrics(wav_out: Path, target_lufs: float, ceiling_db: float, width: f
             m['tp_margin'] = float(ceiling_db) - float(m['TP'])
     wav_out.with_suffix('.metrics.json').write_text(json.dumps(m, indent=2), encoding='utf-8')
 
+def read_metrics_file(path: Path) -> dict | None:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+def compact_metrics(m: dict | None):
+    if not m or not isinstance(m, dict):
+        return "metrics: —"
+    vals = []
+    if m.get("I") is not None:
+        delta = ""
+        if m.get("target_I") is not None:
+            d = m["I"] - m["target_I"]
+            delta = f" ({'+' if d>0 else ''}{d:.1f})"
+        vals.append(f"I {m['I']:.1f} LUFS{delta}")
+    if m.get("TP") is not None:
+        vals.append(f"TP {m['TP']:.1f} dB")
+    if m.get("LRA") is not None:
+        vals.append(f"LRA {m['LRA']:.1f}")
+    if m.get("width") is not None:
+        vals.append(f"W {m['width']:.2f}")
+    if m.get("duration_sec") is not None:
+        vals.append(f"Dur {m['duration_sec']:.1f}s")
+    return " · ".join(vals) if vals else "metrics: —"
+
 def write_playlist_html(folder: Path, title: str, source_name: str):
-    mp3s = sorted([f for f in folder.iterdir() if f.is_file() and f.suffix.lower() == ".mp3"])
+    wavs = sorted([f for f in folder.iterdir() if f.is_file() and f.suffix.lower() == ".wav"])
     rows = []
-    for f in mp3s:
+    for wav in wavs:
+        mp3 = wav.with_suffix(".mp3")
+        metrics = read_metrics_file(wav.with_suffix(".metrics.json"))
         rows.append(f"""
         <div class="row">
-          <div class="name">{f.name}</div>
-          <audio controls preload="none" src="{f.name}"></audio>
+          <div class="name">{wav.name}</div>
+          <div class="small metrics">{compact_metrics(metrics)}</div>
+          <div class="audioCol">
+            <audio controls preload="none" src="{wav.name}"></audio>
+            {'<div class="small"><a class="linkish" href="'+wav.name+'" download>Download WAV</a></div>' if wav.exists() else ''}
+            {'<div class="small"><a class="linkish" href="'+mp3.name+'" download>Download MP3</a></div>' if mp3.exists() else ''}
+          </div>
         </div>
         """)
     html = f"""<!doctype html>
@@ -159,6 +192,9 @@ def write_playlist_html(folder: Path, title: str, source_name: str):
   .pill {{ display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:12px; background:rgba(255,255,255,0.06); border:1px solid var(--line); color:var(--text); font-size:12px; }}
   .btn {{ display:inline-block; padding:8px 14px; border-radius:8px; background:var(--accent); color:#041019; font-weight:600; text-decoration:none; }}
   .header {{ display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:12px; }}
+  .linkish {{ color: var(--accent); text-decoration: none; }}
+  .linkish:hover {{ text-decoration: underline; }}
+  .audioCol {{ display:flex; flex-direction:column; gap:6px; align-items:flex-start; }}
 </style>
 </head>
 <body>
