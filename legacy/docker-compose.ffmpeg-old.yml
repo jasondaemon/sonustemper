@@ -1,9 +1,0 @@
-services:
-  preset-master:
-    image: jrottenberg/ffmpeg:6.1-ubuntu
-    container_name: preset-master
-    restart: unless-stopped
-    volumes:
-      - ../data:/data
-      - ../presets:/presets:ro
-    entrypoint: sleep infinity

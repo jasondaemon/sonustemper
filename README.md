@@ -42,9 +42,6 @@ uvicorn app:app --reload --port 8383
 - Env `SONUSTEMPER_TAG` controls the tag (`edge` by default, `vX.Y.Z` for releases).
 - For private GHCR, authenticate Docker with a GHCR PAT or GITHUB_TOKEN.
 
-## Legacy
-- Old ffmpeg-sidecar compose is kept only for reference at `legacy/docker-compose.ffmpeg-old.yml` and is not used in the current workflow.
-
 ## Notes
 - Outputs served from `/out/...` (backed by `OUT_DIR`).
 - Metrics use local ffmpeg (no docker exec).
