@@ -1,0 +1,22 @@
+services:
+  sonustemper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8383}:8383"
+    environment:
+      DATA_DIR: "/data"
+      IN_DIR: "/data/in"
+      OUT_DIR: "/data/out"
+      PRESET_DIR: "/presets"
+      MASTERING_BUILD: "dev"
+    volumes:
+      - ./data:/data
+      - ./presets:/presets:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8383/health').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

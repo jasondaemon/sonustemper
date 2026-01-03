@@ -381,7 +381,7 @@ HTML_TEMPLATE = r"""
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Local Mastering</title>
+  <title>SonusTemper</title>
   <style>
     :root{
       --bg:#0b0f14; --card:#121a23; --muted:#9fb0c0; --text:#e7eef6;
@@ -583,7 +583,7 @@ input[type="range"]{
   <div class="wrap">
     <div class="top">
       <div>
-        <h1>Local Mastering <span style="font-size:12px;opacity:.65">(build {{BUILD_STAMP}})</span></h1>
+        <h1>SonusTemper <span style="font-size:12px;opacity:.65">(build {{BUILD_STAMP}})</span></h1>
         <div class="sub">
           <span class="pill">IN: <span class="mono">{{IN_DIR}}</span></span>
           <span class="pill">OUT: <span class="mono">{{OUT_DIR}}</span></span>
@@ -1510,6 +1510,7 @@ def health():
         "preset_dir_exists": preset_exists,
         "preset_files_count": preset_count,
         "build_stamp": BUILD_STAMP,
+        "app": "SonusTemper",
     }
     return JSONResponse(payload, status_code=200 if ok else 503)
 
