@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse, json, shlex, subprocess, sys, re, os
 from pathlib import Path
+import shutil
 
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 IN_DIR = Path(os.getenv("IN_DIR", str(DATA_DIR / "in")))
@@ -141,14 +142,29 @@ def compact_metrics(m: dict | None):
 
 def write_playlist_html(folder: Path, title: str, source_name: str):
     wavs = sorted([f for f in folder.iterdir() if f.is_file() and f.suffix.lower() == ".wav"])
-    source_audio = f'<audio controls preload="none" src="../in/{source_name}" style="width:100%;"></audio>' if (IN_DIR / source_name).exists() else '<div class="small">Source not available.</div>'
+    source_audio = ""
+    source_copy = folder / source_name if (folder / source_name).exists() else None
+    if source_copy and source_copy.is_file():
+        source_audio = f"""
+        <div class="entry">
+          <div class="entry-left">
+            <div class="name">{source_copy.name}</div>
+            <div class="small metrics">Original source</div>
+          </div>
+          <div class="audioCol">
+            <audio controls preload="none" src="{source_copy.name}"></audio>
+            <div class="small"><a class="linkish" href="{source_copy.name}" download>Download source</a></div>
+          </div>
+        </div>
+        """
+
     rows = []
     for wav in wavs:
         mp3 = wav.with_suffix(".mp3")
         metrics = read_metrics_file(wav.with_suffix(".metrics.json"))
         rows.append(f"""
-        <div class="row">
-          <div class="col nameCol">
+        <div class="entry">
+          <div class="entry-left">
             <div class="name">{wav.name}</div>
             <div class="small metrics">{compact_metrics(metrics)}</div>
           </div>
@@ -189,8 +205,8 @@ def write_playlist_html(folder: Path, title: str, source_name: str):
     padding: 16px;
     box-shadow: 0 10px 30px rgba(0,0,0,0.35);
   }}
-  .row {{ display:flex; gap:16px; align-items:center; padding: 12px 0; border-bottom: 1px solid var(--line); }}
-  .nameCol {{ flex:1; display:flex; flex-direction:column; gap:4px; }}
+  .entry {{ display:flex; gap:16px; align-items:center; padding: 12px 0; border-bottom: 1px solid var(--line); }}
+  .entry-left {{ flex:1; display:flex; flex-direction:column; gap:4px; }}
   .name {{ font-family: ui-monospace, Menlo, monospace; font-size: 13px; color:var(--text); }}
   audio {{ width: 420px; }}
   .pill {{ display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:12px; background:rgba(255,255,255,0.06); border:1px solid var(--line); color:var(--text); font-size:12px; }}
@@ -206,8 +222,6 @@ def write_playlist_html(folder: Path, title: str, source_name: str):
     <div>
       <h2>{title} — A/B Pack</h2>
       <div class="small">Source file: <span class="pill">{source_name}</span></div>
-      <div class="small">Source preview:</div>
-      <div class="card" style="padding:10px; margin-top:6px; max-width: 700px;">{source_audio}</div>
       <div class="small" style="margin-top:8px;">MP3 previews generated locally. WAV masters are in the same folder.</div>
     </div>
     <div>
@@ -215,7 +229,8 @@ def write_playlist_html(folder: Path, title: str, source_name: str):
     </div>
   </div>
   <div class="card">
-    {''.join(rows) if rows else '<p class="small">No MP3 previews found.</p>'}
+    {source_audio if source_audio else ''}
+    {''.join(rows) if rows else '<p class="small">No previews found.</p>'}
   </div>
 </body>
 </html>"""
