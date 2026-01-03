@@ -1576,56 +1576,29 @@ async function runPack(){
   try { localStorage.setItem("packInFlight", String(Date.now())); } catch {}
 
   const files = getSelectedBulkFiles();
-  if (!files.length) {
-    alert("Select at least one input file.");
+  const presets = getSelectedPresets();
+  if (!files.length || !presets.length) {
+    alert("Select at least one input file and one preset.");
     return;
   }
-  const infile = files[0];
-  const song = (infile || '').replace(/\.[^.]+$/, '') || infile;
   const strength = document.getElementById('strength').value;
-  const packBox = document.getElementById('packPresetsBox');
-  const chosenPresets = packBox ? [...packBox.querySelectorAll('input[type=checkbox]:checked')].map(c=>c.value) : [];
-  if (packBox) {
-    try { localStorage.setItem(PACK_PRESETS_KEY, chosenPresets.join(",")); } catch {}
-  }
 
   const fd = new FormData();
-  fd.append('infile', infile);
+  fd.append('infiles', files.join(","));
   fd.append('strength', strength);
-  if (chosenPresets.length) fd.append('presets', chosenPresets.join(","));
+  fd.append('presets', presets.join(","));
   appendOverrides(fd);
 
-  startRunPolling(song);
-  const r = await fetch('/api/master-pack', { method:'POST', body: fd });
+  startRunPolling(files);
+  const r = await fetch('/api/master-bulk', { method:'POST', body: fd });
   const t = await r.text();
   try {
     const j = JSON.parse(t);
-    if (j && typeof j === 'object') {
-      const msg = j.message || '';
-      if (msg.toLowerCase().includes("started")) {
-        setResultHTML('<span class="spinner">Processing…</span>');
-      } else {
-        setResult(msg || '(run submitted)');
-      }
-    } else {
-      if (t.toLowerCase().includes("pack started") || t.toLowerCase().includes("async")) {
-        setResultHTML('<span class="spinner">Processing…</span>');
-      } else {
-        setResult(cleanResultText(t));
-      }
-    }
+    setResult(j.message || 'Bulk submitted');
   } catch {
-    if (t.toLowerCase().includes("pack started") || t.toLowerCase().includes("async")) {
-      setResultHTML('<span class="spinner">Processing…</span>');
-    } else {
-      setResult(cleanResultText(t));
-    }
+    setResult(cleanResultText(t));
   }
-  await showOutputsFromText(t);
-
-  // Auto-refresh lists/runs after job completes
   try { await refreshAll(); } catch (e) { console.error('post-job refreshAll failed', e); }
-  // keep polling until outputs detected
 }
 
 async function runBulk(){
