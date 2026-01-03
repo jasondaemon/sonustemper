@@ -445,7 +445,10 @@ HTML_TEMPLATE = r"""
     .mono{ font-family: ui-monospace, Menlo, Consolas, monospace; font-size:12px; color:#cfe0f1; }
     .hr{ height:1px; background:var(--line); margin:12px 0; }
     .result{ white-space:pre-wrap; background:#0f151d; border:1px solid var(--line);
-      border-radius:14px; padding:12px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size:12px; color:#d7e6f5; }
+      border-radius:14px; padding:12px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size:12px; color:#d7e6f5; min-height:48px; }
+    .spinner{ display:inline-flex; align-items:center; gap:8px; }
+    .spinner:before{ content:\"\"; width:14px; height:14px; border:2px solid var(--line); border-top-color: var(--accent); border-radius:50%; display:inline-block; animation: spin 0.9s linear infinite; }
+    @keyframes spin{ to { transform: rotate(360deg); } }
     .links a{ color: #ffd3b3; text-decoration:none; }
     .links a:hover{ text-decoration:underline; }
     .outlist{ margin-top:10px; display:flex; flex-direction:column; gap:10px; }
@@ -1318,6 +1321,7 @@ async function showOutputsFromText(text){
 async function runOne(){
   clearOutList(); setLinks(''); setResult('Running...'); setMetricsPanel('(waiting)');
   setStatus("Running master...");
+  setResult('<span class="spinner">Running master…</span>');
 
   const infile = document.getElementById('infile').value;
   const song = (infile || '').replace(/\.[^.]+$/, '') || infile;
@@ -1343,6 +1347,7 @@ async function runOne(){
 async function runPack(){
   clearOutList(); setLinks(''); setResult('Running A/B pack...'); setMetricsPanel('(waiting)');
   setStatus("A/B pack running...");
+  setResult('<span class="spinner">Running A/B pack…</span>');
   try { localStorage.setItem("packInFlight", String(Date.now())); } catch {}
 
   const infile = document.getElementById('infile').value;
