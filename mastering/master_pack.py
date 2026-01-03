@@ -203,11 +203,11 @@ def main():
             af = build_filters(preset, strength, args.lufs, args.tp, width_applied)
             wav_out = song_dir / f"{infile.stem}__{p}_S{int(strength*100)}.wav"
 
-            print(f\"[pack] start file={fname} preset={p} strength={int(strength*100)} width={width_applied}\", file=sys.stderr, flush=True)
+            print(f"[pack] start file={fname} preset={p} strength={int(strength*100)} width={width_applied}", file=sys.stderr, flush=True)
             run_ffmpeg_wav(infile, wav_out, af)
-            make_mp3(wav_out, wav_out.with_suffix(\".mp3\"))
+            make_mp3(wav_out, wav_out.with_suffix(".mp3"))
             write_metrics(wav_out, target_lufs, ceiling_db, width_applied)
-            print(f\"[pack] done file={fname} preset={p}\", file=sys.stderr, flush=True)
+            print(f"[pack] done file={fname} preset={p}", file=sys.stderr, flush=True)
 
             outputs.append(str(wav_out))
 
