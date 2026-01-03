@@ -1025,7 +1025,7 @@ function clearOutList(){ document.getElementById('outlist').innerHTML = ''; }
 function setMetricsPanel(html){ document.getElementById('metricsPanel').innerHTML = html || '<span style="opacity:.7;">(none)</span>'; }
 function cleanResultText(t){
   const lines = (t || '').split('\n').map(l=>l.trim()).filter(l => l && !l.toLowerCase().startsWith('script:'));
-  return lines.join('\n') || '(no output yet)';
+  return lines.join('\n') || '(running…)';
 }
 function selectAllPackPresets(){
   const box = document.getElementById('packPresetsBox');
@@ -1257,14 +1257,18 @@ function startRunPolling(song) {
   setStatus(`Processing ${song}...`);
   runPollTimer = setInterval(async () => {
     try {
-      await loadSong(song);
+      const hadOutputs = await loadSong(song, true);
+      if (hadOutputs) {
+        stopRunPolling();
+        setStatus("");
+      }
     } catch (e) {
       console.debug("poll error", e);
     }
   }, 3000);
 }
 
-async function loadSong(song){
+async function loadSong(song, skipEmpty=false){
   localStorage.setItem("lastSong", song);
 
   setLinks(`
@@ -1275,6 +1279,7 @@ async function loadSong(song){
 
   const r = await fetch(`/api/outlist?song=${encodeURIComponent(song)}`);
   const j = await r.json();
+  if (skipEmpty && (!j.items || !j.items.length)) return false;
 
   const out = document.getElementById('outlist');
   out.innerHTML = '';
@@ -1295,18 +1300,21 @@ async function loadSong(song){
   });
 
   // Fetch run-level metrics
-  try {
-    const mr = await fetch(`/api/metrics?song=${encodeURIComponent(song)}`, { cache: 'no-store' });
-    if (mr.ok) {
-      const mjson = await mr.json();
-      setMetricsPanel(renderMetricsTable(mjson));
-    } else {
+  if (j.items && j.items.length) {
+    try {
+      const mr = await fetch(`/api/metrics?song=${encodeURIComponent(song)}`, { cache: 'no-store' });
+      if (mr.ok) {
+        const mjson = await mr.json();
+        setMetricsPanel(renderMetricsTable(mjson));
+      } else {
+        setMetricsPanel('<span style="opacity:.7;">(metrics unavailable)</span>');
+      }
+    } catch (e) {
+      console.error(e);
       setMetricsPanel('<span style="opacity:.7;">(metrics unavailable)</span>');
     }
-  } catch (e) {
-    console.error(e);
-    setMetricsPanel('<span style="opacity:.7;">(metrics unavailable)</span>');
   }
+  return j.items && j.items.length > 0;
 }
 
 async function showOutputsFromText(text){
