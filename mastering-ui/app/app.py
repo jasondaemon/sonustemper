@@ -1101,10 +1101,14 @@ async function renderManage(){
     const filesResp = await fetch("/api/files", { cache:'no-store' });
     const files = filesResp.ok ? (await filesResp.json()).files || [] : [];
     uploadsDiv.innerHTML = files.length ? '' : '<div class="small" style="opacity:.7;">No uploads</div>';
+    const selectRow = document.createElement('div');
+    selectRow.className = 'manage-item';
+    selectRow.innerHTML = `<div class="small">Select uploads:</div><div><button class="smallBtn" id="selectAllUploads">Select all</button> <button class="smallBtn" id="deleteUploads">Delete selected</button></div>`;
+    if (files.length) uploadsDiv.appendChild(selectRow);
     files.forEach(f => {
       const row = document.createElement('div');
       row.className = 'manage-item';
-      row.innerHTML = `<span class="mono">${f}</span><button class="smallBtn" data-upload="${f}">Delete</button>`;
+      row.innerHTML = `<label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" data-upload="${f}"><span class="mono">${f}</span></label>`;
       uploadsDiv.appendChild(row);
     });
   }catch(e){ uploadsDiv.innerHTML = '<div class="small" style="color:#f99;">Error loading uploads</div>'; }
@@ -1112,31 +1116,48 @@ async function renderManage(){
     const runsResp = await fetch("/api/recent?limit=200", { cache:'no-store' });
     const runs = runsResp.ok ? (await runsResp.json()).items || [] : [];
     runsDiv.innerHTML = runs.length ? '' : '<div class="small" style="opacity:.7;">No runs</div>';
+    const selectRowR = document.createElement('div');
+    selectRowR.className = 'manage-item';
+    selectRowR.innerHTML = `<div class="small">Select runs:</div><div><button class="smallBtn" id="selectAllRuns">Select all</button> <button class="smallBtn" id="deleteRuns">Delete selected</button></div>`;
+    if (runs.length) runsDiv.appendChild(selectRowR);
     runs.forEach(r => {
       const row = document.createElement('div');
       row.className = 'manage-item';
-      row.innerHTML = `<span class="mono">${r.song}</span><button class="smallBtn" data-run="${r.song}">Delete</button>`;
+      row.innerHTML = `<label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" data-run="${r.song}"><span class="mono">${r.song}</span></label>`;
       runsDiv.appendChild(row);
     });
   }catch(e){ runsDiv.innerHTML = '<div class="small" style="color:#f99;">Error loading runs</div>'; }
-  uploadsDiv.querySelectorAll('button[data-upload]').forEach(btn=>{
-    btn.addEventListener('click', async ()=>{
-      const name = btn.getAttribute('data-upload');
-      if(!confirm(`Delete upload "${name}" from {{IN_DIR}}?`)) return;
+  const selectAllUploadsBtn = document.getElementById('selectAllUploads');
+  const deleteUploadsBtn = document.getElementById('deleteUploads');
+  if (selectAllUploadsBtn) selectAllUploadsBtn.onclick = () => {
+    uploadsDiv.querySelectorAll('input[type=checkbox][data-upload]').forEach(cb => cb.checked = true);
+  };
+  if (deleteUploadsBtn) deleteUploadsBtn.onclick = async () => {
+    const selected = [...uploadsDiv.querySelectorAll('input[data-upload]:checked')].map(cb => cb.getAttribute('data-upload'));
+    if (!selected.length) return;
+    if (!confirm(`Delete ${selected.length} upload(s) from {{IN_DIR}}?`)) return;
+    for (const name of selected) {
       await fetch(`/api/upload/${encodeURIComponent(name)}`, { method:'DELETE' });
-      renderManage();
-      refreshAll();
-    });
-  });
-  runsDiv.querySelectorAll('button[data-run]').forEach(btn=>{
-    btn.addEventListener('click', async ()=>{
-      const name = btn.getAttribute('data-run');
-      if(!confirm(`Delete all outputs for "${name}"?`)) return;
+    }
+    renderManage();
+    refreshAll();
+  };
+
+  const selectAllRunsBtn = document.getElementById('selectAllRuns');
+  const deleteRunsBtn = document.getElementById('deleteRuns');
+  if (selectAllRunsBtn) selectAllRunsBtn.onclick = () => {
+    runsDiv.querySelectorAll('input[type=checkbox][data-run]').forEach(cb => cb.checked = true);
+  };
+  if (deleteRunsBtn) deleteRunsBtn.onclick = async () => {
+    const selected = [...runsDiv.querySelectorAll('input[data-run]:checked')].map(cb => cb.getAttribute('data-run'));
+    if (!selected.length) return;
+    if (!confirm(`Delete ${selected.length} run(s)?`)) return;
+    for (const name of selected) {
       await fetch(`/api/song/${encodeURIComponent(name)}`, { method:'DELETE' });
-      renderManage();
-      refreshAll();
-    });
-  });
+    }
+    renderManage();
+    refreshAll();
+  };
 }
 
 function wireUploadForm(){
