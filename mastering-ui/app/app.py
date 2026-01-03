@@ -782,7 +782,6 @@ input[type="range"]{
 
       <div class="card">
         <h2>Job Output</h2>
-        <div id="links" class="links small" style="margin-top:4px; margin-bottom:6px;"></div>
         <div id="outlist" class="outlist"></div>
       </div>
 
@@ -1645,8 +1644,8 @@ async function loadSong(song, skipEmpty=false){
         ${ioBlock}
         ${audioSrc ? `<audio controls preload="none" src="${audioSrc}"></audio>` : ''}
         <div class="small">
-          ${it.wav ? `<a class="linkish" href="${it.wav}" target="_blank">WAV</a>` : ''}
-          ${it.mp3 ? `&nbsp;|&nbsp;<a class="linkish" href="${it.mp3}" target="_blank">MP3</a>` : ''}
+          ${it.wav ? `<a class="linkish" href="${it.wav}" download>WAV</a>` : ''}
+          ${it.mp3 ? `&nbsp;|&nbsp;<a class="linkish" href="${it.mp3}" download>MP3</a>` : ''}
           ${it.ab ? `&nbsp;|&nbsp;<a class="linkish" href="${it.ab}" target="_blank">A/B</a>` : ''}
         </div>
       `;
