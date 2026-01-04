@@ -104,6 +104,11 @@ def measure_loudness(wav_path: Path) -> dict:
 
 def write_metrics(wav_out: Path, target_lufs: float, ceiling_db: float, width: float):
     m = measure_loudness(wav_out)
+    if not isinstance(m, dict):
+        m = {}
+    # ensure keys exist even if analysis fails
+    m.setdefault("crest_factor", None)
+    m.setdefault("stereo_corr", None)
     # add duration
     try:
         info = docker_ffprobe_json(wav_out)
@@ -128,11 +133,10 @@ def write_metrics(wav_out: Path, target_lufs: float, ceiling_db: float, width: f
         peak = float(peak_matches[-1]) if peak_matches else None
         rms = float(rms_matches[-1]) if rms_matches else None
         corr = float(corr_matches[-1]) if corr_matches else None
-        if isinstance(m, dict):
-            if peak is not None and rms is not None:
-                m["crest_factor"] = peak - rms
-            if corr is not None:
-                m["stereo_corr"] = corr
+        if peak is not None and rms is not None:
+            m["crest_factor"] = peak - rms
+        if corr is not None:
+            m["stereo_corr"] = corr
     except Exception:
         pass
     if isinstance(m, dict) and 'error' not in m:

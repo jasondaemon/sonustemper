@@ -116,6 +116,30 @@ def measure_loudness(path: Path) -> dict:
     TP  = float((mTPK[-1] if mTPK else (mPeak[-1] if mPeak else None))) if (mTPK or mPeak) else None
     return {"I": I, "LRA": LRA, "TP": TP}
 
+def calc_cf_corr(path: Path) -> dict:
+    out = {"crest_factor": None, "stereo_corr": None}
+    try:
+        r = run_cmd([
+            "ffmpeg", "-hide_banner", "-nostats", "-i", str(path),
+            "-filter_complex", "astats=metadata=1:reset=0",
+            "-f", "null", "-"
+        ])
+        txt = (r.stderr or "") + "\n" + (r.stdout or "")
+        flags = re.IGNORECASE
+        peak_matches = re.findall(r"Overall (?:peak|max)_level(?: dB)?[:\s]+([\-0-9\.]+)", txt, flags)
+        rms_matches = re.findall(r"Overall RMS (?:level)?(?: dB)?[:\s]+([\-0-9\.]+)", txt, flags)
+        corr_matches = re.findall(r"Overall (?:correlation|corr(?:elation)?)(?: coefficient)?[:\s]+([\-0-9\.]+)", txt, flags)
+        peak = float(peak_matches[-1]) if peak_matches else None
+        rms = float(rms_matches[-1]) if rms_matches else None
+        corr = float(corr_matches[-1]) if corr_matches else None
+        if peak is not None and rms is not None:
+            out["crest_factor"] = peak - rms
+        if corr is not None:
+            out["stereo_corr"] = corr
+    except Exception:
+        pass
+    return out
+
 def basic_metrics(path: Path) -> dict:
     info = docker_ffprobe_json(path)
     duration = None
@@ -124,13 +148,14 @@ def basic_metrics(path: Path) -> dict:
     except Exception:
         duration = None
     loud = measure_loudness(path)
+    cf_corr = calc_cf_corr(path)
     m = {
         "I": loud.get("I"),
         "TP": loud.get("TP"),
         "LRA": loud.get("LRA"),
         "short_term_max": None,
-        "crest_factor": None,
-        "stereo_corr": None,
+        "crest_factor": cf_corr.get("crest_factor"),
+        "stereo_corr": cf_corr.get("stereo_corr"),
         "duration_sec": duration,
     }
     return m
