@@ -950,6 +950,7 @@ const PACK_PRESETS_KEY = "packPresets";
 const BULK_FILES_KEY = "bulkFilesSelected";
 let suppressRecentDuringRun = false;
 let lastRunInputMetrics = null;
+let runPollPrimary = null;
 const METRIC_META = [
   { key:"I", label:"I", desc:"Integrated loudness (LUFS) averaged over the whole song. Higher (less negative) is louder; aim for musical balance, not just numbers." },
   { key:"TP", label:"TP", desc:"True Peak (dBTP) or peak dBFS if TP unavailable. Closer to 0 dBTP is louder but riskier; keep headroom for clean playback." },
@@ -1237,6 +1238,42 @@ function appendJobLog(message){
 function cleanResultText(t){
   const lines = (t || '').split('\n').map(l=>l.trim()).filter(l => l && !l.toLowerCase().startsWith('script:'));
   return lines.join('\n') || '(running…)';
+}
+function renderStatusEntries(entries){
+  if (!entries || !entries.length) return '<div class="small" style="opacity:.7;">(waiting for status)</div>';
+  const stageLabel = (s) => {
+    switch (s) {
+      case 'start': return 'Job started';
+      case 'preset_start': return 'Preset: start';
+      case 'preset_done': return 'Preset: done';
+      case 'mp3_done': return 'Preview ready';
+      case 'metrics_start': return 'Metrics: start';
+      case 'metrics_done': return 'Metrics: done';
+      case 'playlist': return 'Playlist';
+      case 'complete': return 'Complete';
+      default: return s || 'Step';
+    }
+  };
+  const items = entries.map(e => {
+    const ts = e.ts ? new Date(e.ts * 1000).toLocaleTimeString() : '';
+    const label = stageLabel(e.stage);
+    const detail = e.detail || '';
+    const preset = e.preset ? ` [${e.preset}]` : '';
+    return `<div class="mono" style="margin-bottom:4px;"><span style="opacity:.65;">${ts}</span> ${label}${preset}: ${detail}</div>`;
+  }).join('');
+  return `<div id="joblog" class="mono">${items}</div>`;
+}
+async function refreshStatusLog(song){
+  if (!song) return;
+  try {
+    const res = await fetch(`/api/status?song=${encodeURIComponent(song)}`, { cache:'no-store' });
+    if (!res.ok) return;
+    const data = await res.json();
+    const html = renderStatusEntries(data.entries || []);
+    setResultHTML(html);
+  } catch (e) {
+    console.debug('refreshStatusLog failed', e);
+  }
 }
 function selectAllPackPresets(){
   const box = document.getElementById('packPresetsBox');
@@ -1713,8 +1750,12 @@ function startRunPolling(files) {
   const arr = Array.isArray(files) ? files : [];
   if (!arr.length) return;
   runPollFiles = [...arr];
+  runPollPrimary = runPollFiles[0] || null;
   runPollSeen = new Set();
   setStatus(`Processing ${arr.join(', ')}`);
+  if (runPollPrimary) {
+    refreshStatusLog(runPollPrimary);
+  }
   runPollTimer = setInterval(async () => {
     try {
       let anyProcessing = false;
@@ -1734,12 +1775,23 @@ function startRunPolling(files) {
           runPollSeen.add(f);
         }
       }
+      if (runPollPrimary) {
+        await refreshStatusLog(runPollPrimary);
+      }
       if (!anyProcessing && pending.size === 0) {
         stopRunPolling();
         setStatus("");
         appendJobLog("Job complete.");
         suppressRecentDuringRun = false;
+        const finishedPrimary = runPollPrimary;
+        if (finishedPrimary) {
+          try { await refreshStatusLog(finishedPrimary); } catch(_){}
+        }
         try { await refreshRecent(true); } catch(e) { console.debug('recent refresh after polling stop failed', e); }
+        if (finishedPrimary) {
+          try { await loadSong(finishedPrimary); } catch(_){}
+        }
+        runPollPrimary = null;
       }
     } catch (e) {
       console.debug("poll error", e);
@@ -2121,6 +2173,21 @@ def delete_song(song: str):
         return {"message": f"Nothing to delete for {song}."}
     shutil.rmtree(target)
     return {"message": f"Deleted outputs for {song}."}
+@app.get("/api/status")
+def job_status(song: str):
+    folder = OUT_DIR / song
+    status_fp = folder / ".status.json"
+    if not status_fp.exists():
+        raise HTTPException(status_code=404, detail="status_not_found")
+    try:
+        data = json.loads(status_fp.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return {"entries": data}
+        if isinstance(data, dict):
+            return {"entries": data.get("entries", [])}
+    except Exception:
+        raise HTTPException(status_code=500, detail="status_read_failed")
+    return {"entries": []}
 @app.delete("/api/output/{song}/{name}")
 def delete_output(song: str, name: str):
     """Delete an individual mastered output (WAV/MP3/metrics) within a run folder."""

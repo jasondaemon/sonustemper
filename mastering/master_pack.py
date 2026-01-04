@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import argparse, json, shlex, subprocess, sys, re, os
+import argparse, json, shlex, subprocess, sys, re, os, time
 from pathlib import Path
 import shutil
 import json
@@ -477,6 +477,35 @@ def write_playlist_html(folder: Path, title: str, source_name: str):
 </html>"""
     (folder / "index.html").write_text(html, encoding="utf-8")
 
+# --- status logging (for UI progress) ---
+def append_status(folder: Path, stage: str, detail: str = "", preset: str | None = None):
+    """Append a lightweight status entry to .status.json in the run folder."""
+    try:
+        status_fp = folder / ".status.json"
+        payload = {"entries": []}
+        if status_fp.exists():
+            try:
+                existing = json.loads(status_fp.read_text(encoding="utf-8"))
+                if isinstance(existing, dict) and isinstance(existing.get("entries"), list):
+                    payload = existing
+                elif isinstance(existing, list):
+                    payload["entries"] = existing
+            except Exception:
+                pass
+        entry = {
+            "ts": round(time.time(), 3),
+            "stage": stage,
+            "detail": detail,
+            "preset": preset,
+        }
+        payload["entries"].append(entry)
+        # Keep file small
+        if len(payload["entries"]) > 300:
+            payload["entries"] = payload["entries"][-300:]
+        status_fp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--infile", required=True)
@@ -529,14 +558,20 @@ def main():
             shutil.copy2(infile, source_copy)
         except Exception:
             pass
+    presets = [p.strip() for p in args.presets.split(",") if p.strip()]
+    outputs = []
+
     marker = song_dir / ".processing"
     try:
         marker.write_text("running", encoding="utf-8")
     except Exception:
         marker = None
-
-    presets = [p.strip() for p in args.presets.split(",") if p.strip()]
-    outputs = []
+    # reset status for this run
+    try:
+        (song_dir / ".status.json").unlink(missing_ok=True)
+    except Exception:
+        pass
+    append_status(song_dir, "start", f"Job started for {infile.name} with presets: {', '.join(presets)}")
 
     # If mastering is disabled, we do an analyze-only run (no outputs).
     if not do_master:
@@ -584,15 +619,24 @@ def main():
             )
             wav_out = song_dir / f"{infile.stem}__{variant_tag}.wav"
 
+            append_status(song_dir, "preset_start", f"Applying preset '{p}' (S={strength_pct}, width={width_applied})", preset=p)
             print(f"[pack] start file={infile.name} preset={p} strength={int(strength*100)} width={width_applied}", file=sys.stderr, flush=True)
             run_ffmpeg_wav(infile, wav_out, af)
+            append_status(song_dir, "preset_done", f"Finished preset '{p}' render", preset=p)
             make_mp3(wav_out, wav_out.with_suffix(".mp3"))
+            append_status(song_dir, "mp3_done", f"MP3 preview ready for '{p}'", preset=p)
+            if do_analyze:
+                append_status(song_dir, "metrics_start", f"Analyzing metrics for '{p}'", preset=p)
             write_metrics(wav_out, target_lufs, ceiling_db, width_applied, write_file=do_analyze)
+            if do_analyze:
+                append_status(song_dir, "metrics_done", f"Metrics written for '{p}'", preset=p)
             print(f"[pack] done file={infile.name} preset={p}", file=sys.stderr, flush=True)
 
             outputs.append(str(wav_out))
 
         write_playlist_html(song_dir, infile.stem, infile.name)
+        append_status(song_dir, "playlist", "Playlist generated")
+        append_status(song_dir, "complete", "Job complete")
         print("\n".join(outputs))
     finally:
         if marker:
