@@ -1358,17 +1358,19 @@ async function refreshAll() {
     // Populate presets as checkboxes
     if (packBox) {
       packBox.innerHTML = "";
-      const prevPack = new Set(((localStorage.getItem(PACK_PRESETS_KEY) || "")).split(",").filter(Boolean));
+      const prevPackVal = (localStorage.getItem(PACK_PRESETS_KEY) || "").trim();
       const presets = data.presets || [];
-      const havePrev = presets.some(p => prevPack.has(p));
+      const havePrev = presets.includes(prevPackVal);
       presets.forEach((pr, idx) => {
         const wrap = document.createElement('label');
         wrap.style = "display:flex; align-items:center; gap:6px; padding:4px 8px; border:1px solid var(--line); border-radius:10px;";
-        const checked = havePrev ? prevPack.has(pr) : (idx === 0);
-        wrap.innerHTML = `<input type="checkbox" value="${pr}" ${checked ? 'checked' : ''}> ${pr} <button class="info-btn" type="button" data-info-type="preset" data-id="${pr}" aria-label="About ${pr}">ⓘ</button>`;
+        const checked = havePrev ? prevPackVal === pr : (idx === 0);
+        wrap.innerHTML = `<input type="radio" name="presetSel" value="${pr}" ${checked ? 'checked' : ''}> <span class="mono">${pr}</span> <button class="info-btn" type="button" data-info-type="preset" data-id="${pr}" aria-label="About ${pr}">ⓘ</button>`;
         const input = wrap.querySelector('input');
         input.addEventListener('change', () => {
-          try { localStorage.setItem(PACK_PRESETS_KEY, getSelectedPresets().join(",")); } catch {}
+          if (input.checked) {
+            try { localStorage.setItem(PACK_PRESETS_KEY, pr); } catch {}
+          }
           updatePackButtonState();
           updateRunButtonsState();
         });
@@ -1527,15 +1529,17 @@ function selectAllPackPresets(){
   const box = document.getElementById('packPresetsBox');
   if (!box) return;
   setVoicingMode('presets');
-  const checks = [...box.querySelectorAll('input[type=checkbox]')];
-  checks.forEach(c => { c.checked = true; });
-  try { localStorage.setItem(PACK_PRESETS_KEY, checks.map(c=>c.value).join(",")); } catch {}
+  const radios = [...box.querySelectorAll('input[type=radio]')];
+  if (radios.length) {
+    radios[0].checked = true;
+    try { localStorage.setItem(PACK_PRESETS_KEY, radios[0].value); } catch {}
+  }
   updateRunButtonsState();
 }
 function clearAllPackPresets(){
   const box = document.getElementById('packPresetsBox');
   if (!box) return;
-  const checks = [...box.querySelectorAll('input[type=checkbox]')];
+  const checks = [...box.querySelectorAll('input[type=radio]')];
   checks.forEach(c => { c.checked = false; });
   try { localStorage.setItem(PACK_PRESETS_KEY, ""); } catch {}
   updatePackButtonState();
@@ -1566,7 +1570,8 @@ function getFirstSelectedFile(){
 function getSelectedPresets(){
   const box = document.getElementById('packPresetsBox');
   if (!box) return [];
-  return [...box.querySelectorAll('input[type=checkbox]:checked')].map(c=>c.value);
+  const sel = box.querySelector('input[type=radio]:checked');
+  return sel ? [sel.value] : [];
 }
 function getSelectedVoicing(){
   const box = document.getElementById('voicingBox');
