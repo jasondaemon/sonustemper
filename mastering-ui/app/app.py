@@ -12,12 +12,10 @@ import os
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 IN_DIR = Path(os.getenv("IN_DIR", str(DATA_DIR / "in")))
 OUT_DIR = Path(os.getenv("OUT_DIR", str(DATA_DIR / "out")))
 PRESET_DIR = Path(os.getenv("PRESET_DIR", "/presets"))
-
 APP_DIR = Path(__file__).resolve().parent
 # Deprecated: master.py retained only as a fallback reference; master_pack.py is the unified runner.
 _default_master = APP_DIR / "mastering" / "master.py"
@@ -28,16 +26,12 @@ if not _default_pack.exists():
         _default_master = APP_DIR.parents[2] / "mastering" / "master.py"
     except Exception:
         pass
-
 # Use master_pack.py as the unified mastering script (handles single or multiple presets/files)
 MASTER_SCRIPT = Path(os.getenv("MASTER_SCRIPT", str(_default_pack)))
-
 app = FastAPI()
-
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 IN_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/out", StaticFiles(directory=str(OUT_DIR), html=True), name="out")
-
 def read_metrics_for_wav(wav: Path) -> dict | None:
     mp = wav.with_suffix(".metrics.json")
     if not mp.exists():
@@ -46,7 +40,6 @@ def read_metrics_for_wav(wav: Path) -> dict | None:
         return json.loads(mp.read_text(encoding="utf-8"))
     except Exception:
         return {"error": "metrics_read_failed"}
-
 def read_run_metrics(folder: Path) -> dict | None:
     mp = folder / "metrics.json"
     if not mp.exists():
@@ -55,13 +48,11 @@ def read_run_metrics(folder: Path) -> dict | None:
         return json.loads(mp.read_text(encoding="utf-8"))
     except Exception:
         return None
-
 def read_first_wav_metrics(folder: Path) -> dict | None:
     wavs = sorted([p for p in folder.iterdir() if p.is_file() and p.suffix.lower() == ".wav"])
     if not wavs:
         return None
     return read_metrics_for_wav(wavs[0])
-
 def wrap_metrics(song: str, metrics: dict | None) -> dict | None:
     """Normalize metrics to always have .output/.input keys for UI consumption."""
     if not metrics:
@@ -79,10 +70,8 @@ def wrap_metrics(song: str, metrics: dict | None) -> dict | None:
         "input": None,
         "output": metrics,
     }
-
 def run_cmd(cmd: list[str]) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
-
 def docker_ffprobe_json(path: Path) -> dict:
     r = run_cmd([
         "ffprobe", "-v", "quiet", "-print_format", "json",
@@ -97,7 +86,6 @@ def docker_ffprobe_json(path: Path) -> dict:
             return json.loads(r.stderr)
         except Exception:
             return {}
-
 def measure_loudness(path: Path) -> dict:
     r = run_cmd([
         "ffmpeg", "-hide_banner", "-nostats", "-i", str(path),
@@ -115,10 +103,8 @@ def measure_loudness(path: Path) -> dict:
     LRA = float(mLRA[-1]) if mLRA else None
     TP  = float((mTPK[-1] if mTPK else (mPeak[-1] if mPeak else None))) if (mTPK or mPeak) else None
     return {"I": I, "LRA": LRA, "TP": TP}
-
 def calc_cf_corr(path: Path) -> dict:
     """Extract crest factor and other useful overall stats via ffmpeg astats.
-
     Note: in this ffmpeg build, measure_overall/measure_perchannel take *flag sets* (not booleans).
     """
     out = {
@@ -136,8 +122,7 @@ def calc_cf_corr(path: Path) -> dict:
             "-af", f"astats=measure_overall={want}:measure_perchannel=none:reset=0",
             "-f", "null", "-"
         ])
-        txt = (r.stderr or "") + "
-" + (r.stdout or "")
+        txt = (r.stderr or "") + "\n" + (r.stdout or "")
         section = None
         for raw in txt.splitlines():
             line = raw.strip()
@@ -173,7 +158,6 @@ def calc_cf_corr(path: Path) -> dict:
     except Exception:
         pass
     return out
-
 def basic_metrics(path: Path) -> dict:
     info = docker_ffprobe_json(path)
     duration = None
@@ -197,7 +181,6 @@ def basic_metrics(path: Path) -> dict:
         "duration_sec": duration,
     }
     return m
-
 def find_input_file(song: str) -> Path | None:
     candidates: list[Path] = []
     try:
@@ -211,7 +194,6 @@ def find_input_file(song: str) -> Path | None:
         pass
     candidates = sorted(candidates)
     return candidates[0] if candidates else None
-
 def fill_input_metrics(song: str, m: dict, folder: Path) -> dict:
     if not m:
         return m
@@ -238,7 +220,6 @@ def fill_input_metrics(song: str, m: dict, folder: Path) -> dict:
     except Exception:
         pass
     return m
-
 def _writable(dir_path: Path) -> bool:
     try:
         dir_path.mkdir(parents=True, exist_ok=True)
@@ -248,10 +229,6 @@ def _writable(dir_path: Path) -> bool:
         return True
     except Exception:
         return False
-
-
-
-
 def fmt_metrics(m: dict | None) -> str:
     if not m:
         return ""
@@ -272,9 +249,6 @@ def fmt_metrics(m: dict | None) -> str:
     if isinstance(w,(int,float)) and abs(w-1.0) > 1e-6:
         parts.append(f"W={w:.2f}")
     return " ".join(parts) if parts else "metrics: (unavailable)"
-
-
-
 def bust_url(song: str, filename: str) -> str:
     fp = OUT_DIR / song / filename
     try:
@@ -282,7 +256,6 @@ def bust_url(song: str, filename: str) -> str:
     except Exception:
         v = 0
     return f"/out/{song}/{filename}?v={v}"
-
 PRESET_META_FALLBACK = {
     "acoustic": {
         "title": "Acoustic",
@@ -402,7 +375,6 @@ PRESET_META_FALLBACK = {
         "abNotes": ["Compare with Modern/Clean: does it add body without losing clarity?"]
     }
 }
-
 LOUDNESS_PROFILES = {
     "apple": {
         "title": "Apple Music",
@@ -441,7 +413,6 @@ LOUDNESS_PROFILES = {
         "caution": ["Extreme targets can reduce dynamics or cause distortion."]
     }
 }
-
 def load_preset_meta() -> dict:
     """Load preset metadata from preset JSON files; fall back to baked-in copy."""
     meta = {}
@@ -471,7 +442,6 @@ def load_preset_meta() -> dict:
         merged = {**fb, **cur}
         meta[pid] = merged
     return meta
-
 BUILD_STAMP = os.getenv("MASTERING_BUILD")
 git_rev = None
 try:
@@ -488,7 +458,6 @@ else:
             BUILD_STAMP = datetime.fromtimestamp(Path(__file__).stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
         except Exception:
             BUILD_STAMP = "dev"
-
 HTML_TEMPLATE = r"""
 <!doctype html>
 <html>
@@ -556,7 +525,6 @@ HTML_TEMPLATE = r"""
     .manage-item{ display:flex; justify-content:space-between; align-items:center; padding:8px 10px; border:1px solid var(--line); border-radius:10px; }
     .smallBtn{ padding:6px 10px; font-size:12px; border-radius:10px; border:1px solid var(--line); background:#0f151d; color:#d7e6f5; cursor:pointer; }
   </style>
-
 <style>
 /* --- Mastering UI control rows --- */
 .control-row{
@@ -593,9 +561,6 @@ HTML_TEMPLATE = r"""
   }
 }
 </style>
-
-
-
 <style>
 /* --- Responsive layout fix (force on-screen) --- */
 html, body{
@@ -603,11 +568,9 @@ html, body{
   max-width:100%;
   overflow-x:hidden;
 }
-
 body{
   margin:0;
 }
-
 /* Make the main wrapper fluid */
 .wrap{
   width:100% !important;
@@ -616,25 +579,21 @@ body{
   padding:16px;
   box-sizing:border-box;
 }
-
 /* Grid: 2 columns on wide screens, 1 column on small */
 .grid{
   display:grid !important;
   grid-template-columns: 360px 1fr;
   gap:16px;
 }
-
 @media (max-width: 1000px){
   .grid{
     grid-template-columns: 1fr;
   }
 }
-
 /* Cards should not force overflow */
 .card{
   min-width:0 !important;
 }
-
 /* Control rows should wrap and never push past viewport */
 .control-row{
   min-width:0 !important;
@@ -648,20 +607,17 @@ body{
     min-width:100%;
   }
 }
-
 /* Make sliders behave */
 input[type="range"]{
   min-width: 180px !important;
   max-width: 100%;
 }
-
 /* Make selects fluid */
     select, input[type="text"], input[type="file"]{
       max-width:100%;
       min-width:0 !important;
     }
   </style>
-
 <style>
 .drawer-backdrop{
   position:fixed; inset:0; background:rgba(0,0,0,0.35); backdrop-filter: blur(2px);
@@ -738,7 +694,6 @@ input[type="range"]{
 .ioTable th{ opacity:.75; }
 .ioTable td{ opacity:.9; }
 </style>
-
 </head>
 <body>
   <div class="wrap">
@@ -752,7 +707,6 @@ input[type="range"]{
 <div id="statusMsg" class="small" style="margin-top:8px;opacity:.85"></div>
       </div>
     </div>
-
 <div class="grid" id="masterView">
       <div class="card masterPane" id="uploadCard">
         <h2>Upload</h2>
@@ -764,16 +718,13 @@ input[type="range"]{
           </div>
         </form>
         <div id="uploadResult" class="small" style="margin-top:10px;"></div>
-
         <div class="section-gap"></div>
         <h3 class="section-title">Processing Status</h3>
         <div id="result" class="result">(waiting)</div>
       </div>
-
       <div class="card masterPane">
         <h2>Master</h2>
         <div class="hidden"><select id="infile"></select></div>
-
         <div class="control-row" style="align-items:flex-start; margin-top:6px;">
           <label style="min-width:140px;">Input files</label>
           <div id="bulkFilesBox" class="small" style="flex:1; display:flex; flex-wrap:wrap; gap:8px;"></div>
@@ -782,7 +733,6 @@ input[type="range"]{
             <button class="btnGhost" type="button" onclick="clearAllBulk()">Clear</button>
           </div>
         </div>
-
         <div class="control-row" style="align-items:flex-start; margin-top:8px;">
           <label style="min-width:140px;">Presets</label>
           <div id="packPresetsBox" class="small" style="flex:1; display:flex; flex-wrap:wrap; gap:8px;"></div>
@@ -791,15 +741,12 @@ input[type="range"]{
             <button class="btnGhost" type="button" onclick="clearAllPackPresets()">Clear</button>
           </div>
         </div>
-
         <div class="control-row">
           <label>Strength</label>
           <input type="range" id="strength" min="0" max="100" value="80" oninput="strengthVal.textContent=this.value">
           <span class="pill">S=<span id="strengthVal">80</span></span>
         </div>
-
         <div class="hr"></div>
-
         <div class="control-row">
           <label>Loudness Mode</label>
           <div style="display:flex; align-items:center; gap:8px;">
@@ -808,55 +755,46 @@ input[type="range"]{
           </div>
         </div>
         <div class="small" id="loudnessHint" style="margin-top:-6px; margin-bottom:6px; color:var(--muted);"></div>
-
         <div id="overrides">
           <div class="control-row">
             <label><input type="checkbox" id="useLufs"> Override Target LUFS</label>
             <input type="range" id="lufs" min="-20" max="-8" step="0.5" value="-14">
             <span class="pill" id="lufsVal">-14.0 LUFS</span>
           </div>
-
           <div class="control-row">
             <label><input type="checkbox" id="useTp"> Override True Peak (TP)</label>
             <input type="range" id="tp" min="-3.0" max="0.0" step="0.1" value="-1.0">
             <span class="pill" id="tpVal">-1.0 dBTP</span>
           </div>
-
           <div class="control-row">
             <label><input type="checkbox" id="ov_width"> Override Stereo Width</label>
             <input type="range" id="width" min="0.90" max="1.40" step="0.01" value="1.12">
             <span class="pill" id="widthVal">1.12</span>
           </div>
-
           <div class="control-row">
             <label><input type="checkbox" id="guardrails"> Enable Width Guardrails</label>
             <div class="small" style="color:var(--muted);">Keeps lows mono-ish and softly caps extreme width if risky.</div>
           </div>
-
           <div class="control-row">
             <label><input type="checkbox" id="ov_mono_bass"> Mono Bass Below (Hz)</label>
             <input type="range" id="mono_bass" min="60" max="200" step="5" value="120">
             <span class="pill" id="monoBassVal">120</span>
           </div>
         </div>
-
         <div class="row" style="margin-top:12px;">
           <button class="btn" id="runPackBtn" onclick="runPack()">Run Master</button>
           <button class="btnGhost" id="runBulkBtn" onclick="runBulk()">Run on selected files</button>
         </div>
       </div>
-
       <div class="card masterPane" id="recentCard">
         <h2>Previous Runs</h2>
         <div class="small">Click a run to load outputs. Delete removes the entire song output folder.</div>
         <div id="recent" class="outlist" style="margin-top:10px;"></div>
       </div>
-
       <div class="card masterPane">
         <h2>Job Output</h2>
         <div id="outlist" class="outlist"></div>
       </div>
-
       <div class="card hidden" id="manageView">
         <div style="display:flex; justify-content:space-between; align-items:center;">
           <h2>Manage uploads & runs</h2>
@@ -874,13 +812,11 @@ input[type="range"]{
     </div>
     <div class="footer">developed by <a class="linkish" href="http://www.jasondaemon.net">jasondaemon.net</a></div>
   </div>
-
 <script>
 function setStatus(msg) {
   const el = document.getElementById('statusMsg');
   if (el) el.textContent = msg;
 }
-
 const LOUDNESS_MODES = {
   apple: { label: "Apple Music", lufs: -16.0, tp: -1.0, hint: "Target -16 LUFS / -1.0 dBTP" },
   streaming: { label: "Streaming Safe", lufs: -14.0, tp: -1.0, hint: "Target -14 LUFS / -1.0 dBTP" },
@@ -903,18 +839,15 @@ const METRIC_META = [
   { key:"RMS", label:"RMS", desc:"RMS level (dBFS). Complements LUFS by showing signal power/density." },
   { key:"DR", label:"DR", desc:"Dynamic range from astats (dB). Higher usually feels punchier/more dynamic." },
   { key:"Noise", label:"Noise", desc:"Noise floor estimate (dBFS). Useful for quiet intros/outros, spoken word, or transfers." },
-
   { key:"CF", label:"CF", desc:"Crest Factor (peak vs average). Higher keeps punch/transients; lower feels denser/limited." },
   { key:"Corr", label:"Corr", desc:"Stereo correlation. 1.0 is mono/coherent, 0 is wide, negative can sound phasey or hollow." },
   { key:"Dur", label:"Dur", desc:"Duration in seconds." },
   { key:"W", label:"W", desc:"Width factor applied in mastering (if present). >1 widens, <1 narrows." },
 ];
-
 function setLoudnessHint(text){
   const el = document.getElementById('loudnessHint');
   if (el) el.textContent = text || '';
 }
-
 function setSliderValue(id, value){
   const el = document.getElementById(id);
   if (!el || value === undefined || value === null) return;
@@ -922,14 +855,12 @@ function setSliderValue(id, value){
   el.dispatchEvent(new Event('input', { bubbles: true }));
   el.dispatchEvent(new Event('change', { bubbles: true }));
 }
-
 function loadManualLoudness(){
   try {
     const raw = localStorage.getItem(LOUDNESS_MANUAL_KEY);
     return raw ? JSON.parse(raw) : null;
   } catch { return null; }
 }
-
 function saveManualLoudness(){
   const mode = getCurrentLoudnessMode();
   if (mode !== 'manual') return;
@@ -941,7 +872,6 @@ function saveManualLoudness(){
   };
   try { localStorage.setItem(LOUDNESS_MANUAL_KEY, JSON.stringify(payload)); } catch {}
 }
-
 function getCurrentLoudnessMode(){
   const sel = document.getElementById('loudnessMode');
   if (sel && sel.value) return sel.value;
@@ -949,19 +879,16 @@ function getCurrentLoudnessMode(){
   if (stored && LOUDNESS_MODES[stored]) return stored;
   return "apple";
 }
-
 function applyLoudnessMode(modeKey, { fromInit=false } = {}){
   const cfg = LOUDNESS_MODES[modeKey] || LOUDNESS_MODES.apple;
   const sel = document.getElementById('loudnessMode');
   if (sel && sel.value !== modeKey) sel.value = modeKey;
   try { localStorage.setItem(LOUDNESS_MODE_KEY, modeKey); } catch {}
-
   const lock = modeKey !== 'manual';
   const lufsInput = document.getElementById('lufs');
   const tpInput = document.getElementById('tp');
   const useLufs = document.getElementById('useLufs');
   const useTp = document.getElementById('useTp');
-
   if (lock) {
     if (lufsInput) { lufsInput.disabled = true; setSliderValue('lufs', cfg.lufs); }
     if (tpInput) { tpInput.disabled = true; setSliderValue('tp', cfg.tp); }
@@ -972,7 +899,6 @@ function applyLoudnessMode(modeKey, { fromInit=false } = {}){
     if (tpInput) tpInput.disabled = false;
     if (useLufs) useLufs.disabled = false;
     if (useTp) useTp.disabled = false;
-
     const manual = loadManualLoudness();
     if (manual) {
       if (manual.lufs !== undefined && manual.lufs !== null) setSliderValue('lufs', manual.lufs);
@@ -981,10 +907,8 @@ function applyLoudnessMode(modeKey, { fromInit=false } = {}){
       if (useTp && typeof manual.useTp === 'boolean') useTp.checked = manual.useTp;
     }
   }
-
   setLoudnessHint(cfg.hint || "");
 }
-
 function initLoudnessMode(){
   const sel = document.getElementById('loudnessMode');
   if (!sel) return;
@@ -997,30 +921,24 @@ function initLoudnessMode(){
     o.textContent = cfg.label;
     sel.appendChild(o);
   });
-
   const initial = getCurrentLoudnessMode();
   sel.value = LOUDNESS_MODES[initial] ? initial : "apple";
   sel.addEventListener('change', () => applyLoudnessMode(sel.value));
   applyLoudnessMode(sel.value, { fromInit: true });
 }
-
 async function refreshRecent(force=false) {
   if (suppressRecentDuringRun && !force) return;
   const el = document.getElementById('recent');
   if (!el) return;
-
   try {
     const r = await fetch('/api/recent?limit=30', { cache: 'no-store' });
     const data = await r.json();
-
     el.innerHTML = '';
     const items = (data && data.items) ? data.items : [];
-
     if (!items.length) {
       el.innerHTML = '<div class="small" style="opacity:.75;">No runs yet.</div>';
       return;
     }
-
     for (const it of items) {
       const div = document.createElement('div');
       div.className = 'outitem';
@@ -1037,7 +955,6 @@ async function refreshRecent(force=false) {
       `;
       el.appendChild(div);
     }
-
     const last = localStorage.getItem("lastSong");
     if (last && items.find(x => x.song === last)) {
       // Optional auto-restore could be added here if desired.
@@ -1046,24 +963,18 @@ async function refreshRecent(force=false) {
     console.error('refreshRecent failed', e);
   }
 }
-
 function wireUI() {
   // If this shows up, JS is definitely running.
   setStatus("UI ready.");
-
   const bind = (chkId, sliderId, pillId, fmt=(v)=>v) => {
     const chk = document.getElementById(chkId);
     const slider = document.getElementById(sliderId);
     const pill = document.getElementById(pillId);
-
     if (!slider || !pill) return;
-
     const update = () => { pill.textContent = fmt(slider.value); };
-
     slider.addEventListener('input', update);
     slider.addEventListener('change', update);
     update();
-
     if (chk) {
       // Keep sliders usable even when override is off; checkbox only gates payload
       const syncEnabled = () => { slider.disabled = false; };
@@ -1071,7 +982,6 @@ function wireUI() {
       syncEnabled();
     }
   };
-
   // Strength (no checkbox)
   const strength = document.getElementById('strength');
   const strengthVal = document.getElementById('strengthVal');
@@ -1081,15 +991,12 @@ function wireUI() {
     strength.addEventListener('change', u);
     u();
   }
-
   // Overrides (checkbox + slider + pill)
   bind('useLufs', 'lufs', 'lufsVal', (v)=>Number(v).toFixed(1));
   bind('useTp', 'tp', 'tpVal', (v)=>Number(v).toFixed(1));
   bind('ov_width', 'width', 'widthVal', (v)=>Number(v).toFixed(2));
   bind('ov_mono_bass', 'mono_bass', 'monoBassVal', (v)=>String(parseInt(v,10)));
-
   // If your IDs are different, this will silently no-op rather than crash.
-
   const trackManual = () => saveManualLoudness();
   const lufsInput = document.getElementById('lufs');
   const tpInput = document.getElementById('tp');
@@ -1101,7 +1008,6 @@ function wireUI() {
       el.addEventListener('change', trackManual);
     }
   });
-
   // Guardrails toggle persistence
   const guardrails = document.getElementById('guardrails');
   if (guardrails) {
@@ -1112,14 +1018,12 @@ function wireUI() {
     });
   }
 }
-
 async function refreshAll() {
   try {
     setStatus("Loading lists...");
     const r = await fetch("/api/files", { cache: "no-store" });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const data = await r.json();
-
     const infileSel = document.getElementById("infile");
     const packBox = document.getElementById("packPresetsBox");
     if (infileSel) {
@@ -1133,7 +1037,6 @@ async function refreshAll() {
       });
       if (prevIn && [...infileSel.options].some(o => o.value === prevIn)) infileSel.value = prevIn;
     }
-
     // Populate presets as checkboxes
     if (packBox) {
       packBox.innerHTML = "";
@@ -1157,7 +1060,6 @@ async function refreshAll() {
       }
       updatePackButtonState();
     }
-
     // Bulk files checkboxes
     const bulkBox = document.getElementById("bulkFilesBox");
     if (bulkBox) {
@@ -1180,7 +1082,6 @@ async function refreshAll() {
         try { localStorage.setItem(BULK_FILES_KEY, files[0]); } catch {}
       }
     }
-
     setStatus("");
   } catch (e) {
     console.error("refreshAll failed:", e);
@@ -1188,7 +1089,6 @@ async function refreshAll() {
   }
   await refreshRecent();
 }
-
 function setResult(text){ const el=document.getElementById('result'); if(el) el.textContent = text || '(no output)'; }
 function setResultHTML(html){ const el=document.getElementById('result'); if(el) el.innerHTML = html || ''; }
 function setLinks(html){
@@ -1326,7 +1226,6 @@ async function renderManage(){
     renderManage();
     refreshAll();
   };
-
   const selectAllRunsBtn = document.getElementById('selectAllRuns');
   const deleteRunsBtn = document.getElementById('deleteRuns');
   if (selectAllRunsBtn) selectAllRunsBtn.onclick = () => {
@@ -1343,7 +1242,6 @@ async function renderManage(){
     refreshAll();
   };
 }
-
 function wireUploadForm(){
   const form = document.getElementById('uploadForm');
   const uploadResult = document.getElementById('uploadResult');
@@ -1362,7 +1260,6 @@ function wireUploadForm(){
     try { await refreshAll(); } catch(_){}
   });
 }
-
 function initInfoDrawer(){
   const drawer = document.getElementById('infoDrawer');
   const backdrop = document.getElementById('drawerBackdrop');
@@ -1371,7 +1268,6 @@ function initInfoDrawer(){
   const subEl = document.getElementById('drawerSubtitle');
   const bodyEl = document.getElementById('drawerBody');
   let lastFocus = null;
-
   const closeDrawer = () => {
     drawer.classList.remove('open');
     setTimeout(() => drawer.classList.add('hidden'), 150);
@@ -1380,7 +1276,6 @@ function initInfoDrawer(){
       try { lastFocus.focus(); } catch(_){}
     }
   };
-
   const openDrawer = (title, subtitle, bodyHTML, trigger) => {
     lastFocus = trigger || null;
     titleEl.textContent = title || '';
@@ -1391,17 +1286,14 @@ function initInfoDrawer(){
     backdrop.classList.remove('hidden');
     drawer.focus();
   };
-
   const renderList = (items) => {
     if (!items || !items.length) return '<div class="small" style="opacity:.7;">—</div>';
     return `<ul>${items.map(i=>`<li>${i}</li>`).join('')}</ul>`;
   };
-
   const renderChips = (items) => {
     if (!items || !items.length) return '<div class="small" style="opacity:.7;">—</div>';
     return `<div class="chips">${items.map(i=>`<span class="chip">${i}</span>`).join('')}</div>`;
   };
-
     const renderPresetDrawer = (id) => {
       const m = (window.PRESET_META || {})[id];
       if (!m) return;
@@ -1427,24 +1319,19 @@ function initInfoDrawer(){
     `;
     openDrawer(m.title || id, '', body, document.querySelector(`.info-btn[data-id="${id}"]`));
     };
-
   const renderLoudnessDrawer = () => {
     const profiles = window.LOUDNESS_PROFILES || {};
     const sel = document.getElementById('loudnessMode');
     const currentId = sel ? sel.value : 'apple';
     const prof = profiles[currentId] || {};
-
     const overrideLufs = document.getElementById('useLufs')?.checked ? document.getElementById('lufs')?.value : null;
     const overrideTp = document.getElementById('useTp')?.checked ? document.getElementById('tp')?.value : null;
-
     const currentLufs = overrideLufs !== null && overrideLufs !== undefined ? overrideLufs : prof.targetLUFS;
     const currentTp = overrideTp !== null && overrideTp !== undefined ? overrideTp : prof.truePeakDBTP;
-
     const tableRows = Object.entries(profiles).map(([k,v]) => {
       const l = v.targetLUFS; const t = v.truePeakDBTP;
       return `<tr><td style="padding:4px 6px;">${v.title || k}</td><td style="padding:4px 6px;">${l ?? '—'}</td><td style="padding:4px 6px;">${t ?? '—'}</td></tr>`;
     }).join('');
-
     const body = `
       <div class="drawer-section">
         <h3>Current profile</h3>
@@ -1477,16 +1364,13 @@ function initInfoDrawer(){
     `;
     openDrawer("Loudness Profiles", prof.title || currentId, body, document.querySelector('.info-btn[data-info-type="loudness"]'));
   };
-
   window.openDrawer = openDrawer;
   window.renderPresetDrawer = renderPresetDrawer;
   window.renderLoudnessDrawer = renderLoudnessDrawer;
   window.closeDrawer = closeDrawer;
-
   backdrop.addEventListener('click', closeDrawer);
   closeBtn.addEventListener('click', closeDrawer);
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
-
   document.body.addEventListener('click', (e) => {
     const btn = e.target.closest('.info-btn');
     if (!btn) return;
@@ -1501,7 +1385,6 @@ function initInfoDrawer(){
     }
   });
 }
-
 function fmtMetric(v, suffix=""){
   if (v === null || v === undefined) return "—";
   if (typeof v === "number" && Number.isFinite(v)) return `${v.toFixed(1)}${suffix}`;
@@ -1545,24 +1428,19 @@ function fmtCompactIO(inputM, outputM){
     { key:"Dur", label:"Dur", suffix:" s",   tip:"Duration (seconds)" },
     { key:"W",   label:"W",   suffix:"",     tip:"Width factor applied" },
   ];
-
   const header = `<tr><th></th>${cols.map(c=>`<th><span style="display:inline-flex; align-items:center; gap:4px;">${c.label} <button class="info-btn" type="button" data-info-type="metrics" data-id="${c.key}" aria-label="About ${c.label}">ⓘ</button></span></th>`).join('')}</tr>`;
-
   const rowIn = `<tr><th title="Input metrics">In</th>${cols.map(c=>{
     const v = metricVal(inputM, c.key);
     return `<td title="${c.tip}">${fmtMetric(v, c.suffix)}</td>`;
   }).join('')}</tr>`;
-
   const rowOut = `<tr><th title="Output metrics">Out</th>${cols.map(c=>{
     const vOut = metricVal(outputM, c.key);
     const vIn = metricVal(inputM, c.key);
     const delta = fmtDelta(vOut, vIn, c.suffix);
     return `<td title="${c.tip}">${fmtMetric(vOut, c.suffix)}${delta}</td>`;
   }).join('')}</tr>`;
-
   return `<table class="ioTable">${header}${rowIn}${rowOut}</table>`;
 }
-
 function renderMetricsDrawer(triggerBtn){
   const id = triggerBtn?.getAttribute('data-id') || null;
   const meta = METRIC_META.find(m => m.key === id);
@@ -1586,11 +1464,9 @@ function renderMetricsDrawer(triggerBtn){
   `;
   openDrawer("Metrics", title, body, triggerBtn);
 }
-
 function renderMetricsTable(m){
   return '<span style="opacity:.7;">(metrics unavailable)</span>';
 }
-
 function appendOverrides(fd){
   const addIfChecked = (chkId, inputId, key) => {
     const chk = document.getElementById(chkId);
@@ -1604,7 +1480,6 @@ function appendOverrides(fd){
   const guardrails = document.getElementById('guardrails');
   if (guardrails && guardrails.checked) fd.append('guardrails', '1');
 }
-
 let runPollTimer = null;
 let runPollFiles = [];
 let runPollSeen = new Set();
@@ -1619,7 +1494,6 @@ function stopRunPolling() {
   runPollDone = new Set();
   suppressRecentDuringRun = false;
 }
-
 function startRunPolling(files) {
   stopRunPolling();
   const arr = Array.isArray(files) ? files : [];
@@ -1658,7 +1532,6 @@ function startRunPolling(files) {
     }
   }, 3000);
 }
-
 async function loadSong(song, skipEmpty=false){
   let opts = { skipEmpty: false, quiet: false };
   if (typeof skipEmpty === 'object') {
@@ -1668,12 +1541,10 @@ async function loadSong(song, skipEmpty=false){
     opts.skipEmpty = !!skipEmpty;
     opts.quiet = !!skipEmpty; // boolean true from polling implies quiet
   }
-
   if (!opts.quiet) {
     localStorage.setItem("lastSong", song);
     setLinks('');
   }
-
   lastRunInputMetrics = null;
   const r = await fetch(`/api/outlist?song=${encodeURIComponent(song)}`);
   const j = await r.json();
@@ -1690,10 +1561,8 @@ async function loadSong(song, skipEmpty=false){
       if (lm) markerMtime = Date.parse(lm) || 0;
     }
   } catch(e){}
-
   let hasPlayable = false;
   let anyMetricsStrings = false;
-
   // Preload input metrics once per run when interactive
   if (!opts.quiet && hasItems) {
     try {
@@ -1704,7 +1573,6 @@ async function loadSong(song, skipEmpty=false){
       }
     } catch (e) { console.debug('metrics preload failed', e); }
   }
-
   if (!opts.quiet) {
     const out = document.getElementById('outlist');
     out.innerHTML = '';
@@ -1737,38 +1605,31 @@ async function loadSong(song, skipEmpty=false){
       if (it.metrics) anyMetricsStrings = true;
     });
   }
-
   if (processing && hasPlayable && markerMtime && (Date.now() - markerMtime > 15000)) {
     // marker looks stale; drop it so UI can advance
     try { await fetch(`/out/${song}/.processing`, { method:'DELETE' }); } catch(_){ }
     processing = false;
   }
-
   // No standalone metrics panel now; compact metrics are shown per output entry.
   if (!opts.quiet && hasPlayable && processing) {
     setResult("Outputs updating...");
   }
   return { hasItems, hasPlayable, processing };
 }
-
 async function showOutputsFromText(text){
   const lines = (text || '').split('\n').map(x => x.trim()).filter(Boolean);
   if (!lines.length) return;
-
   const m = lines[0].match(/\/out\/([^\/]+)\//);
   if (!m) return;
   const song = m[1];
-
   await loadSong(song);
   await refreshRecent();
 }
-
 async function runOne(){
   suppressRecentDuringRun = true;
   clearOutList(); setLinks(''); setMetricsPanel('(waiting)');
   setStatus("Running master...");
   startJobLog('Processing...');
-
   const files = getSelectedBulkFiles();
   const presets = getSelectedPresets();
   if (!files.length || !presets.length) {
@@ -1779,13 +1640,11 @@ async function runOne(){
   const song = (files[0] || '').replace(/\.[^.]+$/, '') || files[0];
   const strength = document.getElementById('strength').value;
   const pollFiles = files.map(f => f.replace(/\.[^.]+$/, '') || f);
-
   const fd = new FormData();
   fd.append('infiles', files.join(","));
   fd.append('strength', strength);
   fd.append('presets', presets.join(","));
   appendOverrides(fd);
-
   presets.forEach(p => files.forEach(f => appendJobLog(`Queued ${f} with preset ${p}`)));
   startRunPolling(pollFiles);
   const r = await fetch('/api/master-bulk', { method:'POST', body: fd });
@@ -1798,14 +1657,12 @@ async function runOne(){
   }
   try { await refreshAll(); } catch (e) { console.error(e); }
 }
-
 async function runPack(){
   suppressRecentDuringRun = true;
   clearOutList(); setLinks(''); setMetricsPanel('(waiting)');
   setStatus("A/B pack running...");
   startJobLog('Processing...');
   try { localStorage.setItem("packInFlight", String(Date.now())); } catch {}
-
   const files = getSelectedBulkFiles();
   const presets = getSelectedPresets();
   if (!files.length || !presets.length) {
@@ -1815,13 +1672,11 @@ async function runPack(){
   }
   const strength = document.getElementById('strength').value;
   const pollFiles = files.map(f => f.replace(/\.[^.]+$/, '') || f);
-
   const fd = new FormData();
   fd.append('infiles', files.join(","));
   fd.append('strength', strength);
   fd.append('presets', presets.join(","));
   appendOverrides(fd);
-
   presets.forEach(p => files.forEach(f => appendJobLog(`Queued ${f} with preset ${p}`)));
   startRunPolling(pollFiles);
   const r = await fetch('/api/master-bulk', { method:'POST', body: fd });
@@ -1834,7 +1689,6 @@ async function runPack(){
   }
   try { await refreshAll(); } catch (e) { console.error('post-job refreshAll failed', e); }
 }
-
 async function runBulk(){
   suppressRecentDuringRun = true;
   const files = getSelectedBulkFiles();
@@ -1847,17 +1701,14 @@ async function runBulk(){
   clearOutList(); setLinks(''); setMetricsPanel('(waiting)');
   setStatus("Bulk run starting...");
   startJobLog('Processing...');
-
   const song = (files[0] || '').replace(/\.[^.]+$/, '') || files[0];
   const strength = document.getElementById('strength').value;
   const pollFiles = files.map(f => f.replace(/\.[^.]+$/, '') || f);
-
   const fd = new FormData();
   fd.append('infiles', files.join(","));
   fd.append('strength', strength);
   fd.append('presets', presets.join(","));
   appendOverrides(fd);
-
   presets.forEach(p => files.forEach(f => appendJobLog(`Queued ${f} with preset ${p}`)));
   startRunPolling(pollFiles);
   const r = await fetch('/api/master-bulk', { method:'POST', body: fd });
@@ -1874,15 +1725,12 @@ async function runBulk(){
   }
   await refreshAll();
 }
-
 async function deleteSong(song){
   if (!confirm(`Delete all outputs for "${song}"? This removes {{OUT_DIR}}/${song}/`)) return;
-
   const r = await fetch(`/api/song/${encodeURIComponent(song)}`, { method:'DELETE' });
   const j = await r.json();
   setResult(j.message || 'Deleted.');
   await refreshRecent();
-
   const last = localStorage.getItem("lastSong");
   if (last === song) {
     localStorage.removeItem("lastSong");
@@ -1890,22 +1738,18 @@ async function deleteSong(song){
     clearOutList();
   }
 }
-
 document.getElementById('uploadForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   setResult('(waiting)'); setLinks(''); clearOutList();
-
   const f = document.getElementById('file').files[0];
   const fd = new FormData();
   fd.append('file', f);
-
   const r = await fetch('/api/upload', { method:'POST', body: fd });
   const j = await r.json();
   document.getElementById('uploadResult').textContent = j.message;
   
   try { await refreshAll(); } catch (e) { console.error('post-upload refreshAll failed', e); }
 });
-
 document.addEventListener('DOMContentLoaded', () => {
   try {
     wireUI();
@@ -1916,7 +1760,6 @@ document.addEventListener('DOMContentLoaded', () => {
       const ts = parseInt(localStorage.getItem("packInFlight") || "0", 10);
       if (ts && (Date.now() - ts) < 10*60*1000) setStatus("A/B pack running...");
     } catch {}
-
     // Ensure only one audio element plays at a time
     document.addEventListener('play', (ev) => {
       if (!(ev.target && ev.target.tagName === 'AUDIO')) return;
@@ -1927,7 +1770,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       });
     }, true);
-
     refreshAll();
     initInfoDrawer();
     wireUploadForm();
@@ -1937,12 +1779,10 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 </script>
-
 <script>
 window.PRESET_META = {{ preset_meta_json }};
 window.LOUDNESS_PROFILES = {{ loudness_profiles_json }};
 </script>
-
 <div id="drawerBackdrop" class="drawer-backdrop hidden" tabindex="-1"></div>
 <aside id="infoDrawer"
        class="info-drawer hidden"
@@ -1958,11 +1798,9 @@ window.LOUDNESS_PROFILES = {{ loudness_profiles_json }};
   </div>
   <div id="drawerBody" class="drawer-body"></div>
 </aside>
-
 </body>
 </html>
 """
-
 @app.get("/", response_class=HTMLResponse)
 def index():
     html = HTML_TEMPLATE
@@ -1972,7 +1810,6 @@ def index():
     html = html.replace("{{IN_DIR}}", str(IN_DIR))
     html = html.replace("{{OUT_DIR}}", str(OUT_DIR))
     return HTMLResponse(html)
-
 @app.get("/api/files")
 def list_files():
     IN_DIR.mkdir(parents=True, exist_ok=True)
@@ -1981,8 +1818,6 @@ def list_files():
     presets = sorted([p.stem for p in PRESET_DIR.iterdir()
                       if p.is_file() and p.suffix.lower()==".json"]) if PRESET_DIR.exists() else []
     return {"files": files, "presets": presets}
-
-
 @app.get("/api/presets")
 def presets():
     # Return list of preset names derived from preset files on disk
@@ -1990,15 +1825,11 @@ def presets():
         return []
     names = sorted([p.stem for p in PRESET_DIR.glob("*.txt")])
     return names
-
-
-
 @app.get("/api/recent")
 def recent(limit: int = 30):
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     folders = [d for d in OUT_DIR.iterdir() if d.is_dir()]
     folders.sort(key=lambda d: d.stat().st_mtime, reverse=True)
-
     items = []
     for d in folders[:limit]:
         mp3s = sorted([f.name for f in d.iterdir() if f.is_file() and f.suffix.lower()==".mp3"])
@@ -2011,7 +1842,6 @@ def recent(limit: int = 30):
             "metrics": metrics,
         })
     return {"items": items}
-
 @app.delete("/api/song/{song}")
 def delete_song(song: str):
     # Safety: only delete direct child folders in OUT_DIR
@@ -2022,7 +1852,6 @@ def delete_song(song: str):
         return {"message": f"Nothing to delete for {song}."}
     shutil.rmtree(target)
     return {"message": f"Deleted outputs for {song}."}
-
 @app.delete("/api/upload/{name}")
 def delete_upload(name: str):
     target = (IN_DIR / name).resolve()
@@ -2032,7 +1861,6 @@ def delete_upload(name: str):
         return {"message": f"Nothing to delete for {name}."}
     target.unlink()
     return {"message": f"Deleted upload {name}."}
-
 @app.get("/api/outlist")
 def outlist(song: str):
     folder = OUT_DIR / song
@@ -2058,7 +1886,6 @@ def outlist(song: str):
     if folder.exists() and folder.is_dir():
         wavs = sorted([p for p in folder.iterdir() if p.is_file() and p.suffix.lower()==".wav"])
         mp3s = {p.stem: p.name for p in folder.iterdir() if p.is_file() and p.suffix.lower()==".mp3"}
-
         for w in wavs:
             stem = w.stem
             m = read_metrics_for_wav(w)
@@ -2081,13 +1908,11 @@ def outlist(song: str):
             "metrics_obj": m,
         })
     return {"items": items, "input": input_m}
-
 @app.get("/favicon.ico")
 def favicon():
     # Minimal inline SVG placeholder to avoid 404 spam
     svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="12" fill="#1f2937"/><text x="32" y="42" font-size="28" text-anchor="middle" fill="#38bdf8" font-family="Arial, sans-serif">S</text></svg>'
     return HTMLResponse(content=svg, media_type="image/svg+xml")
-
 @app.get("/health")
 def health():
     ffmpeg_ok = shutil.which("ffmpeg") is not None
@@ -2108,7 +1933,6 @@ def health():
         "app": "SonusTemper",
     }
     return JSONResponse(payload, status_code=200 if ok else 503)
-
 @app.get("/api/metrics")
 def run_metrics(song: str):
     folder = OUT_DIR / song
@@ -2121,7 +1945,6 @@ def run_metrics(song: str):
         raise HTTPException(status_code=404, detail="metrics_not_found")
     m = fill_input_metrics(song, m, folder)
     return m
-
 @app.post("/api/upload")
 async def upload(files: list[UploadFile] = File(...)):
     IN_DIR.mkdir(parents=True, exist_ok=True)
@@ -2131,7 +1954,6 @@ async def upload(files: list[UploadFile] = File(...)):
         dest.write_bytes(await file.read())
         saved.append(dest.name)
     return JSONResponse({"message": f"Uploaded: {', '.join(saved)}"})
-
 @app.post("/api/master")
 def master(
     infile: str = Form(...),
@@ -2165,7 +1987,6 @@ def master(
             except subprocess.CalledProcessError as e2:
                 raise HTTPException(status_code=500, detail=e2.output)
         raise HTTPException(status_code=500, detail=msg)
-
 @app.post("/api/master-pack")
 def master_pack(
     infile: str = Form(...),
@@ -2198,10 +2019,8 @@ def master_pack(
             print(f"[master-pack] failed: {e.output or e}", file=sys.stderr)
         else:
             print(f"[master-pack] started infile={infile} presets={presets} strength={strength}", file=sys.stderr)
-
     threading.Thread(target=run_pack, daemon=True).start()
     return JSONResponse({"message": "pack started (async); outputs will appear in Previous Runs", "script": str(MASTER_SCRIPT)})
-
 @app.post("/api/master-bulk")
 def master_bulk(
     infiles: str = Form(...),
@@ -2216,9 +2035,7 @@ def master_bulk(
     files = [f.strip() for f in infiles.split(",") if f.strip()]
     if not files:
         raise HTTPException(status_code=400, detail="no_files")
-
     base_cmd = ["python3", str(MASTER_SCRIPT)]
-
     results = []
     def run_all():
         for f in files:
@@ -2243,6 +2060,5 @@ def master_bulk(
             except subprocess.CalledProcessError as e:
                 results.append({"file": f, "status": "error", "error": e.output})
                 print(f"[master-bulk] failed file={f}: {e.output or e}", file=sys.stderr)
-
     threading.Thread(target=run_all, daemon=True).start()
     return JSONResponse({"message": f"bulk started for {len(files)} file(s)", "script": str(MASTER_SCRIPT)})
