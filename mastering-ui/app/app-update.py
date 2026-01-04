@@ -573,15 +573,6 @@ HTML_TEMPLATE = r"""
 .advToggle{ display:flex; align-items:center; gap:10px; margin:10px 0 2px; }
 .advToggle button{ background:transparent; border:1px solid var(--line); color:var(--text); border-radius:10px; padding:6px 10px; }
 .advHidden{ display:none; }
-
-
-/* --- Metrics compact overrides --- */
-.metricsGrid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap:8px 10px; }
-.metricChip{ padding:8px 10px; border-radius:12px; }
-.metricTitle .label{ font-size:11px; letter-spacing:.2px; }
-.metricVal{ font-size:12px; }
-.metricTag{ font-size:10px; min-width:22px; }
-.metricDelta{ font-size:10px; }
 </style>
 <style>
 /* --- Mastering UI control rows --- */
@@ -1498,7 +1489,7 @@ function fmtCompactIO(inputM, outputM){
       <div class="metricChip">
         <div class="metricTitle">
           <div class="label">${c.label}</div>
-          <button class="info-btn" data-info-type="metrics" data-id="${c.key}" aria-label="${c.tip}">ⓘ</button>
+          <button class="infoBtn" data-type="metric" data-id="${c.key}" aria-label="${c.tip}">ⓘ</button>
         </div>
         <div class="metricLines">
           <div class="metricLine"><span class="metricTag">In</span><span class="metricVal">${fmtMetric(vIn, c.suffix||"")}</span></div>
