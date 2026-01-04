@@ -134,7 +134,7 @@ def write_source_metrics(song_dir: Path, infile: Path, target_lufs: float | None
         if ceiling_db is not None:
             m["target_TP"] = float(ceiling_db)
 
-        outp = song_dir / f"{infile.stem}.source.metrics.json"
+        outp = song_dir / f"{song_dir.name}.source.metrics.json"
         outp.write_text(json.dumps(m, indent=2), encoding="utf-8")
         return m
     except Exception:
