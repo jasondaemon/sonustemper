@@ -1019,7 +1019,7 @@ function wireUI() {
     });
   }
 }
-async function refreshAll() {
+async async function refreshAll() {
   try {
     setStatus("Loading lists...");
     const r = await fetch("/api/files", { cache: "no-store" });
@@ -1516,7 +1516,7 @@ function stopRunPolling() {
   runPollDone = new Set();
   suppressRecentDuringRun = false;
 }
-function startRunPolling(files) {
+async function startRunPolling(files) {
   stopRunPolling();
   const arr = Array.isArray(files) ? files : [];
   if (!arr.length) return;
