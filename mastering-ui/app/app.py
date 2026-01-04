@@ -40,6 +40,13 @@ def read_metrics_for_wav(wav: Path) -> dict | None:
         return json.loads(mp.read_text(encoding="utf-8"))
     except Exception:
         return {"error": "metrics_read_failed"}
+def read_metrics_file(path: Path) -> dict | None:
+    try:
+        if not path.exists():
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
 def read_run_metrics(folder: Path) -> dict | None:
     mp = folder / "metrics.json"
     if not mp.exists():

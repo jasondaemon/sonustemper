@@ -727,14 +727,14 @@ def main():
             append_status(song_dir, "preset_start", f"Applying preset '{p}' (S={strength_pct}, width={width_applied})", preset=p)
             print(f"[pack] start file={infile.name} preset={p} strength={int(strength*100)} width={width_applied}", file=sys.stderr, flush=True)
             run_ffmpeg_wav(infile, wav_out, af, wav_rate, wav_depth)
-            append_status(song_dir, "preset_done", f"Finished preset '{p}' render", preset=p)
+            append_status(song_dir, "preset_done", f"Finished preset '{p}' render (WAV base)", preset=p)
             if out_mp3:
                 make_mp3(wav_out, wav_out.with_suffix(".mp3"), args.mp3_bitrate, args.mp3_vbr)
                 append_status(song_dir, "mp3_done", f"MP3 ready for '{p}'", preset=p)
             if out_aac:
                 ext = ".m4a" if str(args.aac_container).lower() == "m4a" else ".aac"
                 make_aac(wav_out, wav_out.with_suffix(ext), args.aac_bitrate, args.aac_codec)
-                append_status(song_dir, "aac_done", f"AAC ready for '{p}'", preset=p)
+                append_status(song_dir, "aac_done", f"AAC ready for '{p}' ({ext[1:].upper()})", preset=p)
             if out_ogg:
                 make_ogg(wav_out, wav_out.with_suffix(".ogg"), args.ogg_quality)
                 append_status(song_dir, "ogg_done", f"OGG ready for '{p}'", preset=p)
