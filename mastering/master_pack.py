@@ -118,7 +118,7 @@ def write_metrics(wav_out: Path, target_lufs: float, ceiling_db: float, width: f
                 m["duration_sec"] = dur
     except Exception:
         pass
-   # crest factor / correlation
+    # crest factor / correlation
     try:
         m_txt = run_cmd([
             "ffmpeg", "-hide_banner", "-v", "info", "-nostats", "-i", str(wav_out),
@@ -166,6 +166,7 @@ def write_metrics(wav_out: Path, target_lufs: float, ceiling_db: float, width: f
                 m["stereo_corr"] = c2
     except Exception:
         pass
+
     if isinstance(m, dict) and 'error' not in m:
         m['target_I'] = float(target_lufs)
         m['target_TP'] = float(ceiling_db)
