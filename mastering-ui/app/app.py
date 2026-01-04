@@ -875,14 +875,14 @@ input[type="range"]{
           <div class="pipeSection">
             <label class="pipeHeader">
               <input type="checkbox" id="stage_master">
-              <span>Preset + Strength</span>
+              <span>Voicings and User Presets</span>
             </label>
             <div class="pipeBody" data-stage="stage_master">
               <div class="control-row" style="margin-top:4px;">
                 <label style="min-width:140px;">Mode</label>
                 <div class="small" style="display:flex; gap:10px; align-items:center;">
-                  <label style="display:flex; align-items:center; gap:6px;"><input type="radio" name="modePresetVoicing" value="presets" checked> Presets</label>
-                  <label style="display:flex; align-items:center; gap:6px;"><input type="radio" name="modePresetVoicing" value="voicing"> Voicing</label>
+                  <label style="display:flex; align-items:center; gap:6px;"><input type="radio" name="modePresetVoicing" value="presets"> Presets</label>
+                  <label style="display:flex; align-items:center; gap:6px;"><input type="radio" name="modePresetVoicing" value="voicing" checked> Voicing</label>
                 </div>
               </div>
               <div class="control-row" style="align-items:flex-start; margin-top:8px;">
@@ -905,6 +905,9 @@ input[type="range"]{
                 <label><span id="strengthLabel">Strength</span></label>
                 <input type="range" id="strength" min="0" max="100" value="80" oninput="strengthVal.textContent=this.value">
                 <span class="pill">S=<span id="strengthVal">80</span></span>
+              </div>
+              <div class="small" id="presetNote" style="color:var(--muted); display:none; margin-top:4px;">
+                Presets are user-customization from the <code>presets</code> directory.
               </div>
             </div>
           </div>
@@ -1401,12 +1404,14 @@ function setVoicingMode(mode){
   const presetControls = document.getElementById('presetControls');
   const voicingRow = document.getElementById('voicingRow');
   const strengthLabel = document.getElementById('strengthLabel');
+   const presetNote = document.getElementById('presetNote');
   if (presetRow && presetControls) {
     presetRow.style.display = mode === 'presets' ? 'flex' : 'none';
     presetControls.style.display = mode === 'presets' ? 'flex' : 'none';
   }
   if (voicingRow) voicingRow.style.display = mode === 'voicing' ? 'flex' : 'none';
   if (strengthLabel) strengthLabel.textContent = mode === 'voicing' ? 'Intensity' : 'Strength';
+   if (presetNote) presetNote.style.display = mode === 'presets' ? 'block' : 'none';
   if (mode === 'presets') {
     clearVoicing();
   } else {
@@ -1420,7 +1425,7 @@ function getVoicingMode(){
     const stored = localStorage.getItem(VOICING_MODE_KEY);
     if (stored === 'voicing' || stored === 'presets') return stored;
   } catch {}
-  return 'presets';
+  return 'voicing';
 }
 function selectVoicing(slug){
   const box = document.getElementById('voicingBox');
