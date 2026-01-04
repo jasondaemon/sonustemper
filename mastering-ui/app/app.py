@@ -52,7 +52,13 @@ def read_first_wav_metrics(folder: Path) -> dict | None:
     wavs = sorted([p for p in folder.iterdir() if p.is_file() and p.suffix.lower() == ".wav"])
     if not wavs:
         return None
-    return read_metrics_for_wav(wavs[0])
+    m = read_metrics_for_wav(wavs[0])
+    if not m:
+        try:
+            m = basic_metrics(wavs[0])
+        except Exception:
+            m = None
+    return m
 def wrap_metrics(song: str, metrics: dict | None) -> dict | None:
     """Normalize metrics to always have .output/.input keys for UI consumption."""
     if not metrics:
@@ -2260,6 +2266,11 @@ def outlist(song: str):
         for w in wavs:
             stem = w.stem
             m = read_metrics_for_wav(w)
+            if not m:
+                try:
+                    m = basic_metrics(w)
+                except Exception:
+                    m = None
             if (not m) or ("duration_sec" not in m):
                 try:
                     info = docker_ffprobe_json(w)
