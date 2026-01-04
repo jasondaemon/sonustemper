@@ -747,13 +747,13 @@ input[type="range"]{
 <div class="grid" id="masterView">
       <div class="card masterPane" id="uploadCard">
         <h2>Upload</h2>
-        <form id="uploadForm">
+        <div id="uploadBlock">
           <div class="row">
-            <input type="file" id="file" name="files" accept=".wav,.mp3,.flac,.aiff,.aif" multiple required />
-            <button class="btn2" type="submit">Upload</button>
+            <input type="file" id="file" name="files" accept=".wav,.mp3,.flac,.aiff,.aif" multiple style="display:none" />
+            <button class="btn2" type="button" id="uploadBtn">Upload files</button>
             <button class="btnGhost" type="button" onclick="showManage()">Manage Files</button>
           </div>
-        </form>
+        </div>
         <div id="uploadResult" class="small" style="margin-top:10px;"></div>
         <div class="section-gap"></div>
         <h3 class="section-title">Processing Status</h3>
@@ -1359,23 +1359,62 @@ async function renderManage(){
   };
 }
 function wireUploadForm(){
-  const form = document.getElementById('uploadForm');
+  // Single-button upload flow:
+  // - Click "Upload files" opens file picker
+  // - Selecting files immediately uploads them (sequentially)
+  // - Processing Status updates per file, then refreshes Inputs list
+  const btn = document.getElementById('uploadBtn');
+  const fileInput = document.getElementById('file');
   const uploadResult = document.getElementById('uploadResult');
-  if (!form) return;
-  form.addEventListener('submit', async (e)=>{
-    e.preventDefault();
-    const fileInput = document.getElementById('file');
-    if (!fileInput || !fileInput.files.length) return;
+  if (!btn || !fileInput) return;
+
+  const uploadOne = async (file, idx, total) => {
+    const msg = `Uploading (${idx}/${total}): ${file.name}`;
     setResultHTML('<span class="spinner">Uploading…</span>');
-    uploadResult.textContent = 'Uploading...';
-    const fd = new FormData(form);
+    setResult(msg);
+    if (uploadResult) uploadResult.textContent = msg;
+
+    const fd = new FormData();
+    // Backend expects field name "files"
+    fd.append('files', file, file.name);
+
     const r = await fetch('/api/upload', { method:'POST', body: fd });
-    const t = await r.text();
-    uploadResult.textContent = r.ok ? 'Upload complete.' : `Upload failed: ${t}`;
-    setResult(r.ok ? 'Upload complete.' : 'Upload failed.');
-    try { await refreshAll(); } catch(_){}
-  });
+    if (!r.ok) {
+      const t = await r.text().catch(()=> '');
+      throw new Error(t || `HTTP ${r.status}`);
+    }
+  };
+
+  const uploadSelected = async () => {
+    const files = Array.from(fileInput.files || []);
+    if (!files.length) return;
+
+    try {
+      for (let i = 0; i < files.length; i++) {
+        await uploadOne(files[i], i + 1, files.length);
+      }
+      const done = `Upload complete (${files.length} file${files.length===1?'':'s'}).`;
+      setResult(done);
+      if (uploadResult) uploadResult.textContent = done;
+
+      // Clear selection so re-selecting the same file triggers change
+      fileInput.value = '';
+
+      // Refresh Inputs list (and anything else) after upload
+      try { await refreshAll(); } catch(_){}
+    } catch (err) {
+      const msg = `Upload failed: ${err && err.message ? err.message : err}`;
+      setResult(msg);
+      if (uploadResult) uploadResult.textContent = msg;
+      fileInput.value = '';
+    }
+  };
+
+  btn.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => { uploadSelected(); });
 }
+
+
 function initInfoDrawer(){
   const drawer = document.getElementById('infoDrawer');
   const backdrop = document.getElementById('drawerBackdrop');
