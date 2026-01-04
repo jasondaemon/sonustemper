@@ -526,7 +526,7 @@ HTML_TEMPLATE = r"""
     .smallBtn{ padding:6px 10px; font-size:12px; border-radius:10px; border:1px solid var(--line); background:#0f151d; color:#d7e6f5; cursor:pointer; }
   
 
-/* --- Wide layout: Previous Runs left, Job Output right (2x2) --- */
+/* --- Wide layout: 2x2 grid (Upload/Previous Runs left, Master/Job Output right) --- */
 #masterView.grid{
   display:grid;
   grid-template-columns: 420px 1fr;
@@ -537,11 +537,13 @@ HTML_TEMPLATE = r"""
   align-items:start;
 }
 #uploadCard{ grid-area: upload; }
-#masterCard{ grid-area: master; }
 #recentCard{ grid-area: recent; }
+
+/* Master + Job cards are the other two grid items in order; use IDs if present, otherwise rely on order */
+#masterCard{ grid-area: master; }
 #jobCard{ grid-area: job; }
 
-/* Keep run list tidy: scroll within the list area */
+/* Make Previous Runs list scroll within its card */
 #recent{ max-height: 260px; overflow:auto; padding-right:4px; }
 
 @media (max-width: 1100px){
@@ -1434,55 +1436,7 @@ function initInfoDrawer(){
 }
 function fmtMetric(v, suffix=""){
   if (v === null || v === undefined) return "—";
-  if (typeof v === "number" && Number.isFinite(v)) return `${v.toFixed(1)}
-
-function renderMetricChip(label, key, inputM, outputM, suffix){
-  const vIn = metricVal(inputM, key);
-  const vOut = metricVal(outputM, key);
-  const d = (typeof vIn === "number" && typeof vOut === "number") ? (vOut - vIn) : null;
-  const dTxt = (d === null) ? "" : `${d>0?"+":""}${d.toFixed(1)}${suffix||""}`;
-  return `
-    <div class="metricChip">
-      <div class="metricTitle">
-        <div class="label">${label}</div>
-        <button class="infoBtn" data-type="metrics" data-id="${key}" aria-label="About ${label}">ⓘ</button>
-      </div>
-      <div class="metricLines">
-        <div class="metricLine"><span class="metricTag">In</span><span class="metricVal">${fmtMetric(vIn, suffix||"")}</span></div>
-        <div class="metricLine"><span class="metricTag">Out</span><span class="metricVal">${fmtMetric(vOut, suffix||"")}</span><span class="metricDelta">${dTxt ? `Δ ${dTxt}` : ""}</span></div>
-      </div>
-    </div>`;
-}
-
-function fmtMetricsTwoLevel(inputM, outputM){
-  const core = [
-    {label:"I", key:"I", suffix:" LUFS"},
-    {label:"TP", key:"TP", suffix:" dB"},
-    {label:"LRA", key:"LRA", suffix:""},
-    {label:"Peak", key:"Peak", suffix:" dB"},
-    {label:"RMS", key:"RMS", suffix:" dB"},
-    {label:"DR", key:"DR", suffix:" dB"},
-    {label:"CF", key:"CF", suffix:" dB"},
-  ];
-  const adv = [
-    {label:"Noise", key:"Noise", suffix:" dB"},
-    {label:"Corr", key:"Corr", suffix:""},
-    {label:"Dur", key:"Dur", suffix:" s"},
-    {label:"W", key:"W", suffix:""},
-  ];
-
-  const coreHtml = core.map(c=>renderMetricChip(c.label,c.key,inputM,outputM,c.suffix)).join("");
-  const advHtml = adv.map(c=>renderMetricChip(c.label,c.key,inputM,outputM,c.suffix)).join("");
-
-  const id = `adv_${Math.random().toString(36).slice(2)}`;
-
-  return `
-    <div class="metricsGrid">${coreHtml}</div>
-    <div class="advToggle"><button type="button" onclick="(function(){const el=document.getElementById('${id}'); if(!el) return; el.classList.toggle('advHidden');})()">Advanced metrics</button></div>
-    <div id="${id}" class="metricsGrid advHidden">${advHtml}</div>
-  `;
-}
-${suffix}`;
+  if (typeof v === "number" && Number.isFinite(v)) return `${v.toFixed(1)}${suffix}`;
   return String(v);
 }
 function fmtDelta(out, inp, suffix=""){
@@ -1509,32 +1463,50 @@ function metricVal(m, key){
     default: return null;
   }
 }
-function fmtMetricsTwoLevel(inputM, outputM){
-  const cols = [
+function fmtCompactIO(inputM, outputM){
+  const core = [
     { key:"I",   label:"I",   suffix:" LUFS", tip:"Integrated loudness (LUFS)" },
     { key:"TP",  label:"TP",  suffix:" dB",  tip:"True peak (dBTP)" },
     { key:"LRA", label:"LRA", suffix:"",     tip:"Loudness range" },
     { key:"Peak",label:"Peak",suffix:" dB", tip:"Sample peak level (dBFS)" },
     { key:"RMS", label:"RMS", suffix:" dB", tip:"RMS level (dBFS)" },
-    { key:"DR",  label:"DR",  suffix:" dB", tip:"Dynamic range (astats)" },
+    { key:"DR",  label:"DR",  suffix:" dB", tip:"Dynamic range (astats proxy)" },
+    { key:"CF",  label:"CF",  suffix:" dB", tip:"Crest factor (Peak - RMS)" },
+  ];
+  const adv = [
     { key:"Noise",label:"Noise",suffix:" dB", tip:"Noise floor (astats)" },
-    { key:"CF",  label:"CF",  suffix:" dB",  tip:"Crest factor" },
     { key:"Corr",label:"Corr",suffix:"",     tip:"Stereo correlation" },
     { key:"Dur", label:"Dur", suffix:" s",   tip:"Duration (seconds)" },
-    { key:"W",   label:"W",   suffix:"",     tip:"Width factor applied" },
+    { key:"W",   label:"W",   suffix:"",     tip:"Stereo width factor" },
   ];
-  const header = `<tr><th></th>${cols.map(c=>`<th><span style="display:inline-flex; align-items:center; gap:4px;">${c.label} <button class="info-btn" type="button" data-info-type="metrics" data-id="${c.key}" aria-label="About ${c.label}">ⓘ</button></span></th>`).join('')}</tr>`;
-  const rowIn = `<tr><th title="Input metrics">In</th>${cols.map(c=>{
-    const v = metricVal(inputM, c.key);
-    return `<td title="${c.tip}">${fmtMetric(v, c.suffix)}</td>`;
-  }).join('')}</tr>`;
-  const rowOut = `<tr><th title="Output metrics">Out</th>${cols.map(c=>{
-    const vOut = metricVal(outputM, c.key);
+
+  function chip(c){
     const vIn = metricVal(inputM, c.key);
-    const delta = fmtDelta(vOut, vIn, c.suffix);
-    return `<td title="${c.tip}">${fmtMetric(vOut, c.suffix)}${delta}</td>`;
-  }).join('')}</tr>`;
-  return `<table class="ioTable">${header}${rowIn}${rowOut}</table>`;
+    const vOut = metricVal(outputM, c.key);
+    const d = (typeof vIn === "number" && typeof vOut === "number") ? (vOut - vIn) : null;
+    const dTxt = (d === null) ? "" : `${d>0?"+":""}${d.toFixed(1)}${c.suffix||""}`;
+    return `
+      <div class="metricChip">
+        <div class="metricTitle">
+          <div class="label">${c.label}</div>
+          <button class="infoBtn" data-type="metric" data-id="${c.key}" aria-label="${c.tip}">ⓘ</button>
+        </div>
+        <div class="metricLines">
+          <div class="metricLine"><span class="metricTag">In</span><span class="metricVal">${fmtMetric(vIn, c.suffix||"")}</span></div>
+          <div class="metricLine"><span class="metricTag">Out</span><span class="metricVal">${fmtMetric(vOut, c.suffix||"")}</span><span class="metricDelta">${dTxt ? `Δ ${dTxt}` : ""}</span></div>
+        </div>
+      </div>`;
+  }
+
+  const coreHtml = core.map(chip).join("");
+  const advHtml  = adv.map(chip).join("");
+  const id = `adv_${Math.random().toString(36).slice(2)}`;
+
+  return `
+    <div class="metricsGrid">${coreHtml}</div>
+    <div class="advToggle"><button type="button" onclick="(function(){const el=document.getElementById('${id}'); if(!el) return; el.classList.toggle('advHidden');})()">Advanced metrics</button></div>
+    <div id="${id}" class="metricsGrid advHidden">${advHtml}</div>
+  `;
 }
 function renderMetricsDrawer(triggerBtn){
   const id = triggerBtn?.getAttribute('data-id') || null;
@@ -1678,7 +1650,7 @@ async function loadSong(song, skipEmpty=false){
       const audioSrc = it.mp3 || it.wav || null;
       if (audioSrc) hasPlayable = true;
       if (it.metrics) anyMetricsStrings = true;
-      const compact = fmtMetricsTwoLevel(lastRunInputMetrics, it.metrics_obj || {});
+      const compact = fmtCompactIO(lastRunInputMetrics, it.metrics_obj || {});
       const ioBlock = compact ? `<div class="ioRow">${compact}</div>` : '';
       const div = document.createElement('div');
       div.className = 'outitem';
