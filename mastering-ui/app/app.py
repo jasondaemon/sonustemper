@@ -951,6 +951,7 @@ const BULK_FILES_KEY = "bulkFilesSelected";
 let suppressRecentDuringRun = false;
 let lastRunInputMetrics = null;
 let runPollPrimary = null;
+const pendingMetricsRetry = new Set();
 const METRIC_META = [
   { key:"I", label:"I", desc:"Integrated loudness (LUFS) averaged over the whole song. Higher (less negative) is louder; aim for musical balance, not just numbers." },
   { key:"TP", label:"TP", desc:"True Peak (dBTP) or peak dBFS if TP unavailable. Closer to 0 dBTP is louder but riskier; keep headroom for clean playback." },
@@ -1812,7 +1813,7 @@ async function loadSong(song, skipEmpty=false){
     setLinks('');
   }
   lastRunInputMetrics = null;
-  const r = await fetch(`/api/outlist?song=${encodeURIComponent(song)}`);
+  const r = await fetch(`/api/outlist?song=${encodeURIComponent(song)}`, { cache:'no-store' });
   const j = await r.json();
   const hasItems = j.items && j.items.length > 0;
   if (opts.skipEmpty && !hasItems) return { hasItems:false, hasPlayable:false, processing:false };
@@ -1862,7 +1863,7 @@ async function loadSong(song, skipEmpty=false){
         ${ioBlock}
         ${audioSrc ? `<audio controls preload="none" src="${audioSrc}"></audio>` : ''}
         <div class="small">${linkParts.join(' | ')}</div>
-      `;
+        `;
       out.appendChild(div);
     });
   } else {
@@ -1880,6 +1881,14 @@ async function loadSong(song, skipEmpty=false){
   // No standalone metrics panel now; compact metrics are shown per output entry.
   if (!opts.quiet && hasPlayable && processing) {
     setResult("Outputs updating...");
+  }
+  if (!opts.quiet && hasPlayable && !processing && !anyMetricsStrings) {
+    if (!pendingMetricsRetry.has(song)) {
+      pendingMetricsRetry.add(song);
+      setTimeout(async () => {
+        try { await loadSong(song); } finally { pendingMetricsRetry.delete(song); }
+      }, 1500);
+    }
   }
   return { hasItems, hasPlayable, processing };
 }
