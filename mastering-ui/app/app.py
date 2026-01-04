@@ -112,11 +112,12 @@ def calc_cf_corr(path: Path) -> dict:
         "stereo_corr": None,  # correlation isn't provided by astats in this build; keep for compatibility
         "peak_level": None,
         "rms_level": None,
+        "rms_peak": None,
         "dynamic_range": None,
         "noise_floor": None,
     }
     try:
-        want = "Peak_level+RMS_level+Dynamic_range+Noise_floor+Crest_factor"
+        want = "Peak_level+RMS_level+RMS_peak+RMS_trough+Noise_floor+Noise_floor_count+Flat_factor+Entropy+Crest_factor"
         r = run_cmd([
             "ffmpeg", "-hide_banner", "-v", "verbose", "-nostats", "-i", str(path),
             "-af", f"astats=measure_overall={want}:measure_perchannel=none:reset=0",
@@ -151,10 +152,14 @@ def calc_cf_corr(path: Path) -> dict:
                 num = float(m.group(1))
             except Exception:
                 continue
-            if k in ("peak_level", "rms_level", "dynamic_range", "noise_floor", "crest_factor"):
+            if k in ("peak_level", "rms_level", "rms_peak", "rms_trough", "dynamic_range", "noise_floor", "noise_floor_count", "flat_factor", "entropy", "crest_factor"):
                 out[k] = num
         if out["crest_factor"] is None and out["peak_level"] is not None and out["rms_level"] is not None:
             out["crest_factor"] = out["peak_level"] - out["rms_level"]
+
+        # Derive DR proxy if astats does not emit a labeled dynamic range
+        if out["dynamic_range"] is None and out.get("rms_peak") is not None and out["rms_level"] is not None:
+            out["dynamic_range"] = out["rms_peak"] - out["rms_level"]
     except Exception:
         pass
     return out
