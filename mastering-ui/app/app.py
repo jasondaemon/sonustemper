@@ -525,67 +525,14 @@ HTML_TEMPLATE = r"""
     .manage-item{ display:flex; justify-content:space-between; align-items:center; padding:8px 10px; border:1px solid var(--line); border-radius:10px; }
     .smallBtn{ padding:6px 10px; font-size:12px; border-radius:10px; border:1px solid var(--line); background:#0f151d; color:#d7e6f5; cursor:pointer; }
   
-
-/* --- Wide layout: 2x2 grid (Upload/Previous Runs left, Master/Job Output right) --- */
-#masterView.grid{
-  display:grid;
-  grid-template-columns: 420px 1fr;
-  grid-template-areas:
-    "upload master"
-    "recent job";
-  gap:14px;
-  align-items:start;
-}
-#uploadCard{ grid-area: upload; }
-#recentCard{ grid-area: recent; }
-
-/* Master + Job cards are the other two grid items in order; use IDs if present, otherwise rely on order */
-#masterCard{ grid-area: master; }
-#jobCard{ grid-area: job; }
-
-/* Make Previous Runs list scroll within its card */
-#recent{ max-height: 260px; overflow:auto; padding-right:4px; }
-
-@media (max-width: 1100px){
-  #masterView.grid{
-    grid-template-columns: 1fr;
-    grid-template-areas:
-      "upload"
-      "master"
-      "recent"
-      "job";
-  }
-  #recent{ max-height: 220px; }
-}
-
-
-/* --- Metrics: wrapping chips + Advanced toggle --- */
-.metricsGrid{ display:flex; flex-wrap:wrap; gap:10px 12px; }
-.metricChip{ flex:1 1 150px; min-width:150px; border:1px solid var(--line); border-radius:12px;
-  padding:10px; background:rgba(10,16,22,.45); }
-.metricTitle{ display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
-.metricTitle .label{ font-size:12px; color:var(--muted); }
-.metricLines{ display:flex; flex-direction:column; gap:4px; }
-.metricLine{ display:flex; align-items:baseline; gap:8px; }
-.metricTag{ font-size:11px; color:var(--muted); min-width:26px; }
-.metricVal{ font-size:13px; }
-.metricDelta{ font-size:11px; color:var(--muted); margin-left:auto; }
-.advToggle{ display:flex; align-items:center; gap:10px; margin:10px 0 2px; }
-.advToggle button{ background:transparent; border:1px solid var(--line); color:var(--text); border-radius:10px; padding:6px 10px; }
-.advHidden{display:none !important;}
-
-
-/* --- Metrics compact overrides --- */
-.metricsGrid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap:8px 10px; }
-.metricChip{ padding:8px 10px; border-radius:12px; }
-.metricTitle .label{ font-size:11px; letter-spacing:.2px; }
-.metricVal{ font-size:12px; }
-.metricTag{ font-size:10px; min-width:22px; }
-.metricDelta{ font-size:10px; }
-
-/* advHidden specificity */
-.metricsGrid.advHidden{display:none !important;}
-</style>
+/* Pipeline sections */
+.pipeWrap{ display:flex; flex-direction:column; gap:10px; margin-top:6px; }
+.pipeSection{ border:1px solid rgba(255,255,255,.08); border-radius:16px; padding:10px 12px; background: rgba(0,0,0,.10); }
+.pipeHeader{ display:flex; align-items:center; gap:10px; font-weight:600; cursor:pointer; user-select:none; }
+.pipeHeader input{ transform: translateY(1px); }
+.pipeBody{ margin-top:10px; }
+.pipeBodyCollapsed{ display:none; }
+.pipeSection.disabled{ opacity:.6; }</style>
 <style>
 /* --- Mastering UI control rows --- */
 .control-row{
@@ -783,68 +730,150 @@ input[type="range"]{
         <h3 class="section-title">Processing Status</h3>
         <div id="result" class="result">(waiting)</div>
       </div>
-      <div class="card masterPane" id="masterCard">
+      <div class="card masterPane">
         <h2>Master</h2>
-        <div class="hidden"><select id="infile"></select></div>
-        <div class="control-row" style="align-items:flex-start; margin-top:6px;">
-          <label style="min-width:140px;">Input files</label>
-          <div id="bulkFilesBox" class="small" style="flex:1; display:flex; flex-wrap:wrap; gap:8px;"></div>
-          <div class="small" style="display:flex; flex-direction:column; gap:6px;">
-            <button class="btnGhost" type="button" onclick="selectAllBulk()">Select all</button>
-            <button class="btnGhost" type="button" onclick="clearAllBulk()">Clear</button>
+        <div class="pipeWrap">
+          <!-- Inputs -->
+          <div class="pipeSection">
+            <label class="pipeHeader">
+              <input type="checkbox" id="stage_inputs" checked>
+              <span>Inputs</span>
+            </label>
+            <div class="pipeBody" data-stage="stage_inputs">
+              <div class="hidden"><select id="infile"></select></div>
+              <div class="control-row" style="align-items:flex-start; margin-top:6px;">
+                <label style="min-width:140px;">Input files</label>
+                <div id="bulkFilesBox" class="small" style="flex:1; display:flex; flex-wrap:wrap; gap:8px;"></div>
+                <div class="small" style="display:flex; flex-direction:column; gap:6px;">
+                  <button class="btnGhost" type="button" onclick="selectAllBulk()">Select all</button>
+                  <button class="btnGhost" type="button" onclick="clearAllBulk()">Clear</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Analyze -->
+          <div class="pipeSection">
+            <label class="pipeHeader">
+              <input type="checkbox" id="stage_analyze" checked>
+              <span>Analyze</span>
+            </label>
+            <div class="pipeBody" data-stage="stage_analyze">
+              <div class="small" style="color:var(--muted); line-height:1.35;">
+                Computes loudness, true-peak, width, and additional stats used for comparison. (This runs by default today.)
+              </div>
+            </div>
+          </div>
+
+          <!-- Master: presets + strength -->
+          <div class="pipeSection">
+            <label class="pipeHeader">
+              <input type="checkbox" id="stage_master" checked>
+              <span>Preset + Strength</span>
+            </label>
+            <div class="pipeBody" data-stage="stage_master">
+              <div class="control-row" style="align-items:flex-start; margin-top:8px;">
+                <label style="min-width:140px;">Presets</label>
+                <div id="packPresetsBox" class="small" style="flex:1; display:flex; flex-wrap:wrap; gap:8px;"></div>
+                <div class="small" style="display:flex; flex-direction:column; gap:6px;">
+                  <button class="btnGhost" type="button" onclick="selectAllPackPresets()">Select all</button>
+                  <button class="btnGhost" type="button" onclick="clearAllPackPresets()">Clear</button>
+                </div>
+              </div>
+
+              <div class="control-row">
+                <label>Strength</label>
+                <input type="range" id="strength" min="0" max="100" value="80" oninput="strengthVal.textContent=this.value">
+                <span class="pill">S=<span id="strengthVal">80</span></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Loudness / Normalize -->
+          <div class="pipeSection">
+            <label class="pipeHeader">
+              <input type="checkbox" id="stage_loudness" checked>
+              <span>Loudness & Normalize</span>
+            </label>
+            <div class="pipeBody" data-stage="stage_loudness">
+              <div class="control-row">
+                <label>Loudness Mode</label>
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <select id="loudnessMode"></select>
+                  <button class="info-btn" data-info-type="loudness" data-id="loudness" title="About loudness mode" aria-label="About loudness mode">ⓘ</button>
+                </div>
+              </div>
+
+              <div class="control-row">
+                <label><input type="checkbox" id="ov_target_I"> Override Target LUFS</label>
+                <input type="range" id="target_I" min="-22" max="-8" step="0.5" value="-16.0" oninput="targetIVal.textContent=this.value">
+                <span class="pill"><span id="targetIVal">-16.0</span> LUFS</span>
+              </div>
+
+              <div class="control-row">
+                <label><input type="checkbox" id="ov_target_TP"> Override True Peak (TP)</label>
+                <input type="range" id="target_TP" min="-3.0" max="0.0" step="0.1" value="-1.0" oninput="targetTPVal.textContent=this.value">
+                <span class="pill"><span id="targetTPVal">-1.0</span> dBTP</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Stereo / Tone -->
+          <div class="pipeSection">
+            <label class="pipeHeader">
+              <input type="checkbox" id="stage_stereo" checked>
+              <span>Stereo & Tone</span>
+            </label>
+            <div class="pipeBody" data-stage="stage_stereo">
+              <div class="control-row">
+                <label><input type="checkbox" id="ov_width"> Override Stereo Width</label>
+                <div style="flex:1; display:flex; align-items:center; gap:10px;">
+                  <input type="range" id="width" min="0.70" max="1.40" step="0.01" value="1.12" oninput="widthVal.textContent=this.value">
+                  <span class="pill" id="widthVal">1.12</span>
+                </div>
+              </div>
+
+              <div class="control-row">
+                <label><input type="checkbox" id="guardrails"> Enable Width Guardrails</label>
+                <div class="small" style="color:var(--muted);">Keeps lows mono-ish and softly caps extreme width if risky.</div>
+              </div>
+
+              <div class="control-row">
+                <label><input type="checkbox" id="ov_mono_bass"> Mono Bass Below (Hz)</label>
+                <input type="range" id="mono_bass" min="60" max="200" step="5" value="120" oninput="monoBassVal.textContent=this.value">
+                <span class="pill" id="monoBassVal">120</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Output -->
+          <div class="pipeSection">
+            <label class="pipeHeader">
+              <input type="checkbox" id="stage_output" checked>
+              <span>Output</span>
+            </label>
+            <div class="pipeBody" data-stage="stage_output">
+              <div class="control-row" style="align-items:flex-start;">
+                <label style="min-width:140px;">Formats</label>
+                <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+                  <label class="small"><input type="checkbox" id="out_wav" checked> WAV</label>
+                  <label class="small"><input type="checkbox" id="out_mp3" checked> MP3</label>
+                  <div class="small" style="display:flex; align-items:center; gap:8px; margin-left:8px;">
+                    <span style="color:var(--muted);">MP3 bitrate</span>
+                    <select id="mp3_bitrate">
+                      <option value="192">192 kbps</option>
+                      <option value="256">256 kbps</option>
+                      <option value="320" selected>320 kbps</option>
+                    </select>
+                    <span style="color:var(--muted);">(future)</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-        <div class="control-row" style="align-items:flex-start; margin-top:8px;">
-          <label style="min-width:140px;">Presets</label>
-          <div id="packPresetsBox" class="small" style="flex:1; display:flex; flex-wrap:wrap; gap:8px;"></div>
-          <div class="small" style="display:flex; flex-direction:column; gap:6px;">
-            <button class="btnGhost" type="button" onclick="selectAllPackPresets()">Select all</button>
-            <button class="btnGhost" type="button" onclick="clearAllPackPresets()">Clear</button>
-          </div>
-        </div>
-        <div class="control-row">
-          <label>Strength</label>
-          <input type="range" id="strength" min="0" max="100" value="80" oninput="strengthVal.textContent=this.value">
-          <span class="pill">S=<span id="strengthVal">80</span></span>
-        </div>
-        <div class="hr"></div>
-        <div class="control-row">
-          <label>Loudness Mode</label>
-          <div style="display:flex; align-items:center; gap:8px;">
-            <select id="loudnessMode"></select>
-            <button class="info-btn" type="button" data-info-type="loudness" aria-label="About loudness profiles">ⓘ</button>
-          </div>
-        </div>
-        <div class="small" id="loudnessHint" style="margin-top:-6px; margin-bottom:6px; color:var(--muted);"></div>
-        <div id="overrides">
-          <div class="control-row">
-            <label><input type="checkbox" id="useLufs"> Override Target LUFS</label>
-            <input type="range" id="lufs" min="-20" max="-8" step="0.5" value="-14">
-            <span class="pill" id="lufsVal">-14.0 LUFS</span>
-          </div>
-          <div class="control-row">
-            <label><input type="checkbox" id="useTp"> Override True Peak (TP)</label>
-            <input type="range" id="tp" min="-3.0" max="0.0" step="0.1" value="-1.0">
-            <span class="pill" id="tpVal">-1.0 dBTP</span>
-          </div>
-          <div class="control-row">
-            <label><input type="checkbox" id="ov_width"> Override Stereo Width</label>
-            <input type="range" id="width" min="0.90" max="1.40" step="0.01" value="1.12">
-            <span class="pill" id="widthVal">1.12</span>
-          </div>
-          <div class="control-row">
-            <label><input type="checkbox" id="guardrails"> Enable Width Guardrails</label>
-            <div class="small" style="color:var(--muted);">Keeps lows mono-ish and softly caps extreme width if risky.</div>
-          </div>
-          <div class="control-row">
-            <label><input type="checkbox" id="ov_mono_bass"> Mono Bass Below (Hz)</label>
-            <input type="range" id="mono_bass" min="60" max="200" step="5" value="120">
-            <span class="pill" id="monoBassVal">120</span>
-          </div>
-        </div>
-        <div class="row" style="margin-top:12px;">
-          <button class="btn" id="runPackBtn" onclick="runPack()">Run Master</button>
-          <button class="btnGhost" id="runBulkBtn" onclick="runBulk()">Run on selected files</button>
+      <div class="row" style="margin-top:12px;">
+          <button class="btn" id="runPackBtn" onclick="runPack()">Run Job</button>
         </div>
       </div>
       <div class="card masterPane" id="recentCard">
@@ -852,7 +881,7 @@ input[type="range"]{
         <div class="small">Click a run to load outputs. Delete removes the entire song output folder.</div>
         <div id="recent" class="outlist" style="margin-top:10px;"></div>
       </div>
-      <div class="card masterPane" id="jobCard">
+      <div class="card masterPane">
         <h2>Job Output</h2>
         <div id="outlist" class="outlist"></div>
       </div>
@@ -1476,58 +1505,31 @@ function metricVal(m, key){
   }
 }
 function fmtCompactIO(inputM, outputM){
-  // Core: the 4 most representative "headline" mastering metrics
-  // 1) I  = integrated loudness (target adherence)
-  // 2) TP = true peak (platform safety)
-  // 3) LRA = loudness range (macro dynamics)
-  // 4) CF = crest factor (transient / punch proxy)
-  const core = [
+  const cols = [
     { key:"I",   label:"I",   suffix:" LUFS", tip:"Integrated loudness (LUFS)" },
-    { key:"TP",  label:"TP",  suffix:" dB",   tip:"True peak (dBTP)" },
-    { key:"LRA", label:"LRA", suffix:"",      tip:"Loudness range" },
-    { key:"CF",  label:"CF",  suffix:" dB",   tip:"Crest factor (Peak - RMS)" },
-  ];
-
-  // Everything else goes under "More"
-  const more = [
-    { key:"Peak", label:"Peak", suffix:" dB", tip:"Sample peak level (dBFS)" },
-    { key:"RMS",  label:"RMS",  suffix:" dB", tip:"RMS level (dBFS)" },
-    { key:"DR",   label:"DR",   suffix:" dB", tip:"Dynamic range (astats proxy)" },
+    { key:"TP",  label:"TP",  suffix:" dB",  tip:"True peak (dBTP)" },
+    { key:"LRA", label:"LRA", suffix:"",     tip:"Loudness range" },
+    { key:"Peak",label:"Peak",suffix:" dB", tip:"Sample peak level (dBFS)" },
+    { key:"RMS", label:"RMS", suffix:" dB", tip:"RMS level (dBFS)" },
+    { key:"DR",  label:"DR",  suffix:" dB", tip:"Dynamic range (astats)" },
     { key:"Noise",label:"Noise",suffix:" dB", tip:"Noise floor (astats)" },
-    { key:"Corr", label:"Corr", suffix:"",    tip:"Stereo correlation" },
-    { key:"Dur",  label:"Dur",  suffix:" s",  tip:"Duration (seconds)" },
-    { key:"W",    label:"W",    suffix:"",    tip:"Stereo width factor" },
+    { key:"CF",  label:"CF",  suffix:" dB",  tip:"Crest factor" },
+    { key:"Corr",label:"Corr",suffix:"",     tip:"Stereo correlation" },
+    { key:"Dur", label:"Dur", suffix:" s",   tip:"Duration (seconds)" },
+    { key:"W",   label:"W",   suffix:"",     tip:"Width factor applied" },
   ];
-
-  function chip(c){
-    const vIn = metricVal(inputM, c.key);
+  const header = `<tr><th></th>${cols.map(c=>`<th><span style="display:inline-flex; align-items:center; gap:4px;">${c.label} <button class="info-btn" type="button" data-info-type="metrics" data-id="${c.key}" aria-label="About ${c.label}">ⓘ</button></span></th>`).join('')}</tr>`;
+  const rowIn = `<tr><th title="Input metrics">In</th>${cols.map(c=>{
+    const v = metricVal(inputM, c.key);
+    return `<td title="${c.tip}">${fmtMetric(v, c.suffix)}</td>`;
+  }).join('')}</tr>`;
+  const rowOut = `<tr><th title="Output metrics">Out</th>${cols.map(c=>{
     const vOut = metricVal(outputM, c.key);
-    const d = (typeof vIn === "number" && typeof vOut === "number") ? (vOut - vIn) : null;
-    const dTxt = (d === null) ? "" : `${d>0?"+":""}${d.toFixed(1)}${c.suffix||""}`;
-    return `
-      <div class="metricChip">
-        <div class="metricTitle">
-          <div class="label">${c.label}</div>
-          <button class="info-btn" data-info-type="metrics" data-id="${c.key}" aria-label="${c.tip}">ⓘ</button>
-        </div>
-        <div class="metricLines">
-          <div class="metricLine"><span class="metricTag">In</span><span class="metricVal">${fmtMetric(vIn, c.suffix||"")}</span></div>
-          <div class="metricLine"><span class="metricTag">Out</span><span class="metricVal">${fmtMetric(vOut, c.suffix||"")}</span><span class="metricDelta">${dTxt ? `Δ ${dTxt}` : ""}</span></div>
-        </div>
-      </div>`;
-  }
-
-  const coreHtml = core.map(chip).join("");
-  const moreHtml = more.map(chip).join("");
-  const id = `more_${Math.random().toString(36).slice(2)}`;
-
-  return `
-    <div class="metricsGrid">${coreHtml}</div>
-    <div class="advToggle">
-      <button type="button" onclick="(function(){const el=document.getElementById('${id}'); if(!el) return; el.classList.toggle('advHidden');})()">More</button>
-    </div>
-    <div id="${id}" class="metricsGrid advHidden">${moreHtml}</div>
-  `;
+    const vIn = metricVal(inputM, c.key);
+    const delta = fmtDelta(vOut, vIn, c.suffix);
+    return `<td title="${c.tip}">${fmtMetric(vOut, c.suffix)}${delta}</td>`;
+  }).join('')}</tr>`;
+  return `<table class="ioTable">${header}${rowIn}${rowOut}</table>`;
 }
 function renderMetricsDrawer(triggerBtn){
   const id = triggerBtn?.getAttribute('data-id') || null;
@@ -1865,6 +1867,34 @@ document.addEventListener('DOMContentLoaded', () => {
     console.error(e);
     setStatus("UI init error (open console)");
   }
+});
+
+
+/* Pipeline section toggles (UI-only for now) */
+function initPipelineSections(){
+  document.querySelectorAll('.pipeSection').forEach(sec => {
+    const cb = sec.querySelector('.pipeHeader input[type="checkbox"]');
+    const body = sec.querySelector('.pipeBody');
+    if(!cb || !body) return;
+
+    const apply = () => {
+      if(cb.checked){
+        body.classList.remove('pipeBodyCollapsed');
+        sec.classList.remove('disabled');
+        body.querySelectorAll('input,select,button,textarea').forEach(el => { el.disabled = false; });
+      }else{
+        body.classList.add('pipeBodyCollapsed');
+        sec.classList.add('disabled');
+        body.querySelectorAll('input,select,button,textarea').forEach(el => { el.disabled = true; });
+      }
+    };
+    cb.addEventListener('change', apply);
+    apply();
+  });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  try { initPipelineSections(); } catch (e) { console.warn("pipeline init failed", e); }
 });
 </script>
 <script>
