@@ -578,6 +578,13 @@ HTML_TEMPLATE = r"""
   margin-top:10px;
   flex-wrap:nowrap;
 }
+.formatRow{
+  display:flex;
+  flex-wrap:wrap;
+  gap:12px;
+  align-items:center;
+  margin-top:8px;
+}
 .control-row label{
   min-width:220px;
   display:flex;
@@ -887,20 +894,109 @@ input[type="range"]{
               <span>Output</span>
             </label>
             <div class="pipeBody" data-stage="stage_output">
-              <div class="control-row" style="align-items:flex-start;">
-                <label style="min-width:140px;">Formats</label>
-                <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
-                  <label class="small"><input type="checkbox" id="out_wav" checked> WAV</label>
-                  <label class="small"><input type="checkbox" id="out_mp3" checked> MP3</label>
-                  <div class="small" style="display:flex; align-items:center; gap:8px; margin-left:8px;">
-                    <span style="color:var(--muted);">MP3 bitrate</span>
-                    <select id="mp3_bitrate">
-                      <option value="192">192 kbps</option>
-                      <option value="256">256 kbps</option>
-                      <option value="320" selected>320 kbps</option>
-                    </select>
-                    <span style="color:var(--muted);">(future)</span>
-                  </div>
+              <div class="formatRow">
+                <label class="small"><input type="checkbox" id="out_wav" checked> WAV</label>
+                <div class="small" style="display:flex; align-items:center; gap:6px;">
+                  <span style="color:var(--muted);">Bit depth</span>
+                  <select id="wav_bit_depth">
+                    <option value="16">16-bit</option>
+                    <option value="24" selected>24-bit</option>
+                    <option value="32">32-bit</option>
+                  </select>
+                </div>
+                <div class="small" style="display:flex; align-items:center; gap:6px;">
+                  <span style="color:var(--muted);">Sample rate</span>
+                  <select id="wav_sample_rate">
+                    <option value="44100">44.1 kHz</option>
+                    <option value="48000" selected>48 kHz</option>
+                    <option value="96000">96 kHz</option>
+                  </select>
+                </div>
+              </div>
+              <div class="formatRow">
+                <label class="small"><input type="checkbox" id="out_mp3"> MP3</label>
+                <div class="small" style="display:flex; align-items:center; gap:6px;">
+                  <span style="color:var(--muted);">Bitrate</span>
+                  <select id="mp3_bitrate">
+                    <option value="192">192 kbps</option>
+                    <option value="256">256 kbps</option>
+                    <option value="320" selected>320 kbps</option>
+                  </select>
+                </div>
+                <div class="small" style="display:flex; align-items:center; gap:6px;">
+                  <span style="color:var(--muted);">VBR</span>
+                  <select id="mp3_vbr">
+                    <option value="none" selected>None (CBR)</option>
+                    <option value="V0">V0</option>
+                    <option value="V2">V2</option>
+                  </select>
+                </div>
+              </div>
+              <div class="formatRow">
+                <label class="small"><input type="checkbox" id="out_aac"> AAC / M4A</label>
+                <div class="small" style="display:flex; align-items:center; gap:6px;">
+                  <span style="color:var(--muted);">Codec</span>
+                  <select id="aac_codec">
+                    <option value="aac" selected>AAC (native)</option>
+                    <option value="libfdk_aac">libfdk_aac (if available)</option>
+                  </select>
+                </div>
+                <div class="small" style="display:flex; align-items:center; gap:6px;">
+                  <span style="color:var(--muted);">Container</span>
+                  <select id="aac_container">
+                    <option value="m4a" selected>M4A</option>
+                    <option value="aac">AAC</option>
+                  </select>
+                </div>
+                <div class="small" style="display:flex; align-items:center; gap:6px;">
+                  <span style="color:var(--muted);">Bitrate</span>
+                  <select id="aac_bitrate">
+                    <option value="128">128 kbps</option>
+                    <option value="192">192 kbps</option>
+                    <option value="256" selected>256 kbps</option>
+                    <option value="320">320 kbps</option>
+                  </select>
+                </div>
+              </div>
+              <div class="formatRow">
+                <label class="small"><input type="checkbox" id="out_ogg"> OGG Vorbis</label>
+                <div class="small" style="display:flex; align-items:center; gap:6px;">
+                  <span style="color:var(--muted);">Quality</span>
+                  <select id="ogg_quality">
+                    <option value="3">Q3 (~112 kbps)</option>
+                    <option value="5" selected>Q5 (~160 kbps)</option>
+                    <option value="7">Q7 (~224 kbps)</option>
+                    <option value="9">Q9 (~320 kbps)</option>
+                  </select>
+                </div>
+              </div>
+              <div class="formatRow">
+                <label class="small"><input type="checkbox" id="out_flac"> FLAC</label>
+                <div class="small" style="display:flex; align-items:center; gap:6px;">
+                  <span style="color:var(--muted);">Level</span>
+                  <select id="flac_level">
+                    <option value="0">0 (fastest)</option>
+                    <option value="5" selected>5</option>
+                    <option value="8">8 (smallest)</option>
+                  </select>
+                </div>
+                <div class="small" style="display:flex; align-items:center; gap:6px;">
+                  <span style="color:var(--muted);">Bit depth</span>
+                  <select id="flac_bit_depth">
+                    <option value="">Auto</option>
+                    <option value="16">16-bit</option>
+                    <option value="24" selected>24-bit</option>
+                    <option value="32">32-bit</option>
+                  </select>
+                </div>
+                <div class="small" style="display:flex; align-items:center; gap:6px;">
+                  <span style="color:var(--muted);">Sample rate</span>
+                  <select id="flac_sample_rate">
+                    <option value="">Auto</option>
+                    <option value="44100">44.1 kHz</option>
+                    <option value="48000">48 kHz</option>
+                    <option value="96000">96 kHz</option>
+                  </select>
                 </div>
               </div>
             </div>
@@ -1753,6 +1849,26 @@ function appendOverrides(fd){
   const guardrails = document.getElementById('guardrails');
   if (guardrails && guardrails.checked) fd.append('guardrails', '1');
 }
+function appendOutputOptions(fd){
+  const on = (id) => document.getElementById(id)?.checked;
+  const val = (id) => document.getElementById(id)?.value;
+  fd.append('out_wav', on('out_wav') ? '1' : '0');
+  fd.append('wav_bit_depth', val('wav_bit_depth') || '');
+  fd.append('wav_sample_rate', val('wav_sample_rate') || '');
+  fd.append('out_mp3', on('out_mp3') ? '1' : '0');
+  fd.append('mp3_bitrate', val('mp3_bitrate') || '');
+  fd.append('mp3_vbr', val('mp3_vbr') || 'none');
+  fd.append('out_aac', on('out_aac') ? '1' : '0');
+  fd.append('aac_codec', val('aac_codec') || '');
+  fd.append('aac_container', val('aac_container') || '');
+  fd.append('aac_bitrate', val('aac_bitrate') || '');
+  fd.append('out_ogg', on('out_ogg') ? '1' : '0');
+  fd.append('ogg_quality', val('ogg_quality') || '');
+  fd.append('out_flac', on('out_flac') ? '1' : '0');
+  fd.append('flac_level', val('flac_level') || '');
+  fd.append('flac_bit_depth', val('flac_bit_depth') || '');
+  fd.append('flac_sample_rate', val('flac_sample_rate') || '');
+}
 let runPollTimer = null;
 let runPollFiles = [];
 let runPollSeen = new Set();
@@ -1868,14 +1984,22 @@ async function loadSong(song, skipEmpty=false){
       lastRunInputMetrics = j.input;
     }
     j.items.forEach(it => {
-      const audioSrc = it.mp3 || it.wav || null;
+      const downloads = Array.isArray(it.downloads) ? it.downloads : [];
+      const audioSrc = it.audio || (downloads[0]?.url) || it.mp3 || it.wav || null;
       if (audioSrc) hasPlayable = true;
       if (it.metrics) anyMetricsStrings = true;
       const compact = fmtCompactIO(lastRunInputMetrics, it.metrics_obj || {});
       const ioBlock = compact ? `<div class="ioRow">${compact}</div>` : '';
       const linkParts = [];
-      if (it.wav) linkParts.push(`<a class="linkish" href="${it.wav}" download>WAV</a>`);
-      if (it.mp3) linkParts.push(`<a class="linkish" href="${it.mp3}" download>MP3</a>`);
+      downloads.forEach(d => {
+        if (d && d.url && d.label) {
+          linkParts.push(`<a class="linkish" href="${d.url}" download>${d.label}</a>`);
+        }
+      });
+      if (!downloads.length) {
+        if (it.wav) linkParts.push(`<a class="linkish" href="${it.wav}" download>WAV</a>`);
+        if (it.mp3) linkParts.push(`<a class="linkish" href="${it.mp3}" download>MP3</a>`);
+      }
       linkParts.push(`<a class="linkish" href="#" onclick="deleteOutput('${song}','${it.name}'); return false;">Delete</a>`);
       const div = document.createElement('div');
       div.className = 'outitem';
@@ -1889,7 +2013,8 @@ async function loadSong(song, skipEmpty=false){
     });
   } else {
     j.items.forEach(it => {
-      const audioSrc = it.mp3 || it.wav || null;
+      const downloads = Array.isArray(it.downloads) ? it.downloads : [];
+      const audioSrc = it.audio || (downloads[0]?.url) || it.mp3 || it.wav || null;
       if (audioSrc) hasPlayable = true;
       if (it.metrics) anyMetricsStrings = true;
     });
@@ -1942,6 +2067,7 @@ async function runOne(){
   fd.append('strength', strength);
   fd.append('presets', presets.join(","));
   appendOverrides(fd);
+  appendOutputOptions(fd);
   presets.forEach(p => files.forEach(f => appendJobLog(`Queued ${f} with preset ${p}`)));
   startRunPolling(pollFiles);
   const r = await fetch('/api/master-bulk', { method:'POST', body: fd });
@@ -1986,6 +2112,7 @@ async function runPack(){
   fd.append('strength', strength);
   fd.append('presets', presets.join(","));
   appendOverrides(fd);
+  appendOutputOptions(fd);
   presets.forEach(p => files.forEach(f => appendJobLog(`Queued ${f} with preset ${p}`)));
   startRunPolling(pollFiles);
   const r = await fetch('/api/master-bulk', { method:'POST', body: fd });
@@ -2018,6 +2145,7 @@ async function runBulk(){
   fd.append('strength', strength);
   fd.append('presets', presets.join(","));
   appendOverrides(fd);
+  appendOutputOptions(fd);
   presets.forEach(p => files.forEach(f => appendJobLog(`Queued ${f} with preset ${p}`)));
   startRunPolling(pollFiles);
   const r = await fetch('/api/master-bulk', { method:'POST', body: fd });
@@ -2197,13 +2325,20 @@ def recent(limit: int = 30):
     folders.sort(key=lambda d: d.stat().st_mtime, reverse=True)
     items = []
     for d in folders[:limit]:
-        mp3s = sorted([f.name for f in d.iterdir() if f.is_file() and f.suffix.lower()==".mp3"])
+        audio_exts = [".mp3",".m4a",".aac",".ogg",".flac",".wav"]
+        preview = None
+        for ext in audio_exts:
+            found = sorted([f.name for f in d.iterdir() if f.is_file() and f.suffix.lower()==ext])
+            if found:
+                preview = f"/out/{d.name}/{found[0]}"
+                if ext == ".mp3":
+                    break
         metrics = wrap_metrics(d.name, read_run_metrics(d) or read_first_wav_metrics(d))
         items.append({
             "song": d.name,
             "folder": f"/out/{d.name}/",
             "ab": f"/out/{d.name}/index.html",
-            "mp3": f"/out/{d.name}/{mp3s[0]}" if mp3s else None,
+            "mp3": preview,  # legacy key; may be other formats
             "metrics": metrics,
         })
     return {"items": items}
@@ -2247,7 +2382,7 @@ def delete_output(song: str, name: str):
         raise HTTPException(status_code=400, detail="invalid_name")
 
     removed = []
-    for suffix in [".wav", ".mp3", ".metrics.json"]:
+    for suffix in [".wav", ".mp3", ".m4a", ".aac", ".ogg", ".flac", ".metrics.json"]:
         fp = (folder / f"{stem}{suffix}").resolve()
         if folder not in fp.parents or fp == folder:
             continue
@@ -2290,19 +2425,54 @@ def outlist(song: str):
         except Exception:
             input_m = None
     if folder.exists() and folder.is_dir():
-        wavs = sorted([p for p in folder.iterdir() if p.is_file() and p.suffix.lower()==".wav"])
-        mp3s = {p.stem: p.name for p in folder.iterdir() if p.is_file() and p.suffix.lower()==".mp3"}
-        for w in wavs:
-            stem = w.stem
-            m = read_metrics_for_wav(w)
+        audio_exts = {".wav":"WAV",".mp3":"MP3",".m4a":"M4A",".aac":"AAC",".ogg":"OGG",".flac":"FLAC"}
+        audio_files = [p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in audio_exts]
+        stems = sorted(set(p.stem for p in audio_files))
+        pref = [".mp3",".m4a",".aac",".ogg",".flac",".wav"]
+        for stem in stems:
+            links = []
+            primary = None
+            wav_url = None
+            mp3_url = None
+            for ext in pref:
+                fp = folder / f"{stem}{ext}"
+                if not fp.exists():
+                    continue
+                url = f"/out/{song}/{fp.name}"
+                links.append({"label": audio_exts[ext], "url": url, "ext": ext})
+                if not primary:
+                    primary = url
+                if ext == ".wav":
+                    wav_url = url
+                if ext == ".mp3":
+                    mp3_url = url
+            m = read_metrics_for_wav(folder / f"{stem}.wav")
+            if not m:
+                m = read_metrics_file(folder / f"{stem}.metrics.json")
             if not m:
                 try:
-                    m = basic_metrics(w)
+                    # Fall back to first available file for quick metrics
+                    first_fp = folder / f"{stem}{pref[0]}"
+                    if not first_fp.exists():
+                        for ext in pref[1:]:
+                            alt = folder / f"{stem}{ext}"
+                            if alt.exists():
+                                first_fp = alt
+                                break
+                    if first_fp.exists():
+                        m = basic_metrics(first_fp)
                 except Exception:
                     m = None
             if (not m) or ("duration_sec" not in m):
                 try:
-                    info = docker_ffprobe_json(w)
+                    target = folder / f"{stem}{pref[0]}"
+                    if not target.exists():
+                        for ext in pref[1:]:
+                            alt = folder / f"{stem}{ext}"
+                            if alt.exists():
+                                target = alt
+                                break
+                    info = docker_ffprobe_json(target)
                     dur = float(info.get("format", {}).get("duration")) if info else None
                     if m is None:
                         m = {}
@@ -2312,12 +2482,14 @@ def outlist(song: str):
                     pass
             items.append({
                 "name": stem,
-                "wav": f"/out/{song}/{w.name}",
-                "mp3": f"/out/{song}/{mp3s[stem]}" if stem in mp3s else None,
+                "wav": wav_url,
+                "mp3": mp3_url,
+                "audio": primary,
+                "downloads": links,
                 "ab": f"/out/{song}/index.html",
-            "metrics": fmt_metrics(m),
-            "metrics_obj": m,
-        })
+                "metrics": fmt_metrics(m),
+                "metrics_obj": m,
+            })
     return {"items": items, "input": input_m}
 @app.get("/favicon.ico")
 def favicon():
@@ -2407,6 +2579,22 @@ def master_pack(
     width: float | None = Form(None),
     mono_bass: float | None = Form(None),
     guardrails: int = Form(0),
+    out_wav: int = Form(1),
+    out_mp3: int = Form(0),
+    mp3_bitrate: str | None = Form(None),
+    mp3_vbr: str | None = Form(None),
+    out_aac: int = Form(0),
+    aac_bitrate: str | None = Form(None),
+    aac_codec: str | None = Form(None),
+    aac_container: str | None = Form(None),
+    out_ogg: int = Form(0),
+    ogg_quality: str | None = Form(None),
+    out_flac: int = Form(0),
+    flac_level: str | None = Form(None),
+    flac_bit_depth: str | None = Form(None),
+    flac_sample_rate: str | None = Form(None),
+    wav_bit_depth: str | None = Form(None),
+    wav_sample_rate: str | None = Form(None),
     presets: str | None = Form(None),
 ):
     base_cmd = ["python3", str(MASTER_SCRIPT), "--infile", infile, "--strength", str(strength)]
@@ -2422,6 +2610,22 @@ def master_pack(
         base_cmd += ["--mono_bass", str(mono_bass)]
     if guardrails:
         base_cmd += ["--guardrails"]
+    base_cmd += ["--out_wav", "1" if out_wav else "0"]
+    base_cmd += ["--out_mp3", "1" if out_mp3 else "0"]
+    base_cmd += ["--out_aac", "1" if out_aac else "0"]
+    base_cmd += ["--out_ogg", "1" if out_ogg else "0"]
+    base_cmd += ["--out_flac", "1" if out_flac else "0"]
+    if wav_bit_depth: base_cmd += ["--wav_bit_depth", str(wav_bit_depth)]
+    if wav_sample_rate: base_cmd += ["--wav_sample_rate", str(wav_sample_rate)]
+    if mp3_bitrate: base_cmd += ["--mp3_bitrate", str(mp3_bitrate)]
+    if mp3_vbr: base_cmd += ["--mp3_vbr", str(mp3_vbr)]
+    if aac_bitrate: base_cmd += ["--aac_bitrate", str(aac_bitrate)]
+    if aac_codec: base_cmd += ["--aac_codec", str(aac_codec)]
+    if aac_container: base_cmd += ["--aac_container", str(aac_container)]
+    if ogg_quality: base_cmd += ["--ogg_quality", str(ogg_quality)]
+    if flac_level: base_cmd += ["--flac_level", str(flac_level)]
+    if flac_bit_depth: base_cmd += ["--flac_bit_depth", str(flac_bit_depth)]
+    if flac_sample_rate: base_cmd += ["--flac_sample_rate", str(flac_sample_rate)]
     def run_pack():
         try:
             subprocess.check_output(base_cmd, text=True, stderr=subprocess.STDOUT)
@@ -2446,6 +2650,22 @@ def master_bulk(
     stage_loudness: int = Form(1),
     stage_stereo: int = Form(1),
     stage_output: int = Form(1),
+    out_wav: int = Form(1),
+    out_mp3: int = Form(0),
+    mp3_bitrate: str | None = Form(None),
+    mp3_vbr: str | None = Form(None),
+    out_aac: int = Form(0),
+    aac_bitrate: str | None = Form(None),
+    aac_codec: str | None = Form(None),
+    aac_container: str | None = Form(None),
+    out_ogg: int = Form(0),
+    ogg_quality: str | None = Form(None),
+    out_flac: int = Form(0),
+    flac_level: str | None = Form(None),
+    flac_bit_depth: str | None = Form(None),
+    flac_sample_rate: str | None = Form(None),
+    wav_bit_depth: str | None = Form(None),
+    wav_sample_rate: str | None = Form(None),
     presets: str | None = Form(None),
 ):
     files = [f.strip() for f in infiles.split(",") if f.strip()]
@@ -2478,6 +2698,23 @@ def master_bulk(
                 cmd += ["--mono_bass", str(mono_bass)]
             if do_stereo and guardrails:
                 cmd += ["--guardrails"]
+            if do_output:
+                cmd += ["--out_wav", "1" if out_wav else "0"]
+                cmd += ["--out_mp3", "1" if out_mp3 else "0"]
+                cmd += ["--out_aac", "1" if out_aac else "0"]
+                cmd += ["--out_ogg", "1" if out_ogg else "0"]
+                cmd += ["--out_flac", "1" if out_flac else "0"]
+                if wav_bit_depth: cmd += ["--wav_bit_depth", str(wav_bit_depth)]
+                if wav_sample_rate: cmd += ["--wav_sample_rate", str(wav_sample_rate)]
+                if mp3_bitrate: cmd += ["--mp3_bitrate", str(mp3_bitrate)]
+                if mp3_vbr: cmd += ["--mp3_vbr", str(mp3_vbr)]
+                if aac_bitrate: cmd += ["--aac_bitrate", str(aac_bitrate)]
+                if aac_codec: cmd += ["--aac_codec", str(aac_codec)]
+                if aac_container: cmd += ["--aac_container", str(aac_container)]
+                if ogg_quality: cmd += ["--ogg_quality", str(ogg_quality)]
+                if flac_level: cmd += ["--flac_level", str(flac_level)]
+                if flac_bit_depth: cmd += ["--flac_bit_depth", str(flac_bit_depth)]
+                if flac_sample_rate: cmd += ["--flac_sample_rate", str(flac_sample_rate)]
             try:
                 print(f"[master-bulk] start file={f} presets={presets}", file=sys.stderr)
                 subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT)

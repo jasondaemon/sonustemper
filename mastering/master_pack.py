@@ -194,26 +194,85 @@ def build_filters(preset: dict, strength: float, lufs_override, tp_override, wid
     chain.append(loud_f)
     return ",".join(chain)
 
-def run_ffmpeg_wav(input_path: Path, output_path: Path, af: str):
+def _pcm_codec_for_depth(bit_depth: int) -> str:
+    if bit_depth >= 32:
+        return "pcm_s32le"
+    if bit_depth >= 24:
+        return "pcm_s24le"
+    return "pcm_s16le"
+
+def run_ffmpeg_wav(input_path: Path, output_path: Path, af: str, sample_rate: int, bit_depth: int):
     r = run_cmd([
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(input_path),
         "-af", af,
-        "-ar", "48000", "-ac", "2", "-c:a", "pcm_s24le",
+        "-ar", str(sample_rate), "-ac", "2", "-c:a", _pcm_codec_for_depth(bit_depth),
         str(output_path)
     ])
     if r.returncode != 0:
         raise RuntimeError(r.stderr.strip() or "ffmpeg failed")
 
-def make_mp3(wav_path: Path, mp3_path: Path):
+def make_mp3(wav_path: Path, mp3_path: Path, bitrate_kbps: int, vbr_mode: str):
+    cmd = [
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-i", str(wav_path),
+        "-c:a", "libmp3lame",
+    ]
+    if vbr_mode and vbr_mode.lower() in ("v0", "v2"):
+        q = 0 if vbr_mode.lower() == "v0" else 2
+        cmd += ["-qscale:a", str(q)]
+    else:
+        cmd += ["-b:a", f"{int(bitrate_kbps)}k"]
+    cmd.append(str(mp3_path))
+    r = run_cmd(cmd)
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr.strip() or "mp3 encode failed")
+
+def make_aac(wav_path: Path, out_path: Path, bitrate_kbps: int, codec: str = "aac"):
+    cmd = [
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-i", str(wav_path),
+        "-c:a", codec,
+        "-b:a", f"{int(bitrate_kbps)}k",
+    ]
+    if out_path.suffix.lower() == ".m4a":
+        cmd += ["-movflags", "+faststart"]
+    cmd.append(str(out_path))
+    r = run_cmd(cmd)
+    if r.returncode != 0 and codec != "aac":
+        # Fallback to native AAC if preferred codec is missing
+        cmd = [c if c != codec else "aac" for c in cmd]
+        r = run_cmd(cmd)
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr.strip() or "aac encode failed")
+
+def make_ogg(wav_path: Path, ogg_path: Path, quality: float = 5.0):
+    q = max(-1.0, min(10.0, quality))
     r = run_cmd([
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(wav_path),
-        "-c:a", "libmp3lame", "-b:a", "320k",
-        str(mp3_path)
+        "-c:a", "libvorbis", "-q:a", str(q),
+        str(ogg_path)
     ])
     if r.returncode != 0:
-        raise RuntimeError(r.stderr.strip() or "mp3 encode failed")
+        raise RuntimeError(r.stderr.strip() or "ogg encode failed")
+
+def make_flac(wav_path: Path, flac_path: Path, level: int = 5, sample_rate: int | None = None, bit_depth: int | None = None):
+    lvl = clamp(int(level), 0, 8)
+    cmd = [
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-i", str(wav_path),
+        "-c:a", "flac",
+        "-compression_level", str(lvl),
+    ]
+    if sample_rate:
+        cmd += ["-ar", str(int(sample_rate))]
+    if bit_depth:
+        cmd += ["-sample_fmt", "s32" if int(bit_depth) >= 32 else ("s24" if int(bit_depth) >= 24 else "s16")]
+    cmd.append(str(flac_path))
+    r = run_cmd(cmd)
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr.strip() or "flac encode failed")
 
 def measure_loudness(wav_path: Path) -> dict:
     r = run_cmd([
@@ -382,7 +441,16 @@ def compact_metrics(m: dict | None):
     return i_line + ((" • " + " • ".join(extras)) if extras else "")
 
 def write_playlist_html(folder: Path, title: str, source_name: str):
-    wavs = sorted([f for f in folder.iterdir() if f.is_file() and f.suffix.lower() == ".wav"])
+    audio_exts = {
+        ".wav": "WAV",
+        ".mp3": "MP3",
+        ".m4a": "M4A",
+        ".aac": "AAC",
+        ".ogg": "OGG",
+        ".flac": "FLAC",
+    }
+    audio_files = [f for f in folder.iterdir() if f.is_file() and f.suffix.lower() in audio_exts]
+    stems = sorted(set(f.stem for f in audio_files))
     source_audio = ""
     source_copy = folder / source_name if (folder / source_name).exists() else None
     if source_copy and source_copy.is_file():
@@ -400,19 +468,26 @@ def write_playlist_html(folder: Path, title: str, source_name: str):
         """
 
     rows = []
-    for wav in wavs:
-        mp3 = wav.with_suffix(".mp3")
-        metrics = read_metrics_file(wav.with_suffix(".metrics.json"))
+    pref_order = [".mp3", ".m4a", ".aac", ".ogg", ".flac", ".wav"]
+    for stem in stems:
+        files_for_stem = {f.suffix.lower(): f for f in audio_files if f.stem == stem}
+        primary = None
+        for ext in pref_order:
+            if ext in files_for_stem:
+                primary = files_for_stem[ext]
+                break
+        metrics = read_metrics_file((folder / stem).with_suffix(".metrics.json"))
         rows.append(f"""
         <div class="entry">
           <div class="entry-left">
-            <div class="name">{wav.name}</div>
+            <div class="name">{stem}</div>
             <div class="small metrics">{compact_metrics(metrics)}</div>
           </div>
           <div class="audioCol">
-            <audio controls preload="none" src="{wav.name}"></audio>
-            {'<div class="small"><a class="linkish" href="'+wav.name+'" download>Download WAV</a></div>' if wav.exists() else ''}
-            {'<div class="small"><a class="linkish" href="'+mp3.name+'" download>Download MP3</a></div>' if mp3.exists() else ''}
+            {f'<audio controls preload=\"none\" src=\"{primary.name}\"></audio>' if primary else ''}
+            <div class="small">
+              {" | ".join([f'<a class="linkish" href="{files_for_stem[e].name}" download>{audio_exts[e]}</a>' for e in pref_order if e in files_for_stem])}
+            </div>
           </div>
         </div>
         """)
@@ -522,6 +597,22 @@ def main():
     ap.add_argument("--no_loudness", action="store_true", help="Ignore loudness/TP targets")
     ap.add_argument("--no_stereo", action="store_true", help="Ignore stereo/width controls")
     ap.add_argument("--no_output", action="store_true", help="Do not write mastered audio outputs (metrics only)")
+    ap.add_argument("--out_wav", type=int, choices=[0,1], default=1, help="Enable WAV output")
+    ap.add_argument("--out_mp3", type=int, choices=[0,1], default=0, help="Enable MP3 output")
+    ap.add_argument("--out_aac", type=int, choices=[0,1], default=0, help="Enable AAC/M4A output")
+    ap.add_argument("--out_ogg", type=int, choices=[0,1], default=0, help="Enable OGG output")
+    ap.add_argument("--out_flac", type=int, choices=[0,1], default=0, help="Enable FLAC output")
+    ap.add_argument("--wav_bit_depth", type=int, default=24, help="WAV bit depth (16/24/32)")
+    ap.add_argument("--wav_sample_rate", type=int, default=48000, help="WAV sample rate (44100/48000/96000)")
+    ap.add_argument("--mp3_bitrate", type=int, default=320, help="MP3 bitrate kbps (used when VBR is none)")
+    ap.add_argument("--mp3_vbr", type=str, default="none", help="MP3 VBR mode: none|V0|V2")
+    ap.add_argument("--aac_bitrate", type=int, default=256, help="AAC bitrate kbps")
+    ap.add_argument("--aac_codec", type=str, default="aac", help="AAC codec (aac|libfdk_aac if available)")
+    ap.add_argument("--aac_container", type=str, default="m4a", help="AAC container/extension (m4a|aac)")
+    ap.add_argument("--ogg_quality", type=float, default=5.0, help="OGG quality (-1..10)")
+    ap.add_argument("--flac_level", type=int, default=5, help="FLAC compression level (0-8)")
+    ap.add_argument("--flac_bit_depth", type=int, default=None, help="FLAC bit depth (16/24/32, optional)")
+    ap.add_argument("--flac_sample_rate", type=int, default=None, help="FLAC sample rate (optional)")
     args = ap.parse_args()
 
     # Stage gates
@@ -530,6 +621,17 @@ def main():
     do_loudness = not args.no_loudness
     do_stereo = not args.no_stereo
     do_output = not args.no_output
+    out_wav = bool(args.out_wav)
+    out_mp3 = bool(args.out_mp3)
+    out_aac = bool(args.out_aac)
+    out_ogg = bool(args.out_ogg)
+    out_flac = bool(args.out_flac)
+    wav_depth = clamp(int(args.wav_bit_depth or 24), 16, 32)
+    wav_rate = int(args.wav_sample_rate or 48000)
+    if wav_rate not in (44100, 48000, 88200, 96000):
+        wav_rate = 48000
+    flac_depth = int(args.flac_bit_depth) if args.flac_bit_depth else None
+    flac_rate = int(args.flac_sample_rate) if args.flac_sample_rate else None
 
     if not do_loudness:
         args.lufs = None
@@ -581,6 +683,9 @@ def main():
     if do_master and not do_output:
         print('[master_pack] output stage disabled; skipping run (no outputs generated).', file=sys.stderr)
         sys.exit(0)
+    if do_output and not (out_wav or out_mp3 or out_aac or out_ogg or out_flac):
+        print('[master_pack] no output formats selected; skipping run.', file=sys.stderr)
+        sys.exit(0)
 
     try:
         for p in presets:
@@ -621,10 +726,21 @@ def main():
 
             append_status(song_dir, "preset_start", f"Applying preset '{p}' (S={strength_pct}, width={width_applied})", preset=p)
             print(f"[pack] start file={infile.name} preset={p} strength={int(strength*100)} width={width_applied}", file=sys.stderr, flush=True)
-            run_ffmpeg_wav(infile, wav_out, af)
+            run_ffmpeg_wav(infile, wav_out, af, wav_rate, wav_depth)
             append_status(song_dir, "preset_done", f"Finished preset '{p}' render", preset=p)
-            make_mp3(wav_out, wav_out.with_suffix(".mp3"))
-            append_status(song_dir, "mp3_done", f"MP3 preview ready for '{p}'", preset=p)
+            if out_mp3:
+                make_mp3(wav_out, wav_out.with_suffix(".mp3"), args.mp3_bitrate, args.mp3_vbr)
+                append_status(song_dir, "mp3_done", f"MP3 ready for '{p}'", preset=p)
+            if out_aac:
+                ext = ".m4a" if str(args.aac_container).lower() == "m4a" else ".aac"
+                make_aac(wav_out, wav_out.with_suffix(ext), args.aac_bitrate, args.aac_codec)
+                append_status(song_dir, "aac_done", f"AAC ready for '{p}'", preset=p)
+            if out_ogg:
+                make_ogg(wav_out, wav_out.with_suffix(".ogg"), args.ogg_quality)
+                append_status(song_dir, "ogg_done", f"OGG ready for '{p}'", preset=p)
+            if out_flac:
+                make_flac(wav_out, wav_out.with_suffix(".flac"), args.flac_level, flac_rate or wav_rate, flac_depth or wav_depth)
+                append_status(song_dir, "flac_done", f"FLAC ready for '{p}'", preset=p)
             if do_analyze:
                 append_status(song_dir, "metrics_start", f"Analyzing metrics for '{p}'", preset=p)
             write_metrics(wav_out, target_lufs, ceiling_db, width_applied, write_file=do_analyze)
@@ -632,7 +748,13 @@ def main():
                 append_status(song_dir, "metrics_done", f"Metrics written for '{p}'", preset=p)
             print(f"[pack] done file={infile.name} preset={p}", file=sys.stderr, flush=True)
 
-            outputs.append(str(wav_out))
+            if out_wav:
+                outputs.append(str(wav_out))
+            else:
+                try:
+                    wav_out.unlink(missing_ok=True)
+                except Exception:
+                    pass
 
         write_playlist_html(song_dir, infile.stem, infile.name)
         append_status(song_dir, "playlist", "Playlist generated")
