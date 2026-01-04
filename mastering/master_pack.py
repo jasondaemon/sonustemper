@@ -568,7 +568,21 @@ def main():
                     width_applied = guard_max
 
             af = build_filters(preset, strength, args.lufs, args.tp, width_applied)
-            wav_out = song_dir / f"{infile.stem}__{p}_S{int(strength*100)}.wav"
+            strength_pct = int(strength * 100)
+            variant_tag = build_variant_tag(
+                preset_name=p,
+                strength=strength_pct,
+                stages={
+                    "loudness": do_loudness,
+                    "stereo": do_stereo,
+                },
+                target_I=target_lufs if do_loudness else None,
+                target_TP=ceiling_db if do_loudness else None,
+                width=width_applied if do_stereo else None,
+                mono_bass=args.mono_bass if do_stereo else None,
+                guardrails=args.guardrails if do_stereo else None,
+            )
+            wav_out = song_dir / f"{infile.stem}__{variant_tag}.wav"
 
             print(f"[pack] start file={infile.name} preset={p} strength={int(strength*100)} width={width_applied}", file=sys.stderr, flush=True)
             run_ffmpeg_wav(infile, wav_out, af)

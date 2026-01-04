@@ -1799,16 +1799,17 @@ async function loadSong(song, skipEmpty=false){
       if (it.metrics) anyMetricsStrings = true;
       const compact = fmtCompactIO(lastRunInputMetrics, it.metrics_obj || {});
       const ioBlock = compact ? `<div class="ioRow">${compact}</div>` : '';
+      const linkParts = [];
+      if (it.wav) linkParts.push(`<a class="linkish" href="${it.wav}" download>WAV</a>`);
+      if (it.mp3) linkParts.push(`<a class="linkish" href="${it.mp3}" download>MP3</a>`);
+      linkParts.push(`<a class="linkish" href="#" onclick="deleteOutput('${song}','${it.name}'); return false;">Delete</a>`);
       const div = document.createElement('div');
       div.className = 'outitem';
       div.innerHTML = `
         <div class="mono">${it.name}</div>
         ${ioBlock}
         ${audioSrc ? `<audio controls preload="none" src="${audioSrc}"></audio>` : ''}
-        <div class="small">
-          ${it.wav ? `<a class="linkish" href="${it.wav}" download>WAV</a>` : ''}
-          ${it.mp3 ? `&nbsp;|&nbsp;<a class="linkish" href="${it.mp3}" download>MP3</a>` : ''}
-        </div>
+        <div class="small">${linkParts.join(' | ')}</div>
       `;
       out.appendChild(div);
     });
@@ -1950,6 +1951,20 @@ async function runBulk(){
     appendJobLog(cleanResultText(t));
   }
   await refreshAll();
+}
+async function deleteOutput(song, name){
+  if (!confirm(`Delete output "${name}"?`)) return;
+  try {
+    const res = await fetch(`/api/output/${encodeURIComponent(song)}/${encodeURIComponent(name)}`, { method:'DELETE' });
+    let msg = '';
+    try { msg = (await res.json()).message || ''; } catch(_){}
+    setResult(msg || (res.ok ? 'Deleted.' : 'Delete failed.'));
+  } catch (e) {
+    console.error('deleteOutput failed', e);
+    setResult('Delete failed (see console).');
+  }
+  try { await loadSong(song); } catch(_){}
+  try { await refreshRecent(); } catch(_){}
 }
 async function deleteSong(song){
   if (!confirm(`Delete all outputs for "${song}"? This removes {{OUT_DIR}}/${song}/`)) return;
@@ -2106,6 +2121,32 @@ def delete_song(song: str):
         return {"message": f"Nothing to delete for {song}."}
     shutil.rmtree(target)
     return {"message": f"Deleted outputs for {song}."}
+@app.delete("/api/output/{song}/{name}")
+def delete_output(song: str, name: str):
+    """Delete an individual mastered output (WAV/MP3/metrics) within a run folder."""
+    folder = (OUT_DIR / song).resolve()
+    if OUT_DIR.resolve() not in folder.parents:
+        raise HTTPException(status_code=400, detail="Invalid path")
+    if not folder.exists() or not folder.is_dir():
+        raise HTTPException(status_code=404, detail="run_not_found")
+
+    # Only allow deletion of direct children; treat name as stem
+    stem = Path(name).stem
+    if not stem:
+        raise HTTPException(status_code=400, detail="invalid_name")
+
+    removed = []
+    for suffix in [".wav", ".mp3", ".metrics.json"]:
+        fp = (folder / f"{stem}{suffix}").resolve()
+        if folder not in fp.parents or fp == folder:
+            continue
+        if fp.exists():
+            fp.unlink()
+            removed.append(fp.name)
+
+    if not removed:
+        raise HTTPException(status_code=404, detail="output_not_found")
+    return {"message": f"Deleted {', '.join(removed)}"}
 @app.delete("/api/upload/{name}")
 def delete_upload(name: str):
     target = (IN_DIR / name).resolve()
