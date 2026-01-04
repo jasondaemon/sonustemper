@@ -679,80 +679,121 @@ def main():
         pass
     append_status(song_dir, "start", f"Job started for {infile.name} with presets: {', '.join(presets)}")
 
-    # If mastering is disabled, we do an analyze-only run (no outputs).
-    if not do_master:
+    # If mastering is disabled:
+    # - If output is disabled too: analyze-only run.
+    # - If output is enabled: allow passthrough conversions from source (no presets applied).
+    if not do_master and not do_output:
         print('[master_pack] master stage disabled; analyze-only run (no outputs).', file=sys.stderr)
-        sys.exit(0)
-    # Output gating (not yet supporting master-without-output).
     if do_master and not do_output:
         print('[master_pack] output stage disabled; skipping run (no outputs generated).', file=sys.stderr)
-        sys.exit(0)
     if do_output and not (out_wav or out_mp3 or out_aac or out_ogg or out_flac):
         print('[master_pack] no output formats selected; skipping run.', file=sys.stderr)
-        sys.exit(0)
 
     job_completed = False
     try:
-        for p in presets:
-            preset_path = PRESET_DIR / f"{p}.json"
-            if not preset_path.exists():
-                print(f"Skipping missing preset: {p}", file=sys.stderr)
-                continue
+        if do_master:
+            for p in presets:
+                preset_path = PRESET_DIR / f"{p}.json"
+                if not preset_path.exists():
+                    print(f"Skipping missing preset: {p}", file=sys.stderr)
+                    continue
 
-            with open(preset_path, "r") as f:
-                preset = json.load(f)
+                with open(preset_path, "r") as f:
+                    preset = json.load(f)
 
-            target_lufs = float(args.lufs) if args.lufs is not None else float(preset.get("lufs", -14))
-            lim = preset.get("limiter", {}) or {}
-            ceiling_db = float(args.tp) if args.tp is not None else float(lim.get("ceiling", -1.0))
-            width_req = float(args.width) if args.width is not None else float(preset.get("width", 1.0))
-            width_applied = width_req
-            if args.guardrails:
-                guard_max = float(args.guard_max_width or 1.1)
-                if width_applied > guard_max:
-                    width_applied = guard_max
+                target_lufs = float(args.lufs) if args.lufs is not None else float(preset.get("lufs", -14))
+                lim = preset.get("limiter", {}) or {}
+                ceiling_db = float(args.tp) if args.tp is not None else float(lim.get("ceiling", -1.0))
+                width_req = float(args.width) if args.width is not None else float(preset.get("width", 1.0))
+                width_applied = width_req
+                if args.guardrails:
+                    guard_max = float(args.guard_max_width or 1.1)
+                    if width_applied > guard_max:
+                        width_applied = guard_max
 
-            af = build_filters(preset, strength, args.lufs, args.tp, width_applied)
-            strength_pct = int(strength * 100)
-            variant_tag = build_variant_tag(
-                preset_name=p,
-                strength=strength_pct,
-                stages={
-                    "loudness": do_loudness,
-                    "stereo": do_stereo,
-                },
-                target_I=target_lufs if do_loudness else None,
-                target_TP=ceiling_db if do_loudness else None,
-                width=width_applied if do_stereo else None,
-                mono_bass=args.mono_bass if do_stereo else None,
-                guardrails=args.guardrails if do_stereo else None,
+                af = build_filters(preset, strength, args.lufs, args.tp, width_applied)
+                strength_pct = int(strength * 100)
+                variant_tag = build_variant_tag(
+                    preset_name=p,
+                    strength=strength_pct,
+                    stages={
+                        "loudness": do_loudness,
+                        "stereo": do_stereo,
+                    },
+                    target_I=target_lufs if do_loudness else None,
+                    target_TP=ceiling_db if do_loudness else None,
+                    width=width_applied if do_stereo else None,
+                    mono_bass=args.mono_bass if do_stereo else None,
+                    guardrails=args.guardrails if do_stereo else None,
+                )
+                wav_out = song_dir / f"{infile.stem}__{variant_tag}.wav"
+
+                append_status(song_dir, "preset_start", f"Applying preset '{p}' (S={strength_pct}, width={width_applied})", preset=p)
+                print(f"[pack] start file={infile.name} preset={p} strength={int(strength*100)} width={width_applied}", file=sys.stderr, flush=True)
+                run_ffmpeg_wav(infile, wav_out, af, wav_rate, wav_depth)
+                append_status(song_dir, "preset_done", f"Finished preset '{p}' render (WAV base)", preset=p)
+                if out_mp3:
+                    make_mp3(wav_out, wav_out.with_suffix(".mp3"), args.mp3_bitrate, args.mp3_vbr)
+                    append_status(song_dir, "mp3_done", f"MP3 ready for '{p}'", preset=p)
+                if out_aac:
+                    ext = ".m4a" if str(args.aac_container).lower() == "m4a" else ".aac"
+                    make_aac(wav_out, wav_out.with_suffix(ext), args.aac_bitrate, args.aac_codec)
+                    append_status(song_dir, "aac_done", f"AAC ready for '{p}' ({ext[1:].upper()})", preset=p)
+                if out_ogg:
+                    make_ogg(wav_out, wav_out.with_suffix(".ogg"), args.ogg_quality)
+                    append_status(song_dir, "ogg_done", f"OGG ready for '{p}'", preset=p)
+                if out_flac:
+                    make_flac(wav_out, wav_out.with_suffix(".flac"), args.flac_level, flac_rate or wav_rate, flac_depth or wav_depth)
+                    append_status(song_dir, "flac_done", f"FLAC ready for '{p}'", preset=p)
+                if do_analyze:
+                    append_status(song_dir, "metrics_start", f"Analyzing metrics for '{p}'", preset=p)
+                write_metrics(wav_out, target_lufs, ceiling_db, width_applied, write_file=do_analyze)
+                if do_analyze:
+                    append_status(song_dir, "metrics_done", f"Metrics written for '{p}'", preset=p)
+                print(f"[pack] done file={infile.name} preset={p}", file=sys.stderr, flush=True)
+
+                if out_wav:
+                    outputs.append(str(wav_out))
+                else:
+                    try:
+                        wav_out.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+        elif do_output:
+            # Passthrough: no mastering, but output requested (e.g., source -> mp3)
+            base_tag = build_variant_tag(
+                preset_name="source",
+                strength=None,
+                stages={"loudness": False, "stereo": False},
+                target_I=None,
+                target_TP=None,
+                width=None,
+                mono_bass=None,
+                guardrails=None,
             )
-            wav_out = song_dir / f"{infile.stem}__{variant_tag}.wav"
-
-            append_status(song_dir, "preset_start", f"Applying preset '{p}' (S={strength_pct}, width={width_applied})", preset=p)
-            print(f"[pack] start file={infile.name} preset={p} strength={int(strength*100)} width={width_applied}", file=sys.stderr, flush=True)
-            run_ffmpeg_wav(infile, wav_out, af, wav_rate, wav_depth)
-            append_status(song_dir, "preset_done", f"Finished preset '{p}' render (WAV base)", preset=p)
+            wav_out = song_dir / f"{infile.stem}__{base_tag}.wav"
+            append_status(song_dir, "preset_start", "Passthrough (no mastering)", preset="source")
+            # Identity filter
+            run_ffmpeg_wav(infile, wav_out, "anull", wav_rate, wav_depth)
+            append_status(song_dir, "preset_done", "Passthrough render complete", preset="source")
             if out_mp3:
                 make_mp3(wav_out, wav_out.with_suffix(".mp3"), args.mp3_bitrate, args.mp3_vbr)
-                append_status(song_dir, "mp3_done", f"MP3 ready for '{p}'", preset=p)
+                append_status(song_dir, "mp3_done", "MP3 ready (passthrough)", preset="source")
             if out_aac:
                 ext = ".m4a" if str(args.aac_container).lower() == "m4a" else ".aac"
                 make_aac(wav_out, wav_out.with_suffix(ext), args.aac_bitrate, args.aac_codec)
-                append_status(song_dir, "aac_done", f"AAC ready for '{p}' ({ext[1:].upper()})", preset=p)
+                append_status(song_dir, "aac_done", f"AAC ready (passthrough {ext[1:].upper()})", preset="source")
             if out_ogg:
                 make_ogg(wav_out, wav_out.with_suffix(".ogg"), args.ogg_quality)
-                append_status(song_dir, "ogg_done", f"OGG ready for '{p}'", preset=p)
+                append_status(song_dir, "ogg_done", "OGG ready (passthrough)", preset="source")
             if out_flac:
                 make_flac(wav_out, wav_out.with_suffix(".flac"), args.flac_level, flac_rate or wav_rate, flac_depth or wav_depth)
-                append_status(song_dir, "flac_done", f"FLAC ready for '{p}'", preset=p)
+                append_status(song_dir, "flac_done", "FLAC ready (passthrough)", preset="source")
             if do_analyze:
-                append_status(song_dir, "metrics_start", f"Analyzing metrics for '{p}'", preset=p)
-            write_metrics(wav_out, target_lufs, ceiling_db, width_applied, write_file=do_analyze)
+                append_status(song_dir, "metrics_start", "Analyzing metrics (passthrough)", preset="source")
+            write_metrics(wav_out, args.lufs if args.lufs is not None else -14.0, args.tp if args.tp is not None else -1.0, 1.0, write_file=do_analyze)
             if do_analyze:
-                append_status(song_dir, "metrics_done", f"Metrics written for '{p}'", preset=p)
-            print(f"[pack] done file={infile.name} preset={p}", file=sys.stderr, flush=True)
-
+                append_status(song_dir, "metrics_done", "Metrics written (passthrough)", preset="source")
             if out_wav:
                 outputs.append(str(wav_out))
             else:
@@ -761,10 +802,12 @@ def main():
                 except Exception:
                     pass
 
-        write_playlist_html(song_dir, infile.stem, infile.name)
-        append_status(song_dir, "playlist", "Playlist generated")
+        if do_output:
+            write_playlist_html(song_dir, infile.stem, infile.name)
+        if outputs:
+            print("\n".join(outputs))
+        append_status(song_dir, "playlist", "Playlist generated" if do_output else "Playlist skipped (no outputs)")
         append_status(song_dir, "complete", "Job complete")
-        print("\n".join(outputs))
         job_completed = True
     except Exception as exc:
         append_status(song_dir, "error", f"Job failed: {exc}")
