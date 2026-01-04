@@ -117,56 +117,77 @@ def measure_loudness(path: Path) -> dict:
     return {"I": I, "LRA": LRA, "TP": TP}
 
 def calc_cf_corr(path: Path) -> dict:
-    out = {"crest_factor": None, "stereo_corr": None}
+    """Compute crest factor (dB) and stereo correlation using ffmpeg astats.
+
+    Important: with astats=metadata=1, ffmpeg prints key/value lines like:
+      lavfi.astats.Overall.Peak_level=-1.0
+      lavfi.astats.Overall.RMS_level=-18.7
+      lavfi.astats.Overall.Correlation=0.23
+
+    Previous regexes expected the *human* astats output format and never matched,
+    so CF/Corr stayed null.
+    """
+
+    out: dict = {"crest_factor": None, "stereo_corr": None}
+
+    def _pick_avg(vals: list[float]) -> float | None:
+        if not vals:
+            return None
+        return sum(vals) / len(vals)
+
     try:
         r = run_cmd([
             "ffmpeg", "-hide_banner", "-v", "info", "-nostats", "-i", str(path),
             "-filter_complex", "astats=metadata=1:measure_overall=1:measure_perchannel=1:reset=0",
-            "-f", "null", "-"
+            "-f", "null", "-",
         ])
         txt = (r.stderr or "") + "\n" + (r.stdout or "")
-        flags = re.IGNORECASE
-        peak_matches = re.findall(r"Overall (?:peak|max)[^\n]*?([\-0-9\.]+)", txt, flags) \
-            or re.findall(r"Channel \d+ (?:peak|max)[^\n]*?([\-0-9\.]+)", txt, flags)
-        rms_matches = re.findall(r"Overall RMS[^\n]*?([\-0-9\.]+)", txt, flags) \
-            or re.findall(r"Channel \d+ RMS[^\n]*?([\-0-9\.]+)", txt, flags)
-        corr_matches = re.findall(r"Overall (?:correlation|corr)[^\n]*?([\-0-9\.]+)", txt, flags)
-        def pick(vals):
-            if not vals:
-                return None
+
+        # Parse metadata-style output
+        # scopes: Overall or channel index (1,2,...) depending on ffmpeg build
+        kv = re.findall(
+            r"lavfi\\.astats\\.(Overall|\d+)\\.([A-Za-z0-9_]+)=([\-0-9\.]+)",
+            txt,
+        )
+
+        overall_peak: float | None = None
+        overall_rms: float | None = None
+        overall_corr: float | None = None
+        ch_peaks: list[float] = []
+        ch_rms: list[float] = []
+
+        for scope, key, val_s in kv:
             try:
-                nums = [float(v) for v in vals]
-                return sum(nums)/len(nums)
+                val = float(val_s)
             except Exception:
-                return None
-        peak = pick(peak_matches)
-        rms = pick(rms_matches)
-        corr = pick(corr_matches)
+                continue
+
+            k = key.lower()
+            if scope.lower() == "overall":
+                if k in {"peak_level", "max_level"}:
+                    overall_peak = val
+                elif k in {"rms_level", "rms"}:
+                    overall_rms = val
+                elif k in {"correlation", "corr"}:
+                    overall_corr = val
+            else:
+                # per-channel fallback if Overall is missing
+                if k in {"peak_level", "max_level"}:
+                    ch_peaks.append(val)
+                elif k in {"rms_level", "rms"}:
+                    ch_rms.append(val)
+
+        peak = overall_peak if overall_peak is not None else _pick_avg(ch_peaks)
+        rms = overall_rms if overall_rms is not None else _pick_avg(ch_rms)
+
         if peak is not None and rms is not None:
             out["crest_factor"] = peak - rms
-        if corr is not None:
-            out["stereo_corr"] = corr
-        if out.get("crest_factor") is None or out.get("stereo_corr") is None:
-            r2 = run_cmd([
-                "ffmpeg", "-hide_banner", "-v", "info", "-nostats", "-i", str(path),
-                "-af", "astats=metadata=1:reset=0",
-                "-f", "null", "-"
-            ])
-            txt2 = (r2.stderr or "") + "\n" + (r2.stdout or "")
-            peak2 = re.findall(r"Overall (?:peak|max)[^\n]*?([\-0-9\.]+)", txt2, flags)
-            rms2 = re.findall(r"Overall RMS[^\n]*?([\-0-9\.]+)", txt2, flags)
-            corr2 = re.findall(r"Overall (?:correlation|corr)[^\n]*?([\-0-9\.]+)", txt2, flags)
-            p2 = pick(peak2)
-            r2v = pick(rms2)
-            c2 = pick(corr2)
-            if p2 is not None and r2v is not None and out.get("crest_factor") is None:
-                out["crest_factor"] = p2 - r2v
-            if c2 is not None and out.get("stereo_corr") is None:
-                out["stereo_corr"] = c2
+        if overall_corr is not None:
+            out["stereo_corr"] = overall_corr
     except Exception:
         pass
-    return out
 
+    return out
 
 def basic_metrics(path: Path) -> dict:
     info = docker_ffprobe_json(path)

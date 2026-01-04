@@ -118,55 +118,59 @@ def write_metrics(wav_out: Path, target_lufs: float, ceiling_db: float, width: f
                 m["duration_sec"] = dur
     except Exception:
         pass
-    # crest factor / correlation
+   # crest factor / correlation
     try:
+        def _pick_avg(vals: list[float]) -> float | None:
+            if not vals:
+                return None
+            return sum(vals) / len(vals)
+
         m_txt = run_cmd([
             "ffmpeg", "-hide_banner", "-v", "info", "-nostats", "-i", str(wav_out),
             "-filter_complex", "astats=metadata=1:measure_overall=1:measure_perchannel=1:reset=0",
-            "-f", "null", "-"
+            "-f", "null", "-",
         ])
         txt = (m_txt.stderr or "") + "\n" + (m_txt.stdout or "")
-        flags = re.IGNORECASE
-        peak_matches = re.findall(r"Overall (?:peak|max)[^\n]*?([\-0-9\.]+)", txt, flags) \
-            or re.findall(r"Channel \d+ (?:peak|max)[^\n]*?([\-0-9\.]+)", txt, flags)
-        rms_matches = re.findall(r"Overall RMS[^\n]*?([\-0-9\.]+)", txt, flags) \
-            or re.findall(r"Channel \d+ RMS[^\n]*?([\-0-9\.]+)", txt, flags)
-        corr_matches = re.findall(r"Overall (?:correlation|corr)[^\n]*?([\-0-9\.]+)", txt, flags)
-        def pick(vals):
-            if not vals:
-                return None
+
+        kv = re.findall(
+            r"lavfi\\.astats\\.(Overall|\d+)\\.([A-Za-z0-9_]+)=([\-0-9\.]+)",
+            txt,
+        )
+
+        overall_peak: float | None = None
+        overall_rms: float | None = None
+        overall_corr: float | None = None
+        ch_peaks: list[float] = []
+        ch_rms: list[float] = []
+
+        for scope, key, val_s in kv:
             try:
-                nums = [float(v) for v in vals]
-                return sum(nums)/len(nums)
+                val = float(val_s)
             except Exception:
-                return None
-        peak = pick(peak_matches)
-        rms = pick(rms_matches)
-        corr = pick(corr_matches)
+                continue
+            k = key.lower()
+            if scope.lower() == "overall":
+                if k in {"peak_level", "max_level"}:
+                    overall_peak = val
+                elif k in {"rms_level", "rms"}:
+                    overall_rms = val
+                elif k in {"correlation", "corr"}:
+                    overall_corr = val
+            else:
+                if k in {"peak_level", "max_level"}:
+                    ch_peaks.append(val)
+                elif k in {"rms_level", "rms"}:
+                    ch_rms.append(val)
+
+        peak = overall_peak if overall_peak is not None else _pick_avg(ch_peaks)
+        rms = overall_rms if overall_rms is not None else _pick_avg(ch_rms)
+
         if peak is not None and rms is not None:
             m["crest_factor"] = peak - rms
-        if corr is not None:
-            m["stereo_corr"] = corr
-        if m.get("crest_factor") is None or m.get("stereo_corr") is None:
-            m_txt2 = run_cmd([
-                "ffmpeg", "-hide_banner", "-v", "info", "-nostats", "-i", str(wav_out),
-                "-af", "astats=metadata=1:reset=0",
-                "-f", "null", "-"
-            ])
-            txt2 = (m_txt2.stderr or "") + "\n" + (m_txt2.stdout or "")
-            peak2 = re.findall(r"Overall (?:peak|max)[^\n]*?([\-0-9\.]+)", txt2, flags)
-            rms2 = re.findall(r"Overall RMS[^\n]*?([\-0-9\.]+)", txt2, flags)
-            corr2 = re.findall(r"Overall (?:correlation|corr)[^\n]*?([\-0-9\.]+)", txt2, flags)
-            p2 = pick(peak2)
-            r2 = pick(rms2)
-            c2 = pick(corr2)
-            if p2 is not None and r2 is not None and m.get("crest_factor") is None:
-                m["crest_factor"] = p2 - r2
-            if c2 is not None and m.get("stereo_corr") is None:
-                m["stereo_corr"] = c2
+        if overall_corr is not None:
+            m["stereo_corr"] = overall_corr
     except Exception:
         pass
-
     if isinstance(m, dict) and 'error' not in m:
         m['target_I'] = float(target_lufs)
         m['target_TP'] = float(ceiling_db)
