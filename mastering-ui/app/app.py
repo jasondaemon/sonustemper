@@ -2470,6 +2470,23 @@ def outlist(song: str):
                         m = basic_metrics(first_fp)
                 except Exception:
                     m = None
+            else:
+                # Backfill missing fields from a quick analysis if present metrics are partial
+                try:
+                    first_fp = folder / f"{stem}.wav"
+                    if not first_fp.exists():
+                        for ext in pref:
+                            alt = folder / f"{stem}{ext}"
+                            if alt.exists():
+                                first_fp = alt
+                                break
+                    bm = basic_metrics(first_fp) if first_fp.exists() else {}
+                    if isinstance(bm, dict) and isinstance(m, dict):
+                        for key in ["crest_factor","peak_level","rms_level","dynamic_range","noise_floor","duration_sec","TP","I","LRA"]:
+                            if m.get(key) is None and bm.get(key) is not None:
+                                m[key] = bm[key]
+                except Exception:
+                    pass
             if (not m) or ("duration_sec" not in m):
                 try:
                     target = folder / f"{stem}{pref[0]}"
