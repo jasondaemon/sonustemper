@@ -122,13 +122,15 @@ def write_metrics(wav_out: Path, target_lufs: float, ceiling_db: float, width: f
     try:
         m_txt = run_cmd([
             "ffmpeg", "-hide_banner", "-nostats", "-i", str(wav_out),
-            "-filter_complex", "astats=metadata=1:reset=0",
+            "-filter_complex", "astats=metadata=1:measure_overall=1:measure_perchannel=0:reset=0",
             "-f", "null", "-"
         ])
         txt = (m_txt.stderr or "") + "\n" + (m_txt.stdout or "")
         flags = re.IGNORECASE
-        peak_matches = re.findall(r"Overall (?:peak|max)_level(?: dB)?[:\\s]+([\\-0-9\\.]+)", txt, flags)
-        rms_matches = re.findall(r"Overall RMS (?:level)?(?: dB)?[:\\s]+([\\-0-9\\.]+)", txt, flags)
+        peak_matches = re.findall(r"Overall (?:peak|max)_level(?: dB)?[:\\s]+([\\-0-9\\.]+)", txt, flags) \
+            or re.findall(r"Overall max_level_dB[:\\s]+([\\-0-9\\.]+)", txt, flags)
+        rms_matches = re.findall(r"Overall RMS (?:level)?(?: dB)?[:\\s]+([\\-0-9\\.]+)", txt, flags) \
+            or re.findall(r"Overall RMS level dB[:\\s]+([\\-0-9\\.]+)", txt, flags)
         corr_matches = re.findall(r"Overall (?:correlation|corr(?:elation)?)(?: coefficient)?[:\\s]+([\\-0-9\\.]+)", txt, flags)
         peak = float(peak_matches[-1]) if peak_matches else None
         rms = float(rms_matches[-1]) if rms_matches else None
