@@ -1473,20 +1473,27 @@ function metricVal(m, key){
   }
 }
 function fmtCompactIO(inputM, outputM){
+  // Core: the 4 most representative "headline" mastering metrics
+  // 1) I  = integrated loudness (target adherence)
+  // 2) TP = true peak (platform safety)
+  // 3) LRA = loudness range (macro dynamics)
+  // 4) CF = crest factor (transient / punch proxy)
   const core = [
     { key:"I",   label:"I",   suffix:" LUFS", tip:"Integrated loudness (LUFS)" },
-    { key:"TP",  label:"TP",  suffix:" dB",  tip:"True peak (dBTP)" },
-    { key:"LRA", label:"LRA", suffix:"",     tip:"Loudness range" },
-    { key:"Peak",label:"Peak",suffix:" dB", tip:"Sample peak level (dBFS)" },
-    { key:"RMS", label:"RMS", suffix:" dB", tip:"RMS level (dBFS)" },
-    { key:"DR",  label:"DR",  suffix:" dB", tip:"Dynamic range (astats proxy)" },
-    { key:"CF",  label:"CF",  suffix:" dB", tip:"Crest factor (Peak - RMS)" },
+    { key:"TP",  label:"TP",  suffix:" dB",   tip:"True peak (dBTP)" },
+    { key:"LRA", label:"LRA", suffix:"",      tip:"Loudness range" },
+    { key:"CF",  label:"CF",  suffix:" dB",   tip:"Crest factor (Peak - RMS)" },
   ];
-  const adv = [
+
+  // Everything else goes under "More"
+  const more = [
+    { key:"Peak", label:"Peak", suffix:" dB", tip:"Sample peak level (dBFS)" },
+    { key:"RMS",  label:"RMS",  suffix:" dB", tip:"RMS level (dBFS)" },
+    { key:"DR",   label:"DR",   suffix:" dB", tip:"Dynamic range (astats proxy)" },
     { key:"Noise",label:"Noise",suffix:" dB", tip:"Noise floor (astats)" },
-    { key:"Corr",label:"Corr",suffix:"",     tip:"Stereo correlation" },
-    { key:"Dur", label:"Dur", suffix:" s",   tip:"Duration (seconds)" },
-    { key:"W",   label:"W",   suffix:"",     tip:"Stereo width factor" },
+    { key:"Corr", label:"Corr", suffix:"",    tip:"Stereo correlation" },
+    { key:"Dur",  label:"Dur",  suffix:" s",  tip:"Duration (seconds)" },
+    { key:"W",    label:"W",    suffix:"",    tip:"Stereo width factor" },
   ];
 
   function chip(c){
@@ -1508,13 +1515,15 @@ function fmtCompactIO(inputM, outputM){
   }
 
   const coreHtml = core.map(chip).join("");
-  const advHtml  = adv.map(chip).join("");
-  const id = `adv_${Math.random().toString(36).slice(2)}`;
+  const moreHtml = more.map(chip).join("");
+  const id = `more_${Math.random().toString(36).slice(2)}`;
 
   return `
     <div class="metricsGrid">${coreHtml}</div>
-    <div class="advToggle"><button type="button" onclick="(function(){const el=document.getElementById('${id}'); if(!el) return; el.classList.toggle('advHidden');})()">Advanced metrics</button></div>
-    <div id="${id}" class="metricsGrid advHidden">${advHtml}</div>
+    <div class="advToggle">
+      <button type="button" onclick="(function(){const el=document.getElementById('${id}'); if(!el) return; el.classList.toggle('advHidden');})()">More</button>
+    </div>
+    <div id="${id}" class="metricsGrid advHidden">${moreHtml}</div>
   `;
 }
 function renderMetricsDrawer(triggerBtn){
