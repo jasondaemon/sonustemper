@@ -117,76 +117,61 @@ def measure_loudness(path: Path) -> dict:
     return {"I": I, "LRA": LRA, "TP": TP}
 
 def calc_cf_corr(path: Path) -> dict:
-    """Compute crest factor (dB) and stereo correlation using ffmpeg astats.
+    """Extract crest factor and other useful overall stats via ffmpeg astats.
 
-    Important: with astats=metadata=1, ffmpeg prints key/value lines like:
-      lavfi.astats.Overall.Peak_level=-1.0
-      lavfi.astats.Overall.RMS_level=-18.7
-      lavfi.astats.Overall.Correlation=0.23
-
-    Previous regexes expected the *human* astats output format and never matched,
-    so CF/Corr stayed null.
+    Note: in this ffmpeg build, measure_overall/measure_perchannel take *flag sets* (not booleans).
     """
-
-    out: dict = {"crest_factor": None, "stereo_corr": None}
-
-    def _pick_avg(vals: list[float]) -> float | None:
-        if not vals:
-            return None
-        return sum(vals) / len(vals)
-
+    out = {
+        "crest_factor": None,
+        "stereo_corr": None,  # correlation isn't provided by astats in this build; keep for compatibility
+        "peak_level": None,
+        "rms_level": None,
+        "dynamic_range": None,
+        "noise_floor": None,
+    }
     try:
+        want = "Peak_level+RMS_level+Dynamic_range+Noise_floor+Crest_factor"
         r = run_cmd([
-            "ffmpeg", "-hide_banner", "-v", "info", "-nostats", "-i", str(path),
-            "-filter_complex", "astats=metadata=1:measure_overall=1:measure_perchannel=1:reset=0",
-            "-f", "null", "-",
+            "ffmpeg", "-hide_banner", "-v", "verbose", "-nostats", "-i", str(path),
+            "-af", f"astats=measure_overall={want}:measure_perchannel=none:reset=0",
+            "-f", "null", "-"
         ])
-        txt = (r.stderr or "") + "\n" + (r.stdout or "")
-
-        # Parse metadata-style output
-        # scopes: Overall or channel index (1,2,...) depending on ffmpeg build
-        kv = re.findall(
-            r"lavfi\\.astats\\.(Overall|\d+)\\.([A-Za-z0-9_]+)=([\-0-9\.]+)",
-            txt,
-        )
-
-        overall_peak: float | None = None
-        overall_rms: float | None = None
-        overall_corr: float | None = None
-        ch_peaks: list[float] = []
-        ch_rms: list[float] = []
-
-        for scope, key, val_s in kv:
+        txt = (r.stderr or "") + "
+" + (r.stdout or "")
+        section = None
+        for raw in txt.splitlines():
+            line = raw.strip()
+            if "]" in line and line.startswith("["):
+                line = line.split("]", 1)[1].strip()
+            if not line:
+                continue
+            low = line.lower()
+            if low == "overall":
+                section = "overall"
+                continue
+            if low.startswith("channel:") or low.startswith("channel "):
+                section = "channel"
+                continue
+            if section != "overall":
+                continue
+            if ":" not in line:
+                continue
+            k, v = line.split(":", 1)
+            k = k.strip().lower().replace(" ", "_")
+            v = v.strip()
+            m = re.match(r"^([\-0-9\.]+)", v)
+            if not m:
+                continue
             try:
-                val = float(val_s)
+                num = float(m.group(1))
             except Exception:
                 continue
-
-            k = key.lower()
-            if scope.lower() == "overall":
-                if k in {"peak_level", "max_level"}:
-                    overall_peak = val
-                elif k in {"rms_level", "rms"}:
-                    overall_rms = val
-                elif k in {"correlation", "corr"}:
-                    overall_corr = val
-            else:
-                # per-channel fallback if Overall is missing
-                if k in {"peak_level", "max_level"}:
-                    ch_peaks.append(val)
-                elif k in {"rms_level", "rms"}:
-                    ch_rms.append(val)
-
-        peak = overall_peak if overall_peak is not None else _pick_avg(ch_peaks)
-        rms = overall_rms if overall_rms is not None else _pick_avg(ch_rms)
-
-        if peak is not None and rms is not None:
-            out["crest_factor"] = peak - rms
-        if overall_corr is not None:
-            out["stereo_corr"] = overall_corr
+            if k in ("peak_level", "rms_level", "dynamic_range", "noise_floor", "crest_factor"):
+                out[k] = num
+        if out["crest_factor"] is None and out["peak_level"] is not None and out["rms_level"] is not None:
+            out["crest_factor"] = out["peak_level"] - out["rms_level"]
     except Exception:
         pass
-
     return out
 
 def basic_metrics(path: Path) -> dict:
@@ -205,6 +190,10 @@ def basic_metrics(path: Path) -> dict:
         "short_term_max": None,
         "crest_factor": cf_corr.get("crest_factor"),
         "stereo_corr": cf_corr.get("stereo_corr"),
+        "peak_level": cf_corr.get("peak_level"),
+        "rms_level": cf_corr.get("rms_level"),
+        "dynamic_range": cf_corr.get("dynamic_range"),
+        "noise_floor": cf_corr.get("noise_floor"),
         "duration_sec": duration,
     }
     return m
@@ -910,6 +899,11 @@ const METRIC_META = [
   { key:"I", label:"I", desc:"Integrated loudness (LUFS) averaged over the whole song. Higher (less negative) is louder; aim for musical balance, not just numbers." },
   { key:"TP", label:"TP", desc:"True Peak (dBTP) or peak dBFS if TP unavailable. Closer to 0 dBTP is louder but riskier; keep headroom for clean playback." },
   { key:"LRA", label:"LRA", desc:"Loudness Range. Shows how much the loudness moves; higher can feel more dynamic, lower can feel more consistent." },
+  { key:"Peak", label:"Peak", desc:"Sample peak level (dBFS). Helpful for headroom checks." },
+  { key:"RMS", label:"RMS", desc:"RMS level (dBFS). Complements LUFS by showing signal power/density." },
+  { key:"DR", label:"DR", desc:"Dynamic range from astats (dB). Higher usually feels punchier/more dynamic." },
+  { key:"Noise", label:"Noise", desc:"Noise floor estimate (dBFS). Useful for quiet intros/outros, spoken word, or transfers." },
+
   { key:"CF", label:"CF", desc:"Crest Factor (peak vs average). Higher keeps punch/transients; lower feels denser/limited." },
   { key:"Corr", label:"Corr", desc:"Stereo correlation. 1.0 is mono/coherent, 0 is wide, negative can sound phasey or hollow." },
   { key:"Dur", label:"Dur", desc:"Duration in seconds." },
@@ -1526,6 +1520,10 @@ function metricVal(m, key){
     case "I": return m.I;
     case "TP": return m.TP;
     case "LRA": return m.LRA;
+    case "Peak": return m.peak_level;
+    case "RMS": return m.rms_level;
+    case "DR": return m.dynamic_range;
+    case "Noise": return m.noise_floor;
     case "CF": return m.crest_factor;
     case "Corr": return m.stereo_corr;
     case "Dur": return m.duration_sec;
@@ -1538,6 +1536,10 @@ function fmtCompactIO(inputM, outputM){
     { key:"I",   label:"I",   suffix:" LUFS", tip:"Integrated loudness (LUFS)" },
     { key:"TP",  label:"TP",  suffix:" dB",  tip:"True peak (dBTP)" },
     { key:"LRA", label:"LRA", suffix:"",     tip:"Loudness range" },
+    { key:"Peak",label:"Peak",suffix:" dB", tip:"Sample peak level (dBFS)" },
+    { key:"RMS", label:"RMS", suffix:" dB", tip:"RMS level (dBFS)" },
+    { key:"DR",  label:"DR",  suffix:" dB", tip:"Dynamic range (astats)" },
+    { key:"Noise",label:"Noise",suffix:" dB", tip:"Noise floor (astats)" },
     { key:"CF",  label:"CF",  suffix:" dB",  tip:"Crest factor" },
     { key:"Corr",label:"Corr",suffix:"",     tip:"Stereo correlation" },
     { key:"Dur", label:"Dur", suffix:" s",   tip:"Duration (seconds)" },

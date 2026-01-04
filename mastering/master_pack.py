@@ -102,6 +102,62 @@ def measure_loudness(wav_path: Path) -> dict:
     return {"I": I, "LRA": LRA, "TP": TP}
 
 
+
+def measure_astats_overall(wav_path: Path) -> dict:
+    """Extract a small set of useful mastering metrics via ffmpeg astats (overall section).
+    This ffmpeg build uses measure_overall/measure_perchannel as flag-sets (not booleans).
+    """
+    want = "Peak_level+RMS_level+Dynamic_range+Noise_floor+Crest_factor"
+    r = run_cmd([
+        "ffmpeg", "-hide_banner", "-v", "verbose", "-nostats", "-i", str(wav_path),
+        "-af", f"astats=measure_overall={want}:measure_perchannel=none:reset=0",
+        "-f", "null", "-"
+    ])
+    txt = (r.stderr or "") + "\n" + (r.stdout or "")
+    out = {
+        "peak_level": None,
+        "rms_level": None,
+        "dynamic_range": None,
+        "noise_floor": None,
+        "crest_factor": None,
+    }
+    section = None
+    for raw in txt.splitlines():
+        line = raw.strip()
+        # Drop ffmpeg prefix like: [Parsed_astats_0 @ ...]
+        if "]" in line and line.startswith("["):
+            line = line.split("]", 1)[1].strip()
+        if not line:
+            continue
+        low = line.lower()
+        if low == "overall":
+            section = "overall"
+            continue
+        if low.startswith("channel:") or low.startswith("channel "):
+            section = "channel"
+            continue
+        if section != "overall":
+            continue
+        if ":" not in line:
+            continue
+        k, v = line.split(":", 1)
+        k = k.strip().lower().replace(" ", "_")
+        v = v.strip()
+        # value is usually like "-18.23 dB" or "0.0002"
+        m = re.match(r"^([\-0-9\.]+)", v)
+        if not m:
+            continue
+        try:
+            num = float(m.group(1))
+        except Exception:
+            continue
+        if k in ("peak_level", "rms_level", "dynamic_range", "noise_floor", "crest_factor"):
+            out[k] = num
+    # If crest_factor wasn't reported, compute it from peak/rms if possible
+    if out["crest_factor"] is None and out["peak_level"] is not None and out["rms_level"] is not None:
+        out["crest_factor"] = out["peak_level"] - out["rms_level"]
+    return out
+
 def write_metrics(wav_out: Path, target_lufs: float, ceiling_db: float, width: float):
     m = measure_loudness(wav_out)
     if not isinstance(m, dict):
@@ -109,6 +165,10 @@ def write_metrics(wav_out: Path, target_lufs: float, ceiling_db: float, width: f
     # ensure keys exist even if analysis fails
     m.setdefault("crest_factor", None)
     m.setdefault("stereo_corr", None)
+    m.setdefault("peak_level", None)
+    m.setdefault("rms_level", None)
+    m.setdefault("dynamic_range", None)
+    m.setdefault("noise_floor", None)
     # add duration
     try:
         info = docker_ffprobe_json(wav_out)
@@ -118,57 +178,13 @@ def write_metrics(wav_out: Path, target_lufs: float, ceiling_db: float, width: f
                 m["duration_sec"] = dur
     except Exception:
         pass
-   # crest factor / correlation
+   # crest factor / correlation (+ additional astats metrics)
     try:
-        def _pick_avg(vals: list[float]) -> float | None:
-            if not vals:
-                return None
-            return sum(vals) / len(vals)
-
-        m_txt = run_cmd([
-            "ffmpeg", "-hide_banner", "-v", "info", "-nostats", "-i", str(wav_out),
-            "-filter_complex", "astats=metadata=1:measure_overall=1:measure_perchannel=1:reset=0",
-            "-f", "null", "-",
-        ])
-        txt = (m_txt.stderr or "") + "\n" + (m_txt.stdout or "")
-
-        kv = re.findall(
-            r"lavfi\\.astats\\.(Overall|\d+)\\.([A-Za-z0-9_]+)=([\-0-9\.]+)",
-            txt,
-        )
-
-        overall_peak: float | None = None
-        overall_rms: float | None = None
-        overall_corr: float | None = None
-        ch_peaks: list[float] = []
-        ch_rms: list[float] = []
-
-        for scope, key, val_s in kv:
-            try:
-                val = float(val_s)
-            except Exception:
-                continue
-            k = key.lower()
-            if scope.lower() == "overall":
-                if k in {"peak_level", "max_level"}:
-                    overall_peak = val
-                elif k in {"rms_level", "rms"}:
-                    overall_rms = val
-                elif k in {"correlation", "corr"}:
-                    overall_corr = val
-            else:
-                if k in {"peak_level", "max_level"}:
-                    ch_peaks.append(val)
-                elif k in {"rms_level", "rms"}:
-                    ch_rms.append(val)
-
-        peak = overall_peak if overall_peak is not None else _pick_avg(ch_peaks)
-        rms = overall_rms if overall_rms is not None else _pick_avg(ch_rms)
-
-        if peak is not None and rms is not None:
-            m["crest_factor"] = peak - rms
-        if overall_corr is not None:
-            m["stereo_corr"] = overall_corr
+        a = measure_astats_overall(wav_out)
+        if isinstance(a, dict):
+            for k in ("peak_level","rms_level","dynamic_range","noise_floor","crest_factor"):
+                if k in a and m.get(k) is None:
+                    m[k] = a.get(k)
     except Exception:
         pass
     if isinstance(m, dict) and 'error' not in m:
