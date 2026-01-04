@@ -887,7 +887,7 @@ input[type="range"]{
               </div>
               <div class="control-row" style="align-items:flex-start; margin-top:8px;">
                 <label style="min-width:140px;">Presets</label>
-                <div id="packPresetsBox" class="small" style="flex:1; display:flex; flex-wrap:wrap; gap:8px;"></div>
+                <div id="packPresetsBox" class="small" style="flex:1; display:flex; flex-wrap:wrap; gap:8px; min-height:96px;"></div>
                 <div id="presetControls" class="small" style="display:flex; flex-direction:column; gap:6px;">
                   <button class="btnGhost" type="button" onclick="selectAllPackPresets()">Select all</button>
                   <button class="btnGhost" type="button" onclick="clearAllPackPresets()">Clear</button>
@@ -895,7 +895,7 @@ input[type="range"]{
               </div>
               <div class="control-row" id="voicingRow" style="align-items:flex-start; margin-top:8px; display:none;">
                 <label style="min-width:140px;">Voicing</label>
-                <div id="voicingBox" class="small" style="flex:1; display:flex; flex-wrap:wrap; gap:8px;"></div>
+                <div id="voicingBox" class="small" style="flex:1; display:flex; flex-wrap:wrap; gap:8px; min-height:96px;"></div>
                 <div class="small" style="display:flex; flex-direction:column; gap:6px;">
                   <button class="btnGhost" type="button" onclick="clearVoicing()">Clear</button>
                 </div>
@@ -906,7 +906,7 @@ input[type="range"]{
                 <input type="range" id="strength" min="0" max="100" value="80" oninput="strengthVal.textContent=this.value">
                 <span class="pill">S=<span id="strengthVal">80</span></span>
               </div>
-              <div class="small" id="presetNote" style="color:var(--muted); display:none; margin-top:4px;">
+              <div class="small" id="presetNote" style="color:var(--muted); display:none; margin-top:4px; text-align:center; width:100%;">
                 Presets are user-customization from the <code>presets</code> directory.
               </div>
             </div>
