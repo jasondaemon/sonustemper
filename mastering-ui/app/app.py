@@ -104,93 +104,60 @@ def measure_loudness(path: Path) -> dict:
     TP  = float((mTPK[-1] if mTPK else (mPeak[-1] if mPeak else None))) if (mTPK or mPeak) else None
     return {"I": I, "LRA": LRA, "TP": TP}
 def calc_cf_corr(path: Path) -> dict:
-    """Extract overall astats metrics for UI (works with this container's ffmpeg build).
-
-    Notes:
-      - ffmpeg/astats print measurements to *stderr*.
-      - This build does not emit a labeled 'Dynamic range' line; we derive a practical proxy:
-            dynamic_range = RMS_peak_dB - RMS_level_dB
-      - Noise floor may be -inf; we clamp to -120.0 dB for display consistency.
-      - Stereo correlation is not emitted by astats in this build; keep as None for compatibility.
+    """Extract crest factor and other useful overall stats via ffmpeg astats.
+    Note: in this ffmpeg build, measure_overall/measure_perchannel take *flag sets* (not booleans).
     """
     out = {
         "crest_factor": None,
-        "stereo_corr": None,
+        "stereo_corr": None,  # correlation isn't provided by astats in this build; keep for compatibility
         "peak_level": None,
         "rms_level": None,
         "dynamic_range": None,
         "noise_floor": None,
     }
-
-    # Extras we may derive from "all" output
-    rms_peak = None
-    noise_floor_is_inf = False
-
     try:
+        want = "Peak_level+RMS_level+Dynamic_range+Noise_floor+Crest_factor"
         r = run_cmd([
             "ffmpeg", "-hide_banner", "-v", "verbose", "-nostats", "-i", str(path),
-            "-af", "astats=reset=0:measure_perchannel=none:measure_overall=all",
-            "-f", "null", "-",
+            "-af", f"astats=measure_overall={want}:measure_perchannel=none:reset=0",
+            "-f", "null", "-"
         ])
-        # run_cmd may return CompletedProcess or text depending on earlier versions
-        if hasattr(r, "stdout") and hasattr(r, "stderr"):
-            txt = (getattr(r, "stderr", "") or "") + "\n" + (getattr(r, "stdout", "") or "")
-        else:
-            txt = str(r or "")
-
+        txt = (r.stderr or "") + "\n" + (r.stdout or "")
         section = None
-        for line in txt.splitlines():
-            s = line.strip()
-            if not s:
+        for raw in txt.splitlines():
+            line = raw.strip()
+            if "]" in line and line.startswith("["):
+                line = line.split("]", 1)[1].strip()
+            if not line:
                 continue
-            if "overall" in s.lower():
+            low = line.lower()
+            if low == "overall":
                 section = "overall"
+                continue
+            if low.startswith("channel:") or low.startswith("channel "):
+                section = "channel"
                 continue
             if section != "overall":
                 continue
-            if ":" not in s:
+            if ":" not in line:
                 continue
-
-            k, v = s.split(":", 1)
+            k, v = line.split(":", 1)
             k = k.strip().lower().replace(" ", "_")
-            # normalize common suffixes
-            if k.endswith("_db"):
-                k = k[:-3]
             v = v.strip()
-
-            m = re.match(r"^(-?inf|[\-0-9\.]+)", v, flags=re.IGNORECASE)
+            m = re.match(r"^([\-0-9\.]+)", v)
             if not m:
                 continue
-            raw = m.group(1).lower()
-
-            if raw in ("inf", "+inf", "-inf"):
-                num = None
-                if k == "noise_floor":
-                    noise_floor_is_inf = True
-            else:
-                try:
-                    num = float(raw)
-                except Exception:
-                    continue
-
-            if k in ("crest_factor", "peak_level", "rms_level", "dynamic_range", "noise_floor"):
+            try:
+                num = float(m.group(1))
+            except Exception:
+                continue
+            if k in ("peak_level", "rms_level", "dynamic_range", "noise_floor", "crest_factor"):
                 out[k] = num
-            elif k == "rms_peak":
-                rms_peak = num
-
-        # Derive DR proxy if needed (this build doesn't print a labeled Dynamic range)
-        if out.get("dynamic_range") is None and rms_peak is not None and out.get("rms_level") is not None:
-            out["dynamic_range"] = rms_peak - out["rms_level"]
-
-        # Clamp -inf noise floor for consistent UI display
-        if out.get("noise_floor") is None and noise_floor_is_inf:
-            out["noise_floor"] = -120.0
-
+        if out["crest_factor"] is None and out["peak_level"] is not None and out["rms_level"] is not None:
+            out["crest_factor"] = out["peak_level"] - out["rms_level"]
     except Exception:
         pass
-
     return out
-
 def basic_metrics(path: Path) -> dict:
     info = docker_ffprobe_json(path)
     duration = None
@@ -230,29 +197,16 @@ def find_input_file(song: str) -> Path | None:
 def fill_input_metrics(song: str, m: dict, folder: Path) -> dict:
     if not m:
         return m
-    if m.get("input") and m["input"].get("I") is not None:
-        return m
-    inp = find_input_file(song)
-    if not inp:
-        return m
-    try:
-        m["input"] = basic_metrics(inp)
-        out = m.get("output") or {}
-        deltas = {}
-        if isinstance(m["input"].get("I"), (int, float)) and isinstance(out.get("I"), (int, float)):
-            deltas["I"] = out["I"] - m["input"]["I"]
-        if isinstance(m["input"].get("TP"), (int, float)) and isinstance(out.get("TP"), (int, float)):
-            deltas["TP"] = out["TP"] - m["input"]["TP"]
-        if deltas:
-            m["deltas"] = deltas
-        # Persist back so future loads are fast
+    folder = Path(folder)
+    src_cache = folder / f"{song}.source.metrics.json"
+    if src_cache.exists():
         try:
-            (folder / "metrics.json").write_text(json.dumps(m, indent=2), encoding="utf-8")
+            m["input"] = json.loads(src_cache.read_text(encoding="utf-8"))
+            return m
         except Exception:
             pass
-    except Exception:
-        pass
     return m
+
 def _writable(dir_path: Path) -> bool:
     try:
         dir_path.mkdir(parents=True, exist_ok=True)
@@ -511,6 +465,10 @@ HTML_TEMPLATE = r"""
     h1{ font-size:20px; margin:0; letter-spacing:.2px; }
     .sub{ color:var(--muted); font-size:13px; margin-top:6px; }
     .grid{ display:grid; grid-template-columns: 1fr 1.2fr; gap:14px; margin-top:16px; }
+@media (max-width: 1100px){ .grid{ grid-template-columns: 1fr; } }
+.jobOutputCard{ grid-column: 1 / -1; }
+.ioGrid{ display:flex; flex-wrap:wrap; gap:10px 12px; }
+.ioItem{ min-width:140px; flex:1 1 140px; }
     @media (max-width: 980px){ .grid{ grid-template-columns:1fr; } }
     .card{ background:rgba(18,26,35,.9); border:1px solid var(--line); border-radius:16px; padding:16px; }
     .card h2{ font-size:14px; margin:0 0 12px 0; color:#cfe0f1; }
@@ -824,7 +782,7 @@ input[type="range"]{
         <div class="small">Click a run to load outputs. Delete removes the entire song output folder.</div>
         <div id="recent" class="outlist" style="margin-top:10px;"></div>
       </div>
-      <div class="card masterPane">
+      <div class="card masterPane jobOutputCard">
         <h2>Job Output</h2>
         <div id="outlist" class="outlist"></div>
       </div>
@@ -1430,20 +1388,6 @@ function fmtDelta(out, inp, suffix=""){
   const sign = d > 0 ? "+" : "";
   return ` (${sign}${d.toFixed(1)}${suffix})`;
 }
-function fmtDeltaOnly(out, inp, suffix=""){
-  if (out === null || out === undefined || inp === null || inp === undefined) return "—";
-  if (typeof out !== "number" || typeof inp !== "number") return "—";
-  const d = out - inp;
-  const sign = d > 0 ? "+" : "";
-  return `${sign}${d.toFixed(1)}${suffix}`;
-}
-function fmtDelta(out, inp, suffix=""){
-  if (out === null || out === undefined || inp === null || inp === undefined) return "";
-  if (typeof out !== "number" || typeof inp !== "number") return "";
-  const d = out - inp;
-  const sign = d > 0 ? "+" : "";
-  return ` (${sign}${d.toFixed(1)}${suffix})`;
-}
 function metricVal(m, key){
   if (!m) return null;
   switch(key){
@@ -1469,26 +1413,18 @@ function fmtCompactIO(inputM, outputM){
     { key:"Peak",label:"Peak",suffix:" dB", tip:"Sample peak level (dBFS)" },
     { key:"RMS", label:"RMS", suffix:" dB", tip:"RMS level (dBFS)" },
     { key:"DR",  label:"DR",  suffix:" dB", tip:"Dynamic range (astats)" },
-    { key:"dDR", label:"ΔDR", suffix:" dB", tip:"Output DR minus input DR", deltaOnly:true, baseKey:"DR" },
     { key:"Noise",label:"Noise",suffix:" dB", tip:"Noise floor (astats)" },
     { key:"CF",  label:"CF",  suffix:" dB",  tip:"Crest factor" },
-    { key:"dCF", label:"ΔCF", suffix:" dB", tip:"Output CF minus input CF", deltaOnly:true, baseKey:"CF" },
     { key:"Corr",label:"Corr",suffix:"",     tip:"Stereo correlation" },
     { key:"Dur", label:"Dur", suffix:" s",   tip:"Duration (seconds)" },
     { key:"W",   label:"W",   suffix:"",     tip:"Width factor applied" },
   ];
   const header = `<tr><th></th>${cols.map(c=>`<th><span style="display:inline-flex; align-items:center; gap:4px;">${c.label} <button class="info-btn" type="button" data-info-type="metrics" data-id="${c.key}" aria-label="About ${c.label}">ⓘ</button></span></th>`).join('')}</tr>`;
   const rowIn = `<tr><th title="Input metrics">In</th>${cols.map(c=>{
-    if (c.deltaOnly) return `<td title="${c.tip}">—</td>`;
     const v = metricVal(inputM, c.key);
     return `<td title="${c.tip}">${fmtMetric(v, c.suffix)}</td>`;
   }).join('')}</tr>`;
   const rowOut = `<tr><th title="Output metrics">Out</th>${cols.map(c=>{
-    if (c.deltaOnly){
-      const vOut = metricVal(outputM, c.baseKey);
-      const vIn  = metricVal(inputM, c.baseKey);
-      return `<td title="${c.tip}">${fmtDeltaOnly(vOut, vIn, c.suffix)}</td>`;
-    }
     const vOut = metricVal(outputM, c.key);
     const vIn = metricVal(inputM, c.key);
     const delta = fmtDelta(vOut, vIn, c.suffix);
@@ -2052,7 +1988,6 @@ def master_pack(
     mono_bass: float | None = Form(None),
     guardrails: int = Form(0),
     presets: str | None = Form(None),
-    analyze_source: int = Form(1),
 ):
     base_cmd = ["python3", str(MASTER_SCRIPT), "--infile", infile, "--strength", str(strength)]
     if presets:
@@ -2087,14 +2022,11 @@ def master_bulk(
     mono_bass: float | None = Form(None),
     guardrails: int = Form(0),
     presets: str | None = Form(None),
-    analyze_source: int = Form(1),
 ):
     files = [f.strip() for f in infiles.split(",") if f.strip()]
     if not files:
         raise HTTPException(status_code=400, detail="no_files")
     base_cmd = ["python3", str(MASTER_SCRIPT)]
-    if int(analyze_source or 0) == 0:
-        base_cmd.append("--no_src_metrics")
     results = []
     def run_all():
         for f in files:
