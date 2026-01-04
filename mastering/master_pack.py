@@ -100,16 +100,8 @@ def clamp(v, lo, hi):
 def db_to_lin(db: float) -> float:
     return 10 ** (db / 20.0)
 
-def run_cmd(cmd: list[str]) -> str:
-    p = subprocess.run(
-        cmd,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
-    # ffmpeg (and astats) write to stderr
-    return (p.stderr or "") + "\n" + (p.stdout or "")
+def run_cmd(cmd: list[str]):
+    return subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
 
 def build_filters(preset: dict, strength: float, lufs_override, tp_override, width: float) -> str:
     eq = preset.get("eq", [])
@@ -232,14 +224,22 @@ def measure_astats_overall(wav_path: Path) -> dict:
         k, v = line.split(":", 1)
         k = k.strip().lower().replace(" ", "_")
         v = v.strip()
-        # value is usually like "-18.23 dB" or "0.0002"
-        m = re.match(r"^([\-0-9\.]+)", v)
-        if not m:
-            continue
-        try:
-            num = float(m.group(1))
-        except Exception:
-            continue
+        # ffmpeg astats keys vary; Debian build emits e.g. "peak_level_db"
+        if k.endswith("_db"):
+            k = k[:-3]
+
+        # Parse numeric value; allow -inf/inf
+        if v.lower().startswith("-inf") or v.lower().startswith("inf"):
+            num = None
+        else:
+            m = re.match(r"^([\-0-9\.]+)", v)
+            if not m:
+                continue
+            try:
+                num = float(m.group(1))
+            except Exception:
+                continue
+
         if k in ("peak_level", "rms_level", "dynamic_range", "noise_floor", "crest_factor"):
             out[k] = num
     # If crest_factor wasn't reported, compute it from peak/rms if possible
