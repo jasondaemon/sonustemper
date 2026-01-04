@@ -1763,6 +1763,18 @@ async function runPack(){
   const strength = document.getElementById('strength').value;
   const pollFiles = files.map(f => f.replace(/\.[^.]+$/, '') || f);
   const fd = new FormData();
+
+  // Pipeline stage flags (UI -> backend). Defaults to enabled if checkbox not present.
+  const stageVal = (id, defV=1) => {
+    const el = document.getElementById(id);
+    if (!el) return defV;
+    return el.checked ? 1 : 0;
+  };
+  fd.append('stage_analyze', String(stageVal('stage_analyze', 1)));
+  fd.append('stage_master', String(stageVal('stage_master', 1)));
+  fd.append('stage_loudness', String(stageVal('stage_loudness', 1)));
+  fd.append('stage_stereo', String(stageVal('stage_stereo', 1)));
+  fd.append('stage_output', String(stageVal('stage_output', 1)));
   fd.append('infiles', files.join(","));
   fd.append('strength', strength);
   fd.append('presets', presets.join(","));
@@ -2148,6 +2160,11 @@ def master_bulk(
     width: float | None = Form(None),
     mono_bass: float | None = Form(None),
     guardrails: int = Form(0),
+    stage_analyze: int = Form(1),
+    stage_master: int = Form(1),
+    stage_loudness: int = Form(1),
+    stage_stereo: int = Form(1),
+    stage_output: int = Form(1),
     presets: str | None = Form(None),
 ):
     files = [f.strip() for f in infiles.split(",") if f.strip()]
@@ -2157,18 +2174,28 @@ def master_bulk(
     results = []
     def run_all():
         for f in files:
+            do_analyze  = bool(stage_analyze)
+            do_master   = bool(stage_master)
+            do_loudness = bool(stage_loudness)
+            do_stereo   = bool(stage_stereo)
+            do_output   = bool(stage_output)
             cmd = base_cmd + ["--infile", f, "--strength", str(strength)]
+            if not do_analyze: cmd += ["--no_analyze"]
+            if not do_master: cmd += ["--no_master"]
+            if not do_loudness: cmd += ["--no_loudness"]
+            if not do_stereo: cmd += ["--no_stereo"]
+            if not do_output: cmd += ["--no_output"]
             if presets:
                 cmd += ["--presets", presets]
-            if lufs is not None:
+            if do_loudness and lufs is not None:
                 cmd += ["--lufs", str(lufs)]
-            if tp is not None:
+            if do_loudness and tp is not None:
                 cmd += ["--tp", str(tp)]
-            if width is not None:
+            if do_stereo and width is not None:
                 cmd += ["--width", str(width)]
-            if mono_bass is not None:
+            if do_stereo and mono_bass is not None:
                 cmd += ["--mono_bass", str(mono_bass)]
-            if guardrails:
+            if do_stereo and guardrails:
                 cmd += ["--guardrails"]
             try:
                 print(f"[master-bulk] start file={f} presets={presets}", file=sys.stderr)

@@ -188,8 +188,7 @@ def measure_astats_overall(wav_path: Path) -> dict:
     """Extract a small set of useful mastering metrics via ffmpeg astats (overall section).
     This ffmpeg build uses measure_overall/measure_perchannel as flag-sets (not booleans).
     """
-    # Include RMS_peak so we can compute a useful DR fallback
-    want = "Peak_level+RMS_level+RMS_peak+Noise_floor+Crest_factor"
+    want = "Peak_level+RMS_level+Dynamic_range+Noise_floor+Crest_factor"
     r = run_cmd([
         "ffmpeg", "-hide_banner", "-v", "verbose", "-nostats", "-i", str(wav_path),
         "-af", f"astats=measure_overall={want}:measure_perchannel=none:reset=0",
@@ -203,7 +202,6 @@ def measure_astats_overall(wav_path: Path) -> dict:
         "noise_floor": None,
         "crest_factor": None,
     }
-    rms_peak = None
     section = None
     for raw in txt.splitlines():
         line = raw.strip()
@@ -225,14 +223,7 @@ def measure_astats_overall(wav_path: Path) -> dict:
             continue
         k, v = line.split(":", 1)
         k = k.strip().lower().replace(" ", "_")
-        # Normalize keys like "peak_level_db" -> "peak_level"
-        if k.endswith("_db"):
-            k = k[:-3]
         v = v.strip()
-        # Handle -inf/inf for noise floor
-        if k == "noise_floor" and v.lower().startswith("-inf"):
-            out["noise_floor"] = -120.0
-            continue
         # value is usually like "-18.23 dB" or "0.0002"
         m = re.match(r"^([\-0-9\.]+)", v)
         if not m:
@@ -241,16 +232,8 @@ def measure_astats_overall(wav_path: Path) -> dict:
             num = float(m.group(1))
         except Exception:
             continue
-        if k == "rms_peak":
-            rms_peak = num
-            continue
         if k in ("peak_level", "rms_level", "dynamic_range", "noise_floor", "crest_factor"):
             out[k] = num
-    # If dynamic_range wasn't reported by this build, compute a useful fallback:
-    # DR ~= (RMS_peak - RMS_level) when available
-    if out["dynamic_range"] is None and rms_peak is not None and out["rms_level"] is not None:
-        out["dynamic_range"] = rms_peak - out["rms_level"]
-
     # If crest_factor wasn't reported, compute it from peak/rms if possible
     if out["crest_factor"] is None and out["peak_level"] is not None and out["rms_level"] is not None:
         out["crest_factor"] = out["peak_level"] - out["rms_level"]
@@ -293,7 +276,9 @@ def write_metrics(wav_out: Path, target_lufs: float, ceiling_db: float, width: f
             m['delta_I'] = float(m['I']) - float(target_lufs)
         if m.get('TP') is not None:
             m['tp_margin'] = float(ceiling_db) - float(m['TP'])
-    wav_out.with_suffix('.metrics.json').write_text(json.dumps(m, indent=2), encoding='utf-8')
+    if do_analyze:
+
+        wav_out.with_suffix('.metrics.json').write_text(json.dumps(m, indent=2), encoding='utf-8')
 
 def read_metrics_file(path: Path) -> dict | None:
     try:
@@ -432,7 +417,27 @@ def main():
     ap.add_argument("--mono_bass", type=float, default=None, help="(unused in pack) accepted for compatibility")
     ap.add_argument("--guardrails", action="store_true", help="Enable width guardrails")
     ap.add_argument("--guard_max_width", type=float, default=1.1, help="Maximum width when guardrails engaged")
+    ap.add_argument("--no_analyze", action="store_true", help="Skip metric analysis")
+    ap.add_argument("--no_master", action="store_true", help="Skip applying presets (analyze-only)")
+    ap.add_argument("--no_loudness", action="store_true", help="Ignore loudness/TP targets")
+    ap.add_argument("--no_stereo", action="store_true", help="Ignore stereo/width controls")
+    ap.add_argument("--no_output", action="store_true", help="Do not write mastered audio outputs (metrics only)")
     args = ap.parse_args()
+
+    # Stage gates
+    do_analyze = not args.no_analyze
+    do_master = not args.no_master
+    do_loudness = not args.no_loudness
+    do_stereo = not args.no_stereo
+    do_output = not args.no_output
+
+    if not do_loudness:
+        args.lufs = None
+        args.tp = None
+    if not do_stereo:
+        args.width = None
+        args.guardrails = False
+        args.mono_bass = None
 
     IN_DIR.mkdir(parents=True, exist_ok=True)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -461,6 +466,15 @@ def main():
 
     presets = [p.strip() for p in args.presets.split(",") if p.strip()]
     outputs = []
+
+    # If mastering is disabled, we do an analyze-only run (no outputs).
+    if not do_master:
+        print('[master_pack] master stage disabled; analyze-only run (no outputs).', file=sys.stderr)
+        sys.exit(0)
+    # Output gating (not yet supporting master-without-output).
+    if do_master and not do_output:
+        print('[master_pack] output stage disabled; skipping run (no outputs generated).', file=sys.stderr)
+        sys.exit(0)
 
     try:
         for p in presets:
