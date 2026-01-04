@@ -506,53 +506,53 @@ def main():
     outputs = []
 
 
-# Source (input) astats metrics (computed once per invocation; reused for all presets)
-src_stats = None
-if not getattr(args, "no_src_metrics", False):
-    try:
-        src_stats = measure_astats_overall(infile)
-    except Exception:
-        src_stats = None
+    # Source (input) astats metrics (computed once per invocation; reused for all presets)
+    src_stats = None
+    if not getattr(args, "no_src_metrics", False):
+        try:
+            src_stats = measure_astats_overall(infile)
+        except Exception:
+            src_stats = None
 
-    try:
-        for p in presets:
-            preset_path = PRESET_DIR / f"{p}.json"
-            if not preset_path.exists():
-                print(f"Skipping missing preset: {p}", file=sys.stderr)
-                continue
+        try:
+            for p in presets:
+                preset_path = PRESET_DIR / f"{p}.json"
+                if not preset_path.exists():
+                    print(f"Skipping missing preset: {p}", file=sys.stderr)
+                    continue
 
-            with open(preset_path, "r") as f:
-                preset = json.load(f)
+                with open(preset_path, "r") as f:
+                    preset = json.load(f)
 
-            target_lufs = float(args.lufs) if args.lufs is not None else float(preset.get("lufs", -14))
-            lim = preset.get("limiter", {}) or {}
-            ceiling_db = float(args.tp) if args.tp is not None else float(lim.get("ceiling", -1.0))
-            width_req = float(args.width) if args.width is not None else float(preset.get("width", 1.0))
-            width_applied = width_req
-            if args.guardrails:
-                guard_max = float(args.guard_max_width or 1.1)
-                if width_applied > guard_max:
-                    width_applied = guard_max
+                target_lufs = float(args.lufs) if args.lufs is not None else float(preset.get("lufs", -14))
+                lim = preset.get("limiter", {}) or {}
+                ceiling_db = float(args.tp) if args.tp is not None else float(lim.get("ceiling", -1.0))
+                width_req = float(args.width) if args.width is not None else float(preset.get("width", 1.0))
+                width_applied = width_req
+                if args.guardrails:
+                    guard_max = float(args.guard_max_width or 1.1)
+                    if width_applied > guard_max:
+                        width_applied = guard_max
 
-            af = build_filters(preset, strength, args.lufs, args.tp, width_applied)
-            wav_out = song_dir / f"{infile.stem}__{p}_S{int(strength*100)}.wav"
+                af = build_filters(preset, strength, args.lufs, args.tp, width_applied)
+                wav_out = song_dir / f"{infile.stem}__{p}_S{int(strength*100)}.wav"
 
-            print(f"[pack] start file={infile.name} preset={p} strength={int(strength*100)} width={width_applied}", file=sys.stderr, flush=True)
-            run_ffmpeg_wav(infile, wav_out, af)
-            make_mp3(wav_out, wav_out.with_suffix(".mp3"))
-            write_metrics(wav_out, target_lufs, ceiling_db, width_applied, src_stats=src_stats)
-            print(f"[pack] done file={infile.name} preset={p}", file=sys.stderr, flush=True)
+                print(f"[pack] start file={infile.name} preset={p} strength={int(strength*100)} width={width_applied}", file=sys.stderr, flush=True)
+                run_ffmpeg_wav(infile, wav_out, af)
+                make_mp3(wav_out, wav_out.with_suffix(".mp3"))
+                write_metrics(wav_out, target_lufs, ceiling_db, width_applied, src_stats=src_stats)
+                print(f"[pack] done file={infile.name} preset={p}", file=sys.stderr, flush=True)
 
-            outputs.append(str(wav_out))
+                outputs.append(str(wav_out))
 
-        write_playlist_html(song_dir, infile.stem, infile.name)
-        print("\n".join(outputs))
-    finally:
-        if marker:
-            try:
-                marker.unlink(missing_ok=True)
-            except Exception:
-                pass
+            write_playlist_html(song_dir, infile.stem, infile.name)
+            print("\n".join(outputs))
+        finally:
+            if marker:
+                try:
+                    marker.unlink(missing_ok=True)
+                except Exception:
+                    pass
 
 if __name__ == "__main__":
     try:
