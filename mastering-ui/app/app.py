@@ -2690,13 +2690,20 @@ def master_bulk(
         raise HTTPException(status_code=400, detail="no_files")
     base_cmd = ["python3", str(MASTER_SCRIPT)]
     results = []
+    def _is_enabled(val):
+        if val is None:
+            return False
+        if isinstance(val, (int, float)):
+            return bool(val)
+        txt = str(val).strip().lower()
+        return txt not in ("0","false","off","no","")
     def run_all():
         for f in files:
-            do_analyze  = bool(stage_analyze)
-            do_master   = bool(stage_master)
-            do_loudness = bool(stage_loudness)
-            do_stereo   = bool(stage_stereo)
-            do_output   = bool(stage_output)
+            do_analyze  = _is_enabled(stage_analyze)
+            do_master   = _is_enabled(stage_master)
+            do_loudness = _is_enabled(stage_loudness)
+            do_stereo   = _is_enabled(stage_stereo)
+            do_output   = _is_enabled(stage_output)
             cmd = base_cmd + ["--infile", f, "--strength", str(strength)]
             if not do_analyze: cmd += ["--no_analyze"]
             if not do_master: cmd += ["--no_master"]
