@@ -532,7 +532,36 @@ HTML_TEMPLATE = r"""
 .pipeHeader input{ transform: translateY(1px); }
 .pipeBody{ margin-top:10px; }
 .pipeBodyCollapsed{ display:none; }
-.pipeSection.disabled{ opacity:.6; }</style>
+.pipeSection.disabled{ opacity:.6; }
+
+/* --- Metrics: wrapping chips + Advanced toggle --- */
+.metricsGrid{ display:flex; flex-wrap:wrap; gap:10px 12px; }
+.metricChip{ flex:1 1 150px; min-width:150px; border:1px solid var(--line); border-radius:12px;
+  padding:10px; background:rgba(10,16,22,.45); }
+.metricTitle{ display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
+.metricTitle .label{ font-size:12px; color:var(--muted); }
+.metricLines{ display:flex; flex-direction:column; gap:4px; }
+.metricLine{ display:flex; align-items:baseline; gap:8px; }
+.metricTag{ font-size:11px; color:var(--muted); min-width:26px; }
+.metricVal{ font-size:13px; }
+.metricDelta{ font-size:11px; color:var(--muted); margin-left:auto; }
+.advToggle{ display:flex; align-items:center; gap:10px; margin:10px 0 2px; }
+.advToggle button{ background:transparent; border:1px solid var(--line); color:var(--text); border-radius:10px; padding:6px 10px; }
+.advHidden{display:none !important;}
+
+
+/* --- Metrics compact overrides --- */
+.metricsGrid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap:8px 10px; }
+.metricChip{ padding:8px 10px; border-radius:12px; }
+.metricTitle .label{ font-size:11px; letter-spacing:.2px; }
+.metricVal{ font-size:12px; }
+.metricTag{ font-size:10px; min-width:22px; }
+.metricDelta{ font-size:10px; }
+
+/* advHidden specificity */
+.metricsGrid.advHidden{display:none !important;}
+
+</style>
 <style>
 /* --- Mastering UI control rows --- */
 .control-row{
@@ -1505,32 +1534,77 @@ function metricVal(m, key){
   }
 }
 function fmtCompactIO(inputM, outputM){
-  const cols = [
+  // Core: the 4 most representative "headline" mastering metrics
+  // 1) I  = integrated loudness (target adherence)
+  // 2) TP = true peak (platform safety)
+  // 3) LRA = loudness range (macro dynamics)
+  // 4) CF = crest factor (transient / punch proxy)
+  const core = [
     { key:"I",   label:"I",   suffix:" LUFS", tip:"Integrated loudness (LUFS)" },
-    { key:"TP",  label:"TP",  suffix:" dB",  tip:"True peak (dBTP)" },
-    { key:"LRA", label:"LRA", suffix:"",     tip:"Loudness range" },
-    { key:"Peak",label:"Peak",suffix:" dB", tip:"Sample peak level (dBFS)" },
-    { key:"RMS", label:"RMS", suffix:" dB", tip:"RMS level (dBFS)" },
-    { key:"DR",  label:"DR",  suffix:" dB", tip:"Dynamic range (astats)" },
-    { key:"Noise",label:"Noise",suffix:" dB", tip:"Noise floor (astats)" },
-    { key:"CF",  label:"CF",  suffix:" dB",  tip:"Crest factor" },
-    { key:"Corr",label:"Corr",suffix:"",     tip:"Stereo correlation" },
-    { key:"Dur", label:"Dur", suffix:" s",   tip:"Duration (seconds)" },
-    { key:"W",   label:"W",   suffix:"",     tip:"Width factor applied" },
+    { key:"TP",  label:"TP",  suffix:" dB",   tip:"True peak (dBTP)" },
+    { key:"LRA", label:"LRA", suffix:"",      tip:"Loudness range" },
+    { key:"CF",  label:"CF",  suffix:" dB",   tip:"Crest factor (Peak - RMS)" },
   ];
-  const header = `<tr><th></th>${cols.map(c=>`<th><span style="display:inline-flex; align-items:center; gap:4px;">${c.label} <button class="info-btn" type="button" data-info-type="metrics" data-id="${c.key}" aria-label="About ${c.label}">ⓘ</button></span></th>`).join('')}</tr>`;
-  const rowIn = `<tr><th title="Input metrics">In</th>${cols.map(c=>{
-    const v = metricVal(inputM, c.key);
-    return `<td title="${c.tip}">${fmtMetric(v, c.suffix)}</td>`;
-  }).join('')}</tr>`;
-  const rowOut = `<tr><th title="Output metrics">Out</th>${cols.map(c=>{
-    const vOut = metricVal(outputM, c.key);
+
+  // Everything else goes under "More"
+  const more = [
+    { key:"Peak", label:"Peak", suffix:" dB", tip:"Sample peak level (dBFS)" },
+    { key:"RMS",  label:"RMS",  suffix:" dB", tip:"RMS level (dBFS)" },
+    { key:"DR",   label:"DR",   suffix:" dB", tip:"Dynamic range (astats proxy)" },
+    { key:"Noise",label:"Noise",suffix:" dB", tip:"Noise floor (astats)" },
+    { key:"Corr", label:"Corr", suffix:"",    tip:"Stereo correlation" },
+    { key:"Dur",  label:"Dur",  suffix:" s",  tip:"Duration (seconds)" },
+    { key:"W",    label:"W",    suffix:"",    tip:"Stereo width factor" },
+  ];
+
+  function chip(c){
     const vIn = metricVal(inputM, c.key);
-    const delta = fmtDelta(vOut, vIn, c.suffix);
-    return `<td title="${c.tip}">${fmtMetric(vOut, c.suffix)}${delta}</td>`;
-  }).join('')}</tr>`;
-  return `<table class="ioTable">${header}${rowIn}${rowOut}</table>`;
+    const vOut = metricVal(outputM, c.key);
+    const d = (typeof vIn === "number" && typeof vOut === "number") ? (vOut - vIn) : null;
+    const dTxt = (d === null) ? "" : `${d>0?"+":""}${d.toFixed(1)}${c.suffix||""}`;
+    return `
+      <div class="metricChip">
+        <div class="metricTitle">
+          <div class="label">${c.label}</div>
+          <button class="info-btn" data-info-type="metrics" data-id="${c.key}" aria-label="${c.tip}">ⓘ</button>
+        </div>
+        <div class="metricLines">
+          <div class="metricLine"><span class="metricTag">In</span><span class="metricVal">${fmtMetric(vIn, c.suffix||"")}</span></div>
+          <div class="metricLine"><span class="metricTag">Out</span><span class="metricVal">${fmtMetric(vOut, c.suffix||"")}</span><span class="metricDelta">${dTxt ? `Δ ${dTxt}` : ""}</span></div>
+        </div>
+      </div>`;
+  }
+
+  const coreHtml = core.map(chip).join("");
+  const moreHtml = more.map(chip).join("");
+  const id = `more_${Math.random().toString(36).slice(2)}`;
+
+  return `
+    <div class="metricsGrid">${coreHtml}</div>
+    <div class="advToggle">
+      <button type="button" onclick="(function(){const el=document.getElementById('${id}'); if(!el) return; el.classList.toggle('advHidden');})()">More</button>
+    </div>
+    <div id="${id}" class="metricsGrid advHidden">${moreHtml}</div>
+  `;
 }
+function chip(c){
+    const vIn = metricVal(inputM, c.key);
+    const vOut = metricVal(outputM, c.key);
+    const d = (typeof vIn === "number" && typeof vOut === "number") ? (vOut - vIn) : null;
+    const dTxt = (d === null) ? "" : `${d>0?"+":""}${d.toFixed(1)}${c.suffix||""}`;
+    return `
+      <div class="metricChip">
+        <div class="metricTitle">
+          <div class="label">${c.label}</div>
+          <button class="info-btn" data-info-type="metrics" data-id="${c.key}" aria-label="${c.tip}">ⓘ</button>
+        </div>
+        <div class="metricLines">
+          <div class="metricLine"><span class="metricTag">In</span><span class="metricVal">${fmtMetric(vIn, c.suffix||"")}</span></div>
+          <div class="metricLine"><span class="metricTag">Out</span><span class="metricVal">${fmtMetric(vOut, c.suffix||"")}</span><span class="metricDelta">${dTxt ? `Δ ${dTxt}` : ""}</span></div>
+        </div>
+      </div>`;
+  }
+
 function renderMetricsDrawer(triggerBtn){
   const id = triggerBtn?.getAttribute('data-id') || null;
   const meta = METRIC_META.find(m => m.key === id);

@@ -188,7 +188,8 @@ def measure_astats_overall(wav_path: Path) -> dict:
     """Extract a small set of useful mastering metrics via ffmpeg astats (overall section).
     This ffmpeg build uses measure_overall/measure_perchannel as flag-sets (not booleans).
     """
-    want = "Peak_level+RMS_level+Dynamic_range+Noise_floor+Crest_factor"
+    # Include RMS_peak so we can compute a useful DR fallback
+    want = "Peak_level+RMS_level+RMS_peak+Noise_floor+Crest_factor"
     r = run_cmd([
         "ffmpeg", "-hide_banner", "-v", "verbose", "-nostats", "-i", str(wav_path),
         "-af", f"astats=measure_overall={want}:measure_perchannel=none:reset=0",
@@ -202,6 +203,7 @@ def measure_astats_overall(wav_path: Path) -> dict:
         "noise_floor": None,
         "crest_factor": None,
     }
+    rms_peak = None
     section = None
     for raw in txt.splitlines():
         line = raw.strip()
@@ -223,7 +225,14 @@ def measure_astats_overall(wav_path: Path) -> dict:
             continue
         k, v = line.split(":", 1)
         k = k.strip().lower().replace(" ", "_")
+        # Normalize keys like "peak_level_db" -> "peak_level"
+        if k.endswith("_db"):
+            k = k[:-3]
         v = v.strip()
+        # Handle -inf/inf for noise floor
+        if k == "noise_floor" and v.lower().startswith("-inf"):
+            out["noise_floor"] = -120.0
+            continue
         # value is usually like "-18.23 dB" or "0.0002"
         m = re.match(r"^([\-0-9\.]+)", v)
         if not m:
@@ -232,8 +241,16 @@ def measure_astats_overall(wav_path: Path) -> dict:
             num = float(m.group(1))
         except Exception:
             continue
+        if k == "rms_peak":
+            rms_peak = num
+            continue
         if k in ("peak_level", "rms_level", "dynamic_range", "noise_floor", "crest_factor"):
             out[k] = num
+    # If dynamic_range wasn't reported by this build, compute a useful fallback:
+    # DR ~= (RMS_peak - RMS_level) when available
+    if out["dynamic_range"] is None and rms_peak is not None and out["rms_level"] is not None:
+        out["dynamic_range"] = rms_peak - out["rms_level"]
+
     # If crest_factor wasn't reported, compute it from peak/rms if possible
     if out["crest_factor"] is None and out["peak_level"] is not None and out["rms_level"] is not None:
         out["crest_factor"] = out["peak_level"] - out["rms_level"]
