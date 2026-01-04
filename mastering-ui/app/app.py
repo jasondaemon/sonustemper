@@ -112,11 +112,12 @@ def calc_cf_corr(path: Path) -> dict:
         "stereo_corr": None,  # correlation isn't provided by astats in this build; keep for compatibility
         "peak_level": None,
         "rms_level": None,
+        "rms_peak": None,
         "dynamic_range": None,
         "noise_floor": None,
     }
     try:
-        want = "Peak_level+RMS_level+Dynamic_range+Noise_floor+Crest_factor"
+        want = "Peak_level+RMS_level+RMS_peak+RMS_trough+Noise_floor+Noise_floor_count+Flat_factor+Entropy+Crest_factor"
         r = run_cmd([
             "ffmpeg", "-hide_banner", "-v", "verbose", "-nostats", "-i", str(path),
             "-af", f"astats=measure_overall={want}:measure_perchannel=none:reset=0",
@@ -151,10 +152,14 @@ def calc_cf_corr(path: Path) -> dict:
                 num = float(m.group(1))
             except Exception:
                 continue
-            if k in ("peak_level", "rms_level", "dynamic_range", "noise_floor", "crest_factor"):
+            if k in ("peak_level", "rms_level", "rms_peak", "rms_trough", "dynamic_range", "noise_floor", "noise_floor_count", "flat_factor", "entropy", "crest_factor"):
                 out[k] = num
         if out["crest_factor"] is None and out["peak_level"] is not None and out["rms_level"] is not None:
             out["crest_factor"] = out["peak_level"] - out["rms_level"]
+
+        # Derive DR proxy if astats does not emit a labeled dynamic range
+        if out["dynamic_range"] is None and out.get("rms_peak") is not None and out["rms_level"] is not None:
+            out["dynamic_range"] = out["rms_peak"] - out["rms_level"]
     except Exception:
         pass
     return out
@@ -197,16 +202,29 @@ def find_input_file(song: str) -> Path | None:
 def fill_input_metrics(song: str, m: dict, folder: Path) -> dict:
     if not m:
         return m
-    folder = Path(folder)
-    src_cache = folder / f"{song}.source.metrics.json"
-    if src_cache.exists():
+    if m.get("input") and m["input"].get("I") is not None:
+        return m
+    inp = find_input_file(song)
+    if not inp:
+        return m
+    try:
+        m["input"] = basic_metrics(inp)
+        out = m.get("output") or {}
+        deltas = {}
+        if isinstance(m["input"].get("I"), (int, float)) and isinstance(out.get("I"), (int, float)):
+            deltas["I"] = out["I"] - m["input"]["I"]
+        if isinstance(m["input"].get("TP"), (int, float)) and isinstance(out.get("TP"), (int, float)):
+            deltas["TP"] = out["TP"] - m["input"]["TP"]
+        if deltas:
+            m["deltas"] = deltas
+        # Persist back so future loads are fast
         try:
-            m["input"] = json.loads(src_cache.read_text(encoding="utf-8"))
-            return m
+            (folder / "metrics.json").write_text(json.dumps(m, indent=2), encoding="utf-8")
         except Exception:
             pass
+    except Exception:
+        pass
     return m
-
 def _writable(dir_path: Path) -> bool:
     try:
         dir_path.mkdir(parents=True, exist_ok=True)
@@ -465,10 +483,6 @@ HTML_TEMPLATE = r"""
     h1{ font-size:20px; margin:0; letter-spacing:.2px; }
     .sub{ color:var(--muted); font-size:13px; margin-top:6px; }
     .grid{ display:grid; grid-template-columns: 1fr 1.2fr; gap:14px; margin-top:16px; }
-@media (max-width: 1100px){ .grid{ grid-template-columns: 1fr; } }
-.jobOutputCard{ grid-column: 1 / -1; }
-.ioGrid{ display:flex; flex-wrap:wrap; gap:10px 12px; }
-.ioItem{ min-width:140px; flex:1 1 140px; }
     @media (max-width: 980px){ .grid{ grid-template-columns:1fr; } }
     .card{ background:rgba(18,26,35,.9); border:1px solid var(--line); border-radius:16px; padding:16px; }
     .card h2{ font-size:14px; margin:0 0 12px 0; color:#cfe0f1; }
@@ -515,37 +529,7 @@ HTML_TEMPLATE = r"""
     .manage-list{ display:flex; flex-direction:column; gap:8px; }
     .manage-item{ display:flex; justify-content:space-between; align-items:center; padding:8px 10px; border:1px solid var(--line); border-radius:10px; }
     .smallBtn{ padding:6px 10px; font-size:12px; border-radius:10px; border:1px solid var(--line); background:#0f151d; color:#d7e6f5; cursor:pointer; }
-  
-
-/* --- Layout: keep Previous Runs side-by-side with Job Output on wide screens --- */
-.mainGrid{ display:grid; grid-template-columns: 360px 1fr; gap:16px; align-items:start; }
-.leftCol{ display:flex; flex-direction:column; gap:14px; min-width:0; }
-.rightCol{ display:flex; flex-direction:column; gap:14px; min-width:0; }
-
-/* Make Previous Runs list scroll instead of leaving a big blank gap */
-.prevRunsList{ max-height: 260px; overflow:auto; padding-right:4px; }
-
-@media (max-width: 1100px){
-  .mainGrid{ grid-template-columns: 1fr; }
-  .prevRunsList{ max-height: 220px; }
-}
-
-
-/* --- Metrics: two-level layout with wrapping --- */
-.metricsGrid{ display:flex; flex-wrap:wrap; gap:10px 12px; }
-.metricChip{ flex:1 1 150px; min-width:150px; border:1px solid var(--line); border-radius:12px;
-  padding:10px; background:rgba(10,16,22,.45); }
-.metricTitle{ display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
-.metricTitle .label{ font-size:12px; color:var(--muted); }
-.metricLines{ display:flex; flex-direction:column; gap:4px; }
-.metricLine{ display:flex; align-items:baseline; gap:8px; }
-.metricTag{ font-size:11px; color:var(--muted); min-width:26px; }
-.metricVal{ font-size:13px; }
-.metricDelta{ font-size:11px; color:var(--muted); margin-left:auto; }
-.advToggle{ display:flex; align-items:center; gap:10px; margin:10px 0 2px; }
-.advToggle button{ background:transparent; border:1px solid var(--line); color:var(--text); border-radius:10px; padding:6px 10px; }
-.advHidden{ display:none; }
-</style>
+  </style>
 <style>
 /* --- Mastering UI control rows --- */
 .control-row{
@@ -728,10 +712,8 @@ input[type="range"]{
 <div id="statusMsg" class="small" style="margin-top:8px;opacity:.85"></div>
       </div>
     </div>
-<div class="mainGrid" id="masterView">
-        </div>
-  <div class="rightCol">
-    <div class="card masterPane" id="uploadCard">
+<div class="grid" id="masterView">
+      <div class="card masterPane" id="uploadCard">
         <h2>Upload</h2>
         <form id="uploadForm">
           <div class="row">
@@ -814,7 +796,7 @@ input[type="range"]{
         <div class="small">Click a run to load outputs. Delete removes the entire song output folder.</div>
         <div id="recent" class="outlist" style="margin-top:10px;"></div>
       </div>
-      <div class="card masterPane jobOutputCard">
+      <div class="card masterPane">
         <h2>Job Output</h2>
         <div id="outlist" class="outlist"></div>
       </div>
@@ -833,11 +815,7 @@ input[type="range"]{
         </div>
       </div>
     </div>
-    <div class="footer"></div>
-  </div>
-</div>
-
-developed by <a class="linkish" href="http://www.jasondaemon.net">jasondaemon.net</a></div>
+    <div class="footer">developed by <a class="linkish" href="http://www.jasondaemon.net">jasondaemon.net</a></div>
   </div>
 <script>
 function setStatus(msg) {
@@ -1414,55 +1392,7 @@ function initInfoDrawer(){
 }
 function fmtMetric(v, suffix=""){
   if (v === null || v === undefined) return "—";
-  if (typeof v === "number" && Number.isFinite(v)) return `${v.toFixed(1)}
-
-function renderMetricChip(label, key, inputM, outputM, suffix){
-  const vIn = metricVal(inputM, key);
-  const vOut = metricVal(outputM, key);
-  const d = (typeof vIn === "number" && typeof vOut === "number") ? (vOut - vIn) : null;
-  const dTxt = (d === null) ? "" : `${d>0?"+":""}${d.toFixed(1)}${suffix||""}`;
-  return `
-    <div class="metricChip">
-      <div class="metricTitle">
-        <div class="label">${label}</div>
-        <button class="infoBtn" data-type="metrics" data-id="${key}" aria-label="About ${label}">ⓘ</button>
-      </div>
-      <div class="metricLines">
-        <div class="metricLine"><span class="metricTag">In</span><span class="metricVal">${fmtMetric(vIn, suffix||"")}</span></div>
-        <div class="metricLine"><span class="metricTag">Out</span><span class="metricVal">${fmtMetric(vOut, suffix||"")}</span><span class="metricDelta">${dTxt ? `Δ ${dTxt}` : ""}</span></div>
-      </div>
-    </div>`;
-}
-
-function fmtMetricsTwoLevel(inputM, outputM){
-  const core = [
-    {label:"I", key:"I", suffix:" LUFS"},
-    {label:"TP", key:"TP", suffix:" dB"},
-    {label:"LRA", key:"LRA", suffix:""},
-    {label:"Peak", key:"Peak", suffix:" dB"},
-    {label:"RMS", key:"RMS", suffix:" dB"},
-    {label:"DR", key:"DR", suffix:" dB"},
-    {label:"CF", key:"CF", suffix:" dB"},
-  ];
-  const adv = [
-    {label:"Noise", key:"Noise", suffix:" dB"},
-    {label:"Corr", key:"Corr", suffix:""},
-    {label:"Dur", key:"Dur", suffix:" s"},
-    {label:"W", key:"W", suffix:""},
-  ];
-
-  const coreHtml = core.map(c=>renderMetricChip(c.label,c.key,inputM,outputM,c.suffix)).join("");
-  const advHtml = adv.map(c=>renderMetricChip(c.label,c.key,inputM,outputM,c.suffix)).join("");
-
-  const id = `adv_${Math.random().toString(36).slice(2)}`;
-
-  return `
-    <div class="metricsGrid">${coreHtml}</div>
-    <div class="advToggle"><button type="button" onclick="(function(){const el=document.getElementById('${id}'); if(!el) return; el.classList.toggle('advHidden');})()">Advanced metrics</button></div>
-    <div id="${id}" class="metricsGrid advHidden">${advHtml}</div>
-  `;
-}
-${suffix}`;
+  if (typeof v === "number" && Number.isFinite(v)) return `${v.toFixed(1)}${suffix}`;
   return String(v);
 }
 function fmtDelta(out, inp, suffix=""){
@@ -1489,7 +1419,7 @@ function metricVal(m, key){
     default: return null;
   }
 }
-function fmtMetricsTwoLevel(inputM, outputM){
+function fmtCompactIO(inputM, outputM){
   const cols = [
     { key:"I",   label:"I",   suffix:" LUFS", tip:"Integrated loudness (LUFS)" },
     { key:"TP",  label:"TP",  suffix:" dB",  tip:"True peak (dBTP)" },
@@ -1658,7 +1588,7 @@ async function loadSong(song, skipEmpty=false){
       const audioSrc = it.mp3 || it.wav || null;
       if (audioSrc) hasPlayable = true;
       if (it.metrics) anyMetricsStrings = true;
-      const compact = fmtMetricsTwoLevel(lastRunInputMetrics, it.metrics_obj || {});
+      const compact = fmtCompactIO(lastRunInputMetrics, it.metrics_obj || {});
       const ioBlock = compact ? `<div class="ioRow">${compact}</div>` : '';
       const div = document.createElement('div');
       div.className = 'outitem';
