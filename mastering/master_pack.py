@@ -203,6 +203,7 @@ DEFAULT_PRESETS = [
     "clean","warm","rock","loud","acoustic","modern",
     "foe_metal","foe_acoustic","blues_country"
 ]
+VOICINGS = ["universal","airlift","ember","detail","glue","wide","cinematic","punch"]
 
 def clamp(v, lo, hi):
     return max(lo, min(hi, v))
@@ -266,6 +267,75 @@ def run_ffmpeg_wav(input_path: Path, output_path: Path, af: str, sample_rate: in
     ])
     if r.returncode != 0:
         raise RuntimeError(r.stderr.strip() or "ffmpeg failed")
+
+# --- voicing chains (alternative to presets) ---
+def _voicing_filters(slug: str, strength_pct: int, width: float | None, do_stereo: bool, do_loudness: bool,
+                     target_I: float | None, target_TP: float | None) -> str:
+    s = clamp(strength_pct, 0, 100) / 100.0
+    eq_terms = []
+    comp = None
+    limiter = "alimiter=limit=0.9:level=disabled"
+    stere = None
+    # helper shelves
+    def shelf(freq, gain, shelf="high"):
+        return f"equalizer=f={freq}:t={shelf}:width_type=o:width=1.0:g={gain:.3f}"
+    def peak(freq, gain, q=1.2):
+        return f"equalizer=f={freq}:t=peak:width_type=q:width={q}:g={gain:.3f}"
+
+    if slug == "universal":
+        eq_terms.append(peak(120, -0.8*s, q=1.0))
+        eq_terms.append(shelf(9000, 1.2*s, "high"))
+        comp = f"acompressor=threshold={db_to_lin(-22+6*s)}:ratio={1.3+0.4*s}:attack=12:release=180:makeup=0"
+    elif slug == "airlift":
+        eq_terms.append(peak(250, -1.5*s, q=1.1))
+        eq_terms.append(shelf(9500, 2.5*s, "high"))
+        comp = f"acompressor=threshold={db_to_lin(-24+4*s)}:ratio={1.2+0.5*s}:attack=8:release=120:makeup=0"
+    elif slug == "ember":
+        eq_terms.append(peak(180, 1.8*s, q=0.9))
+        eq_terms.append(peak(350, 1.2*s, q=1.0))
+        eq_terms.append(shelf(8500, -0.8*s, "high"))
+        comp = f"acompressor=threshold={db_to_lin(-20)}:ratio={1.6+0.6*s}:attack=18:release=240:makeup=0"
+    elif slug == "detail":
+        eq_terms.append(peak(240, -2.2*s, q=1.0))
+        eq_terms.append(peak(3200, 1.4*s, q=1.0))
+        eq_terms.append(shelf(11000, 1.0*s, "high"))
+        comp = f"acompressor=threshold={db_to_lin(-20)}:ratio={1.3+0.5*s}:attack=10:release=180:makeup=0"
+    elif slug == "glue":
+        eq_terms.append(peak(90, -0.8*s, q=0.8))
+        eq_terms.append(peak(2000, 0.8*s, q=1.1))
+        comp = f"acompressor=threshold={db_to_lin(-22)}:ratio={1.8+0.5*s}:attack=25:release={200+80*s}:makeup=0"
+    elif slug == "wide":
+        eq_terms.append(peak(220, -1.0*s, q=1.0))
+        eq_terms.append(peak(8000, 1.2*s, q=1.0))
+        comp = f"acompressor=threshold={db_to_lin(-18)}:ratio={1.2+0.4*s}:attack=12:release=140:makeup=0"
+        if do_stereo and width is not None:
+            stere = f"stereotools=width={width:.3f}:phase=1"
+    elif slug == "cinematic":
+        eq_terms.append(peak(70, 1.5*s, q=0.7))
+        eq_terms.append(peak(240, -1.2*s, q=1.0))
+        eq_terms.append(shelf(9500, 1.2*s, "high"))
+        comp = f"acompressor=threshold={db_to_lin(-21)}:ratio={1.5+0.5*s}:attack=18:release=220:makeup=0"
+    elif slug == "punch":
+        eq_terms.append(peak(90, -1.2*s, q=1.0))
+        eq_terms.append(peak(1800, 1.6*s, q=1.0))
+        eq_terms.append(shelf(7500, 1.0*s, "high"))
+        comp = f"acompressor=threshold={db_to_lin(-18)}:ratio={1.4+0.8*s}:attack=6:release=120:makeup=0"
+    else:
+        # fallback to minimal processing
+        comp = f"acompressor=threshold={db_to_lin(-22)}:ratio=1.5:attack=15:release=180:makeup=0"
+
+    chain = []
+    chain.extend(eq_terms)
+    if comp:
+        chain.append(comp)
+    if do_stereo and stere:
+        chain.append(stere)
+    chain.append(limiter)
+    if do_loudness and (target_I is not None or target_TP is not None):
+        ti = target_I if target_I is not None else -14.0
+        tp = target_TP if target_TP is not None else -1.0
+        chain.append(f"loudnorm=I={ti}:TP={tp}:LRA=11")
+    return ",".join([f for f in chain if f])
 
 def make_mp3(wav_path: Path, mp3_path: Path, bitrate_kbps: int, vbr_mode: str):
     cmd = [
@@ -678,6 +748,8 @@ def main():
     ap.add_argument("--flac_level", type=int, default=5, help="FLAC compression level (0-8)")
     ap.add_argument("--flac_bit_depth", type=int, default=None, help="FLAC bit depth (16/24/32, optional)")
     ap.add_argument("--flac_sample_rate", type=int, default=None, help="FLAC sample rate (optional)")
+    ap.add_argument("--voicing_mode", choices=["presets","voicing"], default="presets", help="Use presets or voicing chain")
+    ap.add_argument("--voicing_name", type=str, default=None, help="Voicing slug when voicing_mode=voicing")
     args = ap.parse_args()
 
     # Stage gates
@@ -746,6 +818,8 @@ def main():
         except Exception:
             pass
     presets = [p.strip() for p in args.presets.split(",") if p.strip()]
+    voicing_mode = args.voicing_mode or "presets"
+    voicing_name = args.voicing_name.strip() if args.voicing_name else None
     outputs = []
 
     marker = song_dir / ".processing"
@@ -779,7 +853,7 @@ def main():
             "output": do_output,
             "analyze": do_analyze,
         }
-        if do_master:
+        if do_master and voicing_mode == "presets":
             for p in presets:
                 preset_path = PRESET_DIR / f"{p}.json"
                 if not preset_path.exists():
@@ -866,6 +940,79 @@ def main():
                         wav_out.unlink(missing_ok=True)
                     except Exception:
                         pass
+        elif do_master and voicing_mode == "voicing":
+            slug = voicing_name or "universal"
+            width_req = float(args.width) if args.width is not None else 1.0
+            width_applied = width_req
+            if args.guardrails:
+                guard_max = float(args.guard_max_width or 1.1)
+                if width_applied > guard_max:
+                    width_applied = guard_max
+            strength_pct = int(strength * 100)
+            descriptor = {
+                "preset": f"V_{slug}",
+                "strength": strength_pct,
+                "stages": stages,
+                "voicing": slug,
+                "loudness_mode": loudness_mode if do_loudness else None,
+                "target_I": args.lufs if do_loudness else None,
+                "target_TP": args.tp if do_loudness else None,
+                "width": width_applied if do_stereo else None,
+                "mono_bass": args.mono_bass if do_stereo else None,
+                "guardrails": args.guardrails if do_stereo else None,
+                "outputs": outputs_cfg if do_output else {},
+            }
+            variant_tag, descriptor_str = build_variant_tag(descriptor, base_stem=infile.stem)
+            wav_out = song_dir / f"{infile.stem}__{variant_tag}.wav"
+            print(f"[pack] variant tag={variant_tag} voicing={slug}", file=sys.stderr, flush=True)
+            append_status(song_dir, "preset_start", f"Voicing '{slug}' (S={strength_pct}, width={width_applied})", preset=slug)
+            af = _voicing_filters(slug, strength_pct, width_applied if do_stereo else None, do_stereo, do_loudness, args.lufs, args.tp)
+            run_ffmpeg_wav(infile, wav_out, af, wav_rate, wav_depth)
+            append_status(song_dir, "preset_done", f"Voicing '{slug}' render complete", preset=slug)
+            if out_mp3:
+                make_mp3(wav_out, wav_out.with_suffix(".mp3"), args.mp3_bitrate, args.mp3_vbr)
+                append_status(song_dir, "mp3_done", f"MP3 ready for '{slug}'", preset=slug)
+            if out_aac:
+                ext = ".m4a" if str(args.aac_container).lower() == "m4a" else ".aac"
+                make_aac(wav_out, wav_out.with_suffix(ext), args.aac_bitrate, args.aac_codec)
+                append_status(song_dir, "aac_done", f"AAC ready for '{slug}' ({ext[1:].upper()})", preset=slug)
+            if out_ogg:
+                make_ogg(wav_out, wav_out.with_suffix(".ogg"), args.ogg_quality)
+                append_status(song_dir, "ogg_done", f"OGG ready for '{slug}'", preset=slug)
+            if out_flac:
+                make_flac(wav_out, wav_out.with_suffix(".flac"), args.flac_level, flac_rate or wav_rate, flac_depth or wav_depth)
+                append_status(song_dir, "flac_done", f"FLAC ready for '{slug}'", preset=slug)
+            if do_analyze:
+                append_status(song_dir, "metrics_start", f"Analyzing metrics for '{slug}'", preset=slug)
+            write_metrics(wav_out, args.lufs if do_loudness else -14.0, args.tp if do_loudness else -1.0, width_applied if do_stereo else 1.0, write_file=do_analyze)
+            if do_analyze:
+                append_status(song_dir, "metrics_done", f"Metrics written for '{slug}'", preset=slug)
+            prov = {
+                "input": infile.name,
+                "preset": f"voicing:{slug}",
+                "variant_tag": variant_tag,
+                "stages": stages,
+                "resolved": {
+                    "strength_pct": strength_pct,
+                    "target_I": args.lufs if do_loudness else None,
+                    "target_TP": args.tp if do_loudness else None,
+                    "width": width_applied if do_stereo else None,
+                    "mono_bass": args.mono_bass if do_stereo else None,
+                    "guardrails": args.guardrails if do_stereo else None,
+                    "loudness_mode": loudness_mode if do_loudness else None,
+                    "voicing": slug,
+                    "outputs": outputs_cfg if do_output else {},
+                },
+                "descriptor": json.loads(descriptor_str) if descriptor_str else descriptor,
+            }
+            write_provenance(wav_out, prov)
+            if out_wav:
+                outputs.append(str(wav_out))
+            else:
+                try:
+                    wav_out.unlink(missing_ok=True)
+                except Exception:
+                    pass
         elif do_output:
             # Passthrough: no mastering, but output requested (e.g., source -> mp3)
             descriptor = {

@@ -388,6 +388,64 @@ PRESET_META_FALLBACK = {
         "abNotes": ["Compare with Modern/Clean: does it add body without losing clarity?"]
     }
 }
+VOICING_META = {
+    "universal": {
+        "title": "Universal",
+        "what": ["Balanced tonal tweak; minimal coloration; gentle control."],
+        "best": ["general purpose", "first pass reference", "mixed genres"],
+        "watch": ["Won't fix heavy mix issues; keep expectations modest."],
+        "intensity": ["Low: almost transparent polish", "Med: light sweetening + cohesion", "High: firmer glue and brightness"],
+    },
+    "airlift": {
+        "title": "Airlift",
+        "what": ["Opens the top end, adds presence, trims low-mid fog."],
+        "best": ["vocals-forward pop", "acoustic clarity", "airy mixes needing lift"],
+        "watch": ["Harsh sources can get edgy; tame sibilance upstream."],
+        "intensity": ["Low: gentle sheen", "Med: noticeable presence", "High: bright/top-forward—monitor hiss/ess"],
+    },
+    "ember": {
+        "title": "Ember",
+        "what": ["Warmth + density; subtle saturation feel."],
+        "best": ["thin mixes", "bright guitars", "intimate/acoustic needing body"],
+        "watch": ["Can add low-mid weight; mind mud build-up."],
+        "intensity": ["Low: mild warmth", "Med: cozy thickness", "High: dense/rounded—watch for cloudiness"],
+    },
+    "detail": {
+        "title": "Detail",
+        "what": ["De-muds low-mids, adds articulation without harshness."],
+        "best": ["crowded mids", "spoken word", "busy guitars/keys"],
+        "watch": ["Overuse can thin body; verify on small speakers."],
+        "intensity": ["Low: subtle cleanup", "Med: clear articulation", "High: pronounced clarity—check sibilance"],
+    },
+    "glue": {
+        "title": "Glue",
+        "what": ["Cohesion via mild compression and smoothing."],
+        "best": ["bus-style cohesion", "live bands", "softening peaks"],
+        "watch": ["Too much can dull transients; keep snare crack in mind."],
+        "intensity": ["Low: gentle hold", "Med: tighter mix feel", "High: smooth/compact—watch punch"],
+    },
+    "wide": {
+        "title": "Wide",
+        "what": ["Subtle spaciousness with mono-aware safety."],
+        "best": ["stereo ambience", "pads", "chorus sections needing spread"],
+        "watch": ["Low-end remains centered; avoid over-widening critical mono content."],
+        "intensity": ["Low: barely wider", "Med: tasteful spread", "High: obvious width—check mono collapse"],
+    },
+    "cinematic": {
+        "title": "Cinematic",
+        "what": ["Fuller lows, smooth highs, larger sense of space."],
+        "best": ["scores", "ballads", "post-rock", "atmospheric builds"],
+        "watch": ["Can add weight; ensure low-end headroom."],
+        "intensity": ["Low: gentle size", "Med: big but controlled", "High: expansive—watch pumping/boom"],
+    },
+    "punch": {
+        "title": "Punch",
+        "what": ["Tightens lows, emphasizes attack for energy."],
+        "best": ["drums", "rock/EDM drops", "rhythmic focus"],
+        "watch": ["High settings can feel aggressive; monitor harshness."],
+        "intensity": ["Low: subtle focus", "Med: lively punch", "High: aggressive bite—check fatigue"],
+    },
+}
 LOUDNESS_PROFILES = {
     "apple": {
         "title": "Apple Music",
@@ -820,17 +878,31 @@ input[type="range"]{
               <span>Preset + Strength</span>
             </label>
             <div class="pipeBody" data-stage="stage_master">
+              <div class="control-row" style="margin-top:4px;">
+                <label style="min-width:140px;">Mode</label>
+                <div class="small" style="display:flex; gap:10px; align-items:center;">
+                  <label style="display:flex; align-items:center; gap:6px;"><input type="radio" name="modePresetVoicing" value="presets" checked> Presets</label>
+                  <label style="display:flex; align-items:center; gap:6px;"><input type="radio" name="modePresetVoicing" value="voicing"> Voicing</label>
+                </div>
+              </div>
               <div class="control-row" style="align-items:flex-start; margin-top:8px;">
                 <label style="min-width:140px;">Presets</label>
                 <div id="packPresetsBox" class="small" style="flex:1; display:flex; flex-wrap:wrap; gap:8px;"></div>
-                <div class="small" style="display:flex; flex-direction:column; gap:6px;">
+                <div id="presetControls" class="small" style="display:flex; flex-direction:column; gap:6px;">
                   <button class="btnGhost" type="button" onclick="selectAllPackPresets()">Select all</button>
                   <button class="btnGhost" type="button" onclick="clearAllPackPresets()">Clear</button>
                 </div>
               </div>
+              <div class="control-row" id="voicingRow" style="align-items:flex-start; margin-top:8px; display:none;">
+                <label style="min-width:140px;">Voicing</label>
+                <div id="voicingBox" class="small" style="flex:1; display:flex; flex-wrap:wrap; gap:8px;"></div>
+                <div class="small" style="display:flex; flex-direction:column; gap:6px;">
+                  <button class="btnGhost" type="button" onclick="clearVoicing()">Clear</button>
+                </div>
+              </div>
 
               <div class="control-row">
-                <label>Strength</label>
+                <label><span id="strengthLabel">Strength</span></label>
                 <input type="range" id="strength" min="0" max="100" value="80" oninput="strengthVal.textContent=this.value">
                 <span class="pill">S=<span id="strengthVal">80</span></span>
               </div>
@@ -1053,6 +1125,8 @@ const LOUDNESS_MANUAL_KEY = "loudnessManualValues";
 const LOUDNESS_ORDER = ["apple", "streaming", "loud", "manual"];
 const GUARDRAILS_KEY = "widthGuardrailsEnabled";
 const PACK_PRESETS_KEY = "packPresets";
+const VOICING_MODE_KEY = "voicingMode";
+const VOICING_SELECTED_KEY = "voicingSelected";
 const BULK_FILES_KEY = "bulkFilesSelected";
 let suppressRecentDuringRun = false;
 let lastRunInputMetrics = null;
@@ -1312,12 +1386,57 @@ async function refreshAll() {
       }
     }
     setStatus("");
-  } catch (e) {
-    console.error("refreshAll failed:", e);
-    setStatus("ERROR loading lists (open console)");
-  }
+    } catch (e) {
+      console.error("refreshAll failed:", e);
+      setStatus("ERROR loading lists (open console)");
+    }
   updateRunButtonsState();
   await refreshRecent();
+}
+function setVoicingMode(mode){
+  const radios = document.querySelectorAll('input[name="modePresetVoicing"]');
+  radios.forEach(r => { r.checked = (r.value === mode); });
+  try { localStorage.setItem(VOICING_MODE_KEY, mode); } catch {}
+  const presetRow = document.getElementById('packPresetsBox')?.parentElement;
+  const presetControls = document.getElementById('presetControls');
+  const voicingRow = document.getElementById('voicingRow');
+  const strengthLabel = document.getElementById('strengthLabel');
+  if (presetRow && presetControls) {
+    presetRow.style.display = mode === 'presets' ? 'flex' : 'none';
+    presetControls.style.display = mode === 'presets' ? 'flex' : 'none';
+  }
+  if (voicingRow) voicingRow.style.display = mode === 'voicing' ? 'flex' : 'none';
+  if (strengthLabel) strengthLabel.textContent = mode === 'voicing' ? 'Intensity' : 'Strength';
+  if (mode === 'presets') {
+    clearVoicing();
+  } else {
+    clearAllPackPresets();
+    localStorage.setItem(PACK_PRESETS_KEY, "");
+  }
+  updateRunButtonsState();
+}
+function getVoicingMode(){
+  try {
+    const stored = localStorage.getItem(VOICING_MODE_KEY);
+    if (stored === 'voicing' || stored === 'presets') return stored;
+  } catch {}
+  return 'presets';
+}
+function selectVoicing(slug){
+  const box = document.getElementById('voicingBox');
+  if (!box) return;
+  box.querySelectorAll('input[type=radio]').forEach(r => {
+    r.checked = (r.value === slug);
+  });
+  try { localStorage.setItem(VOICING_SELECTED_KEY, slug || ""); } catch {}
+  updateRunButtonsState();
+}
+function clearVoicing(){
+  const box = document.getElementById('voicingBox');
+  if (!box) return;
+  box.querySelectorAll('input[type=radio]').forEach(r => r.checked = false);
+  try { localStorage.setItem(VOICING_SELECTED_KEY, ""); } catch {}
+  updateRunButtonsState();
 }
 function setResult(text){ const el=document.getElementById('result'); if(el) el.textContent = text || '(no output)'; }
 function setResultHTML(html){ const el=document.getElementById('result'); if(el) el.innerHTML = html || ''; }
@@ -1388,6 +1507,7 @@ async function refreshStatusLog(song){
 function selectAllPackPresets(){
   const box = document.getElementById('packPresetsBox');
   if (!box) return;
+  setVoicingMode('presets');
   const checks = [...box.querySelectorAll('input[type=checkbox]')];
   checks.forEach(c => { c.checked = true; });
   try { localStorage.setItem(PACK_PRESETS_KEY, checks.map(c=>c.value).join(",")); } catch {}
@@ -1429,10 +1549,51 @@ function getSelectedPresets(){
   if (!box) return [];
   return [...box.querySelectorAll('input[type=checkbox]:checked')].map(c=>c.value);
 }
+function getSelectedVoicing(){
+  const box = document.getElementById('voicingBox');
+  if (!box) return null;
+  const sel = box.querySelector('input[type=radio]:checked');
+  return sel ? sel.value : null;
+}
 function updatePackButtonState(){
   const btn = document.getElementById('runPackBtn');
   if (!btn) return;
-  btn.disabled = getSelectedPresets().length === 0 || getSelectedBulkFiles().length === 0;
+  const mode = getVoicingMode();
+  const hasFiles = getSelectedBulkFiles().length > 0;
+  const hasPreset = getSelectedPresets().length > 0;
+  const hasVoicing = !!getSelectedVoicing();
+  const ok = mode === 'presets' ? hasPreset : hasVoicing;
+  btn.disabled = !(hasFiles && ok);
+}
+function initVoicingUI(){
+  const mode = getVoicingMode();
+  setVoicingMode(mode);
+  const radios = document.querySelectorAll('input[name="modePresetVoicing"]');
+  radios.forEach(r => {
+    r.addEventListener('change', () => setVoicingMode(r.value));
+  });
+  // populate voicing cards
+  const box = document.getElementById('voicingBox');
+  if (box) {
+    box.innerHTML = '';
+    const stored = localStorage.getItem(VOICING_SELECTED_KEY) || '';
+    const voicingMeta = window.VOICING_META || {};
+    const order = ["universal","airlift","ember","detail","glue","wide","cinematic","punch"];
+    order.forEach(slug => {
+      const meta = voicingMeta[slug] || {};
+      const wrap = document.createElement('label');
+      wrap.style = "display:flex; align-items:center; gap:6px; padding:6px 8px; border:1px solid var(--line); border-radius:10px;";
+      const checked = stored === slug;
+      wrap.innerHTML = `<input type="radio" name="voicingSel" value="${slug}" ${checked ? 'checked':''}> <span class="mono">${meta.title || slug}</span> <button class="info-btn" type="button" data-info-type="voicing" data-id="${slug}" aria-label="About ${slug}">ⓘ</button>`;
+      const input = wrap.querySelector('input');
+      input.addEventListener('change', () => {
+        selectVoicing(slug);
+        setVoicingMode('voicing');
+      });
+      box.appendChild(wrap);
+    });
+  }
+  updateRunButtonsState();
 }
 function showManage(){
   document.querySelectorAll('.masterPane').forEach(el => el.classList.add('hidden'));
@@ -1450,10 +1611,13 @@ function updateRunButtonsState(){
   const runPackBtn = document.getElementById('runPackBtn');
   const runBulkBtn = document.getElementById('runBulkBtn');
   const runOneBtn = document.getElementById('runOneBtn');
-  const needsPreset = getSelectedPresets().length === 0;
-  if (runPackBtn) runPackBtn.disabled = (!hasFiles || needsPreset);
-  if (runBulkBtn) runBulkBtn.disabled = (!hasFiles || needsPreset);
-  if (runOneBtn) runOneBtn.disabled = (!hasFiles || needsPreset);
+  const mode = getVoicingMode();
+  const needsPreset = (mode === 'presets') ? (getSelectedPresets().length === 0) : false;
+  const needsVoicing = (mode === 'voicing') ? (!getSelectedVoicing()) : false;
+  const blocked = needsPreset || needsVoicing;
+  if (runPackBtn) runPackBtn.disabled = (!hasFiles || blocked);
+  if (runBulkBtn) runBulkBtn.disabled = (!hasFiles || blocked);
+  if (runOneBtn) runOneBtn.disabled = (!hasFiles || blocked);
 }
 async function renderManage(){
   const uploadsDiv = document.getElementById('manageUploads');
@@ -1693,9 +1857,33 @@ function initInfoDrawer(){
     `;
     openDrawer("Loudness Profiles", prof.title || currentId, body, document.querySelector('.info-btn[data-info-type="loudness"]'));
   };
+  const renderVoicingDrawer = (id) => {
+    const vm = (window.VOICING_META || {})[id];
+    if (!vm) return;
+    const body = `
+      <div class="drawer-section">
+        <h3>What it does</h3>
+        ${renderList(vm.what || [])}
+      </div>
+      <div class="drawer-section">
+        <h3>Best for</h3>
+        ${renderChips(vm.best || [])}
+      </div>
+      <div class="drawer-section">
+        <h3>Watch-outs</h3>
+        ${renderList(vm.watch || [])}
+      </div>
+      <div class="drawer-section">
+        <h3>Intensity tips</h3>
+        ${renderList(vm.intensity || [])}
+      </div>
+    `;
+    openDrawer(vm.title || id, '', body, document.querySelector(`.info-btn[data-id="${id}"]`));
+  };
   window.openDrawer = openDrawer;
   window.renderPresetDrawer = renderPresetDrawer;
   window.renderLoudnessDrawer = renderLoudnessDrawer;
+  window.renderVoicingDrawer = renderVoicingDrawer;
   window.closeDrawer = closeDrawer;
   backdrop.addEventListener('click', closeDrawer);
   closeBtn.addEventListener('click', closeDrawer);
@@ -1711,6 +1899,8 @@ function initInfoDrawer(){
       renderLoudnessDrawer();
     } else if (type === 'metrics') {
       renderMetricsDrawer(btn);
+    } else if (type === 'voicing') {
+      renderVoicingDrawer(btn.getAttribute('data-id'));
     }
   });
 }
@@ -1873,6 +2063,14 @@ function appendOutputOptions(fd){
   fd.append('flac_level', val('flac_level') || '');
   fd.append('flac_bit_depth', val('flac_bit_depth') || '');
   fd.append('flac_sample_rate', val('flac_sample_rate') || '');
+}
+function appendVoicing(fd){
+  const mode = getVoicingMode();
+  fd.append('voicing_mode', mode);
+  if (mode === 'voicing') {
+    const v = getSelectedVoicing();
+    if (v) fd.append('voicing_name', v);
+  }
 }
 let runPollTimer = null;
 let runPollFiles = [];
@@ -2068,6 +2266,7 @@ async function runOne(){
   fd.append('presets', presets.join(","));
   appendOverrides(fd);
   appendOutputOptions(fd);
+  appendVoicing(fd);
   presets.forEach(p => files.forEach(f => appendJobLog(`Queued ${f} with preset ${p}`)));
   startRunPolling(pollFiles);
   const r = await fetch('/api/master-bulk', { method:'POST', body: fd });
@@ -2113,6 +2312,7 @@ async function runPack(){
   fd.append('presets', presets.join(","));
   appendOverrides(fd);
   appendOutputOptions(fd);
+  appendVoicing(fd);
   presets.forEach(p => files.forEach(f => appendJobLog(`Queued ${f} with preset ${p}`)));
   startRunPolling(pollFiles);
   const r = await fetch('/api/master-bulk', { method:'POST', body: fd });
@@ -2146,6 +2346,7 @@ async function runBulk(){
   fd.append('presets', presets.join(","));
   appendOverrides(fd);
   appendOutputOptions(fd);
+  appendVoicing(fd);
   presets.forEach(p => files.forEach(f => appendJobLog(`Queued ${f} with preset ${p}`)));
   startRunPolling(pollFiles);
   const r = await fetch('/api/master-bulk', { method:'POST', body: fd });
@@ -2204,9 +2405,10 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
 document.addEventListener('DOMContentLoaded', () => {
   try {
     wireUI();
-    initLoudnessMode();
-    setMetricsPanel('(none)');
-    updateRunButtonsState();
+  initLoudnessMode();
+  setMetricsPanel('(none)');
+  updateRunButtonsState();
+  initVoicingUI();
     // Restore pack-in-flight status if page refreshed mid-run (10 min window)
     try {
       const ts = parseInt(localStorage.getItem("packInFlight") || "0", 10);
@@ -2275,6 +2477,7 @@ document.addEventListener('DOMContentLoaded', () => {
 <script>
 window.PRESET_META = {{ preset_meta_json }};
 window.LOUDNESS_PROFILES = {{ loudness_profiles_json }};
+window.VOICING_META = {{ voicing_meta_json }};
 </script>
 <div id="drawerBackdrop" class="drawer-backdrop hidden" tabindex="-1"></div>
 <aside id="infoDrawer"
@@ -2300,6 +2503,7 @@ def index():
     html = html.replace("{{BUILD_STAMP}}", BUILD_STAMP)
     html = html.replace("{{ preset_meta_json }}", json.dumps(load_preset_meta()))
     html = html.replace("{{ loudness_profiles_json }}", json.dumps(LOUDNESS_PROFILES))
+    html = html.replace("{{ voicing_meta_json }}", json.dumps(VOICING_META))
     html = html.replace("{{IN_DIR}}", str(IN_DIR))
     html = html.replace("{{OUT_DIR}}", str(OUT_DIR))
     return HTMLResponse(html)
@@ -2612,6 +2816,8 @@ def master_pack(
     flac_sample_rate: str | None = Form(None),
     wav_bit_depth: str | None = Form(None),
     wav_sample_rate: str | None = Form(None),
+    voicing_mode: str = Form("presets"),
+    voicing_name: str | None = Form(None),
     presets: str | None = Form(None),
 ):
     base_cmd = ["python3", str(MASTER_SCRIPT), "--infile", infile, "--strength", str(strength)]
@@ -2627,6 +2833,10 @@ def master_pack(
         base_cmd += ["--mono_bass", str(mono_bass)]
     if guardrails:
         base_cmd += ["--guardrails"]
+    if voicing_mode:
+        base_cmd += ["--voicing_mode", voicing_mode]
+    if voicing_name:
+        base_cmd += ["--voicing_name", voicing_name]
     base_cmd += ["--out_wav", "1" if out_wav else "0"]
     base_cmd += ["--out_mp3", "1" if out_mp3 else "0"]
     base_cmd += ["--out_aac", "1" if out_aac else "0"]
@@ -2683,6 +2893,8 @@ def master_bulk(
     flac_sample_rate: str | None = Form(None),
     wav_bit_depth: str | None = Form(None),
     wav_sample_rate: str | None = Form(None),
+    voicing_mode: str = Form("presets"),
+    voicing_name: str | None = Form(None),
     presets: str | None = Form(None),
 ):
     files = [f.strip() for f in infiles.split(",") if f.strip()]
@@ -2722,6 +2934,10 @@ def master_bulk(
                 cmd += ["--mono_bass", str(mono_bass)]
             if do_stereo and guardrails:
                 cmd += ["--guardrails"]
+            if voicing_mode:
+                cmd += ["--voicing_mode", str(voicing_mode)]
+            if voicing_name:
+                cmd += ["--voicing_name", str(voicing_name)]
             if do_output:
                 cmd += ["--out_wav", "1" if out_wav else "0"]
                 cmd += ["--out_mp3", "1" if out_mp3 else "0"]
