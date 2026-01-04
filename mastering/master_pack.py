@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import argparse, json, shlex, subprocess, sys, re, os, time
+import argparse, json, shlex, subprocess, sys, re, os, time, hashlib
 from pathlib import Path
 import shutil
 import json
@@ -10,53 +10,108 @@ def _safe_tag(s: str, max_len: int = 80) -> str:
     s = re.sub(r"_+", "_", s).strip("_")
     return s[:max_len] if max_len and len(s) > max_len else s
 
-def build_variant_tag(*, preset_name: str, strength: float | None, stages: dict | None,
-                      target_I: float | None, target_TP: float | None, width: float | None,
-                      mono_bass: int | None, guardrails: bool | None,
-                      extra: dict | None = None) -> str:
+def _hash_descriptor(text: str, length: int = 10) -> str:
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:length]
+
+def build_variant_tag(descriptor: dict, *, base_stem: str = "", max_tag_len: int = 120, max_filename_len: int = 200) -> tuple[str, str]:
     """
     Deterministic tag describing processing options so multiple runs won't clobber each other.
-    Keeps tags reasonably short; falls back to a hash if needed.
+    Returns (tag, descriptor_string_for_hash).
     """
+    stages = descriptor.get("stages", {}) or {}
     parts: list[str] = []
-    parts.append(_safe_tag(preset_name))
+    preset = descriptor.get("preset") or "run"
+    strength = descriptor.get("strength")
+    loud_mode = descriptor.get("loudness_mode")
+    target_I = descriptor.get("target_I")
+    target_TP = descriptor.get("target_TP")
+    width = descriptor.get("width")
+    mono_bass = descriptor.get("mono_bass")
+    guardrails = descriptor.get("guardrails")
+    outputs = descriptor.get("outputs", {}) or {}
 
+    parts.append(_safe_tag(str(preset)))
     if strength is not None:
         parts.append(f"S{int(round(strength))}")
 
-    # Only include overrides when they are intended to be applied (stage enabled)
-    st = stages or {}
-    loud = st.get("loudness", True)
-    ster = st.get("stereo", True)
+    if stages.get("loudness"):
+        if loud_mode:
+            parts.append(f"LM{_safe_tag(str(loud_mode), 24)}")
+        if target_I is not None:
+            parts.append(f"TI{float(target_I):g}")
+        if target_TP is not None:
+            parts.append(f"TTP{float(target_TP):g}")
 
-    if loud and target_I is not None:
-        parts.append(f"TI{target_I:g}")
-    if loud and target_TP is not None:
-        parts.append(f"TTP{target_TP:g}")
+    if stages.get("stereo"):
+        if width is not None:
+            parts.append(f"W{float(width):g}")
+        if mono_bass is not None:
+            parts.append(f"MB{int(mono_bass)}")
+        if guardrails is not None:
+            parts.append(f"GR{1 if guardrails else 0}")
 
-    if ster and width is not None:
-        parts.append(f"W{width:g}")
-    if ster and mono_bass is not None:
-        parts.append(f"MB{mono_bass}")
-    if ster and guardrails is not None:
-        parts.append(f"GR{1 if guardrails else 0}")
+    if stages.get("output"):
+        wav = outputs.get("wav") or {}
+        if wav.get("enabled"):
+            sr = wav.get("sample_rate")
+            bd = wav.get("bit_depth")
+            chunk = "WAV"
+            if sr: chunk += f"{int(sr)//1000}k"
+            if bd: chunk += f"_{int(bd)}"
+            parts.append(chunk)
+        mp3 = outputs.get("mp3") or {}
+        if mp3.get("enabled"):
+            mode = mp3.get("mode")
+            parts.append(f"MP3_{_safe_tag(mode,20)}" if mode else "MP3")
+        aac = outputs.get("aac") or {}
+        if aac.get("enabled"):
+            b = aac.get("bitrate")
+            codec = aac.get("codec")
+            tag = f"AAC_{b}" if b else "AAC"
+            if codec and codec != "aac":
+                tag += f"_{_safe_tag(codec,8)}"
+            parts.append(tag)
+        ogg = outputs.get("ogg") or {}
+        if ogg.get("enabled"):
+            q = ogg.get("quality")
+            parts.append(f"OGG_Q{q}" if q is not None else "OGG")
+        flac = outputs.get("flac") or {}
+        if flac.get("enabled"):
+            lvl = flac.get("level")
+            chunk = f"FLAC_L{lvl}" if lvl is not None else "FLAC"
+            fr = flac.get("sample_rate")
+            fb = flac.get("bit_depth")
+            if fr: chunk += f"_SR{int(fr)//1000}k"
+            if fb: chunk += f"_BD{int(fb)}"
+            parts.append(chunk)
 
-    if extra:
-        for k in sorted(extra.keys()):
-            v = extra[k]
-            if v is None:
-                continue
-            parts.append(f"{_safe_tag(str(k),20)}{_safe_tag(str(v),20)}")
+    # Sort any "extra" keys for stability
+    extra = descriptor.get("extra") or {}
+    for k in sorted(extra.keys()):
+        v = extra[k]
+        if v is None:
+            continue
+        parts.append(f"{_safe_tag(str(k),20)}{_safe_tag(str(v),20)}")
 
-    tag = "_".join(parts)
-    tag = _safe_tag(tag, 120)
+    tag = _safe_tag("_".join(parts), max_tag_len)
 
-    # Ensure tag isn't ridiculously long; if it is, hash the full descriptor.
-    if len(tag) > 120:
-        h = hashlib.sha1(tag.encode("utf-8")).hexdigest()[:10]
-        tag = _safe_tag("_".join(parts[:3]), 60) + f"__{h}"
-    return tag
-import hashlib
+    descriptor_str = json.dumps(descriptor, sort_keys=True, separators=(",", ":"))
+
+    def hashed_fallback(prefix_parts: list[str]) -> str:
+        prefix = _safe_tag("_".join(prefix_parts), max_tag_len//2)
+        return f"{prefix}__{_hash_descriptor(descriptor_str)}"
+
+    if len(tag) > max_tag_len:
+        tag = hashed_fallback(parts[:3] if len(parts) >= 3 else parts)
+
+    # Enforce overall filename length safety (stem__tag.ext <= max_filename_len)
+    # Use a conservative extension length budget (16) to cover metrics/run json.
+    ext_budget = 16
+    if base_stem and (len(base_stem) + 2 + len(tag) + ext_budget) > max_filename_len:
+        tag = hashed_fallback(parts[:3] if len(parts) >= 3 else parts[:1])
+        tag = _safe_tag(tag, max_tag_len)
+
+    return tag, descriptor_str
 
 
 import re
@@ -275,6 +330,14 @@ def make_flac(wav_path: Path, flac_path: Path, level: int = 5, sample_rate: int 
     r = run_cmd(cmd)
     if r.returncode != 0:
         raise RuntimeError(r.stderr.strip() or "flac encode failed")
+
+def write_provenance(base_path: Path, payload: dict):
+    """Write a sibling .run.json with effective settings for traceability."""
+    try:
+        dest = base_path.with_suffix(".run.json")
+        dest.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    except Exception:
+        pass
 
 def measure_loudness(wav_path: Path) -> dict:
     r = run_cmd([
@@ -636,6 +699,24 @@ def main():
     if flac_depth is not None:
         flac_depth = clamp(flac_depth, 16, 24)  # FLAC supports up to 24-bit
     flac_rate = int(args.flac_sample_rate) if args.flac_sample_rate else None
+    loudness_mode = os.getenv("LOUDNESS_MODE", "Custom")
+    mp3_mode = None
+    if out_mp3:
+        vbr = str(args.mp3_vbr or "none").upper()
+        if vbr in ("V0", "V2"):
+            mp3_mode = vbr
+        else:
+            try:
+                mp3_mode = f"CBR{int(args.mp3_bitrate or 320)}"
+            except Exception:
+                mp3_mode = "CBR"
+    outputs_cfg = {
+        "wav": {"enabled": out_wav, "sample_rate": wav_rate if out_wav else None, "bit_depth": wav_depth if out_wav else None},
+        "mp3": {"enabled": out_mp3, "mode": mp3_mode, "bitrate": args.mp3_bitrate if out_mp3 else None, "vbr": args.mp3_vbr if out_mp3 else None},
+        "aac": {"enabled": out_aac, "bitrate": args.aac_bitrate if out_aac else None, "codec": args.aac_codec if out_aac else None, "container": args.aac_container if out_aac else None},
+        "ogg": {"enabled": out_ogg, "quality": args.ogg_quality if out_ogg else None},
+        "flac": {"enabled": out_flac, "level": args.flac_level if out_flac else None, "bit_depth": flac_depth if out_flac else None, "sample_rate": flac_rate if out_flac else None},
+    }
 
     if not do_loudness:
         args.lufs = None
@@ -691,6 +772,13 @@ def main():
 
     job_completed = False
     try:
+        stages = {
+            "master": do_master,
+            "loudness": do_loudness,
+            "stereo": do_stereo,
+            "output": do_output,
+            "analyze": do_analyze,
+        }
         if do_master:
             for p in presets:
                 preset_path = PRESET_DIR / f"{p}.json"
@@ -713,21 +801,22 @@ def main():
 
                 af = build_filters(preset, strength, args.lufs, args.tp, width_applied)
                 strength_pct = int(strength * 100)
-                variant_tag = build_variant_tag(
-                    preset_name=p,
-                    strength=strength_pct,
-                    stages={
-                        "loudness": do_loudness,
-                        "stereo": do_stereo,
-                    },
-                    target_I=target_lufs if do_loudness else None,
-                    target_TP=ceiling_db if do_loudness else None,
-                    width=width_applied if do_stereo else None,
-                    mono_bass=args.mono_bass if do_stereo else None,
-                    guardrails=args.guardrails if do_stereo else None,
-                )
+                descriptor = {
+                    "preset": p,
+                    "strength": strength_pct,
+                    "stages": stages,
+                    "loudness_mode": loudness_mode if do_loudness else None,
+                    "target_I": target_lufs if do_loudness else None,
+                    "target_TP": ceiling_db if do_loudness else None,
+                    "width": width_applied if do_stereo else None,
+                    "mono_bass": args.mono_bass if do_stereo else None,
+                    "guardrails": args.guardrails if do_stereo else None,
+                    "outputs": outputs_cfg if do_output else {},
+                }
+                variant_tag, descriptor_str = build_variant_tag(descriptor, base_stem=infile.stem)
                 wav_out = song_dir / f"{infile.stem}__{variant_tag}.wav"
 
+                print(f"[pack] variant tag={variant_tag} preset={p}", file=sys.stderr, flush=True)
                 append_status(song_dir, "preset_start", f"Applying preset '{p}' (S={strength_pct}, width={width_applied})", preset=p)
                 print(f"[pack] start file={infile.name} preset={p} strength={int(strength*100)} width={width_applied}", file=sys.stderr, flush=True)
                 run_ffmpeg_wav(infile, wav_out, af, wav_rate, wav_depth)
@@ -750,6 +839,24 @@ def main():
                 write_metrics(wav_out, target_lufs, ceiling_db, width_applied, write_file=do_analyze)
                 if do_analyze:
                     append_status(song_dir, "metrics_done", f"Metrics written for '{p}'", preset=p)
+                prov = {
+                    "input": infile.name,
+                    "preset": p,
+                    "variant_tag": variant_tag,
+                    "stages": stages,
+                    "resolved": {
+                        "strength_pct": strength_pct,
+                        "target_I": target_lufs if do_loudness else None,
+                        "target_TP": ceiling_db if do_loudness else None,
+                        "width": width_applied if do_stereo else None,
+                        "mono_bass": args.mono_bass if do_stereo else None,
+                        "guardrails": args.guardrails if do_stereo else None,
+                        "loudness_mode": loudness_mode if do_loudness else None,
+                        "outputs": outputs_cfg if do_output else {},
+                    },
+                    "descriptor": json.loads(descriptor_str) if descriptor_str else descriptor,
+                }
+                write_provenance(wav_out, prov)
                 print(f"[pack] done file={infile.name} preset={p}", file=sys.stderr, flush=True)
 
                 if out_wav:
@@ -761,17 +868,21 @@ def main():
                         pass
         elif do_output:
             # Passthrough: no mastering, but output requested (e.g., source -> mp3)
-            base_tag = build_variant_tag(
-                preset_name="source",
-                strength=None,
-                stages={"loudness": False, "stereo": False},
-                target_I=None,
-                target_TP=None,
-                width=None,
-                mono_bass=None,
-                guardrails=None,
-            )
+            descriptor = {
+                "preset": "source",
+                "strength": None,
+                "stages": stages,
+                "loudness_mode": None,
+                "target_I": None,
+                "target_TP": None,
+                "width": None,
+                "mono_bass": None,
+                "guardrails": None,
+                "outputs": outputs_cfg,
+            }
+            base_tag, descriptor_str = build_variant_tag(descriptor, base_stem=infile.stem)
             wav_out = song_dir / f"{infile.stem}__{base_tag}.wav"
+            print(f"[pack] variant tag={base_tag} preset=source", file=sys.stderr, flush=True)
             append_status(song_dir, "preset_start", "Passthrough (no mastering)", preset="source")
             # Identity filter
             run_ffmpeg_wav(infile, wav_out, "anull", wav_rate, wav_depth)
@@ -794,6 +905,24 @@ def main():
             write_metrics(wav_out, args.lufs if args.lufs is not None else -14.0, args.tp if args.tp is not None else -1.0, 1.0, write_file=do_analyze)
             if do_analyze:
                 append_status(song_dir, "metrics_done", "Metrics written (passthrough)", preset="source")
+            prov = {
+                "input": infile.name,
+                "preset": "source",
+                "variant_tag": base_tag,
+                "stages": stages,
+                "resolved": {
+                    "strength_pct": None,
+                    "target_I": None,
+                    "target_TP": None,
+                    "width": None,
+                    "mono_bass": None,
+                    "guardrails": None,
+                    "loudness_mode": None,
+                    "outputs": outputs_cfg,
+                },
+                "descriptor": json.loads(descriptor_str) if descriptor_str else descriptor,
+            }
+            write_provenance(wav_out, prov)
             if out_wav:
                 outputs.append(str(wav_out))
             else:
