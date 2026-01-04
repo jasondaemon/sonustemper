@@ -898,7 +898,7 @@ input[type="range"]{
                   <label style="display:flex; align-items:center; gap:6px;"><input type="radio" name="modePresetVoicing" value="voicing" checked> Voicing</label>
                 </div>
               </div>
-              <div class="selectRow" style="margin-top:8px;">
+              <div class="selectRow" id="presetRow" style="margin-top:8px;">
                 <label style="min-width:140px;">Presets</label>
                 <div id="packPresetsBox" class="small" style="display:flex; flex-wrap:wrap; gap:8px; min-height:96px;"></div>
                 <div id="presetControls" class="small selectActions">
@@ -1414,7 +1414,7 @@ function setVoicingMode(mode){
   const radios = document.querySelectorAll('input[name="modePresetVoicing"]');
   radios.forEach(r => { r.checked = (r.value === mode); });
   try { localStorage.setItem(VOICING_MODE_KEY, mode); } catch {}
-  const presetRow = document.querySelector('.selectRow:nth-of-type(1)');
+  const presetRow = document.getElementById('presetRow');
   const presetControls = document.getElementById('presetControls');
   const voicingRow = document.getElementById('voicingRow');
   const strengthLabel = document.getElementById('strengthLabel');
