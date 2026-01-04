@@ -2024,11 +2024,6 @@ async function loadSong(song, skipEmpty=false){
       if (it.metrics) anyMetricsStrings = true;
     });
   }
-  if (processing && hasPlayable && markerMtime && (Date.now() - markerMtime > 15000)) {
-    // marker looks stale; drop it so UI can advance
-    try { await fetch(`/out/${song}/.processing`, { method:'DELETE' }); } catch(_){ }
-    processing = false;
-  }
   // No standalone metrics panel now; compact metrics are shown per output entry.
   if (!opts.quiet && hasPlayable && processing) {
     setResult("Outputs updating...");

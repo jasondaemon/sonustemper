@@ -691,6 +691,7 @@ def main():
         print('[master_pack] no output formats selected; skipping run.', file=sys.stderr)
         sys.exit(0)
 
+    job_completed = False
     try:
         for p in presets:
             preset_path = PRESET_DIR / f"{p}.json"
@@ -764,8 +765,13 @@ def main():
         append_status(song_dir, "playlist", "Playlist generated")
         append_status(song_dir, "complete", "Job complete")
         print("\n".join(outputs))
+        job_completed = True
+    except Exception as exc:
+        append_status(song_dir, "error", f"Job failed: {exc}")
+        job_completed = True  # allow marker cleanup so UI can refresh
+        raise
     finally:
-        if marker:
+        if marker and job_completed:
             try:
                 marker.unlink(missing_ok=True)
             except Exception:
