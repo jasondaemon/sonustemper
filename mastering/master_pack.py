@@ -484,7 +484,7 @@ def write_playlist_html(folder: Path, title: str, source_name: str):
             <div class="small metrics">{compact_metrics(metrics)}</div>
           </div>
           <div class="audioCol">
-            {f'<audio controls preload=\"none\" src=\"{primary.name}\"></audio>' if primary else ''}
+            {f'<audio controls preload="none" src="{primary.name}"></audio>' if primary else ''}
             <div class="small">
               {" | ".join([f'<a class="linkish" href="{files_for_stem[e].name}" download>{audio_exts[e]}</a>' for e in pref_order if e in files_for_stem])}
             </div>
