@@ -268,7 +268,9 @@ def make_flac(wav_path: Path, flac_path: Path, level: int = 5, sample_rate: int 
     if sample_rate:
         cmd += ["-ar", str(int(sample_rate))]
     if bit_depth:
-        cmd += ["-sample_fmt", "s32" if int(bit_depth) >= 32 else ("s24" if int(bit_depth) >= 24 else "s16")]
+        # flac supports up to 24-bit; use s32 sample_fmt for 24-bit to keep encoder happy
+        bd = clamp(int(bit_depth), 16, 24)
+        cmd += ["-sample_fmt", "s32" if bd >= 24 else "s16"]
     cmd.append(str(flac_path))
     r = run_cmd(cmd)
     if r.returncode != 0:
@@ -631,6 +633,8 @@ def main():
     if wav_rate not in (44100, 48000, 88200, 96000):
         wav_rate = 48000
     flac_depth = int(args.flac_bit_depth) if args.flac_bit_depth else None
+    if flac_depth is not None:
+        flac_depth = clamp(flac_depth, 16, 24)  # FLAC supports up to 24-bit
     flac_rate = int(args.flac_sample_rate) if args.flac_sample_rate else None
 
     if not do_loudness:

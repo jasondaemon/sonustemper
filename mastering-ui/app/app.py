@@ -945,7 +945,6 @@ input[type="range"]{
                   <span style="color:var(--muted);">Codec</span>
                   <select id="aac_codec">
                     <option value="aac" selected>AAC (native)</option>
-                    <option value="libfdk_aac">libfdk_aac (if available)</option>
                   </select>
                 </div>
                 <div class="small" style="display:flex; align-items:center; gap:6px;">
@@ -993,7 +992,6 @@ input[type="range"]{
                     <option value="">Auto</option>
                     <option value="16">16-bit</option>
                     <option value="24" selected>24-bit</option>
-                    <option value="32">32-bit</option>
                   </select>
                 </div>
                 <div class="small" style="display:flex; align-items:center; gap:6px;">
