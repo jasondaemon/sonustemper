@@ -239,7 +239,7 @@ def measure_astats_overall(wav_path: Path) -> dict:
         out["crest_factor"] = out["peak_level"] - out["rms_level"]
     return out
 
-def write_metrics(wav_out: Path, target_lufs: float, ceiling_db: float, width: float):
+def write_metrics(wav_out: Path, target_lufs: float, ceiling_db: float, width: float, write_file: bool = True):
     m = measure_loudness(wav_out)
     if not isinstance(m, dict):
         m = {}
@@ -276,8 +276,7 @@ def write_metrics(wav_out: Path, target_lufs: float, ceiling_db: float, width: f
             m['delta_I'] = float(m['I']) - float(target_lufs)
         if m.get('TP') is not None:
             m['tp_margin'] = float(ceiling_db) - float(m['TP'])
-    if do_analyze:
-
+    if write_file:
         wav_out.with_suffix('.metrics.json').write_text(json.dumps(m, indent=2), encoding='utf-8')
 
 def read_metrics_file(path: Path) -> dict | None:
@@ -502,7 +501,7 @@ def main():
             print(f"[pack] start file={infile.name} preset={p} strength={int(strength*100)} width={width_applied}", file=sys.stderr, flush=True)
             run_ffmpeg_wav(infile, wav_out, af)
             make_mp3(wav_out, wav_out.with_suffix(".mp3"))
-            write_metrics(wav_out, target_lufs, ceiling_db, width_applied)
+            write_metrics(wav_out, target_lufs, ceiling_db, width_applied, write_file=do_analyze)
             print(f"[pack] done file={infile.name} preset={p}", file=sys.stderr, flush=True)
 
             outputs.append(str(wav_out))
