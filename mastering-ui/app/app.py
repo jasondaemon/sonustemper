@@ -650,6 +650,19 @@ HTML_TEMPLATE = r"""
   align-items:center;
   margin-top:8px;
 }
+.selectRow{
+  display:grid;
+  grid-template-columns: 140px 1fr 120px;
+  align-items:flex-start;
+  gap:12px;
+}
+.selectActions{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  min-width:120px;
+}
+.placeholderBtn{ visibility:hidden; display:block; height:32px; }
 .control-row label{
   min-width:220px;
   display:flex;
@@ -885,19 +898,20 @@ input[type="range"]{
                   <label style="display:flex; align-items:center; gap:6px;"><input type="radio" name="modePresetVoicing" value="voicing" checked> Voicing</label>
                 </div>
               </div>
-              <div class="control-row" style="align-items:flex-start; margin-top:8px;">
+              <div class="selectRow" style="margin-top:8px;">
                 <label style="min-width:140px;">Presets</label>
-                <div id="packPresetsBox" class="small" style="flex:1; display:flex; flex-wrap:wrap; gap:8px; min-height:96px;"></div>
-                <div id="presetControls" class="small" style="display:flex; flex-direction:column; gap:6px;">
+                <div id="packPresetsBox" class="small" style="display:flex; flex-wrap:wrap; gap:8px; min-height:96px;"></div>
+                <div id="presetControls" class="small selectActions">
                   <button class="btnGhost" type="button" onclick="selectAllPackPresets()">Select all</button>
                   <button class="btnGhost" type="button" onclick="clearAllPackPresets()">Clear</button>
                 </div>
               </div>
-              <div class="control-row" id="voicingRow" style="align-items:flex-start; margin-top:8px; display:none;">
+              <div class="selectRow" id="voicingRow" style="margin-top:8px; display:none;">
                 <label style="min-width:140px;">Voicing</label>
-                <div id="voicingBox" class="small" style="flex:1; display:flex; flex-wrap:wrap; gap:8px; min-height:96px;"></div>
-                <div class="small" style="display:flex; flex-direction:column; gap:6px;">
+                <div id="voicingBox" class="small" style="display:flex; flex-wrap:wrap; gap:8px; min-height:96px;"></div>
+                <div class="small selectActions">
                   <button class="btnGhost" type="button" onclick="clearVoicing()">Clear</button>
+                  <span class="placeholderBtn">&nbsp;</span>
                 </div>
               </div>
 
@@ -1400,7 +1414,7 @@ function setVoicingMode(mode){
   const radios = document.querySelectorAll('input[name="modePresetVoicing"]');
   radios.forEach(r => { r.checked = (r.value === mode); });
   try { localStorage.setItem(VOICING_MODE_KEY, mode); } catch {}
-  const presetRow = document.getElementById('packPresetsBox')?.parentElement;
+  const presetRow = document.querySelector('.selectRow:nth-of-type(1)');
   const presetControls = document.getElementById('presetControls');
   const voicingRow = document.getElementById('voicingRow');
   const strengthLabel = document.getElementById('strengthLabel');
