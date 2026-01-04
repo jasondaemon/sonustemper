@@ -2,6 +2,61 @@
 import argparse, json, shlex, subprocess, sys, re, os
 from pathlib import Path
 import shutil
+import json
+
+def _safe_tag(s: str, max_len: int = 80) -> str:
+    """Make a filesystem-safe tag chunk."""
+    s = re.sub(r"[^A-Za-z0-9._-]+", "_", s.strip())
+    s = re.sub(r"_+", "_", s).strip("_")
+    return s[:max_len] if max_len and len(s) > max_len else s
+
+def build_variant_tag(*, preset_name: str, strength: float | None, stages: dict | None,
+                      target_I: float | None, target_TP: float | None, width: float | None,
+                      mono_bass: int | None, guardrails: bool | None,
+                      extra: dict | None = None) -> str:
+    """
+    Deterministic tag describing processing options so multiple runs won't clobber each other.
+    Keeps tags reasonably short; falls back to a hash if needed.
+    """
+    parts: list[str] = []
+    parts.append(_safe_tag(preset_name))
+
+    if strength is not None:
+        parts.append(f"S{int(round(strength))}")
+
+    # Only include overrides when they are intended to be applied (stage enabled)
+    st = stages or {}
+    loud = st.get("loudness", True)
+    ster = st.get("stereo", True)
+
+    if loud and target_I is not None:
+        parts.append(f"TI{target_I:g}")
+    if loud and target_TP is not None:
+        parts.append(f"TTP{target_TP:g}")
+
+    if ster and width is not None:
+        parts.append(f"W{width:g}")
+    if ster and mono_bass is not None:
+        parts.append(f"MB{mono_bass}")
+    if ster and guardrails is not None:
+        parts.append(f"GR{1 if guardrails else 0}")
+
+    if extra:
+        for k in sorted(extra.keys()):
+            v = extra[k]
+            if v is None:
+                continue
+            parts.append(f"{_safe_tag(str(k),20)}{_safe_tag(str(v),20)}")
+
+    tag = "_".join(parts)
+    tag = _safe_tag(tag, 120)
+
+    # Ensure tag isn't ridiculously long; if it is, hash the full descriptor.
+    if len(tag) > 120:
+        h = hashlib.sha1(tag.encode("utf-8")).hexdigest()[:10]
+        tag = _safe_tag("_".join(parts[:3]), 60) + f"__{h}"
+    return tag
+import hashlib
 
 
 import re
