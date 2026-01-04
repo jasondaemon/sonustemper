@@ -283,7 +283,7 @@ def measure_astats_overall(wav_path: Path) -> dict:
 
     return out
 
-def write_metrics(wav_out: Path, target_lufs: float, ceiling_db: float, width: float):
+def write_metrics(wav_out: Path, target_lufs: float, ceiling_db: float, width: float, src_stats: dict | None = None):
     m = measure_loudness(wav_out)
     if not isinstance(m, dict):
         m = {}
@@ -294,6 +294,21 @@ def write_metrics(wav_out: Path, target_lufs: float, ceiling_db: float, width: f
     m.setdefault("rms_level", None)
     m.setdefault("dynamic_range", None)
     m.setdefault("noise_floor", None)
+    # Source metrics (for A/B comparison in UI)
+    if isinstance(src_stats, dict):
+        m["src_peak_level"] = src_stats.get("peak_level")
+        m["src_rms_level"] = src_stats.get("rms_level")
+        m["src_dynamic_range"] = src_stats.get("dynamic_range")
+        m["src_noise_floor"] = src_stats.get("noise_floor")
+        m["src_crest_factor"] = src_stats.get("crest_factor")
+        m["src_stereo_corr"] = src_stats.get("stereo_corr")
+    else:
+        m.setdefault("src_peak_level", None)
+        m.setdefault("src_rms_level", None)
+        m.setdefault("src_dynamic_range", None)
+        m.setdefault("src_noise_floor", None)
+        m.setdefault("src_crest_factor", None)
+        m.setdefault("src_stereo_corr", None)
     # add duration
     try:
         info = docker_ffprobe_json(wav_out)
@@ -458,6 +473,7 @@ def main():
     ap.add_argument("--width", type=float, default=None, help="Stereo width multiplier (extrastereo). 1.0 = unchanged")
     ap.add_argument("--mono_bass", type=float, default=None, help="(unused in pack) accepted for compatibility")
     ap.add_argument("--guardrails", action="store_true", help="Enable width guardrails")
+    ap.add_argument("--no_src_metrics", action="store_true", help="Skip astats metrics for the source (input) file")
     ap.add_argument("--guard_max_width", type=float, default=1.1, help="Maximum width when guardrails engaged")
     args = ap.parse_args()
 
@@ -489,6 +505,15 @@ def main():
     presets = [p.strip() for p in args.presets.split(",") if p.strip()]
     outputs = []
 
+
+# Source (input) astats metrics (computed once per invocation; reused for all presets)
+src_stats = None
+if not getattr(args, "no_src_metrics", False):
+    try:
+        src_stats = measure_astats_overall(infile)
+    except Exception:
+        src_stats = None
+
     try:
         for p in presets:
             preset_path = PRESET_DIR / f"{p}.json"
@@ -515,7 +540,7 @@ def main():
             print(f"[pack] start file={infile.name} preset={p} strength={int(strength*100)} width={width_applied}", file=sys.stderr, flush=True)
             run_ffmpeg_wav(infile, wav_out, af)
             make_mp3(wav_out, wav_out.with_suffix(".mp3"))
-            write_metrics(wav_out, target_lufs, ceiling_db, width_applied)
+            write_metrics(wav_out, target_lufs, ceiling_db, width_applied, src_stats=src_stats)
             print(f"[pack] done file={infile.name} preset={p}", file=sys.stderr, flush=True)
 
             outputs.append(str(wav_out))
