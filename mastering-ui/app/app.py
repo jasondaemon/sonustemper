@@ -764,11 +764,8 @@ input[type="range"]{
         <div class="pipeWrap">
           <!-- Inputs -->
           <div class="pipeSection">
-            <label class="pipeHeader">
-              <input type="checkbox" id="stage_inputs" checked>
-              <span>Inputs</span>
-            </label>
-            <div class="pipeBody" data-stage="stage_inputs">
+            <div class="pipeHeader"><span>Inputs</span></div>
+            <div class="pipeBody" data-stage="inputs_required">
               <div class="hidden"><select id="infile"></select></div>
               <div class="control-row" style="align-items:flex-start; margin-top:6px;">
                 <label style="min-width:140px;">Input files</label>
@@ -784,7 +781,7 @@ input[type="range"]{
           <!-- Analyze -->
           <div class="pipeSection">
             <label class="pipeHeader">
-              <input type="checkbox" id="stage_analyze" checked>
+              <input type="checkbox" id="stage_analyze">
               <span>Analyze</span>
             </label>
             <div class="pipeBody" data-stage="stage_analyze">
@@ -797,7 +794,7 @@ input[type="range"]{
           <!-- Master: presets + strength -->
           <div class="pipeSection">
             <label class="pipeHeader">
-              <input type="checkbox" id="stage_master" checked>
+              <input type="checkbox" id="stage_master">
               <span>Preset + Strength</span>
             </label>
             <div class="pipeBody" data-stage="stage_master">
@@ -821,7 +818,7 @@ input[type="range"]{
           <!-- Loudness / Normalize -->
           <div class="pipeSection">
             <label class="pipeHeader">
-              <input type="checkbox" id="stage_loudness" checked>
+              <input type="checkbox" id="stage_loudness">
               <span>Loudness & Normalize</span>
             </label>
             <div class="pipeBody" data-stage="stage_loudness">
@@ -850,7 +847,7 @@ input[type="range"]{
           <!-- Stereo / Tone -->
           <div class="pipeSection">
             <label class="pipeHeader">
-              <input type="checkbox" id="stage_stereo" checked>
+              <input type="checkbox" id="stage_stereo">
               <span>Stereo & Tone</span>
             </label>
             <div class="pipeBody" data-stage="stage_stereo">
@@ -878,7 +875,7 @@ input[type="range"]{
           <!-- Output -->
           <div class="pipeSection">
             <label class="pipeHeader">
-              <input type="checkbox" id="stage_output" checked>
+              <input type="checkbox" id="stage_output">
               <span>Output</span>
             </label>
             <div class="pipeBody" data-stage="stage_output">
@@ -1959,6 +1956,7 @@ document.addEventListener('DOMContentLoaded', () => {
 /* Pipeline section toggles (UI-only for now) */
 function initPipelineSections(){
   document.querySelectorAll('.pipeSection').forEach(sec => {
+    if(sec.querySelector('[data-stage="inputs_required"]')){ return; }
     const cb = sec.querySelector('.pipeHeader input[type="checkbox"]');
     const body = sec.querySelector('.pipeBody');
     if(!cb || !body) return;
