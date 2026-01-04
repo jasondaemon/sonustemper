@@ -121,16 +121,30 @@ def calc_cf_corr(path: Path) -> dict:
     try:
         r = run_cmd([
             "ffmpeg", "-hide_banner", "-nostats", "-i", str(path),
-            "-filter_complex", "astats=metadata=1:reset=0",
+            "-filter_complex", "astats=metadata=1:measure_overall=1:measure_perchannel=1:reset=0",
             "-f", "null", "-"
         ])
         txt = (r.stderr or "") + "\n" + (r.stdout or "")
         flags = re.IGNORECASE
-        peak_matches = re.findall(r"Overall (?:peak|max)_level(?: dB)?[:\s]+([\-0-9\.]+)", txt, flags)
-        rms_matches = re.findall(r"Overall RMS (?:level)?(?: dB)?[:\s]+([\-0-9\.]+)", txt, flags)
+        peak_matches = re.findall(r"Overall (?:peak|max)_level(?: dB)?[:\s]+([\-0-9\.]+)", txt, flags) \
+            or re.findall(r"Overall max_level_dB[:\s]+([\-0-9\.]+)", txt, flags)
+        rms_matches = re.findall(r"Overall RMS (?:level)?(?: dB)?[:\s]+([\-0-9\.]+)", txt, flags) \
+            or re.findall(r"Overall RMS level dB[:\s]+([\-0-9\.]+)", txt, flags)
         corr_matches = re.findall(r"Overall (?:correlation|corr(?:elation)?)(?: coefficient)?[:\s]+([\-0-9\.]+)", txt, flags)
-        peak = float(peak_matches[-1]) if peak_matches else None
-        rms = float(rms_matches[-1]) if rms_matches else None
+        if not peak_matches:
+            peak_matches = re.findall(r"Channel \d+ (?:peak|max)_level(?: dB)?[:\s]+([\-0-9\.]+)", txt, flags)
+        if not rms_matches:
+            rms_matches = re.findall(r"Channel \d+ RMS (?:level)?(?: dB)?[:\s]+([\-0-9\.]+)", txt, flags)
+        def pick(vals):
+            if not vals:
+                return None
+            try:
+                nums = [float(v) for v in vals]
+                return sum(nums)/len(nums)
+            except Exception:
+                return None
+        peak = pick(peak_matches)
+        rms = pick(rms_matches)
         corr = float(corr_matches[-1]) if corr_matches else None
         if peak is not None and rms is not None:
             out["crest_factor"] = peak - rms
