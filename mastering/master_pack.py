@@ -185,19 +185,10 @@ def measure_loudness(wav_path: Path) -> dict:
 
 
 def measure_astats_overall(wav_path: Path) -> dict:
-    """Extract useful mastering metrics via ffmpeg astats (overall section).
-
-    Notes about this container's ffmpeg build:
-      - astats prints its measurements to *stderr*.
-      - measure_overall / measure_perchannel take FLAG-SETS (e.g. Peak_level+RMS_level), not booleans.
-      - Some builds do not emit a labeled 'Dynamic range' line; we derive a practical proxy:
-            dynamic_range = RMS_peak_dB - RMS_level_dB
-        when needed.
-
-    Returns a dict of floats (dB where applicable) or None.
+    """Extract a small set of useful mastering metrics via ffmpeg astats (overall section).
+    This ffmpeg build uses measure_overall/measure_perchannel as flag-sets (not booleans).
     """
-    # Ask for the fields we actually use/show (plus a few extras that are cheap to collect)
-    want = "Peak_level+RMS_level+RMS_peak+RMS_trough+Noise_floor+Noise_floor_count+Flat_factor+Entropy+Crest_factor"
+    want = "Peak_level+RMS_level+Dynamic_range+Noise_floor+Crest_factor"
     r = run_cmd([
         "ffmpeg", "-hide_banner", "-v", "verbose", "-nostats", "-i", str(wav_path),
         "-af", f"astats=measure_overall={want}:measure_perchannel=none:reset=0",
@@ -205,22 +196,12 @@ def measure_astats_overall(wav_path: Path) -> dict:
     ])
     txt = (r.stderr or "") + "\n" + (r.stdout or "")
     out = {
-        # core (shown in UI)
         "peak_level": None,
         "rms_level": None,
-        "dynamic_range": None,  # may be derived (proxy) below
+        "dynamic_range": None,
         "noise_floor": None,
         "crest_factor": None,
-        # extras (optional / future UI)
-        "rms_peak": None,
-        "rms_trough": None,
-        "entropy": None,
-        "flat_factor": None,
-        "noise_floor_count": None,
-        # flags
-        "noise_floor_is_inf": False,
     }
-
     section = None
     for raw in txt.splitlines():
         line = raw.strip()
@@ -229,7 +210,6 @@ def measure_astats_overall(wav_path: Path) -> dict:
             line = line.split("]", 1)[1].strip()
         if not line:
             continue
-
         low = line.lower()
         if low == "overall":
             section = "overall"
@@ -239,48 +219,24 @@ def measure_astats_overall(wav_path: Path) -> dict:
             continue
         if section != "overall":
             continue
-
         if ":" not in line:
             continue
         k, v = line.split(":", 1)
         k = k.strip().lower().replace(" ", "_")
         v = v.strip()
-
-        # Debian build emits e.g. "peak_level_db"
-        if k.endswith("_db"):
-            k = k[:-3]
-
-        # Parse numeric value; allow -inf/inf
-        if v.lower().startswith("-inf") or v.lower().startswith("inf"):
-            num = None
-            if k == "noise_floor":
-                out["noise_floor_is_inf"] = True
-                # Clamp for UI usability (you can change this later)
-                num = -120.0
-        else:
-            m = re.match(r"^([\-0-9\.]+)", v)
-            if not m:
-                continue
-            try:
-                num = float(m.group(1))
-            except Exception:
-                continue
-
-        # Map/keep fields
-        if k in (
-            "peak_level", "rms_level", "dynamic_range", "noise_floor", "crest_factor",
-            "rms_peak", "rms_trough", "entropy", "flat_factor", "noise_floor_count"
-        ):
+        # value is usually like "-18.23 dB" or "0.0002"
+        m = re.match(r"^([\-0-9\.]+)", v)
+        if not m:
+            continue
+        try:
+            num = float(m.group(1))
+        except Exception:
+            continue
+        if k in ("peak_level", "rms_level", "dynamic_range", "noise_floor", "crest_factor"):
             out[k] = num
-
-    # Derive crest_factor if missing but peak/rms present
+    # If crest_factor wasn't reported, compute it from peak/rms if possible
     if out["crest_factor"] is None and out["peak_level"] is not None and out["rms_level"] is not None:
         out["crest_factor"] = out["peak_level"] - out["rms_level"]
-
-    # Derive a practical dynamic-range proxy if this build doesn't emit a labeled dynamic_range
-    if out["dynamic_range"] is None and out["rms_peak"] is not None and out["rms_level"] is not None:
-        out["dynamic_range"] = out["rms_peak"] - out["rms_level"]
-
     return out
 
 def write_metrics(wav_out: Path, target_lufs: float, ceiling_db: float, width: float):
