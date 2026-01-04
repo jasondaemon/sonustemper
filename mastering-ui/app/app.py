@@ -770,10 +770,9 @@ input[type="range"]{
         <div class="pipeWrap">
           <!-- Inputs -->
           <div class="pipeSection">
-            <label class="pipeHeader">
-              <input type="checkbox" id="stage_inputs" checked>
+            <div class="pipeHeader">
               <span>Inputs</span>
-            </label>
+            </div>
             <div class="pipeBody" data-stage="stage_inputs">
               <div class="hidden"><select id="infile"></select></div>
               <div class="control-row" style="align-items:flex-start; margin-top:6px;">
@@ -790,7 +789,7 @@ input[type="range"]{
           <!-- Analyze -->
           <div class="pipeSection">
             <label class="pipeHeader">
-              <input type="checkbox" id="stage_analyze" checked>
+              <input type="checkbox" id="stage_analyze">
               <span>Analyze</span>
             </label>
             <div class="pipeBody" data-stage="stage_analyze">
@@ -803,7 +802,7 @@ input[type="range"]{
           <!-- Master: presets + strength -->
           <div class="pipeSection">
             <label class="pipeHeader">
-              <input type="checkbox" id="stage_master" checked>
+              <input type="checkbox" id="stage_master">
               <span>Preset + Strength</span>
             </label>
             <div class="pipeBody" data-stage="stage_master">
@@ -827,7 +826,7 @@ input[type="range"]{
           <!-- Loudness / Normalize -->
           <div class="pipeSection">
             <label class="pipeHeader">
-              <input type="checkbox" id="stage_loudness" checked>
+              <input type="checkbox" id="stage_loudness">
               <span>Loudness & Normalize</span>
             </label>
             <div class="pipeBody" data-stage="stage_loudness">
@@ -856,7 +855,7 @@ input[type="range"]{
           <!-- Stereo / Tone -->
           <div class="pipeSection">
             <label class="pipeHeader">
-              <input type="checkbox" id="stage_stereo" checked>
+              <input type="checkbox" id="stage_stereo">
               <span>Stereo & Tone</span>
             </label>
             <div class="pipeBody" data-stage="stage_stereo">
@@ -1179,6 +1178,7 @@ async function refreshAll() {
         input.addEventListener('change', () => {
           try { localStorage.setItem(PACK_PRESETS_KEY, getSelectedPresets().join(",")); } catch {}
           updatePackButtonState();
+          updateRunButtonsState();
         });
         packBox.appendChild(wrap);
       });
@@ -1202,6 +1202,7 @@ async function refreshAll() {
         const input = wrap.querySelector('input');
         input.addEventListener('change', () => {
           try { localStorage.setItem(BULK_FILES_KEY, getSelectedBulkFiles().join(",")); } catch {}
+          updateRunButtonsState();
         });
         bulkBox.appendChild(wrap);
       });
@@ -1214,6 +1215,7 @@ async function refreshAll() {
     console.error("refreshAll failed:", e);
     setStatus("ERROR loading lists (open console)");
   }
+  updateRunButtonsState();
   await refreshRecent();
 }
 function setResult(text){ const el=document.getElementById('result'); if(el) el.textContent = text || '(no output)'; }
@@ -1288,6 +1290,7 @@ function selectAllPackPresets(){
   const checks = [...box.querySelectorAll('input[type=checkbox]')];
   checks.forEach(c => { c.checked = true; });
   try { localStorage.setItem(PACK_PRESETS_KEY, checks.map(c=>c.value).join(",")); } catch {}
+  updateRunButtonsState();
 }
 function clearAllPackPresets(){
   const box = document.getElementById('packPresetsBox');
@@ -1302,12 +1305,14 @@ function selectAllBulk(){
   if (!box) return;
   box.querySelectorAll('input[type=checkbox]').forEach(c => c.checked = true);
   try { localStorage.setItem(BULK_FILES_KEY, getSelectedBulkFiles().join(",")); } catch {}
+  updateRunButtonsState();
 }
 function clearAllBulk(){
   const box = document.getElementById('bulkFilesBox');
   if (!box) return;
   box.querySelectorAll('input[type=checkbox]').forEach(c => c.checked = false);
   try { localStorage.setItem(BULK_FILES_KEY, ""); } catch {}
+  updateRunButtonsState();
 }
 function getSelectedBulkFiles(){
   const box = document.getElementById('bulkFilesBox');
@@ -1326,7 +1331,7 @@ function getSelectedPresets(){
 function updatePackButtonState(){
   const btn = document.getElementById('runPackBtn');
   if (!btn) return;
-  btn.disabled = getSelectedPresets().length === 0;
+  btn.disabled = getSelectedPresets().length === 0 || getSelectedBulkFiles().length === 0;
 }
 function showManage(){
   document.querySelectorAll('.masterPane').forEach(el => el.classList.add('hidden'));
@@ -1338,6 +1343,16 @@ function showMaster(){
   document.querySelectorAll('.masterPane').forEach(el => el.classList.remove('hidden'));
   const mv = document.getElementById('manageView');
   if (mv) mv.classList.add('hidden');
+}
+function updateRunButtonsState(){
+  const hasFiles = getSelectedBulkFiles().length > 0;
+  const runPackBtn = document.getElementById('runPackBtn');
+  const runBulkBtn = document.getElementById('runBulkBtn');
+  const runOneBtn = document.getElementById('runOneBtn');
+  const needsPreset = getSelectedPresets().length === 0;
+  if (runPackBtn) runPackBtn.disabled = (!hasFiles || needsPreset);
+  if (runBulkBtn) runBulkBtn.disabled = (!hasFiles || needsPreset);
+  if (runOneBtn) runOneBtn.disabled = (!hasFiles || needsPreset);
 }
 async function renderManage(){
   const uploadsDiv = document.getElementById('manageUploads');
@@ -2063,6 +2078,7 @@ document.addEventListener('DOMContentLoaded', () => {
     wireUI();
     initLoudnessMode();
     setMetricsPanel('(none)');
+    updateRunButtonsState();
     // Restore pack-in-flight status if page refreshed mid-run (10 min window)
     try {
       const ts = parseInt(localStorage.getItem("packInFlight") || "0", 10);
@@ -2106,7 +2122,20 @@ function initPipelineSections(){
         body.querySelectorAll('input,select,button,textarea').forEach(el => { el.disabled = true; });
       }
     };
-    cb.addEventListener('change', apply);
+    cb.addEventListener('change', () => {
+      if (cb.checked && cb.id !== 'stage_analyze') {
+        const analyze = document.getElementById('stage_analyze');
+        if (analyze) analyze.checked = true;
+        const analyzeSec = analyze ? analyze.closest('.pipeSection') : null;
+        if (analyzeSec) {
+          analyzeSec.classList.remove('disabled');
+          analyzeSec.querySelectorAll('.pipeBody input, .pipeBody select, .pipeBody button, .pipeBody textarea').forEach(el => el.disabled = false);
+          const analyzeBody = analyzeSec.querySelector('.pipeBody');
+          if (analyzeBody) analyzeBody.classList.remove('pipeBodyCollapsed');
+        }
+      }
+      apply();
+    });
     apply();
   });
 }
