@@ -515,7 +515,37 @@ HTML_TEMPLATE = r"""
     .manage-list{ display:flex; flex-direction:column; gap:8px; }
     .manage-item{ display:flex; justify-content:space-between; align-items:center; padding:8px 10px; border:1px solid var(--line); border-radius:10px; }
     .smallBtn{ padding:6px 10px; font-size:12px; border-radius:10px; border:1px solid var(--line); background:#0f151d; color:#d7e6f5; cursor:pointer; }
-  </style>
+  
+
+/* --- Layout: keep Previous Runs side-by-side with Job Output on wide screens --- */
+.mainGrid{ display:grid; grid-template-columns: 360px 1fr; gap:16px; align-items:start; }
+.leftCol{ display:flex; flex-direction:column; gap:14px; min-width:0; }
+.rightCol{ display:flex; flex-direction:column; gap:14px; min-width:0; }
+
+/* Make Previous Runs list scroll instead of leaving a big blank gap */
+.prevRunsList{ max-height: 260px; overflow:auto; padding-right:4px; }
+
+@media (max-width: 1100px){
+  .mainGrid{ grid-template-columns: 1fr; }
+  .prevRunsList{ max-height: 220px; }
+}
+
+
+/* --- Metrics: two-level layout with wrapping --- */
+.metricsGrid{ display:flex; flex-wrap:wrap; gap:10px 12px; }
+.metricChip{ flex:1 1 150px; min-width:150px; border:1px solid var(--line); border-radius:12px;
+  padding:10px; background:rgba(10,16,22,.45); }
+.metricTitle{ display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
+.metricTitle .label{ font-size:12px; color:var(--muted); }
+.metricLines{ display:flex; flex-direction:column; gap:4px; }
+.metricLine{ display:flex; align-items:baseline; gap:8px; }
+.metricTag{ font-size:11px; color:var(--muted); min-width:26px; }
+.metricVal{ font-size:13px; }
+.metricDelta{ font-size:11px; color:var(--muted); margin-left:auto; }
+.advToggle{ display:flex; align-items:center; gap:10px; margin:10px 0 2px; }
+.advToggle button{ background:transparent; border:1px solid var(--line); color:var(--text); border-radius:10px; padding:6px 10px; }
+.advHidden{ display:none; }
+</style>
 <style>
 /* --- Mastering UI control rows --- */
 .control-row{
@@ -698,8 +728,10 @@ input[type="range"]{
 <div id="statusMsg" class="small" style="margin-top:8px;opacity:.85"></div>
       </div>
     </div>
-<div class="grid" id="masterView">
-      <div class="card masterPane" id="uploadCard">
+<div class="mainGrid" id="masterView">
+        </div>
+  <div class="rightCol">
+    <div class="card masterPane" id="uploadCard">
         <h2>Upload</h2>
         <form id="uploadForm">
           <div class="row">
@@ -801,7 +833,11 @@ input[type="range"]{
         </div>
       </div>
     </div>
-    <div class="footer">developed by <a class="linkish" href="http://www.jasondaemon.net">jasondaemon.net</a></div>
+    <div class="footer"></div>
+  </div>
+</div>
+
+developed by <a class="linkish" href="http://www.jasondaemon.net">jasondaemon.net</a></div>
   </div>
 <script>
 function setStatus(msg) {
@@ -1378,7 +1414,55 @@ function initInfoDrawer(){
 }
 function fmtMetric(v, suffix=""){
   if (v === null || v === undefined) return "—";
-  if (typeof v === "number" && Number.isFinite(v)) return `${v.toFixed(1)}${suffix}`;
+  if (typeof v === "number" && Number.isFinite(v)) return `${v.toFixed(1)}
+
+function renderMetricChip(label, key, inputM, outputM, suffix){
+  const vIn = metricVal(inputM, key);
+  const vOut = metricVal(outputM, key);
+  const d = (typeof vIn === "number" && typeof vOut === "number") ? (vOut - vIn) : null;
+  const dTxt = (d === null) ? "" : `${d>0?"+":""}${d.toFixed(1)}${suffix||""}`;
+  return `
+    <div class="metricChip">
+      <div class="metricTitle">
+        <div class="label">${label}</div>
+        <button class="infoBtn" data-type="metrics" data-id="${key}" aria-label="About ${label}">ⓘ</button>
+      </div>
+      <div class="metricLines">
+        <div class="metricLine"><span class="metricTag">In</span><span class="metricVal">${fmtMetric(vIn, suffix||"")}</span></div>
+        <div class="metricLine"><span class="metricTag">Out</span><span class="metricVal">${fmtMetric(vOut, suffix||"")}</span><span class="metricDelta">${dTxt ? `Δ ${dTxt}` : ""}</span></div>
+      </div>
+    </div>`;
+}
+
+function fmtMetricsTwoLevel(inputM, outputM){
+  const core = [
+    {label:"I", key:"I", suffix:" LUFS"},
+    {label:"TP", key:"TP", suffix:" dB"},
+    {label:"LRA", key:"LRA", suffix:""},
+    {label:"Peak", key:"Peak", suffix:" dB"},
+    {label:"RMS", key:"RMS", suffix:" dB"},
+    {label:"DR", key:"DR", suffix:" dB"},
+    {label:"CF", key:"CF", suffix:" dB"},
+  ];
+  const adv = [
+    {label:"Noise", key:"Noise", suffix:" dB"},
+    {label:"Corr", key:"Corr", suffix:""},
+    {label:"Dur", key:"Dur", suffix:" s"},
+    {label:"W", key:"W", suffix:""},
+  ];
+
+  const coreHtml = core.map(c=>renderMetricChip(c.label,c.key,inputM,outputM,c.suffix)).join("");
+  const advHtml = adv.map(c=>renderMetricChip(c.label,c.key,inputM,outputM,c.suffix)).join("");
+
+  const id = `adv_${Math.random().toString(36).slice(2)}`;
+
+  return `
+    <div class="metricsGrid">${coreHtml}</div>
+    <div class="advToggle"><button type="button" onclick="(function(){const el=document.getElementById('${id}'); if(!el) return; el.classList.toggle('advHidden');})()">Advanced metrics</button></div>
+    <div id="${id}" class="metricsGrid advHidden">${advHtml}</div>
+  `;
+}
+${suffix}`;
   return String(v);
 }
 function fmtDelta(out, inp, suffix=""){
@@ -1405,7 +1489,7 @@ function metricVal(m, key){
     default: return null;
   }
 }
-function fmtCompactIO(inputM, outputM){
+function fmtMetricsTwoLevel(inputM, outputM){
   const cols = [
     { key:"I",   label:"I",   suffix:" LUFS", tip:"Integrated loudness (LUFS)" },
     { key:"TP",  label:"TP",  suffix:" dB",  tip:"True peak (dBTP)" },
@@ -1574,7 +1658,7 @@ async function loadSong(song, skipEmpty=false){
       const audioSrc = it.mp3 || it.wav || null;
       if (audioSrc) hasPlayable = true;
       if (it.metrics) anyMetricsStrings = true;
-      const compact = fmtCompactIO(lastRunInputMetrics, it.metrics_obj || {});
+      const compact = fmtMetricsTwoLevel(lastRunInputMetrics, it.metrics_obj || {});
       const ioBlock = compact ? `<div class="ioRow">${compact}</div>` : '';
       const div = document.createElement('div');
       div.className = 'outitem';
