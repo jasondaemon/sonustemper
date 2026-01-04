@@ -572,7 +572,7 @@ HTML_TEMPLATE = r"""
 .metricDelta{ font-size:11px; color:var(--muted); margin-left:auto; }
 .advToggle{ display:flex; align-items:center; gap:10px; margin:10px 0 2px; }
 .advToggle button{ background:transparent; border:1px solid var(--line); color:var(--text); border-radius:10px; padding:6px 10px; }
-.advHidden{ display:none; }
+.advHidden{display:none !important;}
 
 
 /* --- Metrics compact overrides --- */
@@ -582,6 +582,9 @@ HTML_TEMPLATE = r"""
 .metricVal{ font-size:12px; }
 .metricTag{ font-size:10px; min-width:22px; }
 .metricDelta{ font-size:10px; }
+
+/* advHidden specificity */
+.metricsGrid.advHidden{display:none !important;}
 </style>
 <style>
 /* --- Mastering UI control rows --- */
