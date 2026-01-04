@@ -118,7 +118,7 @@ def write_metrics(wav_out: Path, target_lufs: float, ceiling_db: float, width: f
                 m["duration_sec"] = dur
     except Exception:
         pass
-    # crest factor / correlation
+   # crest factor / correlation
     try:
         m_txt = run_cmd([
             "ffmpeg", "-hide_banner", "-v", "info", "-nostats", "-i", str(wav_out),
@@ -127,16 +127,11 @@ def write_metrics(wav_out: Path, target_lufs: float, ceiling_db: float, width: f
         ])
         txt = (m_txt.stderr or "") + "\n" + (m_txt.stdout or "")
         flags = re.IGNORECASE
-        peak_matches = re.findall(r"Overall (?:peak|max)_level(?: dB)?[:\s]+([\-0-9\.]+)", txt, flags) \
-            or re.findall(r"Overall max_level_dB[:\s]+([\-0-9\.]+)", txt, flags)
-        rms_matches = re.findall(r"Overall RMS (?:level)?(?: dB)?[:\s]+([\-0-9\.]+)", txt, flags) \
-            or re.findall(r"Overall RMS level dB[:\s]+([\-0-9\.]+)", txt, flags)
-        corr_matches = re.findall(r"Overall (?:correlation|corr(?:elation)?)(?: coefficient)?[:\s]+([\-0-9\.]+)", txt, flags)
-        # fallback to per-channel if overall missing
-        if not peak_matches:
-            peak_matches = re.findall(r"Channel \d+ (?:peak|max)_level(?: dB)?[:\s]+([\-0-9\.]+)", txt, flags)
-        if not rms_matches:
-            rms_matches = re.findall(r"Channel \d+ RMS (?:level)?(?: dB)?[:\s]+([\-0-9\.]+)", txt, flags)
+        peak_matches = re.findall(r"Overall (?:peak|max)[^\n]*?([\-0-9\.]+)", txt, flags) \
+            or re.findall(r"Channel \d+ (?:peak|max)[^\n]*?([\-0-9\.]+)", txt, flags)
+        rms_matches = re.findall(r"Overall RMS[^\n]*?([\-0-9\.]+)", txt, flags) \
+            or re.findall(r"Channel \d+ RMS[^\n]*?([\-0-9\.]+)", txt, flags)
+        corr_matches = re.findall(r"Overall (?:correlation|corr)[^\n]*?([\-0-9\.]+)", txt, flags)
         def pick(vals):
             if not vals:
                 return None
@@ -147,7 +142,7 @@ def write_metrics(wav_out: Path, target_lufs: float, ceiling_db: float, width: f
                 return None
         peak = pick(peak_matches)
         rms = pick(rms_matches)
-        corr = float(corr_matches[-1]) if corr_matches else None
+        corr = pick(corr_matches)
         if peak is not None and rms is not None:
             m["crest_factor"] = peak - rms
         if corr is not None:
@@ -159,30 +154,12 @@ def write_metrics(wav_out: Path, target_lufs: float, ceiling_db: float, width: f
                 "-f", "null", "-"
             ])
             txt2 = (m_txt2.stderr or "") + "\n" + (m_txt2.stdout or "")
-            peak2 = re.findall(r"Overall (?:peak|max)_level(?: dB)?[:\s]+([\-0-9\.]+)", txt2, flags)
-            rms2 = re.findall(r"Overall RMS (?:level)?(?: dB)?[:\s]+([\-0-9\.]+)", txt2, flags)
-            corr2 = re.findall(r"Overall (?:correlation|corr(?:elation)?)(?: coefficient)?[:\s]+([\-0-9\.]+)", txt2, flags)
+            peak2 = re.findall(r"Overall (?:peak|max)[^\n]*?([\-0-9\.]+)", txt2, flags)
+            rms2 = re.findall(r"Overall RMS[^\n]*?([\-0-9\.]+)", txt2, flags)
+            corr2 = re.findall(r"Overall (?:correlation|corr)[^\n]*?([\-0-9\.]+)", txt2, flags)
             p2 = pick(peak2)
             r2 = pick(rms2)
-            c2 = float(corr2[-1]) if corr2 else None
-            if p2 is not None and r2 is not None and m.get("crest_factor") is None:
-                m["crest_factor"] = p2 - r2
-            if c2 is not None and m.get("stereo_corr") is None:
-                m["stereo_corr"] = c2
-        # fallback second pass if still None
-        if m.get("crest_factor") is None or m.get("stereo_corr") is None:
-            m_txt2 = run_cmd([
-                "ffmpeg", "-hide_banner", "-v", "info", "-nostats", "-i", str(wav_out),
-                "-af", "astats=metadata=1:reset=0",
-                "-f", "null", "-"
-            ])
-            txt2 = (m_txt2.stderr or "") + "\n" + (m_txt2.stdout or "")
-            peak_matches2 = re.findall(r"Overall (?:peak|max)_level(?: dB)?[:\\s]+([\\-0-9\\.]+)", txt2, flags)
-            rms_matches2 = re.findall(r"Overall RMS (?:level)?(?: dB)?[:\\s]+([\\-0-9\\.]+)", txt2, flags)
-            corr_matches2 = re.findall(r"Overall (?:correlation|corr(?:elation)?)(?: coefficient)?[:\\s]+([\\-0-9\\.]+)", txt2, flags)
-            p2 = pick(peak_matches2)
-            r2 = pick(rms_matches2)
-            c2 = float(corr_matches2[-1]) if corr_matches2 else None
+            c2 = pick(corr2)
             if p2 is not None and r2 is not None and m.get("crest_factor") is None:
                 m["crest_factor"] = p2 - r2
             if c2 is not None and m.get("stereo_corr") is None:
