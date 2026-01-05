@@ -2603,6 +2603,40 @@ MANAGE_PRESETS_HTML = r"""
     label{ color:#cfe0f1; font-size:13px; font-weight:600; }
     input[type="file"]{ color:var(--text); }
     .col{ display:flex; flex-direction:column; gap:6px; }
+    .info-btn{
+      border:1px solid var(--line);
+      background:#0f151d;
+      color:var(--muted);
+      border-radius:50%;
+      width:22px; height:22px;
+      display:inline-flex; align-items:center; justify-content:center;
+      cursor:pointer;
+      font-size:12px;
+    }
+    .info-btn:hover{ color:var(--text); border-color:var(--accent); }
+    .drawer-backdrop{
+      position:fixed; inset:0; background:rgba(0,0,0,0.35); backdrop-filter: blur(2px);
+      z-index:999; transition: opacity .2s ease;
+    }
+    .info-drawer{
+      position:fixed; top:0; right:0; width:420px; max-width:90vw; height:100%;
+      background:#0f151d; border-left:1px solid var(--line); box-shadow: -6px 0 18px rgba(0,0,0,0.35);
+      z-index:1000; transform: translateX(100%); transition: transform .25s ease;
+      display:flex; flex-direction:column; padding:16px;
+    }
+    .info-drawer.open{ transform: translateX(0); }
+    @media (max-width: 768px){
+      .info-drawer{ width:100%; height:65vh; top:auto; bottom:0; border-left:0; border-top:1px solid var(--line); transform: translateY(100%); }
+      .info-drawer.open{ transform: translateY(0); }
+    }
+    .drawer-header{ display:flex; justify-content:space-between; align-items:center; gap:10px; }
+    .drawer-header h2{ margin:0; font-size:16px; color:#e7eef6; }
+    .drawer-subtitle{ color:var(--muted); font-size:12px; }
+    .drawer-body{ margin-top:12px; overflow:auto; padding-right:6px; display:flex; flex-direction:column; gap:10px; }
+    .drawer-section h3{ margin:0 0 6px 0; font-size:13px; color:#cfe0f1; }
+    .drawer-section ul{ margin:0; padding-left:18px; color:#d7e6f5; font-size:12px; }
+    .drawer-section .chips{ display:flex; flex-wrap:wrap; gap:6px; }
+    .drawer-section .chip{ padding:6px 10px; border:1px solid var(--line); border-radius:12px; font-size:12px; color:#d7e6f5; background:#0f151d; }
   </style>
 </head>
 <body>
@@ -2635,6 +2669,21 @@ MANAGE_PRESETS_HTML = r"""
       <div id="presetList" class="list"></div>
     </div>
   </div>
+  <div id="drawerBackdropManage" class="drawer-backdrop hidden" tabindex="-1"></div>
+  <aside id="infoDrawerManage"
+         class="info-drawer hidden"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="drawerTitleManage">
+    <div class="drawer-header">
+      <div>
+        <h2 id="drawerTitleManage"></h2>
+        <div id="drawerSubtitleManage" class="drawer-subtitle"></div>
+      </div>
+      <button id="drawerCloseManage" aria-label="Close">✕</button>
+    </div>
+    <div id="drawerBodyManage" class="drawer-body"></div>
+  </aside>
 <script>
 async function loadPresets(){
   const list = document.getElementById('presetList');
@@ -2701,6 +2750,63 @@ document.getElementById('uploadPresetForm').addEventListener('submit', async (e)
   }
 });
 loadPresets();
+loadPresets();
+function openDrawerManage(title, subtitle, bodyHTML){
+  const drawer = document.getElementById('infoDrawerManage');
+  const backdrop = document.getElementById('drawerBackdropManage');
+  const titleEl = document.getElementById('drawerTitleManage');
+  const subEl = document.getElementById('drawerSubtitleManage');
+  const bodyEl = document.getElementById('drawerBodyManage');
+  titleEl.textContent = title || '';
+  subEl.textContent = subtitle || '';
+  bodyEl.innerHTML = bodyHTML || '';
+  drawer.classList.remove('hidden');
+  setTimeout(()=>drawer.classList.add('open'), 10);
+  backdrop.classList.remove('hidden');
+}
+function closeDrawerManage(){
+  const drawer = document.getElementById('infoDrawerManage');
+  const backdrop = document.getElementById('drawerBackdropManage');
+  drawer.classList.remove('open');
+  setTimeout(()=>drawer.classList.add('hidden'), 150);
+  backdrop.classList.add('hidden');
+}
+document.getElementById('drawerBackdropManage').addEventListener('click', closeDrawerManage);
+document.getElementById('drawerCloseManage').addEventListener('click', closeDrawerManage);
+document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape') closeDrawerManage(); });
+document.body.addEventListener('click', (e)=>{
+  const btn = e.target.closest('.info-btn');
+  if(!btn) return;
+  const type = btn.getAttribute('data-info-type');
+  if(type === 'manage-preset-info'){
+    const body = `
+      <div class="drawer-section">
+        <h3>How it works</h3>
+        <div class="small">We analyze your reference with ffmpeg (loudness, crest factor, basic tone) and seed a simple preset (LUFS target, limiter ceiling, gentle EQ/comp). The source file is discarded after creation.</div>
+      </div>
+      <div class="drawer-section">
+        <h3>Included in the preset</h3>
+        <ul>
+          <li>Integrated LUFS target from the reference</li>
+          <li>Limiter ceiling based on measured true peak</li>
+          <li>Light EQ suggestions (de-mud/air lift) from crest factor clues</li>
+          <li>Starter compressor settings</li>
+          <li>Metadata: source filename and creation time</li>
+        </ul>
+      </div>
+      <div class="drawer-section">
+        <h3>Tips</h3>
+        <ul>
+          <li>Use a mix that represents your desired tone.</li>
+          <li>You can edit the saved JSON in the presets directory anytime.</li>
+          <li>Files over 100MB or unsupported formats are rejected.</li>
+        </ul>
+      </div>
+    `;
+    openDrawerManage("Reference-Based Preset", "", body);
+  }
+});
+
 document.body.addEventListener('click', (e)=>{
   const btn = e.target.closest('.info-btn');
   if(!btn) return;
