@@ -1203,6 +1203,7 @@ let runPollCycles = 0;
 let runPollActive = false;
 const pendingMetricsRetry = new Set();
 const metricsRetryCount = new Map();
+const metricsRetryCount = new Map();
 const METRIC_META = [
   { key:"I", label:"I", desc:"Integrated loudness (LUFS) averaged over the whole song. Higher (less negative) is louder; aim for musical balance, not just numbers." },
   { key:"TP", label:"TP", desc:"True Peak (dBTP) or peak dBFS if TP unavailable. Closer to 0 dBTP is louder but riskier; keep headroom for clean playback." },
@@ -2210,6 +2211,11 @@ async function finishPolling(finishedPrimary){
   setStatus("");
   appendJobLog("Job complete.");
   suppressRecentDuringRun = false;
+  // clear pending metric retries for this song
+  if (finishedPrimary) {
+    metricsRetryCount.delete(finishedPrimary);
+    pendingMetricsRetry.delete(finishedPrimary);
+  }
   if (finishedPrimary) {
     try { await refreshStatusLog(finishedPrimary); } catch(_){}
   }
@@ -2375,7 +2381,7 @@ async function loadSong(song, skipEmpty=false){
   if (!opts.quiet && hasPlayable && processing) {
     setResult("Outputs updating...");
   }
-  if (!opts.quiet && hasPlayable && !processing && !anyMetricsStrings) {
+  if (!opts.quiet && hasPlayable && runPollActive && !processing && !anyMetricsStrings) {
     const count = metricsRetryCount.get(song) || 0;
     if (count < 3 && !pendingMetricsRetry.has(song)) {
       pendingMetricsRetry.add(song);
