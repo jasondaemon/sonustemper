@@ -2208,7 +2208,7 @@ function stopRunPolling() {
 async function finishPolling(finishedPrimary){
   stopRunPolling();
   setStatus("");
-  appendJobLog("Job complete.");
+  setProgress(null);
   suppressRecentDuringRun = false;
   // clear pending metric retries for this song
   if (finishedPrimary) {
@@ -2238,6 +2238,7 @@ function startRunPolling(files) {
   setResultHTML(`<div id="joblog" class="mono"><div>Starting…</div></div>`);
   setProgress(0.05);
   runPollTimer = setInterval(async () => {
+    if (!runPollActive) return;
     try {
       let anyProcessing = false;
       let pending = new Set(runPollFiles);
@@ -2250,7 +2251,6 @@ function startRunPolling(files) {
         }
         if (res && res.hasPlayable && !res.processing) {
           if (!runPollDone.has(f)) {
-            appendJobLog(`Finished ${f}`);
             runPollDone.add(f);
           }
           pending.delete(f);
