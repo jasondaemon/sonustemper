@@ -868,6 +868,8 @@ input[type="range"]{
 }
 .ioTable th{ opacity:.75; }
 .ioTable td{ opacity:.9; }
+.progressWrap{margin-top:8px; height:10px; background:rgba(255,255,255,0.08); border:1px solid var(--line); border-radius:999px; overflow:hidden; display:none;}
+.progressBar{height:100%; width:0%; background:linear-gradient(90deg, var(--accent), #9ef4ff);}
 </style>
 </head>
 <body>
@@ -896,6 +898,7 @@ input[type="range"]{
         <div class="section-gap"></div>
         <h3 class="section-title">Processing Status</h3>
         <div id="result" class="result">(waiting)</div>
+        <div id="progressWrap" class="progressWrap"><div id="progressBar" class="progressBar"></div></div>
       </div>
       <div class="card masterPane">
         <h2>Master</h2>
@@ -1532,11 +1535,44 @@ function appendJobLog(message){
     setResult(message);
   }
 }
+function setProgress(fraction){
+  const wrap = document.getElementById('progressWrap');
+  const bar = document.getElementById('progressBar');
+  if (!wrap || !bar) return;
+  if (fraction === null || fraction === undefined || isNaN(fraction) || fraction <= 0) {
+    wrap.style.display = 'none';
+    bar.style.width = '0%';
+    return;
+  }
+  const pct = Math.max(0, Math.min(1, fraction)) * 100;
+  wrap.style.display = 'block';
+  bar.style.width = `${pct}%`;
+}
+function updateProgressFromEntries(entries){
+  if (!entries || !entries.length) {
+    setProgress(null);
+    return;
+  }
+  const stagesSeen = new Set(entries.map(e => e.stage).filter(Boolean));
+  const complete = stagesSeen.has('complete');
+  if (complete) {
+    setProgress(null);
+    return;
+  }
+  // Estimate based on known stage milestones; include outputs if present
+  const ordered = ['start','preset_start','preset_done','mp3_done','aac_done','ogg_done','flac_done','metrics_start','metrics_done','playlist'];
+  const total = ordered.length;
+  let done = 0;
+  ordered.forEach(s => { if (stagesSeen.has(s)) done += 1; });
+  const fraction = total ? done / total : 0;
+  setProgress(fraction);
+}
 function cleanResultText(t){
   const lines = (t || '').split('\n').map(l=>l.trim()).filter(l => l && !l.toLowerCase().startsWith('script:'));
   return lines.join('\n') || '(running…)';
 }
 function renderStatusEntries(entries){
+  updateProgressFromEntries(entries || []);
   if (!entries || !entries.length) return '<div class="small" style="opacity:.7;">(waiting for status)</div>';
   const stageLabel = (s) => {
     switch (s) {
