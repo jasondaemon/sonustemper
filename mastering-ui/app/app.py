@@ -419,9 +419,7 @@ def calc_cf_corr(path: Path) -> dict:
                 if "]" in line and line.startswith("["):
                     line = line.split("]", 1)[1].strip()
                 low = line.lower()
-                if low.startswith("overall"):
-                    pass
-                elif "overall" not in low:
+                if not (low.startswith("overall") or low.startswith("channel") or "overall" in low):
                     continue
                 if ":" not in line:
                     continue
@@ -447,7 +445,7 @@ def calc_cf_corr(path: Path) -> dict:
 
         # First attempt: metadata output (newer builds)
         r = run_cmd([
-            "ffmpeg", "-hide_banner", "-v", "warning", "-nostats", "-i", str(path),
+            "ffmpeg", "-hide_banner", "-v", "info", "-nostats", "-i", str(path),
             "-af", "astats=metadata=1:reset=0:measure_overall=1:measure_perchannel=0",
             "-f", "null", "-"
         ])
@@ -456,7 +454,7 @@ def calc_cf_corr(path: Path) -> dict:
         # Fallback: explicit measure_overall flags (older builds)
         if not all([out["peak_level"], out["rms_level"], out["dynamic_range"], out["noise_floor"], out["crest_factor"]]):
             r2 = run_cmd([
-                "ffmpeg", "-hide_banner", "-v", "warning", "-nostats", "-i", str(path),
+                "ffmpeg", "-hide_banner", "-v", "info", "-nostats", "-i", str(path),
                 "-af", "astats=reset=0:measure_overall=Peak_level|RMS_level|Dynamic_range|Noise_floor|Crest_factor:measure_perchannel=0",
                 "-f", "null", "-"
             ])
