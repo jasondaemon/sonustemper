@@ -2328,10 +2328,6 @@ let runPollFiles = [];
 let runPollSeen = new Set();
 let runPollDone = new Set();
 function stopRunPolling() {
-  if (runPollTimer) {
-    clearInterval(runPollTimer);
-    runPollTimer = null;
-  }
   if (statusStream) {
     statusStream.close();
     statusStream = null;
@@ -2339,8 +2335,6 @@ function stopRunPolling() {
   runPollFiles = [];
   runPollSeen = new Set();
   runPollDone = new Set();
-  runPollGrace = 0;
-  runPollCycles = 0;
   runPollActive = false;
   suppressRecentDuringRun = false;
   statusEntries = [];
@@ -2369,7 +2363,6 @@ function startRunPolling(files) {
   runPollFiles = [...arr];
   runPollPrimary = runPollFiles[0] || null;
   runPollSeen = new Set();
-  runPollCycles = 0;
   runPollActive = true;
   setStatus(`Processing ${arr.join(', ')}`);
   // Show an immediate placeholder so the user sees progress instantly
@@ -2435,20 +2428,6 @@ async function loadSong(song, options=false){
   }
   const hasItems = j.items && j.items.length > 0;
   if (opts.skipEmpty && !hasItems) return { hasItems:false, hasPlayable:false, processing:false };
-  let processing = false;
-  let markerMtime = 0;
-  // Only probe the .processing marker when polling is active; otherwise skip to avoid 404 spam
-  if (runPollActive) {
-    try {
-      const pr = await fetch(`/out/${song}/.processing`, { method:'GET', cache:'no-store' });
-      processing = pr.ok;
-      if (pr.ok) {
-        const head = await fetch(`/out/${song}/.processing`, { method:'HEAD', cache:'no-store' });
-        const lm = head.headers.get("last-modified");
-        if (lm) markerMtime = Date.parse(lm) || 0;
-      }
-    } catch(e){}
-  }
   let hasPlayable = false;
   let anyMetricsStrings = false;
   // Preload input metrics once per run when interactive
@@ -2503,21 +2482,7 @@ async function loadSong(song, options=false){
       if (it.metrics) anyMetricsStrings = true;
     });
   }
-  // No standalone metrics panel now; compact metrics are shown per output entry.
-  if (!opts.quiet && hasPlayable && processing) {
-    setResult("Outputs updating...");
-  }
-  if (!opts.quiet && hasPlayable && runPollActive && !processing && !anyMetricsStrings) {
-    const count = metricsRetryCount.get(song) || 0;
-    if (count < 3 && !pendingMetricsRetry.has(song)) {
-      pendingMetricsRetry.add(song);
-      metricsRetryCount.set(song, count + 1);
-      setTimeout(async () => {
-        try { await loadSong(song, { skipEmpty:true, quiet:true }); } finally { pendingMetricsRetry.delete(song); }
-      }, 1500);
-    }
-  }
-  return { hasItems, hasPlayable, processing };
+  return { hasItems, hasPlayable, processing:false };
 }
 async function showOutputsFromText(text){
   const lines = (text || '').split('\n').map(x => x.trim()).filter(Boolean);
