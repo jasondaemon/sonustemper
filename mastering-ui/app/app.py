@@ -2908,7 +2908,7 @@ def delete_output(song: str, name: str):
             removed.append(fp.name)
 
     if not removed:
-        raise HTTPException(status_code=404, detail="output_not_found")
+        return {"message": f"Nothing to delete for {stem}"}
     return {"message": f"Deleted {', '.join(removed)}"}
 @app.delete("/api/upload/{name}")
 def delete_upload(name: str):
