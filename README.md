@@ -23,6 +23,8 @@ SonusTemper is a one-page mastering workstation: drop in a song, choose a voicin
 ### Stereo & Tone
 - Optional stereo widening with guardrails and light tone shaping (EQ/comp). Voicings/presets supply their EQ/comp curves; stereo width is applied when enabled.
 
+![Settings](images/settings-v1.0.0.png)
+
 ### Output
 - Select any formats you want; each stage is optional. You can simply transcode WAV ➜ MP3 (or any format) by leaving mastering stages off.
 - Formats and options:
@@ -32,14 +34,10 @@ SonusTemper is a one-page mastering workstation: drop in a song, choose a voicin
   - OGG Vorbis: quality level
   - FLAC: compression level + optional rate/depth
 
-![Output settings](images/settings-v1.0.0.png)
-
 ### Processing Status, Previous Runs, Job Output
 - Processing Status lists each step (voicing/preset render, loudness, per-format exports, metrics).
 - Previous Runs updates only after a job fully finishes (including metrics) and lets you reload a past run into Job Output.
 - Job Output shows playback, per-format download links, delete links, and the metrics panel (LUFS, TP, LRA, crest, DR, noise, duration, width, etc.).
-
-![Metrics panel](images/jobmetrics.png)
 
 ### Status delivery (SSE, no polling)
 - Runs start via `/api/run` and stream status over Server-Sent Events from `/api/status-stream?song=<run_id>`.
@@ -59,6 +57,8 @@ SonusTemper is a one-page mastering workstation: drop in a song, choose a voicin
   - `<stem>__<variant>.metrics.json` (analysis)
   - `<stem>__<variant>.run.json` (provenance: exact payload + resolved values)
 - Delete links/API remove the audio plus its metrics/provenance companions.
+
+![Metrics panel](images/jobmetrics.png)
 
 ## Data paths
 - Inputs: `./data/in`
