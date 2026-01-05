@@ -431,7 +431,7 @@ def calc_cf_corr(path: Path) -> dict:
         if k == "noise_floor" and v.lower().startswith("-inf"):
             out["noise_floor"] = -120.0
             continue
-        m = re.match(r"^([\\-0-9\\.]+)", v.strip())
+        m = re.match(r"^([-0-9\\.]+)", v.strip())
         if not m:
             continue
         try:
