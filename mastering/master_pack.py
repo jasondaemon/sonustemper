@@ -199,6 +199,7 @@ IN_DIR = Path(os.getenv("IN_DIR", str(DATA_DIR / "in")))
 OUT_DIR = Path(os.getenv("OUT_DIR", str(DATA_DIR / "out")))
 PRESET_DIR = Path(os.getenv("PRESET_DIR", "/presets"))
 ANALYSIS_TMP = DATA_DIR / "tmp_analysis"
+GEN_PRESET_DIR = Path(os.getenv("GEN_PRESET_DIR", str(DATA_DIR / "generated_presets")))
 
 DEFAULT_PRESETS = [
     "clean","warm","rock","loud","acoustic","modern",
@@ -466,7 +467,9 @@ def generate_preset_from_reference(ref_path: Path, name_slug: str) -> Path:
             "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         }
     }
-    dest = PRESET_DIR / f"{name_slug}.json"
+    target_dir = PRESET_DIR if PRESET_DIR.exists() and os.access(PRESET_DIR, os.W_OK) else GEN_PRESET_DIR
+    target_dir.mkdir(parents=True, exist_ok=True)
+    dest = target_dir / f"{name_slug}.json"
     dest.write_text(json.dumps(preset, indent=2), encoding="utf-8")
     return dest
 
@@ -918,10 +921,14 @@ def main():
         }
         if do_master and voicing_mode == "presets":
             for p in presets:
-                preset_path = PRESET_DIR / f"{p}.json"
-                if not preset_path.exists():
-                    print(f"Skipping missing preset: {p}", file=sys.stderr)
-                    continue
+            preset_path = PRESET_DIR / f"{p}.json"
+            if not preset_path.exists():
+                alt = GEN_PRESET_DIR / f"{p}.json"
+                if alt.exists():
+                    preset_path = alt
+            if not preset_path.exists():
+                print(f"Skipping missing preset: {p}", file=sys.stderr)
+                continue
 
                 with open(preset_path, "r") as f:
                     preset = json.load(f)

@@ -14,7 +14,7 @@ services:
       MASTERING_BUILD: "dev"
     volumes:
       - ./data:/data
-      - ./presets:/presets:ro
+      - ./presets:/presets
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8383/health').read()"]
       interval: 30s

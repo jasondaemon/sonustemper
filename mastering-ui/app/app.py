@@ -16,6 +16,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 IN_DIR = Path(os.getenv("IN_DIR", str(DATA_DIR / "in")))
 OUT_DIR = Path(os.getenv("OUT_DIR", str(DATA_DIR / "out")))
 PRESET_DIR = Path(os.getenv("PRESET_DIR", "/presets"))
+GEN_PRESET_DIR = Path(os.getenv("GEN_PRESET_DIR", str(DATA_DIR / "generated_presets")))
 APP_DIR = Path(__file__).resolve().parent
 # Deprecated: master.py retained only as a fallback reference; master_pack.py is the unified runner.
 _default_master = APP_DIR / "mastering" / "master.py"
@@ -36,6 +37,13 @@ def read_metrics_for_wav(wav: Path) -> dict | None:
     mp = wav.with_suffix(".metrics.json")
     if not mp.exists():
         return None
+def _preset_paths():
+    paths = []
+    if PRESET_DIR.exists():
+        paths.extend(sorted(PRESET_DIR.glob("*.json")))
+    if GEN_PRESET_DIR.exists():
+        paths.extend(sorted(GEN_PRESET_DIR.glob("*.json")))
+    return paths
     try:
         return json.loads(mp.read_text(encoding="utf-8"))
     except Exception:
@@ -2820,15 +2828,12 @@ def list_files():
     IN_DIR.mkdir(parents=True, exist_ok=True)
     files = sorted([p.name for p in IN_DIR.iterdir()
                     if p.is_file() and p.suffix.lower() in [".wav",".mp3",".flac",".aiff",".aif"]])
-    presets = sorted([p.stem for p in PRESET_DIR.iterdir()
-                      if p.is_file() and p.suffix.lower()==".json"]) if PRESET_DIR.exists() else []
+    presets = sorted({p.stem for p in _preset_paths()})
     return {"files": files, "presets": presets}
 @app.get("/api/presets")
 def presets():
     # Return list of preset names derived from preset files on disk
-    if not PRESET_DIR.exists():
-        return []
-    names = sorted([p.stem for p in PRESET_DIR.glob("*.json")])
+    names = sorted({p.stem for p in _preset_paths()})
     return names
 @app.get("/api/recent")
 def recent(limit: int = 30):
@@ -3022,10 +3027,8 @@ def outlist(song: str):
     return {"items": items, "input": input_m}
 @app.get("/api/preset/list")
 def preset_list():
-    if not PRESET_DIR.exists():
-        return {"items": []}
     items = []
-    for fp in sorted(PRESET_DIR.glob("*.json")):
+    for fp in _preset_paths():
         items.append({
             "name": fp.stem,
             "filename": fp.name,
@@ -3034,16 +3037,22 @@ def preset_list():
     return {"items": items}
 @app.get("/api/preset/download/{name}")
 def preset_download(name: str):
-    target = (PRESET_DIR / f"{name}.json").resolve()
-    if PRESET_DIR.resolve() not in target.parents or not target.exists():
+    target = None
+    for fp in _preset_paths():
+        if fp.stem == name:
+            target = fp
+            break
+    if not target:
         raise HTTPException(status_code=404, detail="preset_not_found")
     return FileResponse(str(target), media_type="application/json", filename=target.name)
 @app.delete("/api/preset/{name}")
 def preset_delete(name: str):
-    target = (PRESET_DIR / f"{name}.json").resolve()
-    if PRESET_DIR.resolve() not in target.parents:
-        raise HTTPException(status_code=400, detail="invalid_path")
-    if not target.exists():
+    target = None
+    for fp in _preset_paths():
+        if fp.stem == name:
+            target = fp
+            break
+    if not target:
         raise HTTPException(status_code=404, detail="preset_not_found")
     target.unlink()
     return {"message": f"Deleted preset {name}"}
@@ -3063,8 +3072,9 @@ async def preset_generate(file: UploadFile = File(...)):
     tmp_path.write_bytes(contents)
     try:
         name_slug = _safe_slug(Path(file.filename).stem)
-        dest = PRESET_DIR / f"{name_slug}.json"
-        PRESET_DIR.mkdir(parents=True, exist_ok=True)
+        target_dir = PRESET_DIR if PRESET_DIR.exists() and _writable(PRESET_DIR) else GEN_PRESET_DIR
+        target_dir.mkdir(parents=True, exist_ok=True)
+        dest = target_dir / f"{name_slug}.json"
         # Analyze reference and build preset (simple heuristic)
         metrics = analyze_reference(tmp_path)
         target_lufs = metrics.get("I", -14.0)
