@@ -2278,6 +2278,12 @@ function startRunPolling(files) {
         return;
       }
       runPollCycles += 1;
+      // Failsafe: if we've been polling a few cycles without resolving, load once and stop
+      if (runPollCycles > 4) {
+        try { if (runPollPrimary) await loadSong(runPollPrimary); } catch(_){}
+        await finishPolling(runPollPrimary);
+        return;
+      }
       // Safety: stop after 120 cycles (~2.5 minutes) to avoid endless polling
       if (runPollCycles > 120) {
         await finishPolling(runPollPrimary);
