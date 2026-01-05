@@ -2870,12 +2870,36 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
   try { await refreshAll(); } catch (e) { console.error('post-upload refreshAll failed', e); }
 });
 document.addEventListener('DOMContentLoaded', () => {
+  // Wrap fetch to always send API key on /api/* calls
+  try {
+    const apiKey = window.__API_KEY__ || "";
+    if (apiKey && typeof window.fetch === 'function') {
+      const origFetch = window.fetch.bind(window);
+      window.fetch = (input, init) => {
+        let url = "";
+        if (typeof input === "string") {
+          url = input;
+        } else if (input && typeof input.url === "string") {
+          url = input.url;
+        }
+        if (url.startsWith("/api/")) {
+          init = init || {};
+          const headers = new Headers(init.headers || (input && input.headers) || {});
+          headers.set("X-API-Key", apiKey);
+          init.headers = headers;
+          return origFetch(input, init);
+        }
+        return origFetch(input, init);
+      };
+    }
+  } catch(e){ console.warn("api key fetch wrapper failed", e); }
+
   try {
     wireUI();
-  initLoudnessMode();
-  setMetricsPanel('(none)');
-  updateRunButtonsState();
-  initVoicingUI();
+    initLoudnessMode();
+    setMetricsPanel('(none)');
+    updateRunButtonsState();
+    initVoicingUI();
     // Restore pack-in-flight status if page refreshed mid-run (10 min window)
     try {
       const ts = parseInt(localStorage.getItem("packInFlight") || "0", 10);
@@ -2945,6 +2969,7 @@ document.addEventListener('DOMContentLoaded', () => {
 window.PRESET_META = {{ preset_meta_json }};
 window.LOUDNESS_PROFILES = {{ loudness_profiles_json }};
 window.VOICING_META = {{ voicing_meta_json }};
+window.__API_KEY__ = "{{ api_key }}";
 </script>
 <div id="drawerBackdrop" class="drawer-backdrop hidden" tabindex="-1"></div>
 <aside id="infoDrawer"
@@ -2971,12 +2996,14 @@ def index():
     html = html.replace("{{ preset_meta_json }}", json.dumps(load_preset_meta()))
     html = html.replace("{{ loudness_profiles_json }}", json.dumps(LOUDNESS_PROFILES))
     html = html.replace("{{ voicing_meta_json }}", json.dumps(VOICING_META))
+    html = html.replace("{{ api_key }}", API_KEY or "")
     html = html.replace("{{IN_DIR}}", str(IN_DIR))
     html = html.replace("{{OUT_DIR}}", str(OUT_DIR))
     return HTMLResponse(html)
 @app.get("/manage-presets", response_class=HTMLResponse)
 def manage_presets():
-    return HTMLResponse(MANAGE_PRESETS_HTML)
+    html = MANAGE_PRESETS_HTML.replace("{{ api_key }}", API_KEY or "")
+    return HTMLResponse(html)
 MANAGE_PRESETS_HTML = r"""
 <!doctype html>
 <html>
@@ -3092,6 +3119,7 @@ MANAGE_PRESETS_HTML = r"""
     <div id="drawerBodyManage" class="drawer-body"></div>
   </aside>
 <script>
+window.__API_KEY__ = "{{ api_key }}";
 async function loadPresets(){
   const list = document.getElementById('presetList');
   list.innerHTML = '<div class="small">Loading…</div>';
