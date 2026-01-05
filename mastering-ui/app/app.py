@@ -2157,6 +2157,20 @@ function stopRunPolling() {
   runPollDone = new Set();
   suppressRecentDuringRun = false;
 }
+async function finishPolling(finishedPrimary){
+  stopRunPolling();
+  setStatus("");
+  appendJobLog("Job complete.");
+  suppressRecentDuringRun = false;
+  if (finishedPrimary) {
+    try { await refreshStatusLog(finishedPrimary); } catch(_){}
+  }
+  try { await refreshRecent(true); } catch(e) { console.debug('recent refresh after polling stop failed', e); }
+  if (finishedPrimary) {
+    try { await loadSong(finishedPrimary); } catch(_){}
+  }
+  runPollPrimary = null;
+}
 function startRunPolling(files) {
   stopRunPolling();
   const arr = Array.isArray(files) ? files : [];
@@ -2198,26 +2212,15 @@ function startRunPolling(files) {
             const sj = await sres.json();
             const last = (sj.entries || []).slice(-1)[0];
             if (last && last.stage === 'complete') {
-              anyProcessing = false;
-              pending.clear();
+              await finishPolling(runPollPrimary);
+              return;
             }
           }
         } catch (_){}
       }
       if (!anyProcessing && pending.size === 0) {
-        stopRunPolling();
-        setStatus("");
-        appendJobLog("Job complete.");
-        suppressRecentDuringRun = false;
-        const finishedPrimary = runPollPrimary;
-        if (finishedPrimary) {
-          try { await refreshStatusLog(finishedPrimary); } catch(_){}
-        }
-        try { await refreshRecent(true); } catch(e) { console.debug('recent refresh after polling stop failed', e); }
-        if (finishedPrimary) {
-          try { await loadSong(finishedPrimary); } catch(_){}
-        }
-        runPollPrimary = null;
+        await finishPolling(runPollPrimary);
+        return;
       }
     } catch (e) {
       console.debug("poll error", e);
