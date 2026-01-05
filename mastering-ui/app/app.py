@@ -2165,6 +2165,8 @@ function startRunPolling(files) {
   runPollPrimary = runPollFiles[0] || null;
   runPollSeen = new Set();
   setStatus(`Processing ${arr.join(', ')}`);
+  // Show an immediate placeholder so the user sees progress instantly
+  setResultHTML(`<div id="joblog" class="mono"><div>Starting…</div></div>`);
   if (runPollPrimary) {
     refreshStatusLog(runPollPrimary);
   }
@@ -2208,7 +2210,7 @@ function startRunPolling(files) {
     } catch (e) {
       console.debug("poll error", e);
     }
-  }, 3000);
+  }, 1200);
 }
 async function loadSong(song, skipEmpty=false){
   let opts = { skipEmpty: false, quiet: false };
