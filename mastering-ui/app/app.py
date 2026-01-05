@@ -2314,15 +2314,18 @@ async function loadSong(song, skipEmpty=false){
   if (opts.skipEmpty && !hasItems) return { hasItems:false, hasPlayable:false, processing:false };
   let processing = false;
   let markerMtime = 0;
-  try {
-    const pr = await fetch(`/out/${song}/.processing`, { method:'GET', cache:'no-store' });
-    processing = pr.ok;
-    if (pr.ok) {
-      const head = await fetch(`/out/${song}/.processing`, { method:'HEAD', cache:'no-store' });
-      const lm = head.headers.get("last-modified");
-      if (lm) markerMtime = Date.parse(lm) || 0;
-    }
-  } catch(e){}
+  // Only probe the .processing marker when polling is active; otherwise skip to avoid 404 spam
+  if (runPollActive) {
+    try {
+      const pr = await fetch(`/out/${song}/.processing`, { method:'GET', cache:'no-store' });
+      processing = pr.ok;
+      if (pr.ok) {
+        const head = await fetch(`/out/${song}/.processing`, { method:'HEAD', cache:'no-store' });
+        const lm = head.headers.get("last-modified");
+        if (lm) markerMtime = Date.parse(lm) || 0;
+      }
+    } catch(e){}
+  }
   let hasPlayable = false;
   let anyMetricsStrings = false;
   // Preload input metrics once per run when interactive
