@@ -2271,19 +2271,20 @@ function startRunPolling(files) {
           }
         } catch (_){}
       }
+      // Multi-file progress: update based on finished count vs total
+      const total = runPollFiles.length || 1;
+      const doneCount = runPollDone.size;
+      if (runPollActive) {
+        const frac = Math.max(0.05, Math.min(1, doneCount / total));
+        setProgress(frac);
+      }
       if (!anyProcessing && pending.size === 0) {
         await finishPolling(runPollPrimary);
         return;
       }
       runPollCycles += 1;
-      // Failsafe: if we've been polling a few cycles without resolving, load once and stop quickly
-      if (runPollCycles > 2) {
-        try { if (runPollPrimary) await loadSong(runPollPrimary); } catch(_){}
-        await finishPolling(runPollPrimary);
-        return;
-      }
-      // Safety: stop after 120 cycles (~2.5 minutes) to avoid endless polling
-      if (runPollCycles > 120) {
+      // Hard stop after a few cycles without processing to prevent lingering polling
+      if (!anyProcessing && runPollCycles > 2) {
         await finishPolling(runPollPrimary);
         return;
       }
