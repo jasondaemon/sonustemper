@@ -377,44 +377,44 @@ def _voicing_filters(slug: str, strength_pct: int, width: float | None, do_stere
     if slug == "universal":
         eq_terms.append(peak(120, -0.8*s, q=1.0))
         eq_terms.append(shelf(9000, 1.2*s, "high"))
-        comp = f"acompressor=threshold={db_to_lin(-22+6*s)}:ratio={1.2+0.3*s}:attack=12:release=140:makeup=0"
+        comp = f"acompressor=threshold={db_to_lin(-22+6*s)}:ratio={1.2+0.3*s}:attack=12:release=140"
     elif slug == "airlift":
         eq_terms.append(peak(250, -1.5*s, q=1.1))
         eq_terms.append(shelf(9500, 2.5*s, "high"))
-        comp = f"acompressor=threshold={db_to_lin(-24+4*s)}:ratio={1.1+0.4*s}:attack=8:release=100:makeup=0"
+        comp = f"acompressor=threshold={db_to_lin(-24+4*s)}:ratio={1.1+0.4*s}:attack=8:release=100"
     elif slug == "ember":
         eq_terms.append(peak(180, 1.8*s, q=0.9))
         eq_terms.append(peak(350, 1.2*s, q=1.0))
         eq_terms.append(shelf(8500, -0.8*s, "high"))
-        comp = f"acompressor=threshold={db_to_lin(-20)}:ratio={1.4+0.4*s}:attack=18:release=180:makeup=0"
+        comp = f"acompressor=threshold={db_to_lin(-20)}:ratio={1.4+0.4*s}:attack=18:release=180"
     elif slug == "detail":
         eq_terms.append(peak(240, -2.2*s, q=1.0))
         eq_terms.append(peak(3200, 1.4*s, q=1.0))
         eq_terms.append(shelf(11000, 1.0*s, "high"))
-        comp = f"acompressor=threshold={db_to_lin(-20)}:ratio={1.2+0.4*s}:attack=10:release=150:makeup=0"
+        comp = f"acompressor=threshold={db_to_lin(-20)}:ratio={1.2+0.4*s}:attack=10:release=150"
     elif slug == "glue":
         eq_terms.append(peak(90, -0.8*s, q=0.8))
         eq_terms.append(peak(2000, 0.8*s, q=1.1))
-        comp = f"acompressor=threshold={db_to_lin(-22)}:ratio={1.6+0.4*s}:attack=25:release={180+60*s}:makeup=0"
+        comp = f"acompressor=threshold={db_to_lin(-22)}:ratio={1.6+0.4*s}:attack=25:release={180+60*s}"
     elif slug == "wide":
         eq_terms.append(peak(220, -1.0*s, q=1.0))
         eq_terms.append(peak(8000, 1.2*s, q=1.0))
-        comp = f"acompressor=threshold={db_to_lin(-18)}:ratio={1.1+0.3*s}:attack=12:release=120:makeup=0"
+        comp = f"acompressor=threshold={db_to_lin(-18)}:ratio={1.1+0.3*s}:attack=12:release=120"
         if do_stereo and width is not None:
             stere = f"stereotools=width={width:.3f}:phase=1"
     elif slug == "cinematic":
         eq_terms.append(peak(70, 1.5*s, q=0.7))
         eq_terms.append(peak(240, -1.2*s, q=1.0))
         eq_terms.append(shelf(9500, 1.2*s, "high"))
-        comp = f"acompressor=threshold={db_to_lin(-21)}:ratio={1.3+0.4*s}:attack=18:release=180:makeup=0"
+        comp = f"acompressor=threshold={db_to_lin(-21)}:ratio={1.3+0.4*s}:attack=18:release=180"
     elif slug == "punch":
         eq_terms.append(peak(90, -1.2*s, q=1.0))
         eq_terms.append(peak(1800, 1.6*s, q=1.0))
         eq_terms.append(shelf(7500, 1.0*s, "high"))
-        comp = f"acompressor=threshold={db_to_lin(-18)}:ratio={1.3+0.5*s}:attack=8:release=110:makeup=0"
+        comp = f"acompressor=threshold={db_to_lin(-18)}:ratio={1.3+0.5*s}:attack=8:release=110"
     else:
         # fallback to minimal processing
-        comp = f"acompressor=threshold={db_to_lin(-22)}:ratio=1.5:attack=15:release=180:makeup=0"
+        comp = f"acompressor=threshold={db_to_lin(-22)}:ratio=1.5:attack=15:release=180"
 
     chain = []
     chain.extend(eq_terms)
