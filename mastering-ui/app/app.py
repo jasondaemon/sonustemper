@@ -278,7 +278,7 @@ async def api_key_guard(request: Request, call_next):
     if request.url.path.startswith("/api/"):
         if API_AUTH_DISABLED:
             return await call_next(request)
-        key = request.headers.get("X-API-Key")
+        key = request.headers.get("X-API-Key") or request.query_params.get("api_key")
         if not API_KEY:
             # Safe default: if no key configured, only allow localhost
             client = request.client.host if request.client else None
@@ -2512,7 +2512,11 @@ function startRunPolling(files) {
   // Start SSE stream for status updates
   if (runPollPrimary) {
     statusEntries = [];
-    const url = `/api/status-stream?song=${encodeURIComponent(runPollPrimary)}`;
+    let url = `/api/status-stream?song=${encodeURIComponent(runPollPrimary)}`;
+    if (window.__API_KEY__) {
+      const sep = url.includes("?") ? "&" : "?";
+      url = `${url}${sep}api_key=${encodeURIComponent(window.__API_KEY__)}`;
+    }
     statusStream = new EventSource(url);
     statusStream.onmessage = (ev) => {
       try {
@@ -3120,11 +3124,20 @@ MANAGE_PRESETS_HTML = r"""
   </aside>
 <script>
 window.__API_KEY__ = "{{ api_key }}";
+const manageApiKey = window.__API_KEY__ || "";
+const manageFetch = (url, opts = {}) => {
+  if (manageApiKey) {
+    const h = new Headers(opts.headers || {});
+    h.set("X-API-Key", manageApiKey);
+    opts.headers = h;
+  }
+  return fetch(url, opts);
+};
 async function loadPresets(){
   const list = document.getElementById('presetList');
   list.innerHTML = '<div class="small">Loading…</div>';
   try{
-    const res = await fetch('/api/preset/list', { cache:'no-store' });
+    const res = await manageFetch('/api/preset/list', { cache:'no-store' });
     if(!res.ok) throw new Error();
     const data = await res.json();
     const items = data.items || [];
@@ -3161,7 +3174,7 @@ async function downloadPreset(name){
 }
 async function deletePreset(name){
   if(!confirm(`Delete preset "${name}"?`)) return;
-  const res = await fetch(`/api/preset/${encodeURIComponent(name)}`, { method:'DELETE' });
+  const res = await manageFetch(`/api/preset/${encodeURIComponent(name)}`, { method:'DELETE' });
   if(!res.ok){
     alert('Delete failed');
   }
@@ -3176,7 +3189,7 @@ document.getElementById('uploadPresetForm').addEventListener('submit', async (e)
   status.textContent = 'Uploading...';
   const fd = new FormData();
   fd.append('file', f, f.name);
-  const res = await fetch('/api/preset/generate', { method:'POST', body: fd });
+  const res = await manageFetch('/api/preset/generate', { method:'POST', body: fd });
   if(!res.ok){
     status.textContent = 'Failed to create preset.';
   }else{
