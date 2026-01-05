@@ -2191,6 +2191,18 @@ function startRunPolling(files) {
       }
       if (runPollPrimary) {
         await refreshStatusLog(runPollPrimary);
+        // If status already shows complete, stop polling to avoid extra reloads
+        try {
+          const sres = await fetch(`/api/status?song=${encodeURIComponent(runPollPrimary)}`, { cache:'no-store' });
+          if (sres.ok) {
+            const sj = await sres.json();
+            const last = (sj.entries || []).slice(-1)[0];
+            if (last && last.stage === 'complete') {
+              anyProcessing = false;
+              pending.clear();
+            }
+          }
+        } catch (_){}
       }
       if (!anyProcessing && pending.size === 0) {
         stopRunPolling();
