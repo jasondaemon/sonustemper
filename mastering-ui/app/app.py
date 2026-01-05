@@ -1203,7 +1203,6 @@ let runPollCycles = 0;
 let runPollActive = false;
 const pendingMetricsRetry = new Set();
 const metricsRetryCount = new Map();
-const metricsRetryCount = new Map();
 const METRIC_META = [
   { key:"I", label:"I", desc:"Integrated loudness (LUFS) averaged over the whole song. Higher (less negative) is louder; aim for musical balance, not just numbers." },
   { key:"TP", label:"TP", desc:"True Peak (dBTP) or peak dBFS if TP unavailable. Closer to 0 dBTP is louder but riskier; keep headroom for clean playback." },
