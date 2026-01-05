@@ -2637,6 +2637,9 @@ MANAGE_PRESETS_HTML = r"""
     .drawer-section ul{ margin:0; padding-left:18px; color:#d7e6f5; font-size:12px; }
     .drawer-section .chips{ display:flex; flex-wrap:wrap; gap:6px; }
     .drawer-section .chip{ padding:6px 10px; border:1px solid var(--line); border-radius:12px; font-size:12px; color:#d7e6f5; background:#0f151d; }
+    .hidden{ display:none !important; }
+    .info-drawer.hidden{ display:none !important; }
+    .drawer-backdrop.hidden{ display:none !important; }
   </style>
 </head>
 <body>
