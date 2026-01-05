@@ -36,12 +36,96 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 IN_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/out", StaticFiles(directory=str(OUT_DIR), html=True), name="out")
 
+def _start_master_jobs(files, presets, strength, lufs, tp, width, mono_bass, guardrails,
+                       stage_analyze, stage_master, stage_loudness, stage_stereo, stage_output,
+                       out_wav, out_mp3, mp3_bitrate, mp3_vbr,
+                       out_aac, aac_bitrate, aac_codec, aac_container,
+                       out_ogg, ogg_quality,
+                       out_flac, flac_level, flac_bit_depth, flac_sample_rate,
+                       wav_bit_depth, wav_sample_rate,
+                       voicing_mode, voicing_name):
+    """Kick off mastering jobs and immediately seed the SSE bus so the UI reacts without polling."""
+    base_cmd = ["python3", str(MASTER_SCRIPT), "--strength", str(strength)]
+    loop = asyncio.get_event_loop()
+    run_ids = [Path(f).stem or f for f in files]
+    def _is_enabled(val):
+        if val is None:
+            return False
+        if isinstance(val, (int, float)):
+            return bool(val)
+        txt = str(val).strip().lower()
+        return txt not in ("0","false","off","no","")
+    def _emit(run_id: str, stage: str, detail: str = ""):
+        ev = {"stage": stage, "detail": detail, "ts": datetime.utcnow().timestamp()}
+        try:
+            asyncio.run_coroutine_threadsafe(status_bus.append_events(run_id, [ev]), loop)
+        except Exception:
+            pass
+    def run_all():
+        for f, rid in zip(files, run_ids):
+            do_analyze  = _is_enabled(stage_analyze)
+            do_master   = _is_enabled(stage_master)
+            do_loudness = _is_enabled(stage_loudness)
+            do_stereo   = _is_enabled(stage_stereo)
+            do_output   = _is_enabled(stage_output)
+            cmd = base_cmd + ["--infile", f]
+            if not do_analyze: cmd += ["--no_analyze"]
+            if not do_master: cmd += ["--no_master"]
+            if not do_loudness: cmd += ["--no_loudness"]
+            if not do_stereo: cmd += ["--no_stereo"]
+            if not do_output: cmd += ["--no_output"]
+            if presets:
+                cmd += ["--presets", presets]
+            if do_loudness and lufs is not None:
+                cmd += ["--lufs", str(lufs)]
+            if do_loudness and tp is not None:
+                cmd += ["--tp", str(tp)]
+            if do_stereo and width is not None:
+                cmd += ["--width", str(width)]
+            if do_stereo and mono_bass is not None:
+                cmd += ["--mono_bass", str(mono_bass)]
+            if do_stereo and guardrails:
+                cmd += ["--guardrails"]
+            if voicing_mode:
+                cmd += ["--voicing_mode", str(voicing_mode)]
+            if voicing_name:
+                cmd += ["--voicing_name", str(voicing_name)]
+            if do_output:
+                cmd += ["--out_wav", "1" if out_wav else "0"]
+                cmd += ["--out_mp3", "1" if out_mp3 else "0"]
+                cmd += ["--out_aac", "1" if out_aac else "0"]
+                cmd += ["--out_ogg", "1" if out_ogg else "0"]
+                cmd += ["--out_flac", "1" if out_flac else "0"]
+                if wav_bit_depth: cmd += ["--wav_bit_depth", str(wav_bit_depth)]
+                if wav_sample_rate: cmd += ["--wav_sample_rate", str(wav_sample_rate)]
+                if mp3_bitrate: cmd += ["--mp3_bitrate", str(mp3_bitrate)]
+                if mp3_vbr: cmd += ["--mp3_vbr", str(mp3_vbr)]
+                if aac_bitrate: cmd += ["--aac_bitrate", str(aac_bitrate)]
+                if aac_codec: cmd += ["--aac_codec", str(aac_codec)]
+                if aac_container: cmd += ["--aac_container", str(aac_container)]
+                if ogg_quality: cmd += ["--ogg_quality", str(ogg_quality)]
+                if flac_level: cmd += ["--flac_level", str(flac_level)]
+                if flac_bit_depth: cmd += ["--flac_bit_depth", str(flac_bit_depth)]
+                if flac_sample_rate: cmd += ["--flac_sample_rate", str(flac_sample_rate)]
+            try:
+                print(f"[master-bulk] start file={f} presets={presets}", file=sys.stderr)
+                _emit(rid, "queued", f)
+                _emit(rid, "start", f"Processing {Path(f).name}")
+                subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT)
+                print(f"[master-bulk] done file={f}", file=sys.stderr)
+                _emit(rid, "complete", f"Finished {Path(f).name}")
+            except subprocess.CalledProcessError as e:
+                msg = (e.output or str(e)).strip().splitlines()[0] if (e.output or str(e)) else ""
+                _emit(rid, "error", msg)
+                print(f"[master-bulk] failed file={f}: {e.output or e}", file=sys.stderr)
+    threading.Thread(target=run_all, daemon=True).start()
+    return run_ids
 # --- SSE status stream with in-memory ring buffer + file watcher ---
 class StatusBus:
     def __init__(self, ttl_sec: int = 600, max_events: int = 256):
         self.ttl = ttl_sec
         self.max_events = max_events
-        self.state = {}  # run_id -> {"events": deque, "waiters": set(queue), "task": task, "cleanup": handle, "last_id": int}
+        self.state = {}  # run_id -> {"events": deque, "waiters": set(queue), "task": task, "cleanup": handle, "last_id": int, "terminal": bool}
         self.lock = asyncio.Lock()
 
     async def _ensure_state(self, run_id: str):
@@ -53,6 +137,7 @@ class StatusBus:
             "task": None,
             "cleanup": None,
             "last_id": 0,
+            "terminal": False,
         }
         return self.state[run_id]
 
@@ -76,6 +161,8 @@ class StatusBus:
         async with self.lock:
             st = await self._ensure_state(run_id)
             for e in events:
+                if st["terminal"] and e.get("stage") in ("complete", "error"):
+                    continue
                 # attach terminal payload (outlist/metrics) when available
                 if e.get("stage") in ("complete", "error"):
                     try:
@@ -90,7 +177,9 @@ class StatusBus:
                 st["events"].append(ev)
                 for q in list(st["waiters"]):
                     await q.put(ev)
-            if events and events[-1].get("stage") in ("complete", "error"):
+                if ev.get("stage") in ("complete", "error"):
+                    st["terminal"] = True
+            if events and (events[-1].get("stage") in ("complete", "error")):
                 await self._schedule_cleanup(run_id)
 
     async def subscribe(self, run_id: str, last_event_id: int | None = None):
@@ -130,6 +219,9 @@ class StatusBus:
                 pass
         try:
             while True:
+                st = self.state.get(run_id) or {}
+                if st.get("terminal"):
+                    break
                 entries = []
                 if path.exists():
                     try:
@@ -2514,6 +2606,16 @@ async function runOne(){
   const strength = document.getElementById('strength').value;
   const pollFiles = files.map(f => f.replace(/\.[^.]+$/, '') || f);
   const fd = new FormData();
+  const stageVal = (id, defV=1) => {
+    const el = document.getElementById(id);
+    if (!el) return defV;
+    return el.checked ? 1 : 0;
+  };
+  fd.append('stage_analyze', String(stageVal('stage_analyze', 1)));
+  fd.append('stage_master', String(stageVal('stage_master', 1)));
+  fd.append('stage_loudness', String(stageVal('stage_loudness', 1)));
+  fd.append('stage_stereo', String(stageVal('stage_stereo', 1)));
+  fd.append('stage_output', String(stageVal('stage_output', 1)));
   fd.append('infiles', files.join(","));
   fd.append('strength', strength);
   fd.append('presets', needPreset ? presets.join(",") : "");
@@ -2525,15 +2627,19 @@ async function runOne(){
   } else if (voicing) {
     files.forEach(f => appendJobLog(`Queued ${f} with voicing ${voicing}`));
   }
-  startRunPolling(pollFiles);
-  const r = await fetch('/api/master-bulk', { method:'POST', body: fd });
+  const r = await fetch('/api/run', { method:'POST', body: fd });
   const t = await r.text();
+  let runIds = pollFiles;
   try {
     const j = JSON.parse(t);
-    appendJobLog(j.message || 'Bulk submitted');
+    appendJobLog(j.message || 'Run submitted');
+    if (Array.isArray(j.run_ids) && j.run_ids.length) {
+      runIds = j.run_ids;
+    }
   } catch {
     appendJobLog(cleanResultText(t));
   }
+  startRunPolling(runIds);
   try { await refreshAll(); } catch (e) { console.error(e); }
 }
 async function runPack(){
@@ -2580,15 +2686,19 @@ async function runPack(){
   } else if (voicing) {
     files.forEach(f => appendJobLog(`Queued ${f} with voicing ${voicing}`));
   }
-  startRunPolling(pollFiles);
-  const r = await fetch('/api/master-bulk', { method:'POST', body: fd });
+  const r = await fetch('/api/run', { method:'POST', body: fd });
   const t = await r.text();
+  let runIds = pollFiles;
   try {
     const j = JSON.parse(t);
     appendJobLog(j.message || 'Bulk submitted');
+    if (Array.isArray(j.run_ids) && j.run_ids.length) {
+      runIds = j.run_ids;
+    }
   } catch {
     appendJobLog(cleanResultText(t));
   }
+  startRunPolling(runIds);
   try { await refreshAll(); } catch (e) { console.error('post-job refreshAll failed', e); }
 }
 async function runBulk(){
@@ -2612,6 +2722,16 @@ async function runBulk(){
   const strength = document.getElementById('strength').value;
   const pollFiles = files.map(f => f.replace(/\.[^.]+$/, '') || f);
   const fd = new FormData();
+  const stageVal = (id, defV=1) => {
+    const el = document.getElementById(id);
+    if (!el) return defV;
+    return el.checked ? 1 : 0;
+  };
+  fd.append('stage_analyze', String(stageVal('stage_analyze', 1)));
+  fd.append('stage_master', String(stageVal('stage_master', 1)));
+  fd.append('stage_loudness', String(stageVal('stage_loudness', 1)));
+  fd.append('stage_stereo', String(stageVal('stage_stereo', 1)));
+  fd.append('stage_output', String(stageVal('stage_output', 1)));
   fd.append('infiles', files.join(","));
   fd.append('strength', strength);
   fd.append('presets', needPreset ? presets.join(",") : "");
@@ -2623,19 +2743,23 @@ async function runBulk(){
   } else if (voicing) {
     files.forEach(f => appendJobLog(`Queued ${f} with voicing ${voicing}`));
   }
-  startRunPolling(pollFiles);
-  const r = await fetch('/api/master-bulk', { method:'POST', body: fd });
+  const r = await fetch('/api/run', { method:'POST', body: fd });
   const t = await r.text();
+  let runIds = pollFiles;
   try {
     const j = JSON.parse(t);
     if (j && typeof j === 'object') {
       appendJobLog(j.message || 'Bulk submitted');
+      if (Array.isArray(j.run_ids) && j.run_ids.length) {
+        runIds = j.run_ids;
+      }
     } else {
       appendJobLog(cleanResultText(t));
     }
   } catch {
     appendJobLog(cleanResultText(t));
   }
+  startRunPolling(runIds);
   await refreshAll();
 }
 async function deleteOutput(song, name){
@@ -3482,6 +3606,61 @@ def master_pack(
             print(f"[master-pack] started infile={infile} presets={presets} strength={strength}", file=sys.stderr)
     threading.Thread(target=run_pack, daemon=True).start()
     return JSONResponse({"message": "pack started (async); outputs will appear in Previous Runs", "script": str(MASTER_SCRIPT)})
+
+@app.post("/api/run")
+def start_run(
+    infiles: str = Form(...),
+    strength: int = Form(80),
+    lufs: float | None = Form(None),
+    tp: float | None = Form(None),
+    width: float | None = Form(None),
+    mono_bass: float | None = Form(None),
+    guardrails: int = Form(0),
+    stage_analyze: int = Form(1),
+    stage_master: int = Form(1),
+    stage_loudness: int = Form(1),
+    stage_stereo: int = Form(1),
+    stage_output: int = Form(1),
+    out_wav: int = Form(1),
+    out_mp3: int = Form(0),
+    mp3_bitrate: str | None = Form(None),
+    mp3_vbr: str | None = Form(None),
+    out_aac: int = Form(0),
+    aac_bitrate: str | None = Form(None),
+    aac_codec: str | None = Form(None),
+    aac_container: str | None = Form(None),
+    out_ogg: int = Form(0),
+    ogg_quality: str | None = Form(None),
+    out_flac: int = Form(0),
+    flac_level: str | None = Form(None),
+    flac_bit_depth: str | None = Form(None),
+    flac_sample_rate: str | None = Form(None),
+    wav_bit_depth: str | None = Form(None),
+    wav_sample_rate: str | None = Form(None),
+    voicing_mode: str = Form("presets"),
+    voicing_name: str | None = Form(None),
+    presets: str | None = Form(None),
+):
+    files = [f.strip() for f in infiles.split(",") if f.strip()]
+    if not files:
+        raise HTTPException(status_code=400, detail="no_files")
+    run_ids = _start_master_jobs(
+        files, presets, strength, lufs, tp, width, mono_bass, guardrails,
+        stage_analyze, stage_master, stage_loudness, stage_stereo, stage_output,
+        out_wav, out_mp3, mp3_bitrate, mp3_vbr,
+        out_aac, aac_bitrate, aac_codec, aac_container,
+        out_ogg, ogg_quality,
+        out_flac, flac_level, flac_bit_depth, flac_sample_rate,
+        wav_bit_depth, wav_sample_rate,
+        voicing_mode, voicing_name
+    )
+    primary = run_ids[0] if run_ids else None
+    return JSONResponse({
+        "message": f"run started for {len(files)} file(s)",
+        "script": str(MASTER_SCRIPT),
+        "run_ids": run_ids,
+        "primary_run_id": primary,
+    })
 @app.post("/api/master-bulk")
 def master_bulk(
     infiles: str = Form(...),
@@ -3519,68 +3698,20 @@ def master_bulk(
     files = [f.strip() for f in infiles.split(",") if f.strip()]
     if not files:
         raise HTTPException(status_code=400, detail="no_files")
-    base_cmd = ["python3", str(MASTER_SCRIPT)]
-    results = []
-    def _is_enabled(val):
-        if val is None:
-            return False
-        if isinstance(val, (int, float)):
-            return bool(val)
-        txt = str(val).strip().lower()
-        return txt not in ("0","false","off","no","")
-    def run_all():
-        for f in files:
-            do_analyze  = _is_enabled(stage_analyze)
-            do_master   = _is_enabled(stage_master)
-            do_loudness = _is_enabled(stage_loudness)
-            do_stereo   = _is_enabled(stage_stereo)
-            do_output   = _is_enabled(stage_output)
-            cmd = base_cmd + ["--infile", f, "--strength", str(strength)]
-            if not do_analyze: cmd += ["--no_analyze"]
-            if not do_master: cmd += ["--no_master"]
-            if not do_loudness: cmd += ["--no_loudness"]
-            if not do_stereo: cmd += ["--no_stereo"]
-            if not do_output: cmd += ["--no_output"]
-            if presets:
-                cmd += ["--presets", presets]
-            if do_loudness and lufs is not None:
-                cmd += ["--lufs", str(lufs)]
-            if do_loudness and tp is not None:
-                cmd += ["--tp", str(tp)]
-            if do_stereo and width is not None:
-                cmd += ["--width", str(width)]
-            if do_stereo and mono_bass is not None:
-                cmd += ["--mono_bass", str(mono_bass)]
-            if do_stereo and guardrails:
-                cmd += ["--guardrails"]
-            if voicing_mode:
-                cmd += ["--voicing_mode", str(voicing_mode)]
-            if voicing_name:
-                cmd += ["--voicing_name", str(voicing_name)]
-            if do_output:
-                cmd += ["--out_wav", "1" if out_wav else "0"]
-                cmd += ["--out_mp3", "1" if out_mp3 else "0"]
-                cmd += ["--out_aac", "1" if out_aac else "0"]
-                cmd += ["--out_ogg", "1" if out_ogg else "0"]
-                cmd += ["--out_flac", "1" if out_flac else "0"]
-                if wav_bit_depth: cmd += ["--wav_bit_depth", str(wav_bit_depth)]
-                if wav_sample_rate: cmd += ["--wav_sample_rate", str(wav_sample_rate)]
-                if mp3_bitrate: cmd += ["--mp3_bitrate", str(mp3_bitrate)]
-                if mp3_vbr: cmd += ["--mp3_vbr", str(mp3_vbr)]
-                if aac_bitrate: cmd += ["--aac_bitrate", str(aac_bitrate)]
-                if aac_codec: cmd += ["--aac_codec", str(aac_codec)]
-                if aac_container: cmd += ["--aac_container", str(aac_container)]
-                if ogg_quality: cmd += ["--ogg_quality", str(ogg_quality)]
-                if flac_level: cmd += ["--flac_level", str(flac_level)]
-                if flac_bit_depth: cmd += ["--flac_bit_depth", str(flac_bit_depth)]
-                if flac_sample_rate: cmd += ["--flac_sample_rate", str(flac_sample_rate)]
-            try:
-                print(f"[master-bulk] start file={f} presets={presets}", file=sys.stderr)
-                subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT)
-                results.append({"file": f, "status": "ok"})
-                print(f"[master-bulk] done file={f}", file=sys.stderr)
-            except subprocess.CalledProcessError as e:
-                results.append({"file": f, "status": "error", "error": e.output})
-                print(f"[master-bulk] failed file={f}: {e.output or e}", file=sys.stderr)
-    threading.Thread(target=run_all, daemon=True).start()
-    return JSONResponse({"message": f"bulk started for {len(files)} file(s)", "script": str(MASTER_SCRIPT)})
+    run_ids = _start_master_jobs(
+        files, presets, strength, lufs, tp, width, mono_bass, guardrails,
+        stage_analyze, stage_master, stage_loudness, stage_stereo, stage_output,
+        out_wav, out_mp3, mp3_bitrate, mp3_vbr,
+        out_aac, aac_bitrate, aac_codec, aac_container,
+        out_ogg, ogg_quality,
+        out_flac, flac_level, flac_bit_depth, flac_sample_rate,
+        wav_bit_depth, wav_sample_rate,
+        voicing_mode, voicing_name
+    )
+    primary = run_ids[0] if run_ids else None
+    return JSONResponse({
+        "message": f"bulk started for {len(files)} file(s)",
+        "script": str(MASTER_SCRIPT),
+        "run_ids": run_ids,
+        "primary_run_id": primary,
+    })
