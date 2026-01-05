@@ -36,6 +36,8 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 IN_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/out", StaticFiles(directory=str(OUT_DIR), html=True), name="out")
 MAIN_LOOP = None
+MAX_CONCURRENT_RUNS = int(os.getenv("MAX_CONCURRENT_RUNS", "2"))
+RUNS_IN_FLIGHT = 0
 
 def _start_master_jobs(files, presets, strength, lufs, tp, width, mono_bass, guardrails,
                        stage_analyze, stage_master, stage_loudness, stage_stereo, stage_output,
@@ -46,6 +48,8 @@ def _start_master_jobs(files, presets, strength, lufs, tp, width, mono_bass, gua
                        wav_bit_depth, wav_sample_rate,
                        voicing_mode, voicing_name):
     """Kick off mastering jobs and immediately seed the SSE bus so the UI reacts without polling."""
+    global RUNS_IN_FLIGHT
+    RUNS_IN_FLIGHT = max(0, RUNS_IN_FLIGHT) + 1
     base_cmd = ["python3", str(MASTER_SCRIPT), "--strength", str(strength)]
     target_loop = getattr(status_bus, "loop", None) or MAIN_LOOP
     run_ids = [Path(f).stem or f for f in files]
@@ -121,7 +125,15 @@ def _start_master_jobs(files, presets, strength, lufs, tp, width, mono_bass, gua
                 msg = (e.output or str(e)).strip().splitlines()[0] if (e.output or str(e)) else ""
                 _emit(rid, "error", msg)
                 print(f"[master-bulk] failed file={f}: {e.output or e}", file=sys.stderr)
-    threading.Thread(target=run_all, daemon=True).start()
+    def _run_wrapper():
+        global RUNS_IN_FLIGHT
+        try:
+            run_all()
+        finally:
+            # Drop the counter when this batch thread ends
+            RUNS_IN_FLIGHT = max(0, RUNS_IN_FLIGHT - 1)
+
+    threading.Thread(target=_run_wrapper, daemon=True).start()
     return run_ids
 # --- SSE status stream with in-memory ring buffer + file watcher ---
 class StatusBus:
@@ -517,28 +529,33 @@ def find_input_file(song: str) -> Path | None:
     candidates = sorted(candidates)
     return candidates[0] if candidates else None
 def fill_input_metrics(song: str, m: dict, folder: Path) -> dict:
+    """Ensure input metrics are populated (and deltas) for comparison."""
     if not m:
         return m
-    if m.get("input") and m["input"].get("I") is not None:
-        return m
+    needs_input = True
+    if isinstance(m.get("input"), dict):
+        keys = ["I", "TP", "LRA", "crest_factor", "peak_level", "rms_level", "dynamic_range", "noise_floor", "duration_sec"]
+        needs_input = any(m["input"].get(k) is None for k in keys)
     inp = find_input_file(song)
     if not inp:
         return m
-    try:
-        m["input"] = basic_metrics(inp)
-        out = m.get("output") or {}
-        deltas = {}
+    if needs_input:
+        try:
+            m["input"] = basic_metrics(inp)
+        except Exception:
+            return m
+    out = m.get("output") or {}
+    deltas = {}
+    if isinstance(m.get("input"), dict):
         if isinstance(m["input"].get("I"), (int, float)) and isinstance(out.get("I"), (int, float)):
             deltas["I"] = out["I"] - m["input"]["I"]
         if isinstance(m["input"].get("TP"), (int, float)) and isinstance(out.get("TP"), (int, float)):
             deltas["TP"] = out["TP"] - m["input"]["TP"]
         if deltas:
             m["deltas"] = deltas
-        # Persist back so future loads are fast
-        try:
-            (folder / "metrics.json").write_text(json.dumps(m, indent=2), encoding="utf-8")
-        except Exception:
-            pass
+    # Persist back so future loads are fast
+    try:
+        (folder / "metrics.json").write_text(json.dumps(m, indent=2), encoding="utf-8")
     except Exception:
         pass
     return m
@@ -2434,7 +2451,7 @@ function stopRunPolling() {
 }
 async function finishPolling(finishedPrimary){
   stopRunPolling();
-  setStatus("Job complete.");
+  setStatus("");
   setProgress(null);
   suppressRecentDuringRun = false;
   // clear pending metric retries for this song
@@ -2488,8 +2505,27 @@ function startRunPolling(files) {
         console.debug('status stream parse error', e);
       }
     };
-    statusStream.onerror = () => {
-      // On error, stop stream and do a final refresh to avoid hangs
+    statusStream.onerror = async () => {
+      // On error, try a snapshot once to repaint, then stop the stream
+      try {
+        if (runPollPrimary) {
+          const snap = await fetch(`/api/run/${encodeURIComponent(runPollPrimary)}`, { cache:'no-store' }).then(r=>r.ok?r.json():null);
+          if (snap && Array.isArray(snap.events)) {
+            statusEntries = snap.events;
+            const html = renderStatusEntries(statusEntries);
+            setResultHTML(html);
+            updateProgressFromEntries(statusEntries);
+            if (snap.terminal) {
+              await Promise.allSettled([
+                refreshRecent(true),
+                loadSong(runPollPrimary, { preOutlist: (snap.events[snap.events.length-1]||{}).result || null, quiet:false })
+              ]);
+              finishPolling(runPollPrimary);
+              return;
+            }
+          }
+        }
+      } catch(_){}
       if (statusStream) {
         statusStream.close();
         statusStream = null;
@@ -3269,6 +3305,13 @@ def outlist(song: str):
             src = find_input_file(song)
             if src:
                 input_m = basic_metrics(src)
+                # Cache input metrics into metrics.json for quicker subsequent loads
+                try:
+                    m_stub = wrap_metrics(song, read_run_metrics(folder)) or {"output": None}
+                    m_stub["input"] = input_m
+                    (folder / "metrics.json").write_text(json.dumps(m_stub, indent=2), encoding="utf-8")
+                except Exception:
+                    pass
         except Exception:
             input_m = None
     if folder.exists() and folder.is_dir():
@@ -3629,6 +3672,8 @@ def start_run(
     files = [f.strip() for f in infiles.split(",") if f.strip()]
     if not files:
         raise HTTPException(status_code=400, detail="no_files")
+    if RUNS_IN_FLIGHT >= MAX_CONCURRENT_RUNS:
+        raise HTTPException(status_code=429, detail="too_many_runs")
     run_ids = _start_master_jobs(
         files, presets, strength, lufs, tp, width, mono_bass, guardrails,
         stage_analyze, stage_master, stage_loudness, stage_stereo, stage_output,
@@ -3690,6 +3735,8 @@ def master_bulk(
     files = [f.strip() for f in infiles.split(",") if f.strip()]
     if not files:
         raise HTTPException(status_code=400, detail="no_files")
+    if RUNS_IN_FLIGHT >= MAX_CONCURRENT_RUNS:
+        raise HTTPException(status_code=429, detail="too_many_runs")
     run_ids = _start_master_jobs(
         files, presets, strength, lufs, tp, width, mono_bass, guardrails,
         stage_analyze, stage_master, stage_loudness, stage_stereo, stage_output,

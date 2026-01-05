@@ -35,6 +35,11 @@ SonusTemper is a one-page mastering workstation: drop in a song, choose a voicin
 - Previous Runs updates only after a job fully finishes (including metrics) and lets you reload a past run into Job Output.
 - Job Output shows playback, per-format download links, delete links, and the metrics panel (LUFS, TP, LRA, crest, DR, noise, duration, width, etc.).
 
+### Status delivery (SSE, no polling)
+- Runs start via `/api/run` and stream status over Server-Sent Events from `/api/status-stream?song=<run_id>`.
+- The UI reconnects once via `/api/run/<run_id>` if the stream drops, so there’s no `.processing` file polling.
+- A tiny in-memory registry keeps the last N events per run for fast replay; terminal events include outlist/metrics payloads so the UI can render immediately.
+
 ## Presets and the Manage Presets page
 - User presets live in `./presets/*.json` (and an internal writable dir for generated presets). Info text reminds that presets are user-customizable.
 - Manage Presets (full-page modal):
@@ -86,6 +91,12 @@ uvicorn app:app --reload --port 8383
 
 ## Health
 `GET /health` reports ffmpeg/ffprobe availability, directory writability, preset status, build/app id.
+
+## Quick regression checklist
+- Single-run happy path: one file, one voicing, all outputs, confirm status stream completes and Job Output auto-loads.
+- Multi-file run: two files, mixed formats, confirm a single SSE stream drives status and both appear in Previous Runs.
+- SSE reconnect: refresh the page mid-run; ensure status replays via `/api/run/<run_id>` and finishes cleanly.
+- Error path: intentionally bad preset/voicing to verify terminal `error` event stops the stream and UI doesn’t spin.
 
 ## License
 - Project code: Apache 2.0 (see `LICENSE`).
