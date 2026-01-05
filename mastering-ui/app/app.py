@@ -47,7 +47,7 @@ def _start_master_jobs(files, presets, strength, lufs, tp, width, mono_bass, gua
                        voicing_mode, voicing_name):
     """Kick off mastering jobs and immediately seed the SSE bus so the UI reacts without polling."""
     base_cmd = ["python3", str(MASTER_SCRIPT), "--strength", str(strength)]
-    loop = asyncio.get_event_loop()
+    target_loop = getattr(status_bus, "loop", None) or MAIN_LOOP
     run_ids = [Path(f).stem or f for f in files]
     def _is_enabled(val):
         if val is None:
@@ -58,10 +58,10 @@ def _start_master_jobs(files, presets, strength, lufs, tp, width, mono_bass, gua
         return txt not in ("0","false","off","no","")
     def _emit(run_id: str, stage: str, detail: str = ""):
         ev = {"stage": stage, "detail": detail, "ts": datetime.utcnow().timestamp()}
-        target_loop = getattr(status_bus, "loop", None) or MAIN_LOOP
-        if target_loop and target_loop.is_running():
+        loop_obj = getattr(status_bus, "loop", None) or MAIN_LOOP
+        if loop_obj and loop_obj.is_running():
             try:
-                asyncio.run_coroutine_threadsafe(status_bus.append_events(run_id, [ev]), target_loop)
+                asyncio.run_coroutine_threadsafe(status_bus.append_events(run_id, [ev]), loop_obj)
             except Exception:
                 pass
     def run_all():
