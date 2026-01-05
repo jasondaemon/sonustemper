@@ -674,6 +674,56 @@ def write_metrics(wav_out: Path, target_lufs: float, ceiling_db: float, width: f
     if write_file:
         wav_out.with_suffix('.metrics.json').write_text(json.dumps(m, indent=2), encoding='utf-8')
 
+def write_input_metrics(src: Path, folder: Path):
+    """Analyze the source file to populate input metrics for comparison."""
+    try:
+        m = measure_loudness(src) or {}
+        # ensure keys exist even if analysis fails
+        m.setdefault("crest_factor", None)
+        m.setdefault("stereo_corr", None)
+        m.setdefault("peak_level", None)
+        m.setdefault("rms_level", None)
+        m.setdefault("dynamic_range", None)
+        m.setdefault("noise_floor", None)
+        # add astats-derived fields
+        try:
+            a = measure_astats_overall(src)
+            if isinstance(a, dict):
+                for k in ("peak_level","rms_level","dynamic_range","noise_floor","crest_factor"):
+                    if k in a and m.get(k) is None:
+                        m[k] = a.get(k)
+        except Exception:
+            pass
+        # add duration
+        try:
+            info = docker_ffprobe_json(src)
+            dur = float(info.get("format", {}).get("duration")) if info else None
+            if dur is not None:
+                m["duration_sec"] = dur
+        except Exception:
+            pass
+        metrics_fp = folder / "metrics.json"
+        payload = {
+            "version": 1,
+            "run_id": folder.name,
+            "created_at": None,
+            "preset": None,
+            "strength": None,
+            "overrides": {},
+            "input": m,
+        }
+        if metrics_fp.exists():
+            try:
+                existing = json.loads(metrics_fp.read_text(encoding="utf-8"))
+                if isinstance(existing, dict):
+                    existing["input"] = m
+                    payload = existing
+            except Exception:
+                pass
+        metrics_fp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
 def read_metrics_file(path: Path) -> dict | None:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -970,6 +1020,11 @@ def main():
         append_status(song_dir, "start", f"Job started for {infile.name} with voicing: {voicing_label}")
     else:
         append_status(song_dir, "start", f"Job started for {infile.name} with presets: {', '.join(presets) if presets else '(none)'}")
+    # Source analysis (input metrics) for comparison
+    if do_analyze:
+        append_status(song_dir, "metrics_source_start", f"Analyzing source metrics for {infile.name}", preset="source")
+        write_input_metrics(infile, song_dir)
+        append_status(song_dir, "metrics_source_done", f"Source metrics written for {infile.name}", preset="source")
 
     # If mastering is disabled:
     # - If output is disabled too: analyze-only run.
