@@ -195,6 +195,28 @@ def basic_metrics(path: Path) -> dict:
     }
     return m
 
+def analyze_reference(path: Path) -> dict:
+    """Extract basic spectral/loudness cues from a reference file to seed a preset."""
+    info = docker_ffprobe_json(path)
+    duration = None
+    try:
+        duration = float(info.get("format", {}).get("duration"))
+    except Exception:
+        duration = None
+    loud = measure_loudness(path)
+    cf_corr = calc_cf_corr(path)
+    return {
+        "duration_sec": duration,
+        "I": loud.get("I"),
+        "TP": loud.get("TP"),
+        "LRA": loud.get("LRA"),
+        "peak_level": cf_corr.get("peak_level"),
+        "rms_level": cf_corr.get("rms_level"),
+        "dynamic_range": cf_corr.get("dynamic_range"),
+        "noise_floor": cf_corr.get("noise_floor"),
+        "crest_factor": cf_corr.get("crest_factor"),
+    }
+
 def _safe_slug(s: str, max_len: int = 64) -> str:
     s = re.sub(r"[^A-Za-z0-9._-]+", "_", s.strip())
     s = re.sub(r"_+", "_", s).strip("_")
@@ -2594,7 +2616,10 @@ MANAGE_PRESETS_HTML = r"""
     </div>
 
     <div class="card">
-      <h2 style="margin:0 0 8px 0; font-size:15px;">Create preset from reference</h2>
+      <h2 style="margin:0 0 8px 0; font-size:15px; display:flex; align-items:center; gap:8px;">
+        Create preset from reference
+        <button class="info-btn" type="button" data-info-type="manage-preset-info" aria-label="How this works">ⓘ</button>
+      </h2>
       <div class="small" style="margin-bottom:6px;">Upload supported audio (wav/mp3/flac/aiff, ≤100MB). We will analyze loudness/tonal balance and seed a preset.</div>
       <form id="uploadPresetForm" class="col">
         <input type="file" id="presetFile" accept=".wav,.mp3,.flac,.aiff,.aif" required />
@@ -2676,6 +2701,14 @@ document.getElementById('uploadPresetForm').addEventListener('submit', async (e)
   }
 });
 loadPresets();
+document.body.addEventListener('click', (e)=>{
+  const btn = e.target.closest('.info-btn');
+  if(!btn) return;
+  const type = btn.getAttribute('data-info-type');
+  if(type === 'manage-preset-info'){
+    alert("We analyze the reference (loudness, crest factor, basic tone) with ffmpeg, seed a simple EQ/comp/limiter preset, and store it in presets/. The source audio is discarded after creation.");
+  }
+});
 </script>
 </body>
 </html>
