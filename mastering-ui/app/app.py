@@ -2899,7 +2899,7 @@ def delete_output(song: str, name: str):
         raise HTTPException(status_code=400, detail="invalid_name")
 
     removed = []
-    for suffix in [".wav", ".mp3", ".m4a", ".aac", ".ogg", ".flac", ".metrics.json"]:
+    for suffix in [".wav", ".mp3", ".m4a", ".aac", ".ogg", ".flac", ".metrics.json", ".run.json"]:
         fp = (folder / f"{stem}{suffix}").resolve()
         if folder not in fp.parents or fp == folder:
             continue
