@@ -2323,8 +2323,12 @@ async function runOne(){
   startJobLog('Processing...');
   const files = getSelectedBulkFiles();
   const presets = getSelectedPresets();
-  if (!files.length || !presets.length) {
-    alert("Select at least one input file and one preset.");
+  const mode = getVoicingMode();
+  const voicing = getSelectedVoicing();
+  const needPreset = (mode === 'presets');
+  const needVoicing = (mode === 'voicing');
+  if (!files.length || (needPreset && !presets.length) || (needVoicing && !voicing)) {
+    alert("Select at least one input file and a selection for the active mode (voicing or preset).");
     suppressRecentDuringRun = false;
     return;
   }
@@ -2334,11 +2338,15 @@ async function runOne(){
   const fd = new FormData();
   fd.append('infiles', files.join(","));
   fd.append('strength', strength);
-  fd.append('presets', presets.join(","));
+  fd.append('presets', needPreset ? presets.join(",") : "");
   appendOverrides(fd);
   appendOutputOptions(fd);
   appendVoicing(fd);
-  presets.forEach(p => files.forEach(f => appendJobLog(`Queued ${f} with preset ${p}`)));
+  if (needPreset) {
+    presets.forEach(p => files.forEach(f => appendJobLog(`Queued ${f} with preset ${p}`)));
+  } else if (voicing) {
+    files.forEach(f => appendJobLog(`Queued ${f} with voicing ${voicing}`));
+  }
   startRunPolling(pollFiles);
   const r = await fetch('/api/master-bulk', { method:'POST', body: fd });
   const t = await r.text();
@@ -2358,8 +2366,12 @@ async function runPack(){
   try { localStorage.setItem("packInFlight", String(Date.now())); } catch {}
   const files = getSelectedBulkFiles();
   const presets = getSelectedPresets();
-  if (!files.length || !presets.length) {
-    alert("Select at least one input file and one preset.");
+  const mode = getVoicingMode();
+  const voicing = getSelectedVoicing();
+  const needPreset = (mode === 'presets');
+  const needVoicing = (mode === 'voicing');
+  if (!files.length || (needPreset && !presets.length) || (needVoicing && !voicing)) {
+    alert("Select at least one input file and a selection for the active mode (voicing or preset).");
     suppressRecentDuringRun = false;
     return;
   }
@@ -2380,11 +2392,15 @@ async function runPack(){
   fd.append('stage_output', String(stageVal('stage_output', 1)));
   fd.append('infiles', files.join(","));
   fd.append('strength', strength);
-  fd.append('presets', presets.join(","));
+  fd.append('presets', needPreset ? presets.join(",") : "");
   appendOverrides(fd);
   appendOutputOptions(fd);
   appendVoicing(fd);
-  presets.forEach(p => files.forEach(f => appendJobLog(`Queued ${f} with preset ${p}`)));
+  if (needPreset) {
+    presets.forEach(p => files.forEach(f => appendJobLog(`Queued ${f} with preset ${p}`)));
+  } else if (voicing) {
+    files.forEach(f => appendJobLog(`Queued ${f} with voicing ${voicing}`));
+  }
   startRunPolling(pollFiles);
   const r = await fetch('/api/master-bulk', { method:'POST', body: fd });
   const t = await r.text();
@@ -2400,8 +2416,12 @@ async function runBulk(){
   suppressRecentDuringRun = true;
   const files = getSelectedBulkFiles();
   const presets = getSelectedPresets();
-  if (!files.length || !presets.length) {
-    alert("Select at least one file and one preset.");
+  const mode = getVoicingMode();
+  const voicing = getSelectedVoicing();
+  const needPreset = (mode === 'presets');
+  const needVoicing = (mode === 'voicing');
+  if (!files.length || (needPreset && !presets.length) || (needVoicing && !voicing)) {
+    alert("Select at least one input file and a selection for the active mode (voicing or preset).");
     suppressRecentDuringRun = false;
     return;
   }
@@ -2414,11 +2434,15 @@ async function runBulk(){
   const fd = new FormData();
   fd.append('infiles', files.join(","));
   fd.append('strength', strength);
-  fd.append('presets', presets.join(","));
+  fd.append('presets', needPreset ? presets.join(",") : "");
   appendOverrides(fd);
   appendOutputOptions(fd);
   appendVoicing(fd);
-  presets.forEach(p => files.forEach(f => appendJobLog(`Queued ${f} with preset ${p}`)));
+  if (needPreset) {
+    presets.forEach(p => files.forEach(f => appendJobLog(`Queued ${f} with preset ${p}`)));
+  } else if (voicing) {
+    files.forEach(f => appendJobLog(`Queued ${f} with voicing ${voicing}`));
+  }
   startRunPolling(pollFiles);
   const r = await fetch('/api/master-bulk', { method:'POST', body: fd });
   const t = await r.text();
