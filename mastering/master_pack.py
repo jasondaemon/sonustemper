@@ -368,9 +368,11 @@ def _voicing_filters(slug: str, strength_pct: int, width: float | None, do_stere
     stere = None
     # helper shelves
     def shelf(freq, gain, shelf="high"):
-        return f"equalizer=f={freq}:t={shelf}:width_type=o:width=1.0:g={gain:.3f}"
+        if shelf == "low":
+            return f"lowshelf=f={freq}:g={gain:.3f}:s=0.7"
+        return f"highshelf=f={freq}:g={gain:.3f}:s=0.7"
     def peak(freq, gain, q=1.2):
-        return f"equalizer=f={freq}:t=peak:width_type=q:width={q}:g={gain:.3f}"
+        return f"equalizer=f={freq}:width_type=q:width={q}:g={gain:.3f}"
 
     if slug == "universal":
         eq_terms.append(peak(120, -0.8*s, q=1.0))
