@@ -2215,12 +2215,10 @@ async function finishPolling(finishedPrimary){
     metricsRetryCount.delete(finishedPrimary);
     pendingMetricsRetry.delete(finishedPrimary);
   }
-  if (finishedPrimary) {
-    try { await refreshStatusLog(finishedPrimary); } catch(_){}
-  }
+  // Do a single quiet refresh without forcing an extra reload if output already loaded
   try { await refreshRecent(true); } catch(e) { console.debug('recent refresh after polling stop failed', e); }
   if (finishedPrimary) {
-    try { await loadSong(finishedPrimary); } catch(_){}
+    try { await loadSong(finishedPrimary, { quiet:true }); } catch(_){}
   }
   runPollPrimary = null;
 }
@@ -2278,8 +2276,8 @@ function startRunPolling(files) {
         return;
       }
       runPollCycles += 1;
-      // Failsafe: if we've been polling a few cycles without resolving, load once and stop
-      if (runPollCycles > 4) {
+      // Failsafe: if we've been polling a few cycles without resolving, load once and stop quickly
+      if (runPollCycles > 2) {
         try { if (runPollPrimary) await loadSong(runPollPrimary); } catch(_){}
         await finishPolling(runPollPrimary);
         return;
