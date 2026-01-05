@@ -894,24 +894,24 @@ input[type="range"]{
               <div class="control-row" style="margin-top:4px;">
                 <label style="min-width:140px;">Mode</label>
                 <div class="small" style="display:flex; gap:10px; align-items:center;">
-                  <label style="display:flex; align-items:center; gap:6px;"><input type="radio" name="modePresetVoicing" value="presets"> Presets</label>
                   <label style="display:flex; align-items:center; gap:6px;"><input type="radio" name="modePresetVoicing" value="voicing" checked> Voicing</label>
+                  <label style="display:flex; align-items:center; gap:6px;"><input type="radio" name="modePresetVoicing" value="presets"> User Presets</label>
                 </div>
               </div>
-              <div class="selectRow" id="presetRow" style="margin-top:8px;">
-                <label style="min-width:140px;">Presets</label>
-                <div id="packPresetsBox" class="small" style="display:flex; flex-wrap:wrap; gap:8px; min-height:96px;"></div>
-                <div id="presetControls" class="small selectActions">
-                  <button class="btnGhost" type="button" onclick="selectAllPackPresets()">Select all</button>
-                  <button class="btnGhost" type="button" onclick="clearAllPackPresets()">Clear</button>
-                </div>
-              </div>
-              <div class="selectRow" id="voicingRow" style="margin-top:8px; display:none;">
+              <div class="selectRow" id="voicingRow" style="margin-top:8px;">
                 <label style="min-width:140px;">Voicing</label>
                 <div id="voicingBox" class="small" style="display:flex; flex-wrap:wrap; gap:8px; min-height:96px;"></div>
                 <div class="small selectActions">
                   <button class="btnGhost" type="button" onclick="clearVoicing()">Clear</button>
                   <span class="placeholderBtn">&nbsp;</span>
+                </div>
+              </div>
+              <div class="selectRow" id="presetRow" style="margin-top:8px; display:none;">
+                <label style="min-width:140px;">User Presets</label>
+                <div id="packPresetsBox" class="small" style="display:flex; flex-wrap:wrap; gap:8px; min-height:96px;"></div>
+                <div id="presetControls" class="small selectActions">
+                  <button class="btnGhost" type="button" onclick="selectAllPackPresets()">Select all</button>
+                  <button class="btnGhost" type="button" onclick="clearAllPackPresets()">Clear</button>
                 </div>
               </div>
 
