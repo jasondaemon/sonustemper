@@ -416,23 +416,13 @@ def calc_cf_corr(path: Path) -> dict:
         "noise_floor": None,
     }
     rms_peak = None
-    section = None
     for raw in txt.splitlines():
         line = raw.strip()
         if "]" in line and line.startswith("["):
             line = line.split("]", 1)[1].strip()
         if not line:
             continue
-        low = line.lower()
-        if low == "overall":
-            section = "overall"
-            continue
-        if low.startswith("channel:") or low.startswith("channel "):
-            section = "channel"
-            continue
-        if section != "overall":
-            continue
-        if ":" not in line:
+        if ":" not in line or "overall" not in line.lower():
             continue
         k, v = line.split(":", 1)
         k = k.strip().lower().replace(" ", "_")
