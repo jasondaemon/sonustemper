@@ -130,6 +130,7 @@ class StatusBus:
         self.max_events = max_events
         self.state = {}  # run_id -> {"events": deque, "waiters": set(queue), "task": task, "cleanup": handle, "last_id": int, "terminal": bool}
         self.lock = asyncio.Lock()
+        self.loop = None
 
     async def _ensure_state(self, run_id: str):
         if run_id in self.state:
@@ -184,6 +185,13 @@ class StatusBus:
                     st["terminal"] = True
             if events and (events[-1].get("stage") in ("complete", "error")):
                 await self._schedule_cleanup(run_id)
+    async def snapshot(self, run_id: str):
+        st = await self._ensure_state(run_id)
+        return {
+            "events": list(st["events"]),
+            "terminal": bool(st.get("terminal")),
+            "last_id": st.get("last_id", 0),
+        }
 
     async def subscribe(self, run_id: str, last_event_id: int | None = None):
         st = await self._ensure_state(run_id)
@@ -1452,8 +1460,6 @@ const BULK_FILES_KEY = "bulkFilesSelected";
 let suppressRecentDuringRun = false;
 let lastRunInputMetrics = null;
 let runPollPrimary = null;
-let runPollGrace = 0;
-let runPollCycles = 0;
 let runPollActive = false;
 const pendingMetricsRetry = new Set();
 const metricsRetryCount = new Map();
@@ -1860,18 +1866,6 @@ function renderStatusEntries(entries){
     return `<div class="mono" style="margin-bottom:4px;"><span style="opacity:.65;">${ts}</span> ${label}${preset}: ${detail}</div>`;
   }).join('');
   return `<div id="joblog" class="mono">${items}</div>`;
-}
-async function refreshStatusLog(song){
-  if (!song) return;
-  try {
-    const res = await fetch(`/api/status?song=${encodeURIComponent(song)}`, { cache:'no-store' });
-    if (!res.ok) return;
-    const data = await res.json();
-    const html = renderStatusEntries(data.entries || []);
-    setResultHTML(html);
-  } catch (e) {
-    console.debug('refreshStatusLog failed', e);
-  }
 }
 function selectAllPackPresets(){
   const box = document.getElementById('packPresetsBox');
@@ -2427,18 +2421,13 @@ function appendVoicing(fd){
     if (v) fd.append('voicing_name', v);
   }
 }
-let runPollTimer = null;
 let runPollFiles = [];
-let runPollSeen = new Set();
-let runPollDone = new Set();
 function stopRunPolling() {
   if (statusStream) {
     statusStream.close();
     statusStream = null;
   }
   runPollFiles = [];
-  runPollSeen = new Set();
-  runPollDone = new Set();
   runPollActive = false;
   suppressRecentDuringRun = false;
   statusEntries = [];
@@ -2466,7 +2455,6 @@ function startRunPolling(files) {
   if (!arr.length) return;
   runPollFiles = [...arr];
   runPollPrimary = runPollFiles[0] || null;
-  runPollSeen = new Set();
   runPollActive = true;
   setStatus(`Processing ${arr.join(', ')}`);
   // Show an immediate placeholder so the user sees progress instantly
@@ -3209,21 +3197,6 @@ def delete_song(song: str):
         return {"message": f"Nothing to delete for {song}."}
     shutil.rmtree(target)
     return {"message": f"Deleted outputs for {song}."}
-@app.get("/api/status")
-def job_status(song: str):
-    folder = OUT_DIR / song
-    status_fp = folder / ".status.json"
-    if not status_fp.exists():
-        raise HTTPException(status_code=404, detail="status_not_found")
-    try:
-        data = json.loads(status_fp.read_text(encoding="utf-8"))
-        if isinstance(data, list):
-            return {"entries": data}
-        if isinstance(data, dict):
-            return {"entries": data.get("entries", [])}
-    except Exception:
-        raise HTTPException(status_code=500, detail="status_read_failed")
-    return {"entries": []}
 @app.delete("/api/output/{song}/{name}")
 def delete_output(song: str, name: str):
     """Delete an individual mastered output (WAV/MP3/metrics) within a run folder."""
@@ -3673,6 +3646,13 @@ def start_run(
         "run_ids": run_ids,
         "primary_run_id": primary,
     })
+
+@app.get("/api/run/{run_id}")
+async def run_snapshot(run_id: str):
+    """Return the current run snapshot (events + terminal flag) for reconnects."""
+    await status_bus.ensure_watcher(run_id)
+    snap = await status_bus.snapshot(run_id)
+    return snap
 @app.post("/api/master-bulk")
 def master_bulk(
     infiles: str = Form(...),
