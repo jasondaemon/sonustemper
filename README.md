@@ -17,7 +17,7 @@ SonusTemper is a one-page mastering workstation: drop in a song, choose a voicin
 - Single-select tiles with info drawers that explain “what it does,” “best for,” and “watch-outs.”
 - Strength/Intensity slider applies to whichever mode is active.
 
-![Settings](images/voice-settings.png)
+![Settings](images/voicing-settings.png)
 
 ### Loudness
 - Two-pass, static gain: first measure LUFS/true-peak, then apply a fixed offset to hit target LUFS. Skips gain if already within ±1 LU. True-peak ceiling is always enforced.
