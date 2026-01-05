@@ -3310,8 +3310,25 @@ def outlist(song: str):
         try:
             src = find_input_file(song)
             if src:
-                # Always compute full input metrics from source for richer comparisons
-                input_m = basic_metrics(src)
+                # Compute fuller input metrics (loudness + astats) similar to mastered outputs
+                input_m = measure_loudness(src) or {}
+                try:
+                    cf_corr = calc_cf_corr(src)
+                    if isinstance(cf_corr, dict):
+                        for k in ("crest_factor", "peak_level", "rms_level", "dynamic_range", "noise_floor"):
+                            if k not in input_m or input_m.get(k) is None:
+                                input_m[k] = cf_corr.get(k)
+                except Exception:
+                    pass
+                # add duration
+                try:
+                    info = docker_ffprobe_json(src)
+                    dur = float(info.get("format", {}).get("duration")) if info else None
+                    if dur is not None:
+                        input_m["duration_sec"] = dur
+                except Exception:
+                    pass
+                # Cache input metrics into metrics.json for quicker subsequent loads
                 try:
                     m_stub = wrap_metrics(song, read_run_metrics(folder)) or {"output": None}
                     m_stub["input"] = input_m
