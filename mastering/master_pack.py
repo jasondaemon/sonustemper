@@ -245,7 +245,9 @@ def build_filters(preset: dict, strength: float, lufs_override, tp_override, wid
 
     target_lufs = float(lufs_override) if lufs_override is not None else float(preset.get("lufs", -14))
     ceiling_db = float(tp_override) if tp_override is not None else float(lim.get("ceiling", -1.0))
-    ceiling_lin = db_to_lin(ceiling_db)
+    # Keep ceiling within safe bounds for alimiter (limit expects 0..1 linear)
+    ceiling_db = min(0.0, ceiling_db)
+    ceiling_lin = min(0.999, db_to_lin(ceiling_db))
 
     eq_terms = []
     for band in eq:
