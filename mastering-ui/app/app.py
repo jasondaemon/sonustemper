@@ -1200,6 +1200,7 @@ let lastRunInputMetrics = null;
 let runPollPrimary = null;
 let runPollGrace = 0;
 let runPollCycles = 0;
+let runPollActive = false;
 const pendingMetricsRetry = new Set();
 const METRIC_META = [
   { key:"I", label:"I", desc:"Integrated loudness (LUFS) averaged over the whole song. Higher (less negative) is louder; aim for musical balance, not just numbers." },
@@ -1541,9 +1542,14 @@ function setProgress(fraction){
   const wrap = document.getElementById('progressWrap');
   const bar = document.getElementById('progressBar');
   if (!wrap || !bar) return;
-  if (fraction === null || fraction === undefined || isNaN(fraction) || fraction <= 0) {
-    wrap.style.display = 'none';
-    bar.style.width = '0%';
+  if (fraction === null || fraction === undefined || isNaN(fraction)) {
+    if (runPollActive) {
+      wrap.style.display = 'block';
+      bar.style.width = '5%';
+    } else {
+      wrap.style.display = 'none';
+      bar.style.width = '0%';
+    }
     return;
   }
   const pct = Math.max(0, Math.min(1, fraction)) * 100;
@@ -1552,7 +1558,7 @@ function setProgress(fraction){
 }
 function updateProgressFromEntries(entries){
   if (!entries || !entries.length) {
-    setProgress(null);
+    setProgress(runPollActive ? 0.05 : null);
     return;
   }
   const stagesSeen = new Set(entries.map(e => e.stage).filter(Boolean));
@@ -2195,6 +2201,7 @@ function stopRunPolling() {
   runPollDone = new Set();
   runPollGrace = 0;
   runPollCycles = 0;
+  runPollActive = false;
   suppressRecentDuringRun = false;
 }
 async function finishPolling(finishedPrimary){
@@ -2219,6 +2226,7 @@ function startRunPolling(files) {
   runPollPrimary = runPollFiles[0] || null;
   runPollSeen = new Set();
   runPollCycles = 0;
+  runPollActive = true;
   setStatus(`Processing ${arr.join(', ')}`);
   // Show an immediate placeholder so the user sees progress instantly
   setResultHTML(`<div id="joblog" class="mono"><div>Starting…</div></div>`);
