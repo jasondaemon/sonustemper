@@ -3,7 +3,7 @@ services:
     image: ghcr.io/jasondaemon/sonustemper:${SONUSTEMPER_TAG:-edge}
     restart: unless-stopped
     ports:
-      - "${PORT:-8383}:8383"
+      - "127.0.0.1:${PORT:-8383}:8383"
     environment:
       DATA_DIR: "/data"
       IN_DIR: "/data/in"

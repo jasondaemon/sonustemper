@@ -14,12 +14,19 @@ import os
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 IN_DIR = Path(os.getenv("IN_DIR", str(DATA_DIR / "in")))
 OUT_DIR = Path(os.getenv("OUT_DIR", str(DATA_DIR / "out")))
 PRESET_DIR = Path(os.getenv("PRESET_DIR", "/presets"))
 GEN_PRESET_DIR = Path(os.getenv("GEN_PRESET_DIR", str(DATA_DIR / "generated_presets")))
 APP_DIR = Path(__file__).resolve().parent
+# Security: API key protection (set API_KEY); set API_AUTH_DISABLED=1 to bypass explicitly.
+API_KEY = os.getenv("API_KEY")
+API_AUTH_DISABLED = os.getenv("API_AUTH_DISABLED") == "1"
+# Security: API key protection (set API_KEY); set API_AUTH_DISABLED=1 to bypass explicitly.
+API_KEY = os.getenv("API_KEY")
+API_AUTH_DISABLED = os.getenv("API_AUTH_DISABLED") == "1"
 # Deprecated: master.py retained only as a fallback reference; master_pack.py is the unified runner.
 _default_master = APP_DIR / "mastering" / "master.py"
 _default_pack = APP_DIR / "mastering" / "master_pack.py"
@@ -265,6 +272,24 @@ class StatusBus:
             await self._schedule_cleanup(run_id)
 
 status_bus = StatusBus()
+
+async def api_key_guard(request: Request, call_next):
+    # Only guard API routes
+    if request.url.path.startswith("/api/"):
+        if API_AUTH_DISABLED:
+            return await call_next(request)
+        key = request.headers.get("X-API-Key")
+        if not API_KEY:
+            # Safe default: if no key configured, only allow localhost
+            client = request.client.host if request.client else None
+            if client not in ("127.0.0.1", "::1", "localhost"):
+                return JSONResponse({"detail": "unauthorized"}, status_code=401)
+            return await call_next(request)
+        if key != API_KEY:
+            return JSONResponse({"detail": "unauthorized"}, status_code=401)
+    return await call_next(request)
+
+app.add_middleware(BaseHTTPMiddleware, dispatch=api_key_guard)
 
 @app.on_event("startup")
 async def _capture_loop():
@@ -3544,13 +3569,38 @@ def run_metrics(song: str):
         raise HTTPException(status_code=404, detail="metrics_not_found")
     m = fill_input_metrics(song, m, folder)
     return m
+MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(250 * 1024 * 1024)))  # default 250MB
+ALLOWED_UPLOAD_EXT = {".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg"}
+CHUNK_SIZE = 4 * 1024 * 1024
+def _safe_upload_name(name: str) -> str:
+    if not name or ".." in name or name.startswith("/"):
+        raise HTTPException(status_code=400, detail="invalid_filename")
+    suffix = Path(name).suffix.lower()
+    if suffix not in ALLOWED_UPLOAD_EXT:
+        raise HTTPException(status_code=400, detail="unsupported_type")
+    safe = Path(name).name
+    if not safe:
+        raise HTTPException(status_code=400, detail="invalid_filename")
+    return safe
+
 @app.post("/api/upload")
 async def upload(files: list[UploadFile] = File(...)):
     IN_DIR.mkdir(parents=True, exist_ok=True)
     saved = []
     for file in files:
-        dest = IN_DIR / Path(file.filename).name
-        dest.write_bytes(await file.read())
+        safe_name = _safe_upload_name(file.filename)
+        dest = IN_DIR / safe_name
+        size = 0
+        with dest.open("wb") as fout:
+            while True:
+                chunk = await file.read(CHUNK_SIZE)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > MAX_UPLOAD_BYTES:
+                    dest.unlink(missing_ok=True)
+                    raise HTTPException(status_code=413, detail="file_too_large")
+                fout.write(chunk)
         saved.append(dest.name)
     return JSONResponse({"message": f"Uploaded: {', '.join(saved)}"})
 @app.post("/api/master")
@@ -3564,7 +3614,8 @@ def master(
     mono_bass: float | None = Form(None),
     guardrails: int = Form(0),
 ):
-    cmd = ["python3", str(MASTER_SCRIPT), "--infile", infile, "--strength", str(strength), "--presets", preset]
+    safe_in = _validate_input_file(infile)
+    cmd = ["python3", str(MASTER_SCRIPT), "--infile", str(safe_in.name), "--strength", str(strength), "--presets", preset]
     if lufs is not None:
         cmd += ["--lufs", str(lufs)]
     if tp is not None:
@@ -3615,7 +3666,8 @@ def master_pack(
     voicing_name: str | None = Form(None),
     presets: str | None = Form(None),
 ):
-    base_cmd = ["python3", str(MASTER_SCRIPT), "--infile", infile, "--strength", str(strength)]
+    safe_in = _validate_input_file(infile)
+    base_cmd = ["python3", str(MASTER_SCRIPT), "--infile", str(safe_in.name), "--strength", str(strength)]
     if presets:
         base_cmd += ["--presets", presets]
     if lufs is not None:
@@ -3693,7 +3745,10 @@ def start_run(
     voicing_name: str | None = Form(None),
     presets: str | None = Form(None),
 ):
-    files = [f.strip() for f in infiles.split(",") if f.strip()]
+    files = []
+    for f in [x.strip() for x in infiles.split(",") if x.strip()]:
+        safe = _validate_input_file(f)
+        files.append(str(safe.name))
     if not files:
         raise HTTPException(status_code=400, detail="no_files")
     if RUNS_IN_FLIGHT >= MAX_CONCURRENT_RUNS:
@@ -3756,7 +3811,10 @@ def master_bulk(
     voicing_name: str | None = Form(None),
     presets: str | None = Form(None),
 ):
-    files = [f.strip() for f in infiles.split(",") if f.strip()]
+    files = []
+    for f in [x.strip() for x in infiles.split(",") if x.strip()]:
+        safe = _validate_input_file(f)
+        files.append(str(safe.name))
     if not files:
         raise HTTPException(status_code=400, detail="no_files")
     if RUNS_IN_FLIGHT >= MAX_CONCURRENT_RUNS:
@@ -3778,3 +3836,18 @@ def master_bulk(
         "run_ids": run_ids,
         "primary_run_id": primary,
     })
+def _validate_input_file(name: str) -> Path:
+    """Validate a user-supplied infile lives under IN_DIR."""
+    if not name or name.startswith("/") or ".." in name:
+        raise HTTPException(status_code=400, detail="invalid_input_path")
+    candidate = (IN_DIR / name).resolve()
+    try:
+        if IN_DIR.resolve() not in candidate.parents:
+            raise HTTPException(status_code=400, detail="invalid_input_path")
+        if not candidate.exists() or not candidate.is_file():
+            raise HTTPException(status_code=400, detail="input_not_found")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid_input_path")
+    return candidate

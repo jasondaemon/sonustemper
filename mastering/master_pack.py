@@ -936,6 +936,7 @@ def main():
     if voicing_mode not in ("presets", "voicing"):
         voicing_mode = "presets"
     voicing_name = args.voicing_name.strip() if args.voicing_name else None
+    server_mode = os.getenv("SERVER_MODE") == "1"
 
     # Stage gates
     do_analyze = not args.no_analyze
@@ -989,6 +990,9 @@ def main():
     strength = clamp(args.strength, 0, 100) / 100.0
 
     infile = Path(args.infile)
+    if infile.is_absolute() and server_mode:
+        print(f"[guard] Absolute paths are disallowed in server mode: {infile}", file=sys.stderr)
+        sys.exit(3)
     if not infile.is_absolute():
         infile = IN_DIR / infile
     if not infile.exists():
