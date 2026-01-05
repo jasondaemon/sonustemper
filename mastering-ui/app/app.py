@@ -2382,8 +2382,13 @@ function startRunPolling(files) {
         if (entry.stage === 'complete') {
           // On complete, load outputs once and refresh recent, then stop stream
           (async () => {
-            try { await refreshRecent(true); } catch(_){}
-            try { await loadSong(runPollPrimary); } catch(_){}
+            setStatus("Loading outputs...");
+            try {
+              await Promise.allSettled([
+                refreshRecent(true),
+                loadSong(runPollPrimary)
+              ]);
+            } catch (_){}
           })().finally(() => finishPolling(runPollPrimary));
         }
       } catch (e) {
