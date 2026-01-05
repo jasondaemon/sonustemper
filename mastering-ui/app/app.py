@@ -2700,13 +2700,15 @@ async function loadPresets(){
     list.innerHTML = '';
     items.forEach(it => {
       const meta = it.meta || {};
+      const src = meta.source_file || '—';
+      const created = meta.created_at || '—';
       const row = document.createElement('div');
       row.className = 'item';
       row.innerHTML = `
         <div class="col" style="gap:2px;">
           <div class="mono" style="font-weight:600;">${it.name}</div>
           <div class="small">${meta.title || ''}</div>
-          <div class="small">Source: ${meta.source_file || '—'} • Created: ${meta.created_at || '—'}</div>
+          <div class="small">Source: ${src} • Created: ${created}</div>
         </div>
         <div class="row" style="gap:6px;">
           <button class="btnGhost" onclick="downloadPreset('${it.name}')">Download</button>
