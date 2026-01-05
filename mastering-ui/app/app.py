@@ -2207,7 +2207,7 @@ function stopRunPolling() {
 }
 async function finishPolling(finishedPrimary){
   stopRunPolling();
-  setStatus("");
+  setStatus("Job complete.");
   setProgress(null);
   suppressRecentDuringRun = false;
   // clear pending metric retries for this song
