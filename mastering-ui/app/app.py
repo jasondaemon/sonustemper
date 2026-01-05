@@ -399,68 +399,65 @@ def measure_loudness(path: Path) -> dict:
     TP  = float((mTPK[-1] if mTPK else (mPeak[-1] if mPeak else None))) if (mTPK or mPeak) else None
     return {"I": I, "LRA": LRA, "TP": TP}
 def calc_cf_corr(path: Path) -> dict:
-    """Extract crest factor and other useful overall stats via ffmpeg astats (overall section)."""
+    """Extract crest factor and other useful overall stats via ffmpeg astats (mirrors master_pack)."""
+    want = "Peak_level+RMS_level+RMS_peak+Noise_floor+Crest_factor"
+    r = run_cmd([
+        "ffmpeg", "-hide_banner", "-v", "verbose", "-nostats", "-i", str(path),
+        "-af", f"astats=measure_overall={want}:measure_perchannel=none:reset=0",
+        "-f", "null", "-"
+    ])
+    txt = (r.stderr or "") + "\n" + (r.stdout or "")
     out = {
         "crest_factor": None,
-        "stereo_corr": None,  # correlation isn't provided by astats in this build; keep for compatibility
+        "stereo_corr": None,
         "peak_level": None,
         "rms_level": None,
         "dynamic_range": None,
         "noise_floor": None,
     }
-    try:
-        want = "Peak_level+RMS_level+RMS_peak+Noise_floor+Crest_factor"
-        r = run_cmd([
-            "ffmpeg", "-hide_banner", "-v", "verbose", "-nostats", "-i", str(path),
-            "-af", f"astats=measure_overall={want}:measure_perchannel=none:reset=0",
-            "-f", "null", "-"
-        ])
-        txt = (r.stderr or "") + "\n" + (r.stdout or "")
-        rms_peak = None
-        section = None
-        for raw in txt.splitlines():
-            line = raw.strip()
-            if "]" in line and line.startswith("["):
-                line = line.split("]", 1)[1].strip()
-            if not line:
-                continue
-            low = line.lower()
-            if low == "overall":
-                section = "overall"
-                continue
-            if low.startswith("channel:") or low.startswith("channel "):
-                section = "channel"
-                continue
-            if section != "overall":
-                continue
-            if ":" not in line:
-                continue
-            k, v = line.split(":", 1)
-            k = k.strip().lower().replace(" ", "_")
-            if k.endswith("_db"):
-                k = k[:-3]
-            if k == "noise_floor" and v.lower().startswith("-inf"):
-                out["noise_floor"] = -120.0
-                continue
-            m = re.match(r"^([\\-0-9\\.]+)", v.strip())
-            if not m:
-                continue
-            try:
-                num = float(m.group(1))
-            except Exception:
-                continue
-            if k == "rms_peak":
-                rms_peak = num
-                continue
-            if k in ("peak_level","rms_level","dynamic_range","noise_floor","crest_factor"):
-                if out.get(k) is None:
-                    out[k] = num
-        if out["dynamic_range"] is None and rms_peak is not None and out["rms_level"] is not None:
-            out["dynamic_range"] = rms_peak - out["rms_level"]
-        if out["crest_factor"] is None and out["peak_level"] is not None and out["rms_level"] is not None:
-            out["crest_factor"] = out["peak_level"] - out["rms_level"]
-    except Exception:
-        pass
+    rms_peak = None
+    section = None
+    for raw in txt.splitlines():
+        line = raw.strip()
+        if "]" in line and line.startswith("["):
+            line = line.split("]", 1)[1].strip()
+        if not line:
+            continue
+        low = line.lower()
+        if low == "overall":
+            section = "overall"
+            continue
+        if low.startswith("channel:") or low.startswith("channel "):
+            section = "channel"
+            continue
+        if section != "overall":
+            continue
+        if ":" not in line:
+            continue
+        k, v = line.split(":", 1)
+        k = k.strip().lower().replace(" ", "_")
+        if k.endswith("_db"):
+            k = k[:-3]
+        if k == "noise_floor" and v.lower().startswith("-inf"):
+            out["noise_floor"] = -120.0
+            continue
+        m = re.match(r"^([\\-0-9\\.]+)", v.strip())
+        if not m:
+            continue
+        try:
+            num = float(m.group(1))
+        except Exception:
+            continue
+        if k == "rms_peak":
+            rms_peak = num
+            continue
+        if k in ("peak_level","rms_level","dynamic_range","noise_floor","crest_factor"):
+            if out.get(k) is None:
+                out[k] = num
+    if out["dynamic_range"] is None and rms_peak is not None and out["rms_level"] is not None:
+        out["dynamic_range"] = rms_peak - out["rms_level"]
+    if out["crest_factor"] is None and out["peak_level"] is not None and out["rms_level"] is not None:
+        out["crest_factor"] = out["peak_level"] - out["rms_level"]
     return out
 def basic_metrics(path: Path) -> dict:
     info = docker_ffprobe_json(path)
