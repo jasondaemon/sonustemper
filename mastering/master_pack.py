@@ -921,14 +921,14 @@ def main():
         }
         if do_master and voicing_mode == "presets":
             for p in presets:
-            preset_path = PRESET_DIR / f"{p}.json"
-            if not preset_path.exists():
-                alt = GEN_PRESET_DIR / f"{p}.json"
-                if alt.exists():
-                    preset_path = alt
-            if not preset_path.exists():
-                print(f"Skipping missing preset: {p}", file=sys.stderr)
-                continue
+                preset_path = PRESET_DIR / f"{p}.json"
+                if not preset_path.exists():
+                    alt = GEN_PRESET_DIR / f"{p}.json"
+                    if alt.exists():
+                        preset_path = alt
+                if not preset_path.exists():
+                    print(f"Skipping missing preset: {p}", file=sys.stderr)
+                    continue
 
                 with open(preset_path, "r") as f:
                     preset = json.load(f)
