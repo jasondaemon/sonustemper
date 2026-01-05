@@ -1198,6 +1198,7 @@ const BULK_FILES_KEY = "bulkFilesSelected";
 let suppressRecentDuringRun = false;
 let lastRunInputMetrics = null;
 let runPollPrimary = null;
+let runPollGrace = 0;
 const pendingMetricsRetry = new Set();
 const METRIC_META = [
   { key:"I", label:"I", desc:"Integrated loudness (LUFS) averaged over the whole song. Higher (less negative) is louder; aim for musical balance, not just numbers." },
@@ -2191,6 +2192,7 @@ function stopRunPolling() {
   runPollFiles = [];
   runPollSeen = new Set();
   runPollDone = new Set();
+  runPollGrace = 0;
   suppressRecentDuringRun = false;
 }
 async function finishPolling(finishedPrimary){
@@ -2217,13 +2219,12 @@ function startRunPolling(files) {
   setStatus(`Processing ${arr.join(', ')}`);
   // Show an immediate placeholder so the user sees progress instantly
   setResultHTML(`<div id="joblog" class="mono"><div>Starting…</div></div>`);
-  if (runPollPrimary) {
-    refreshStatusLog(runPollPrimary);
-  }
+  setProgress(0.05);
   runPollTimer = setInterval(async () => {
     try {
       let anyProcessing = false;
       let pending = new Set(runPollFiles);
+      let lastStage = null;
       for (const f of runPollFiles) {
         const res = await loadSong(f, { skipEmpty: true, quiet: true });
         if (res && res.processing) {
@@ -2247,6 +2248,7 @@ function startRunPolling(files) {
           if (sres.ok) {
             const sj = await sres.json();
             const last = (sj.entries || []).slice(-1)[0];
+            lastStage = last?.stage || null;
             if (last && last.stage === 'complete') {
               await finishPolling(runPollPrimary);
               return;
@@ -2255,6 +2257,11 @@ function startRunPolling(files) {
         } catch (_){}
       }
       if (!anyProcessing && pending.size === 0) {
+        // Grace period to allow final status entries to land
+        if (lastStage !== 'complete' && runPollGrace < 3) {
+          runPollGrace += 1;
+          return;
+        }
         await finishPolling(runPollPrimary);
         return;
       }
@@ -2374,6 +2381,7 @@ async function runOne(){
   clearOutList(); setLinks(''); setMetricsPanel('(waiting)');
   setStatus("Running master...");
   startJobLog('Processing...');
+  setProgress(0.05);
   const files = getSelectedBulkFiles();
   const presets = getSelectedPresets();
   const mode = getVoicingMode();
@@ -2416,6 +2424,7 @@ async function runPack(){
   clearOutList(); setLinks(''); setMetricsPanel('(waiting)');
   setStatus("A/B pack running...");
   startJobLog('Processing...');
+  setProgress(0.05);
   try { localStorage.setItem("packInFlight", String(Date.now())); } catch {}
   const files = getSelectedBulkFiles();
   const presets = getSelectedPresets();
@@ -2481,6 +2490,7 @@ async function runBulk(){
   clearOutList(); setLinks(''); setMetricsPanel('(waiting)');
   setStatus("Bulk run starting...");
   startJobLog('Processing...');
+  setProgress(0.05);
   const song = (files[0] || '').replace(/\.[^.]+$/, '') || files[0];
   const strength = document.getElementById('strength').value;
   const pollFiles = files.map(f => f.replace(/\.[^.]+$/, '') || f);
