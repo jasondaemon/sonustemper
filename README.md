@@ -82,7 +82,11 @@ uvicorn app:app --reload --port 8383
 
 ## Images and tags
 - GHCR: `ghcr.io/jasondaemon/sonustemper`
-- Set `SONUSTEMPER_TAG` (`edge` or `vX.Y.Z`). For private GHCR, log in with a PAT or GITHUB_TOKEN.
+- Set `SONUSTEMPER_TAG` to a release tag (`vX.Y.Z`) or use `latest`. 
 
 ## Health
 `GET /health` reports ffmpeg/ffprobe availability, directory writability, preset status, build/app id.
+
+## License
+- Project code: Apache 2.0 (see `LICENSE`).
+- FFmpeg is installed from the distro package and remains under its original LGPL/GPL licensing; see `THIRD_PARTY_NOTICES.md` for details.

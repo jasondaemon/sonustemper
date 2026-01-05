@@ -1,0 +1,2 @@
+# Keep helper/meta files out of the build context
+BASE_PROMPT.md
