@@ -76,6 +76,14 @@ class StatusBus:
         async with self.lock:
             st = await self._ensure_state(run_id)
             for e in events:
+                # attach terminal payload (outlist/metrics) when available
+                if e.get("stage") in ("complete", "error"):
+                    try:
+                        payload = outlist(run_id)
+                        e = dict(e)
+                        e["result"] = payload
+                    except Exception:
+                        pass
                 st["last_id"] += 1
                 ev = dict(e)
                 ev["_id"] = st["last_id"]
@@ -2386,7 +2394,7 @@ function startRunPolling(files) {
             try {
               await Promise.allSettled([
                 refreshRecent(true),
-                loadSong(runPollPrimary)
+                loadSong(runPollPrimary, { preOutlist: entry.result || null, quiet:false })
               ]);
             } catch (_){}
           })().finally(() => finishPolling(runPollPrimary));
@@ -2405,22 +2413,26 @@ function startRunPolling(files) {
     };
   }
 }
-async function loadSong(song, skipEmpty=false){
-  let opts = { skipEmpty: false, quiet: false };
-  if (typeof skipEmpty === 'object') {
-    opts.skipEmpty = !!skipEmpty.skipEmpty;
-    opts.quiet = !!skipEmpty.quiet;
+async function loadSong(song, options=false){
+  let opts = { skipEmpty: false, quiet: false, preOutlist: null };
+  if (typeof options === 'object' && options !== null) {
+    opts.skipEmpty = !!options.skipEmpty;
+    opts.quiet = !!options.quiet;
+    opts.preOutlist = options.preOutlist || null;
   } else {
-    opts.skipEmpty = !!skipEmpty;
-    opts.quiet = !!skipEmpty; // boolean true from polling implies quiet
+    opts.skipEmpty = !!options;
+    opts.quiet = !!options; // boolean true from polling implies quiet
   }
   if (!opts.quiet) {
     localStorage.setItem("lastSong", song);
     setLinks('');
   }
   lastRunInputMetrics = null;
-  const r = await fetch(`/api/outlist?song=${encodeURIComponent(song)}`, { cache:'no-store' });
-  const j = await r.json();
+  let j = opts.preOutlist;
+  if (!j) {
+    const r = await fetch(`/api/outlist?song=${encodeURIComponent(song)}`, { cache:'no-store' });
+    j = await r.json();
+  }
   const hasItems = j.items && j.items.length > 0;
   if (opts.skipEmpty && !hasItems) return { hasItems:false, hasPlayable:false, processing:false };
   let processing = false;
