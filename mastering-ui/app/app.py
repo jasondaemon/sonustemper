@@ -2899,8 +2899,23 @@ def delete_output(song: str, name: str):
         raise HTTPException(status_code=400, detail="invalid_name")
 
     removed = []
+    candidates = []
+    # direct filename targets
     for suffix in [".wav", ".mp3", ".m4a", ".aac", ".ogg", ".flac", ".metrics.json", ".run.json"]:
-        fp = (folder / f"{stem}{suffix}").resolve()
+        candidates.append(folder / f"{stem}{suffix}")
+    # any file in folder whose stem matches (covers variations)
+    try:
+        for f in folder.iterdir():
+            if f.is_file() and f.stem == stem:
+                candidates.append(f)
+    except Exception:
+        pass
+    seen = set()
+    for fp in candidates:
+        fp = fp.resolve()
+        if fp in seen:
+            continue
+        seen.add(fp)
         if folder not in fp.parents or fp == folder:
             continue
         if fp.exists():
