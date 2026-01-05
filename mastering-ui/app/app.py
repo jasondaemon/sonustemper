@@ -6,11 +6,13 @@ import re
 import threading
 import sys
 import tempfile
+import asyncio
+from collections import deque
 from pathlib import Path
 from datetime import datetime
 import os
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 IN_DIR = Path(os.getenv("IN_DIR", str(DATA_DIR / "in")))
@@ -33,6 +35,146 @@ app = FastAPI()
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 IN_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/out", StaticFiles(directory=str(OUT_DIR), html=True), name="out")
+
+# --- SSE status stream with in-memory ring buffer + file watcher ---
+class StatusBus:
+    def __init__(self, ttl_sec: int = 600, max_events: int = 256):
+        self.ttl = ttl_sec
+        self.max_events = max_events
+        self.state = {}  # run_id -> {"events": deque, "waiters": set(queue), "task": task, "cleanup": handle, "last_id": int}
+        self.lock = asyncio.Lock()
+
+    async def _ensure_state(self, run_id: str):
+        if run_id in self.state:
+            return self.state[run_id]
+        self.state[run_id] = {
+            "events": deque(maxlen=self.max_events),
+            "waiters": set(),
+            "task": None,
+            "cleanup": None,
+            "last_id": 0,
+        }
+        return self.state[run_id]
+
+    async def _schedule_cleanup(self, run_id: str):
+        st = self.state.get(run_id)
+        if not st:
+            return
+        if st["cleanup"]:
+            st["cleanup"].cancel()
+        async def cleanup_task():
+            await asyncio.sleep(self.ttl)
+            async with self.lock:
+                st = self.state.get(run_id)
+                if st:
+                    if st["task"]:
+                        st["task"].cancel()
+                    self.state.pop(run_id, None)
+        st["cleanup"] = asyncio.create_task(cleanup_task())
+
+    async def append_events(self, run_id: str, events: list[dict]):
+        async with self.lock:
+            st = await self._ensure_state(run_id)
+            for e in events:
+                st["last_id"] += 1
+                ev = dict(e)
+                ev["_id"] = st["last_id"]
+                st["events"].append(ev)
+                for q in list(st["waiters"]):
+                    await q.put(ev)
+            if events and events[-1].get("stage") in ("complete", "error"):
+                await self._schedule_cleanup(run_id)
+
+    async def subscribe(self, run_id: str, last_event_id: int | None = None):
+        st = await self._ensure_state(run_id)
+        q = asyncio.Queue()
+        async with self.lock:
+            st["waiters"].add(q)
+            for e in st["events"]:
+                if last_event_id is None or e.get("_id", 0) > last_event_id:
+                    await q.put(e)
+        return q
+
+    async def unsubscribe(self, run_id: str, q: asyncio.Queue):
+        async with self.lock:
+            st = self.state.get(run_id)
+            if st and q in st["waiters"]:
+                st["waiters"].remove(q)
+
+    async def ensure_watcher(self, run_id: str):
+        st = await self._ensure_state(run_id)
+        if st["task"]:
+            return
+        st["task"] = asyncio.create_task(self._watch_file(run_id))
+
+    async def _watch_file(self, run_id: str):
+        path = OUT_DIR / run_id / ".status.json"
+        last_len = 0
+        # seed existing
+        if path.exists():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                existing = data.get("entries") or []
+                last_len = len(existing)
+                if existing:
+                    await self.append_events(run_id, existing)
+            except Exception:
+                pass
+        try:
+            while True:
+                entries = []
+                if path.exists():
+                    try:
+                        data = json.loads(path.read_text(encoding="utf-8"))
+                        entries = data.get("entries") or []
+                    except Exception:
+                        entries = []
+                if last_len < len(entries):
+                    new_entries = entries[last_len:]
+                    last_len = len(entries)
+                    await self.append_events(run_id, new_entries)
+                    if new_entries and new_entries[-1].get("stage") in ("complete", "error"):
+                        break
+                if last_len > 0 and not path.exists():
+                    break
+                await asyncio.sleep(1)
+        finally:
+            await self._schedule_cleanup(run_id)
+
+status_bus = StatusBus()
+
+@app.get("/api/status-stream")
+async def status_stream(song: str, request: Request):
+    run_id = song
+    await status_bus.ensure_watcher(run_id)
+    last_event_id = None
+    try:
+        lei = request.headers.get("last-event-id")
+        if lei:
+            last_event_id = int(lei)
+    except Exception:
+        last_event_id = None
+    q = await status_bus.subscribe(run_id, last_event_id)
+    async def event_gen():
+        try:
+            last_keepalive = datetime.utcnow().timestamp()
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    e = await asyncio.wait_for(q.get(), timeout=15)
+                    yield f"id: {e.get('_id','')}\n"
+                    yield f"data: {json.dumps(e)}\n\n"
+                    if e.get("stage") in ("complete", "error"):
+                        break
+                except asyncio.TimeoutError:
+                    now = datetime.utcnow().timestamp()
+                    if now - last_keepalive > 10:
+                        yield ": keepalive\n\n"
+                        last_keepalive = now
+        finally:
+            await status_bus.unsubscribe(run_id, q)
+    return StreamingResponse(event_gen(), media_type="text/event-stream")
 def read_metrics_for_wav(wav: Path) -> dict | None:
     mp = wav.with_suffix(".metrics.json")
     if not mp.exists():
@@ -1203,6 +1345,8 @@ let runPollCycles = 0;
 let runPollActive = false;
 const pendingMetricsRetry = new Set();
 const metricsRetryCount = new Map();
+let statusStream = null;
+let statusEntries = [];
 const METRIC_META = [
   { key:"I", label:"I", desc:"Integrated loudness (LUFS) averaged over the whole song. Higher (less negative) is louder; aim for musical balance, not just numbers." },
   { key:"TP", label:"TP", desc:"True Peak (dBTP) or peak dBFS if TP unavailable. Closer to 0 dBTP is louder but riskier; keep headroom for clean playback." },
@@ -2102,24 +2246,6 @@ function fmtCompactIO(inputM, outputM){
     </div>
     <div id="${id}" class="metricsGrid advHidden">${moreHtml}</div>
   `;
-}
-function chip(c){
-    const vIn = metricVal(inputM, c.key);
-    const vOut = metricVal(outputM, c.key);
-    const d = (typeof vIn === "number" && typeof vOut === "number") ? (vOut - vIn) : null;
-    const dTxt = (d === null) ? "" : `${d>0?"+":""}${d.toFixed(1)}${c.suffix||""}`;
-    return `
-      <div class="metricChip">
-        <div class="metricTitle">
-          <div class="label">${c.label}</div>
-          <button class="info-btn" data-info-type="metrics" data-id="${c.key}" aria-label="${c.tip}">ⓘ</button>
-        </div>
-        <div class="metricLines">
-          <div class="metricLine"><span class="metricTag">In</span><span class="metricVal">${fmtMetric(vIn, c.suffix||"")}</span></div>
-          <div class="metricLine"><span class="metricTag">Out</span><span class="metricVal">${fmtMetric(vOut, c.suffix||"")}</span><span class="metricDelta">${dTxt ? `Δ ${dTxt}` : ""}</span></div>
-        </div>
-      </div>`;
-  }
 
 function renderMetricsDrawer(triggerBtn){
   const id = triggerBtn?.getAttribute('data-id') || null;
@@ -2197,6 +2323,10 @@ function stopRunPolling() {
     clearInterval(runPollTimer);
     runPollTimer = null;
   }
+  if (statusStream) {
+    statusStream.close();
+    statusStream = null;
+  }
   runPollFiles = [];
   runPollSeen = new Set();
   runPollDone = new Set();
@@ -2204,6 +2334,7 @@ function stopRunPolling() {
   runPollCycles = 0;
   runPollActive = false;
   suppressRecentDuringRun = false;
+  statusEntries = [];
 }
 async function finishPolling(finishedPrimary){
   stopRunPolling();
@@ -2235,63 +2366,34 @@ function startRunPolling(files) {
   // Show an immediate placeholder so the user sees progress instantly
   setResultHTML(`<div id="joblog" class="mono"><div>Starting…</div></div>`);
   setProgress(0.05);
-  runPollTimer = setInterval(async () => {
-    if (!runPollActive) return;
-    try {
-      let anyProcessing = false;
-      let pending = new Set(runPollFiles);
-      let lastStage = null;
-      for (const f of runPollFiles) {
-        const res = await loadSong(f, { skipEmpty: true, quiet: true });
-        if (res && res.processing) {
-          anyProcessing = true;
-          runPollSeen.add(f);
+  // Start SSE stream for status updates
+  if (runPollPrimary) {
+    statusEntries = [];
+    const url = `/api/status-stream?song=${encodeURIComponent(runPollPrimary)}`;
+    statusStream = new EventSource(url);
+    statusStream.onmessage = (ev) => {
+      try {
+        const entry = JSON.parse(ev.data);
+        statusEntries.push(entry);
+        const html = renderStatusEntries(statusEntries);
+        setResultHTML(html);
+        updateProgressFromEntries(statusEntries);
+        if (entry.stage === 'complete') {
+          finishPolling(runPollPrimary);
         }
-        if (res && res.hasPlayable && !res.processing) {
-          if (!runPollDone.has(f)) {
-            runPollDone.add(f);
-          }
-          pending.delete(f);
-          runPollSeen.add(f);
-        }
+      } catch (e) {
+        console.debug('status stream parse error', e);
       }
-      if (runPollPrimary) {
-        await refreshStatusLog(runPollPrimary);
-        // If status already shows complete, stop polling to avoid extra reloads
-        try {
-          const sres = await fetch(`/api/status?song=${encodeURIComponent(runPollPrimary)}`, { cache:'no-store' });
-          if (sres.ok) {
-            const sj = await sres.json();
-            const last = (sj.entries || []).slice(-1)[0];
-            lastStage = last?.stage || null;
-            if (last && last.stage === 'complete') {
-              await finishPolling(runPollPrimary);
-              return;
-            }
-          }
-        } catch (_){}
+    };
+    statusStream.onerror = () => {
+      // On error, stop stream and do a final refresh to avoid hangs
+      if (statusStream) {
+        statusStream.close();
+        statusStream = null;
       }
-      // Multi-file progress: update based on finished count vs total
-      const total = runPollFiles.length || 1;
-      const doneCount = runPollDone.size;
-      if (runPollActive) {
-        const frac = Math.max(0.05, Math.min(1, doneCount / total));
-        setProgress(frac);
-      }
-      if (!anyProcessing && pending.size === 0) {
-        await finishPolling(runPollPrimary);
-        return;
-      }
-      runPollCycles += 1;
-      // Hard stop after a few cycles without processing to prevent lingering polling
-      if (!anyProcessing && runPollCycles > 2) {
-        await finishPolling(runPollPrimary);
-        return;
-      }
-    } catch (e) {
-      console.debug("poll error", e);
-    }
-  }, 1200);
+      finishPolling(runPollPrimary);
+    };
+  }
 }
 async function loadSong(song, skipEmpty=false){
   let opts = { skipEmpty: false, quiet: false };
