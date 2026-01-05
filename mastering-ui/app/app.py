@@ -2903,10 +2903,12 @@ def delete_output(song: str, name: str):
     # direct filename targets
     for suffix in [".wav", ".mp3", ".m4a", ".aac", ".ogg", ".flac", ".metrics.json", ".run.json"]:
         candidates.append(folder / f"{stem}{suffix}")
-    # any file in folder whose stem matches (covers variations)
+    # any file in folder whose stem matches or name startswith stem (safer for minor differences)
     try:
         for f in folder.iterdir():
-            if f.is_file() and f.stem == stem:
+            if not f.is_file():
+                continue
+            if f.stem == stem or f.name.startswith(stem):
                 candidates.append(f)
     except Exception:
         pass
