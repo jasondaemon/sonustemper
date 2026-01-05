@@ -400,7 +400,7 @@ def measure_loudness(path: Path) -> dict:
     return {"I": I, "LRA": LRA, "TP": TP}
 def calc_cf_corr(path: Path) -> dict:
     """Extract crest factor and other useful overall stats via ffmpeg astats.
-    Note: in this ffmpeg build, measure_overall/measure_perchannel take *flag sets* (not booleans).
+    Uses astats metadata output to stay compatible across ffmpeg builds.
     """
     out = {
         "crest_factor": None,
@@ -411,43 +411,44 @@ def calc_cf_corr(path: Path) -> dict:
         "noise_floor": None,
     }
     try:
-        want = "Peak_level+RMS_level+Dynamic_range+Noise_floor+Crest_factor"
         r = run_cmd([
-            "ffmpeg", "-hide_banner", "-v", "verbose", "-nostats", "-i", str(path),
-            "-af", f"astats=measure_overall={want}:measure_perchannel=none:reset=0",
+            "ffmpeg", "-hide_banner", "-v", "warning", "-nostats", "-i", str(path),
+            "-af", "astats=metadata=1:reset=0:measure_overall=1:measure_perchannel=0",
             "-f", "null", "-"
         ])
         txt = (r.stderr or "") + "\n" + (r.stdout or "")
-        section = None
         for raw in txt.splitlines():
             line = raw.strip()
-            if "]" in line and line.startswith("["):
-                line = line.split("]", 1)[1].strip()
             if not line:
                 continue
-            low = line.lower()
-            if low == "overall":
-                section = "overall"
+            if "]" in line and line.startswith("["):
+                line = line.split("]", 1)[1].strip()
+            if not line.lower().startswith("overall"):
                 continue
-            if low.startswith("channel:") or low.startswith("channel "):
-                section = "channel"
-                continue
-            if section != "overall":
-                continue
+            # Expect lines like "Overall RMS level: -20.5 dB"
             if ":" not in line:
                 continue
             k, v = line.split(":", 1)
-            k = k.strip().lower().replace(" ", "_")
-            v = v.strip()
-            m = re.match(r"^([\-0-9\.]+)", v)
-            if not m:
+            k = k.lower()
+            num = None
+            mnum = re.search(r"(-?\d+(?:\.\d+)?)", v)
+            if mnum:
+                try:
+                    num = float(mnum.group(1))
+                except Exception:
+                    num = None
+            if num is None:
                 continue
-            try:
-                num = float(m.group(1))
-            except Exception:
-                continue
-            if k in ("peak_level", "rms_level", "dynamic_range", "noise_floor", "crest_factor"):
-                out[k] = num
+            if "rms level" in k:
+                out["rms_level"] = num
+            elif "peak level" in k:
+                out["peak_level"] = num
+            elif "noise floor" in k:
+                out["noise_floor"] = num
+            elif "dynamic range" in k:
+                out["dynamic_range"] = num
+            elif "crest factor" in k:
+                out["crest_factor"] = num
         if out["crest_factor"] is None and out["peak_level"] is not None and out["rms_level"] is not None:
             out["crest_factor"] = out["peak_level"] - out["rms_level"]
     except Exception:
