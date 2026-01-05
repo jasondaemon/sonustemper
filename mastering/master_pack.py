@@ -401,8 +401,9 @@ def _voicing_filters(slug: str, strength_pct: int, width: float | None, do_stere
         eq_terms.append(peak(8000, 1.2*s, q=1.0))
         comp = f"acompressor=threshold={db_to_lin(-18)}:ratio={1.1+0.3*s}:attack=12:release=120"
         if do_stereo and width is not None:
-            # stereotools option names vary by build; use width_factor which is broadly available
-            stere = f"stereotools=width_factor={width:.3f}:phase=1"
+            # Use stereotools with side gain to widen (portable with available opts)
+            w = max(0.01, min(1.5, float(width)))
+            stere = f"stereotools=mode=lr>lr:slev={w:.3f}:mlev=1"
     elif slug == "cinematic":
         eq_terms.append(peak(70, 1.5*s, q=0.7))
         eq_terms.append(peak(240, -1.2*s, q=1.0))
