@@ -3304,8 +3304,8 @@ def outlist(song: str):
         try:
             src = find_input_file(song)
             if src:
+                # Always compute full input metrics from source for richer comparisons
                 input_m = basic_metrics(src)
-                # Cache input metrics into metrics.json for quicker subsequent loads
                 try:
                     m_stub = wrap_metrics(song, read_run_metrics(folder)) or {"output": None}
                     m_stub["input"] = input_m
