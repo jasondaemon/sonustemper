@@ -1199,6 +1199,7 @@ let suppressRecentDuringRun = false;
 let lastRunInputMetrics = null;
 let runPollPrimary = null;
 let runPollGrace = 0;
+let runPollCycles = 0;
 const pendingMetricsRetry = new Set();
 const METRIC_META = [
   { key:"I", label:"I", desc:"Integrated loudness (LUFS) averaged over the whole song. Higher (less negative) is louder; aim for musical balance, not just numbers." },
@@ -2193,6 +2194,7 @@ function stopRunPolling() {
   runPollSeen = new Set();
   runPollDone = new Set();
   runPollGrace = 0;
+  runPollCycles = 0;
   suppressRecentDuringRun = false;
 }
 async function finishPolling(finishedPrimary){
@@ -2216,6 +2218,7 @@ function startRunPolling(files) {
   runPollFiles = [...arr];
   runPollPrimary = runPollFiles[0] || null;
   runPollSeen = new Set();
+  runPollCycles = 0;
   setStatus(`Processing ${arr.join(', ')}`);
   // Show an immediate placeholder so the user sees progress instantly
   setResultHTML(`<div id="joblog" class="mono"><div>Starting…</div></div>`);
@@ -2262,6 +2265,12 @@ function startRunPolling(files) {
           runPollGrace += 1;
           return;
         }
+        await finishPolling(runPollPrimary);
+        return;
+      }
+      runPollCycles += 1;
+      // Safety: stop after 120 cycles (~2.5 minutes) to avoid endless polling
+      if (runPollCycles > 120) {
         await finishPolling(runPollPrimary);
         return;
       }
