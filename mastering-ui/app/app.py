@@ -10,7 +10,7 @@ from pathlib import Path
 from datetime import datetime
 import os
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 IN_DIR = Path(os.getenv("IN_DIR", str(DATA_DIR / "in")))
@@ -194,6 +194,23 @@ def basic_metrics(path: Path) -> dict:
         "duration_sec": duration,
     }
     return m
+
+def _safe_slug(s: str, max_len: int = 64) -> str:
+    s = re.sub(r"[^A-Za-z0-9._-]+", "_", s.strip())
+    s = re.sub(r"_+", "_", s).strip("_")
+    return s[:max_len] if max_len and len(s) > max_len else s
+
+def _preset_meta_from_file(fp: Path) -> dict:
+    try:
+        data = json.loads(fp.read_text(encoding="utf-8"))
+        meta = data.get("meta", {}) if isinstance(data, dict) else {}
+        return {
+            "title": meta.get("title") or data.get("name") or fp.stem,
+            "source_file": meta.get("source_file"),
+            "created_at": meta.get("created_at"),
+        }
+    except Exception:
+        return {"title": fp.stem}
 def find_input_file(song: str) -> Path | None:
     candidates: list[Path] = []
     try:
@@ -910,7 +927,7 @@ input[type="range"]{
                 <label style="min-width:140px;">User Presets</label>
                 <div id="packPresetsBox" class="small" style="display:flex; flex-wrap:wrap; gap:8px; min-height:96px;"></div>
                 <div id="presetControls" class="small selectActions">
-                  <button class="btnGhost" type="button" onclick="selectAllPackPresets()">Select all</button>
+                  <button class="btnGhost" type="button" onclick="window.location.href='/manage-presets'">Manage Presets</button>
                   <button class="btnGhost" type="button" onclick="clearAllPackPresets()">Clear</button>
                 </div>
               </div>
@@ -2531,6 +2548,138 @@ def index():
     html = html.replace("{{IN_DIR}}", str(IN_DIR))
     html = html.replace("{{OUT_DIR}}", str(OUT_DIR))
     return HTMLResponse(html)
+@app.get("/manage-presets", response_class=HTMLResponse)
+def manage_presets():
+    return HTMLResponse(MANAGE_PRESETS_HTML)
+MANAGE_PRESETS_HTML = r"""
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <title>Manage Presets - SonusTemper</title>
+  <style>
+    :root{
+      --bg:#0b0f14; --card:#121a23; --muted:#9fb0c0; --text:#e7eef6;
+      --line:#203042; --accent:#ff8a3d; --accent2:#2bd4bd; --danger:#ff4d4d;
+    }
+    body{ margin:0; background:linear-gradient(180deg,#0b0f14,#070a0e); color:var(--text);
+      font-family:-apple-system,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
+    .wrap{ max-width:1100px; margin:0 auto; padding:26px 18px 40px; }
+    h1{ font-size:20px; margin:0 0 6px 0; letter-spacing:.2px; }
+    .card{ background:rgba(18,26,35,.9); border:1px solid var(--line); border-radius:16px; padding:16px; margin-top:14px; }
+    .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .btn{ background:linear-gradient(180deg, rgba(255,138,61,.95), rgba(255,138,61,.75));
+      border:0; color:#1a0f07; font-weight:800; padding:8px 14px; border-radius:10px; cursor:pointer; }
+    .btnGhost{ padding:8px 14px; border-radius:10px; border:1px solid var(--line); background:#0f151d; color:#d7e6f5; cursor:pointer; }
+    .btnDanger{ padding:8px 14px; border-radius:10px; border:1px solid rgba(255,77,77,.35); background:rgba(255,77,77,.15); color:#ffd0d0; cursor:pointer; }
+    .list{ display:flex; flex-direction:column; gap:10px; margin-top:10px; }
+    .item{ padding:10px; border:1px solid var(--line); border-radius:12px; background:#0f151d; display:flex; justify-content:space-between; align-items:center; gap:10px; }
+    .mono{ font-family: ui-monospace, Menlo, Consolas, monospace; }
+    .small{ color:var(--muted); font-size:12px; }
+    label{ color:#cfe0f1; font-size:13px; font-weight:600; }
+    input[type="file"]{ color:var(--text); }
+    .col{ display:flex; flex-direction:column; gap:6px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="row" style="justify-content:space-between; align-items:center;">
+      <div>
+        <h1>Manage Presets</h1>
+        <div class="small">Download, delete, or create presets from a reference audio file (≤100MB).</div>
+      </div>
+      <button class="btnGhost" onclick="window.location.href='/'">Return to SonusTemper</button>
+    </div>
+
+    <div class="card">
+      <h2 style="margin:0 0 8px 0; font-size:15px;">Create preset from reference</h2>
+      <div class="small" style="margin-bottom:6px;">Upload supported audio (wav/mp3/flac/aiff, ≤100MB). We will analyze loudness/tonal balance and seed a preset.</div>
+      <form id="uploadPresetForm" class="col">
+        <input type="file" id="presetFile" accept=".wav,.mp3,.flac,.aiff,.aif" required />
+        <div class="row">
+          <button class="btn" type="submit">Upload & Create</button>
+          <div id="uploadStatus" class="small"></div>
+        </div>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2 style="margin:0 0 8px 0; font-size:15px;">Available presets</h2>
+      <div id="presetList" class="list"></div>
+    </div>
+  </div>
+<script>
+async function loadPresets(){
+  const list = document.getElementById('presetList');
+  list.innerHTML = '<div class="small">Loading…</div>';
+  try{
+    const res = await fetch('/api/preset/list', { cache:'no-store' });
+    if(!res.ok) throw new Error();
+    const data = await res.json();
+    const items = data.items || [];
+    if(!items.length){
+      list.innerHTML = '<div class="small" style="opacity:.7;">No presets found.</div>';
+      return;
+    }
+    list.innerHTML = '';
+    items.forEach(it => {
+      const meta = it.meta || {};
+      const row = document.createElement('div');
+      row.className = 'item';
+      row.innerHTML = `
+        <div class="col" style="gap:2px;">
+          <div class="mono" style="font-weight:600;">${it.name}</div>
+          <div class="small">${meta.title || ''}</div>
+          <div class="small">Source: ${meta.source_file || '—'} • Created: ${meta.created_at || '—'}</div>
+        </div>
+        <div class="row" style="gap:6px;">
+          <button class="btnGhost" onclick="downloadPreset('${it.name}')">Download</button>
+          <button class="btnDanger" onclick="deletePreset('${it.name}')">Delete</button>
+        </div>
+      `;
+      list.appendChild(row);
+    });
+  }catch(e){
+    list.innerHTML = '<div class="small" style="color:#f99;">Failed to load presets.</div>';
+  }
+}
+async function downloadPreset(name){
+  window.location.href = `/api/preset/download/${encodeURIComponent(name)}`;
+}
+async function deletePreset(name){
+  if(!confirm(`Delete preset "${name}"?`)) return;
+  const res = await fetch(`/api/preset/${encodeURIComponent(name)}`, { method:'DELETE' });
+  if(!res.ok){
+    alert('Delete failed');
+  }
+  loadPresets();
+}
+document.getElementById('uploadPresetForm').addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const status = document.getElementById('uploadStatus');
+  const fileInput = document.getElementById('presetFile');
+  const f = fileInput.files[0];
+  if(!f){ status.textContent = 'Select a file.'; return; }
+  status.textContent = 'Uploading...';
+  const fd = new FormData();
+  fd.append('file', f, f.name);
+  const res = await fetch('/api/preset/generate', { method:'POST', body: fd });
+  if(!res.ok){
+    status.textContent = 'Failed to create preset.';
+  }else{
+    const j = await res.json();
+    status.textContent = j.message || 'Preset created.';
+    fileInput.value = '';
+    loadPresets();
+  }
+});
+loadPresets();
+</script>
+</body>
+</html>
+"""
 @app.get("/api/files")
 def list_files():
     IN_DIR.mkdir(parents=True, exist_ok=True)
@@ -2544,7 +2693,7 @@ def presets():
     # Return list of preset names derived from preset files on disk
     if not PRESET_DIR.exists():
         return []
-    names = sorted([p.stem for p in PRESET_DIR.glob("*.txt")])
+    names = sorted([p.stem for p in PRESET_DIR.glob("*.json")])
     return names
 @app.get("/api/recent")
 def recent(limit: int = 30):
@@ -2736,6 +2885,86 @@ def outlist(song: str):
                 "metrics_obj": m,
             })
     return {"items": items, "input": input_m}
+@app.get("/api/preset/list")
+def preset_list():
+    if not PRESET_DIR.exists():
+        return {"items": []}
+    items = []
+    for fp in sorted(PRESET_DIR.glob("*.json")):
+        items.append({
+            "name": fp.stem,
+            "filename": fp.name,
+            "meta": _preset_meta_from_file(fp),
+        })
+    return {"items": items}
+@app.get("/api/preset/download/{name}")
+def preset_download(name: str):
+    target = (PRESET_DIR / f"{name}.json").resolve()
+    if PRESET_DIR.resolve() not in target.parents or not target.exists():
+        raise HTTPException(status_code=404, detail="preset_not_found")
+    return FileResponse(str(target), media_type="application/json", filename=target.name)
+@app.delete("/api/preset/{name}")
+def preset_delete(name: str):
+    target = (PRESET_DIR / f"{name}.json").resolve()
+    if PRESET_DIR.resolve() not in target.parents:
+        raise HTTPException(status_code=400, detail="invalid_path")
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="preset_not_found")
+    target.unlink()
+    return {"message": f"Deleted preset {name}"}
+@app.post("/api/preset/generate")
+async def preset_generate(file: UploadFile = File(...)):
+    # Limit to audio extensions already supported
+    allowed_ext = {".wav",".mp3",".flac",".aiff",".aif"}
+    suffix = Path(file.filename).suffix.lower()
+    if suffix not in allowed_ext:
+        raise HTTPException(status_code=400, detail="unsupported_type")
+    # Size cap 100MB
+    contents = await file.read()
+    if len(contents) > 100 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="file_too_large")
+    tmpdir = tempfile.mkdtemp(dir=str(DATA_DIR))
+    tmp_path = Path(tmpdir) / Path(file.filename).name
+    tmp_path.write_bytes(contents)
+    try:
+        name_slug = _safe_slug(Path(file.filename).stem)
+        dest = PRESET_DIR / f"{name_slug}.json"
+        PRESET_DIR.mkdir(parents=True, exist_ok=True)
+        # Analyze reference and build preset (simple heuristic)
+        metrics = analyze_reference(tmp_path)
+        target_lufs = metrics.get("I", -14.0)
+        tp = metrics.get("TP", -1.0)
+        eq = []
+        cf = metrics.get("crest_factor")
+        if cf is not None and cf < 10:
+            eq.append({"freq": 250, "gain": -1.5, "q": 1.0})
+        eq.append({"freq": 9500, "gain": 1.0, "q": 0.8})
+        preset = {
+            "name": name_slug,
+            "lufs": target_lufs,
+            "eq": eq,
+            "compressor": {
+                "threshold": -20,
+                "ratio": 2.0,
+                "attack": 20,
+                "release": 180
+            },
+            "limiter": {
+                "ceiling": tp if tp is not None else -1.0
+            },
+            "meta": {
+                "source_file": file.filename,
+                "created_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
+            }
+        }
+        dest.write_text(json.dumps(preset, indent=2), encoding="utf-8")
+    finally:
+        try:
+            tmp_path.unlink(missing_ok=True)
+            Path(tmpdir).rmdir()
+        except Exception:
+            pass
+    return {"message": f"Preset created: {name_slug}", "name": name_slug}
 @app.get("/favicon.ico")
 def favicon():
     # Minimal inline SVG placeholder to avoid 404 spam

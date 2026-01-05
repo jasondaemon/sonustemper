@@ -198,6 +198,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 IN_DIR = Path(os.getenv("IN_DIR", str(DATA_DIR / "in")))
 OUT_DIR = Path(os.getenv("OUT_DIR", str(DATA_DIR / "out")))
 PRESET_DIR = Path(os.getenv("PRESET_DIR", "/presets"))
+ANALYSIS_TMP = DATA_DIR / "tmp_analysis"
 
 DEFAULT_PRESETS = [
     "clean","warm","rock","loud","acoustic","modern",
@@ -210,6 +211,28 @@ def clamp(v, lo, hi):
 
 def db_to_lin(db: float) -> float:
     return 10 ** (db / 20.0)
+
+def analyze_reference(path: Path) -> dict:
+    """Extract basic spectral/loudness cues from a reference file to seed a preset."""
+    info = docker_ffprobe_json(path)
+    duration = None
+    try:
+        duration = float(info.get("format", {}).get("duration"))
+    except Exception:
+        duration = None
+    loud = measure_loudness(path)
+    cf_corr = measure_astats_overall(path)
+    return {
+        "duration_sec": duration,
+        "I": loud.get("I"),
+        "TP": loud.get("TP"),
+        "LRA": loud.get("LRA"),
+        "peak_level": cf_corr.get("peak_level"),
+        "rms_level": cf_corr.get("rms_level"),
+        "dynamic_range": cf_corr.get("dynamic_range"),
+        "noise_floor": cf_corr.get("noise_floor"),
+        "crest_factor": cf_corr.get("crest_factor"),
+    }
 
 def run_cmd(cmd: list[str]):
     return subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
@@ -408,6 +431,44 @@ def write_provenance(base_path: Path, payload: dict):
         dest.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     except Exception:
         pass
+
+def generate_preset_from_reference(ref_path: Path, name_slug: str) -> Path:
+    """
+    Analyze reference audio and produce a simple preset JSON (heuristic).
+    """
+    ANALYSIS_TMP.mkdir(parents=True, exist_ok=True)
+    metrics = analyze_reference(ref_path)
+    # Basic heuristic mapping
+    target_lufs = metrics.get("I", -14.0)
+    tp = metrics.get("TP", -1.0)
+    eq = []
+    # Adjust low-mid if rms vs peak suggests mud
+    cf = metrics.get("crest_factor")
+    if cf is not None and cf < 10:
+        eq.append({"freq": 250, "gain": -1.5, "q": 1.0})
+    # Add mild air if needed
+    eq.append({"freq": 9500, "gain": 1.0, "q": 0.8})
+    preset = {
+        "name": name_slug,
+        "lufs": target_lufs,
+        "eq": eq,
+        "compressor": {
+            "threshold": -20,
+            "ratio": 2.0,
+            "attack": 20,
+            "release": 180
+        },
+        "limiter": {
+            "ceiling": tp if tp is not None else -1.0
+        },
+        "meta": {
+            "source_file": ref_path.name,
+            "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+    }
+    dest = PRESET_DIR / f"{name_slug}.json"
+    dest.write_text(json.dumps(preset, indent=2), encoding="utf-8")
+    return dest
 
 def measure_loudness(wav_path: Path) -> dict:
     r = run_cmd([
@@ -758,6 +819,8 @@ def main():
     do_loudness = not args.no_loudness
     do_stereo = not args.no_stereo
     do_output = not args.no_output
+    if voicing_mode not in ("presets","voicing"):
+        voicing_mode = "presets"
     out_wav = bool(args.out_wav)
     out_mp3 = bool(args.out_mp3)
     out_aac = bool(args.out_aac)
