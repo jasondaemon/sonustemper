@@ -2811,15 +2811,6 @@ document.body.addEventListener('click', (e)=>{
     openDrawerManage("Reference-Based Preset", "", body);
   }
 });
-
-document.body.addEventListener('click', (e)=>{
-  const btn = e.target.closest('.info-btn');
-  if(!btn) return;
-  const type = btn.getAttribute('data-info-type');
-  if(type === 'manage-preset-info'){
-    alert("We analyze the reference (loudness, crest factor, basic tone) with ffmpeg, seed a simple EQ/comp/limiter preset, and store it in presets/. The source audio is discarded after creation.");
-  }
-});
 </script>
 </body>
 </html>
