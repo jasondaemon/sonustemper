@@ -1,6 +1,8 @@
-# SonusTemper
+# ![SonusTemper](images/SonusTemper-128.png) SonusTemper
 
 SonusTemper is a one-page mastering workstation: drop in a song, choose a voicing or user preset, dial loudness/stereo/tone, and export multiple formats side-by-side for A/B comparison. Everything runs locally (FastAPI + FFmpeg), with deterministic naming, metrics, and provenance files for traceable results.
+
+![Main interface](images/maininterface.png)
 
 ## What you can do
 - Master with **Voicings** (8 built-ins) or **User Presets** (your own JSON).
@@ -30,10 +32,14 @@ SonusTemper is a one-page mastering workstation: drop in a song, choose a voicin
   - OGG Vorbis: quality level
   - FLAC: compression level + optional rate/depth
 
+![Output settings](images/settings-v1.0.0.png)
+
 ### Processing Status, Previous Runs, Job Output
 - Processing Status lists each step (voicing/preset render, loudness, per-format exports, metrics).
 - Previous Runs updates only after a job fully finishes (including metrics) and lets you reload a past run into Job Output.
 - Job Output shows playback, per-format download links, delete links, and the metrics panel (LUFS, TP, LRA, crest, DR, noise, duration, width, etc.).
+
+![Metrics panel](images/jobmetrics.png)
 
 ### Status delivery (SSE, no polling)
 - Runs start via `/api/run` and stream status over Server-Sent Events from `/api/status-stream?song=<run_id>`.

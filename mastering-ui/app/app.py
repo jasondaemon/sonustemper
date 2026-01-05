@@ -1955,8 +1955,9 @@ function updatePackButtonState(){
   btn.disabled = !(hasFiles && ok);
 }
 function initVoicingUI(){
-  const mode = getVoicingMode();
-  setVoicingMode(mode);
+  // Force default to voicing on fresh load (and persist)
+  setVoicingMode('voicing');
+  try { localStorage.setItem(VOICING_MODE_KEY, 'voicing'); } catch {}
   const radios = document.querySelectorAll('input[name="modePresetVoicing"]');
   radios.forEach(r => {
     r.addEventListener('change', () => setVoicingMode(r.value));
