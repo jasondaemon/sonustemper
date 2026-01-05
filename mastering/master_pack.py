@@ -368,9 +368,9 @@ def _voicing_filters(slug: str, strength_pct: int, width: float | None, do_stere
     stere = None
     # helper shelves
     def shelf(freq, gain, shelf="high"):
-        if shelf == "low":
-            return f"lowshelf=f={freq}:g={gain:.3f}:s=0.7"
-        return f"highshelf=f={freq}:g={gain:.3f}:s=0.7"
+        tval = "l" if shelf == "low" else "h"
+        # equalizer with shelf mode (t=h/l), width_type=o uses octaves
+        return f"equalizer=f={freq}:t={tval}:width_type=o:width=1.0:g={gain:.3f}"
     def peak(freq, gain, q=1.2):
         return f"equalizer=f={freq}:width_type=q:width={q}:g={gain:.3f}"
 
