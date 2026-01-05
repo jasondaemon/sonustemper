@@ -399,9 +399,7 @@ def measure_loudness(path: Path) -> dict:
     TP  = float((mTPK[-1] if mTPK else (mPeak[-1] if mPeak else None))) if (mTPK or mPeak) else None
     return {"I": I, "LRA": LRA, "TP": TP}
 def calc_cf_corr(path: Path) -> dict:
-    """Extract crest factor and other useful overall stats via ffmpeg astats.
-    Uses astats metadata output to stay compatible across ffmpeg builds.
-    """
+    """Extract crest factor and other useful overall stats via ffmpeg astats (overall section)."""
     out = {
         "crest_factor": None,
         "stereo_corr": None,  # correlation isn't provided by astats in this build; keep for compatibility
@@ -411,55 +409,54 @@ def calc_cf_corr(path: Path) -> dict:
         "noise_floor": None,
     }
     try:
-        def parse_lines(txt: str):
-            for raw in txt.splitlines():
-                line = raw.strip()
-                if not line:
-                    continue
-                if "]" in line and line.startswith("["):
-                    line = line.split("]", 1)[1].strip()
-                low = line.lower()
-                if not (low.startswith("overall") or low.startswith("channel") or "overall" in low):
-                    continue
-                if ":" not in line:
-                    continue
-                k, v = line.split(":", 1)
-                k = k.lower()
-                mnum = re.search(r"(-?\d+(?:\.\d+)?)", v)
-                if not mnum:
-                    continue
-                try:
-                    num = float(mnum.group(1))
-                except Exception:
-                    continue
-                if "rms level" in k:
-                    out["rms_level"] = out["rms_level"] if out["rms_level"] is not None else num
-                elif "peak level" in k:
-                    out["peak_level"] = out["peak_level"] if out["peak_level"] is not None else num
-                elif "noise floor" in k:
-                    out["noise_floor"] = out["noise_floor"] if out["noise_floor"] is not None else num
-                elif "dynamic range" in k:
-                    out["dynamic_range"] = out["dynamic_range"] if out["dynamic_range"] is not None else num
-                elif "crest factor" in k:
-                    out["crest_factor"] = out["crest_factor"] if out["crest_factor"] is not None else num
-
-        # First attempt: metadata output (newer builds)
+        want = "Peak_level+RMS_level+RMS_peak+Noise_floor+Crest_factor"
         r = run_cmd([
-            "ffmpeg", "-hide_banner", "-v", "info", "-nostats", "-i", str(path),
-            "-af", "astats=metadata=1:reset=0:measure_overall=1:measure_perchannel=0",
+            "ffmpeg", "-hide_banner", "-v", "verbose", "-nostats", "-i", str(path),
+            "-af", f"astats=measure_overall={want}:measure_perchannel=none:reset=0",
             "-f", "null", "-"
         ])
-        parse_lines((r.stderr or "") + "\n" + (r.stdout or ""))
-
-        # Fallback: explicit measure_overall flags (older builds)
-        if not all([out["peak_level"], out["rms_level"], out["dynamic_range"], out["noise_floor"], out["crest_factor"]]):
-            r2 = run_cmd([
-                "ffmpeg", "-hide_banner", "-v", "info", "-nostats", "-i", str(path),
-                "-af", "astats=reset=0:measure_overall=Peak_level|RMS_level|Dynamic_range|Noise_floor|Crest_factor:measure_perchannel=0",
-                "-f", "null", "-"
-            ])
-            parse_lines((r2.stderr or "") + "\n" + (r2.stdout or ""))
-
+        txt = (r.stderr or "") + "\n" + (r.stdout or "")
+        rms_peak = None
+        section = None
+        for raw in txt.splitlines():
+            line = raw.strip()
+            if "]" in line and line.startswith("["):
+                line = line.split("]", 1)[1].strip()
+            if not line:
+                continue
+            low = line.lower()
+            if low == "overall":
+                section = "overall"
+                continue
+            if low.startswith("channel:") or low.startswith("channel "):
+                section = "channel"
+                continue
+            if section != "overall":
+                continue
+            if ":" not in line:
+                continue
+            k, v = line.split(":", 1)
+            k = k.strip().lower().replace(" ", "_")
+            if k.endswith("_db"):
+                k = k[:-3]
+            if k == "noise_floor" and v.lower().startswith("-inf"):
+                out["noise_floor"] = -120.0
+                continue
+            m = re.match(r"^([\\-0-9\\.]+)", v.strip())
+            if not m:
+                continue
+            try:
+                num = float(m.group(1))
+            except Exception:
+                continue
+            if k == "rms_peak":
+                rms_peak = num
+                continue
+            if k in ("peak_level","rms_level","dynamic_range","noise_floor","crest_factor"):
+                if out.get(k) is None:
+                    out[k] = num
+        if out["dynamic_range"] is None and rms_peak is not None and out["rms_level"] is not None:
+            out["dynamic_range"] = rms_peak - out["rms_level"]
         if out["crest_factor"] is None and out["peak_level"] is not None and out["rms_level"] is not None:
             out["crest_factor"] = out["peak_level"] - out["rms_level"]
     except Exception:
