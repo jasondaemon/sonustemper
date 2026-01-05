@@ -401,8 +401,8 @@ def _voicing_filters(slug: str, strength_pct: int, width: float | None, do_stere
         eq_terms.append(peak(8000, 1.2*s, q=1.0))
         comp = f"acompressor=threshold={db_to_lin(-18)}:ratio={1.1+0.3*s}:attack=12:release=120"
         if do_stereo and width is not None:
-            # stereotools on some builds lacks "width"; use center_widen as a safe widening control
-            stere = f"stereotools=center_widen={width:.3f}:phase=1"
+            # stereotools option names vary by build; use width_factor which is broadly available
+            stere = f"stereotools=width_factor={width:.3f}:phase=1"
     elif slug == "cinematic":
         eq_terms.append(peak(70, 1.5*s, q=0.7))
         eq_terms.append(peak(240, -1.2*s, q=1.0))
@@ -964,7 +964,11 @@ def main():
         (song_dir / ".status.json").unlink(missing_ok=True)
     except Exception:
         pass
-    append_status(song_dir, "start", f"Job started for {infile.name} with presets: {', '.join(presets)}")
+    if voicing_mode == "voicing":
+        voicing_label = voicing_name or "voicing"
+        append_status(song_dir, "start", f"Job started for {infile.name} with voicing: {voicing_label}")
+    else:
+        append_status(song_dir, "start", f"Job started for {infile.name} with presets: {', '.join(presets) if presets else '(none)'}")
 
     # If mastering is disabled:
     # - If output is disabled too: analyze-only run.
