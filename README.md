@@ -17,13 +17,17 @@ SonusTemper is a one-page mastering workstation: drop in a song, choose a voicin
 - Single-select tiles with info drawers that explain “what it does,” “best for,” and “watch-outs.”
 - Strength/Intensity slider applies to whichever mode is active.
 
+![Settings](images/voice-settings.png)
+
 ### Loudness
 - Two-pass, static gain: first measure LUFS/true-peak, then apply a fixed offset to hit target LUFS. Skips gain if already within ±1 LU. True-peak ceiling is always enforced.
+
+![Settings](images/loudness-settings.png)
 
 ### Stereo & Tone
 - Optional stereo widening with guardrails and light tone shaping (EQ/comp). Voicings/presets supply their EQ/comp curves; stereo width is applied when enabled.
 
-![Settings](images/settings-v1.0.0.png)
+![Settings](images/stereo-settings.png)
 
 ### Output
 - Select any formats you want; each stage is optional. You can simply transcode WAV ➜ MP3 (or any format) by leaving mastering stages off.
@@ -33,6 +37,8 @@ SonusTemper is a one-page mastering workstation: drop in a song, choose a voicin
   - AAC/M4A: bitrate + container
   - OGG Vorbis: quality level
   - FLAC: compression level + optional rate/depth
+
+![Settings](images/output-settings.png)
 
 ### Processing Status, Previous Runs, Job Output
 - Processing Status lists each step (voicing/preset render, loudness, per-format exports, metrics).
