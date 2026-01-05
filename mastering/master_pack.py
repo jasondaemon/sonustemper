@@ -816,14 +816,18 @@ def main():
     ap.add_argument("--voicing_name", type=str, default=None, help="Voicing slug when voicing_mode=voicing")
     args = ap.parse_args()
 
+    # Normalize voicing mode/name early so downstream logic always sees a value
+    voicing_mode = args.voicing_mode or "presets"
+    if voicing_mode not in ("presets", "voicing"):
+        voicing_mode = "presets"
+    voicing_name = args.voicing_name.strip() if args.voicing_name else None
+
     # Stage gates
     do_analyze = not args.no_analyze
     do_master = not args.no_master
     do_loudness = not args.no_loudness
     do_stereo = not args.no_stereo
     do_output = not args.no_output
-    if voicing_mode not in ("presets","voicing"):
-        voicing_mode = "presets"
     out_wav = bool(args.out_wav)
     out_mp3 = bool(args.out_mp3)
     out_aac = bool(args.out_aac)
@@ -884,8 +888,6 @@ def main():
         except Exception:
             pass
     presets = [p.strip() for p in args.presets.split(",") if p.strip()]
-    voicing_mode = args.voicing_mode or "presets"
-    voicing_name = args.voicing_name.strip() if args.voicing_name else None
     outputs = []
 
     marker = song_dir / ".processing"
