@@ -241,13 +241,6 @@ def run_cmd(cmd: list[str]):
 def build_filters(preset: dict, strength: float, lufs_override, tp_override, width: float) -> str:
     eq = preset.get("eq", [])
     comp = preset.get("compressor", {})
-    lim = preset.get("limiter", {})
-
-    target_lufs = float(lufs_override) if lufs_override is not None else float(preset.get("lufs", -14))
-    ceiling_db = float(tp_override) if tp_override is not None else float(lim.get("ceiling", -1.0))
-    # Keep ceiling within safe bounds for alimiter (limit expects 0..1 linear)
-    ceiling_db = min(0.0, ceiling_db)
-    ceiling_lin = min(0.999, db_to_lin(ceiling_db))
 
     eq_terms = []
     for band in eq:
@@ -266,14 +259,10 @@ def build_filters(preset: dict, strength: float, lufs_override, tp_override, wid
     thr_lin = db_to_lin(thr_db)
 
     comp_f = f"acompressor=threshold={thr_lin}:ratio={ratio}:attack={attack}:release={release}"
-    lim_f = f"alimiter=limit={ceiling_lin}:level=disabled"
-    loud_f = f"loudnorm=I={target_lufs}:TP={ceiling_db}:LRA=11"
 
     chain = []
     chain.extend(eq_terms)
     chain.append(comp_f)
-    chain.append(lim_f)
-    chain.append(loud_f)
     return ",".join(chain)
 
 def _pcm_codec_for_depth(bit_depth: int) -> str:
@@ -294,13 +283,88 @@ def run_ffmpeg_wav(input_path: Path, output_path: Path, af: str, sample_rate: in
     if r.returncode != 0:
         raise RuntimeError(r.stderr.strip() or "ffmpeg failed")
 
+def measure_loudness_stats(path: Path, target_I: float, target_TP: float) -> dict:
+    """First-pass loudnorm measure; returns measured I/TP."""
+    r = run_cmd([
+        "ffmpeg", "-hide_banner", "-nostats",
+        "-i", str(path),
+        "-af", f"loudnorm=I={target_I}:TP={target_TP}:print_format=json:dual_mono=true",
+        "-f", "null", "-"
+    ])
+    txt = (r.stderr or "") + "\n" + (r.stdout or "")
+    stats = {}
+    try:
+        jtxt = txt[txt.find("{"):]
+        j = json.loads(jtxt)
+        stats = {
+            "input_i": float(j.get("input_i")) if j.get("input_i") is not None else None,
+            "input_tp": float(j.get("input_tp")) if j.get("input_tp") is not None else None,
+            "measured": j,
+        }
+    except Exception:
+        stats = {}
+    return stats
+
+def apply_static_gain(input_path: Path, output_path: Path, gain_db: float, sample_rate: int, bit_depth: int, tp_limit: float | None):
+    """Second pass: apply fixed gain (no time-varying normalization)."""
+    filters = []
+    if abs(gain_db) > 1e-6:
+        filters.append(f"volume={gain_db:+.6f}dB")
+    if tp_limit is not None:
+        lin = min(0.999, db_to_lin(tp_limit))
+        filters.append(f"alimiter=limit={lin}:level=disabled")
+    af = ",".join(filters) if filters else "anull"
+    r = run_cmd([
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-i", str(input_path),
+        "-af", af,
+        "-ar", str(sample_rate), "-ac", "2", "-c:a", _pcm_codec_for_depth(bit_depth),
+        str(output_path)
+    ])
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr.strip() or "ffmpeg gain apply failed")
+
+def render_with_static_loudness(source: Path, tone_filters: str, final_wav: Path, sample_rate: int, bit_depth: int,
+                                target_I: float | None, target_TP: float | None, do_loudness: bool, log_label: str = "") -> dict:
+    """
+    Two-pass loudness: render tone/EQ/comp first, then apply a static gain offset.
+    If within +/-1 LUFS of target, skip gain but still enforce the true-peak ceiling.
+    """
+    tmp = final_wav.with_suffix(".tone.wav")
+    stats = {"measured_I": None, "applied_gain": 0.0, "action": "disabled"}
+    try:
+        run_ffmpeg_wav(source, tmp, tone_filters, sample_rate, bit_depth)
+        applied_gain = 0.0
+        measured_I = None
+        action = "disabled"
+        if do_loudness:
+            action = "skip"
+            stats_raw = measure_loudness_stats(tmp, target_I if target_I is not None else -14.0, target_TP if target_TP is not None else -1.0)
+            measured_I = stats_raw.get("input_i") if isinstance(stats_raw, dict) else None
+            if measured_I is not None:
+                delta = float(target_I) - float(measured_I) if target_I is not None else 0.0
+                if abs(delta) > 1.0:
+                    applied_gain = delta
+                    action = "apply"
+            else:
+                action = "measure_failed"
+        tp_limit = target_TP if target_TP is not None else None
+        apply_static_gain(tmp, final_wav, applied_gain, sample_rate, bit_depth, tp_limit)
+        stats = {"measured_I": measured_I, "applied_gain": applied_gain, "action": action}
+        print(f"[loudness] {log_label} measured_I={measured_I} target_I={target_I} gain={applied_gain:+.2f}dB action={action} tp_limit={tp_limit}", file=sys.stderr, flush=True)
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+    return stats
+
 # --- voicing chains (alternative to presets) ---
 def _voicing_filters(slug: str, strength_pct: int, width: float | None, do_stereo: bool, do_loudness: bool,
                      target_I: float | None, target_TP: float | None) -> str:
     s = clamp(strength_pct, 0, 100) / 100.0
     eq_terms = []
     comp = None
-    limiter = "alimiter=limit=0.9:level=disabled"
     stere = None
     # helper shelves
     def shelf(freq, gain, shelf="high"):
@@ -311,41 +375,41 @@ def _voicing_filters(slug: str, strength_pct: int, width: float | None, do_stere
     if slug == "universal":
         eq_terms.append(peak(120, -0.8*s, q=1.0))
         eq_terms.append(shelf(9000, 1.2*s, "high"))
-        comp = f"acompressor=threshold={db_to_lin(-22+6*s)}:ratio={1.3+0.4*s}:attack=12:release=180:makeup=0"
+        comp = f"acompressor=threshold={db_to_lin(-22+6*s)}:ratio={1.2+0.3*s}:attack=12:release=140:makeup=0"
     elif slug == "airlift":
         eq_terms.append(peak(250, -1.5*s, q=1.1))
         eq_terms.append(shelf(9500, 2.5*s, "high"))
-        comp = f"acompressor=threshold={db_to_lin(-24+4*s)}:ratio={1.2+0.5*s}:attack=8:release=120:makeup=0"
+        comp = f"acompressor=threshold={db_to_lin(-24+4*s)}:ratio={1.1+0.4*s}:attack=8:release=100:makeup=0"
     elif slug == "ember":
         eq_terms.append(peak(180, 1.8*s, q=0.9))
         eq_terms.append(peak(350, 1.2*s, q=1.0))
         eq_terms.append(shelf(8500, -0.8*s, "high"))
-        comp = f"acompressor=threshold={db_to_lin(-20)}:ratio={1.6+0.6*s}:attack=18:release=240:makeup=0"
+        comp = f"acompressor=threshold={db_to_lin(-20)}:ratio={1.4+0.4*s}:attack=18:release=180:makeup=0"
     elif slug == "detail":
         eq_terms.append(peak(240, -2.2*s, q=1.0))
         eq_terms.append(peak(3200, 1.4*s, q=1.0))
         eq_terms.append(shelf(11000, 1.0*s, "high"))
-        comp = f"acompressor=threshold={db_to_lin(-20)}:ratio={1.3+0.5*s}:attack=10:release=180:makeup=0"
+        comp = f"acompressor=threshold={db_to_lin(-20)}:ratio={1.2+0.4*s}:attack=10:release=150:makeup=0"
     elif slug == "glue":
         eq_terms.append(peak(90, -0.8*s, q=0.8))
         eq_terms.append(peak(2000, 0.8*s, q=1.1))
-        comp = f"acompressor=threshold={db_to_lin(-22)}:ratio={1.8+0.5*s}:attack=25:release={200+80*s}:makeup=0"
+        comp = f"acompressor=threshold={db_to_lin(-22)}:ratio={1.6+0.4*s}:attack=25:release={180+60*s}:makeup=0"
     elif slug == "wide":
         eq_terms.append(peak(220, -1.0*s, q=1.0))
         eq_terms.append(peak(8000, 1.2*s, q=1.0))
-        comp = f"acompressor=threshold={db_to_lin(-18)}:ratio={1.2+0.4*s}:attack=12:release=140:makeup=0"
+        comp = f"acompressor=threshold={db_to_lin(-18)}:ratio={1.1+0.3*s}:attack=12:release=120:makeup=0"
         if do_stereo and width is not None:
             stere = f"stereotools=width={width:.3f}:phase=1"
     elif slug == "cinematic":
         eq_terms.append(peak(70, 1.5*s, q=0.7))
         eq_terms.append(peak(240, -1.2*s, q=1.0))
         eq_terms.append(shelf(9500, 1.2*s, "high"))
-        comp = f"acompressor=threshold={db_to_lin(-21)}:ratio={1.5+0.5*s}:attack=18:release=220:makeup=0"
+        comp = f"acompressor=threshold={db_to_lin(-21)}:ratio={1.3+0.4*s}:attack=18:release=180:makeup=0"
     elif slug == "punch":
         eq_terms.append(peak(90, -1.2*s, q=1.0))
         eq_terms.append(peak(1800, 1.6*s, q=1.0))
         eq_terms.append(shelf(7500, 1.0*s, "high"))
-        comp = f"acompressor=threshold={db_to_lin(-18)}:ratio={1.4+0.8*s}:attack=6:release=120:makeup=0"
+        comp = f"acompressor=threshold={db_to_lin(-18)}:ratio={1.3+0.5*s}:attack=8:release=110:makeup=0"
     else:
         # fallback to minimal processing
         comp = f"acompressor=threshold={db_to_lin(-22)}:ratio=1.5:attack=15:release=180:makeup=0"
@@ -356,11 +420,6 @@ def _voicing_filters(slug: str, strength_pct: int, width: float | None, do_stere
         chain.append(comp)
     if do_stereo and stere:
         chain.append(stere)
-    chain.append(limiter)
-    if do_loudness and (target_I is not None or target_TP is not None):
-        ti = target_I if target_I is not None else -14.0
-        tp = target_TP if target_TP is not None else -1.0
-        chain.append(f"loudnorm=I={ti}:TP={tp}:LRA=11")
     return ",".join([f for f in chain if f])
 
 def make_mp3(wav_path: Path, mp3_path: Path, bitrate_kbps: int, vbr_mode: str):
@@ -967,7 +1026,17 @@ def main():
                 print(f"[pack] variant tag={variant_tag} preset={p}", file=sys.stderr, flush=True)
                 append_status(song_dir, "preset_start", f"Applying preset '{p}' (S={strength_pct}, width={width_applied})", preset=p)
                 print(f"[pack] start file={infile.name} preset={p} strength={int(strength*100)} width={width_applied}", file=sys.stderr, flush=True)
-                run_ffmpeg_wav(infile, wav_out, af, wav_rate, wav_depth)
+                render_with_static_loudness(
+                    infile,
+                    af,
+                    wav_out,
+                    wav_rate,
+                    wav_depth,
+                    target_lufs,
+                    ceiling_db,
+                    do_loudness,
+                    log_label=f"preset={p}"
+                )
                 append_status(song_dir, "preset_done", f"Finished preset '{p}' render (WAV base)", preset=p)
                 if out_mp3:
                     make_mp3(wav_out, wav_out.with_suffix(".mp3"), args.mp3_bitrate, args.mp3_vbr)
@@ -1022,6 +1091,8 @@ def main():
                 guard_max = float(args.guard_max_width or 1.1)
                 if width_applied > guard_max:
                     width_applied = guard_max
+            target_lufs = float(args.lufs) if args.lufs is not None else -14.0
+            ceiling_db = float(args.tp) if args.tp is not None else -1.0
             strength_pct = int(strength * 100)
             descriptor = {
                 "preset": f"V_{slug}",
@@ -1029,8 +1100,8 @@ def main():
                 "stages": stages,
                 "voicing": slug,
                 "loudness_mode": loudness_mode if do_loudness else None,
-                "target_I": args.lufs if do_loudness else None,
-                "target_TP": args.tp if do_loudness else None,
+                "target_I": target_lufs if do_loudness else None,
+                "target_TP": ceiling_db if do_loudness else None,
                 "width": width_applied if do_stereo else None,
                 "mono_bass": args.mono_bass if do_stereo else None,
                 "guardrails": args.guardrails if do_stereo else None,
@@ -1040,8 +1111,18 @@ def main():
             wav_out = song_dir / f"{infile.stem}__{variant_tag}.wav"
             print(f"[pack] variant tag={variant_tag} voicing={slug}", file=sys.stderr, flush=True)
             append_status(song_dir, "preset_start", f"Voicing '{slug}' (S={strength_pct}, width={width_applied})", preset=slug)
-            af = _voicing_filters(slug, strength_pct, width_applied if do_stereo else None, do_stereo, do_loudness, args.lufs, args.tp)
-            run_ffmpeg_wav(infile, wav_out, af, wav_rate, wav_depth)
+            af = _voicing_filters(slug, strength_pct, width_applied if do_stereo else None, do_stereo, do_loudness, target_lufs, ceiling_db)
+            render_with_static_loudness(
+                infile,
+                af,
+                wav_out,
+                wav_rate,
+                wav_depth,
+                target_lufs,
+                ceiling_db,
+                do_loudness,
+                log_label=f"voicing={slug}"
+            )
             append_status(song_dir, "preset_done", f"Voicing '{slug}' render complete", preset=slug)
             if out_mp3:
                 make_mp3(wav_out, wav_out.with_suffix(".mp3"), args.mp3_bitrate, args.mp3_vbr)
@@ -1058,7 +1139,7 @@ def main():
                 append_status(song_dir, "flac_done", f"FLAC ready for '{slug}'", preset=slug)
             if do_analyze:
                 append_status(song_dir, "metrics_start", f"Analyzing metrics for '{slug}'", preset=slug)
-            write_metrics(wav_out, args.lufs if do_loudness else -14.0, args.tp if do_loudness else -1.0, width_applied if do_stereo else 1.0, write_file=do_analyze)
+            write_metrics(wav_out, target_lufs, ceiling_db, width_applied if do_stereo else 1.0, write_file=do_analyze)
             if do_analyze:
                 append_status(song_dir, "metrics_done", f"Metrics written for '{slug}'", preset=slug)
             prov = {
@@ -1089,6 +1170,8 @@ def main():
                     pass
         elif do_output:
             # Passthrough: no mastering, but output requested (e.g., source -> mp3)
+            target_lufs = float(args.lufs) if args.lufs is not None else -14.0
+            ceiling_db = float(args.tp) if args.tp is not None else -1.0
             descriptor = {
                 "preset": "source",
                 "strength": None,
@@ -1105,8 +1188,18 @@ def main():
             wav_out = song_dir / f"{infile.stem}__{base_tag}.wav"
             print(f"[pack] variant tag={base_tag} preset=source", file=sys.stderr, flush=True)
             append_status(song_dir, "preset_start", "Passthrough (no mastering)", preset="source")
-            # Identity filter
-            run_ffmpeg_wav(infile, wav_out, "anull", wav_rate, wav_depth)
+            # Identity filter + optional static loudness guard/TP ceiling
+            render_with_static_loudness(
+                infile,
+                "anull",
+                wav_out,
+                wav_rate,
+                wav_depth,
+                target_lufs,
+                ceiling_db,
+                do_loudness,
+                log_label="passthrough"
+            )
             append_status(song_dir, "preset_done", "Passthrough render complete", preset="source")
             if out_mp3:
                 make_mp3(wav_out, wav_out.with_suffix(".mp3"), args.mp3_bitrate, args.mp3_vbr)
@@ -1123,7 +1216,7 @@ def main():
                 append_status(song_dir, "flac_done", "FLAC ready (passthrough)", preset="source")
             if do_analyze:
                 append_status(song_dir, "metrics_start", "Analyzing metrics (passthrough)", preset="source")
-            write_metrics(wav_out, args.lufs if args.lufs is not None else -14.0, args.tp if args.tp is not None else -1.0, 1.0, write_file=do_analyze)
+            write_metrics(wav_out, target_lufs, ceiling_db, 1.0, write_file=do_analyze)
             if do_analyze:
                 append_status(song_dir, "metrics_done", "Metrics written (passthrough)", preset="source")
             prov = {
