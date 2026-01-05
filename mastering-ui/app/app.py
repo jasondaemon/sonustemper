@@ -2274,11 +2274,6 @@ function startRunPolling(files) {
         } catch (_){}
       }
       if (!anyProcessing && pending.size === 0) {
-        // Grace period to allow final status entries to land
-        if (lastStage !== 'complete' && runPollGrace < 3) {
-          runPollGrace += 1;
-          return;
-        }
         await finishPolling(runPollPrimary);
         return;
       }
