@@ -2246,6 +2246,7 @@ function fmtCompactIO(inputM, outputM){
     </div>
     <div id="${id}" class="metricsGrid advHidden">${moreHtml}</div>
   `;
+}
 
 function renderMetricsDrawer(triggerBtn){
   const id = triggerBtn?.getAttribute('data-id') || null;
