@@ -35,6 +35,7 @@ app = FastAPI()
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 IN_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/out", StaticFiles(directory=str(OUT_DIR), html=True), name="out")
+MAIN_LOOP = None
 
 def _start_master_jobs(files, presets, strength, lufs, tp, width, mono_bass, guardrails,
                        stage_analyze, stage_master, stage_loudness, stage_stereo, stage_output,
@@ -57,10 +58,12 @@ def _start_master_jobs(files, presets, strength, lufs, tp, width, mono_bass, gua
         return txt not in ("0","false","off","no","")
     def _emit(run_id: str, stage: str, detail: str = ""):
         ev = {"stage": stage, "detail": detail, "ts": datetime.utcnow().timestamp()}
-        try:
-            asyncio.run_coroutine_threadsafe(status_bus.append_events(run_id, [ev]), loop)
-        except Exception:
-            pass
+        target_loop = getattr(status_bus, "loop", None) or MAIN_LOOP
+        if target_loop and target_loop.is_running():
+            try:
+                asyncio.run_coroutine_threadsafe(status_bus.append_events(run_id, [ev]), target_loop)
+            except Exception:
+                pass
     def run_all():
         for f, rid in zip(files, run_ids):
             do_analyze  = _is_enabled(stage_analyze)
@@ -242,6 +245,15 @@ class StatusBus:
             await self._schedule_cleanup(run_id)
 
 status_bus = StatusBus()
+
+@app.on_event("startup")
+async def _capture_loop():
+    global MAIN_LOOP
+    try:
+        MAIN_LOOP = asyncio.get_running_loop()
+        status_bus.loop = MAIN_LOOP
+    except Exception:
+        MAIN_LOOP = None
 
 @app.get("/api/status-stream")
 async def status_stream(song: str, request: Request):
