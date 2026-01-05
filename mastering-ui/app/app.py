@@ -2380,7 +2380,11 @@ function startRunPolling(files) {
         setResultHTML(html);
         updateProgressFromEntries(statusEntries);
         if (entry.stage === 'complete') {
-          finishPolling(runPollPrimary);
+          // On complete, load outputs once and refresh recent, then stop stream
+          (async () => {
+            try { await refreshRecent(true); } catch(_){}
+            try { await loadSong(runPollPrimary); } catch(_){}
+          })().finally(() => finishPolling(runPollPrimary));
         }
       } catch (e) {
         console.debug('status stream parse error', e);
