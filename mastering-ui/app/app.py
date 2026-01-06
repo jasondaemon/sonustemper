@@ -49,7 +49,7 @@ IN_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/out", StaticFiles(directory=str(OUT_DIR), html=True), name="out")
 MAIN_LOOP = None
 # Startup debug for security context
-logger.info(f"[startup] API_KEY set? {bool(API_KEY)} API_AUTH_DISABLED={API_AUTH_DISABLED}")
+logger.info(f"[startup] API_KEY set? {bool(API_KEY)} API_AUTH_DISABLED={API_AUTH_DISABLED} PROXY_SHARED_SECRET set? {bool(PROXY_SHARED_SECRET)}")
 MAX_CONCURRENT_RUNS = int(os.getenv("MAX_CONCURRENT_RUNS", "2"))
 RUNS_IN_FLIGHT = 0
 
@@ -289,6 +289,8 @@ async def api_key_guard(request: Request, call_next):
         proxy_mark = request.headers.get("X-SonusTemper-Proxy")
         if proxy_mark and is_trusted_proxy(proxy_mark):
             return await call_next(request)
+        if proxy_mark and not is_trusted_proxy(proxy_mark):
+            logger.warning(f"[auth] proxy mark mismatch len={len(proxy_mark)} path={request.url.path}")
         key = request.headers.get("X-API-Key")
         if not API_KEY:
             # No API key set; allow (proxy/basic auth provides guard)
