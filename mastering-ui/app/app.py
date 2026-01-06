@@ -25,7 +25,7 @@ APP_DIR = Path(__file__).resolve().parent
 # Security: API key protection (for CLI/scripts); set API_AUTH_DISABLED=1 to bypass explicitly.
 API_KEY = os.getenv("API_KEY")
 API_AUTH_DISABLED = os.getenv("API_AUTH_DISABLED") == "1"
-PROXY_SHARED_SECRET = os.getenv("PROXY_SHARED_SECRET", "")
+PROXY_SHARED_SECRET = (os.getenv("PROXY_SHARED_SECRET", "") or "").strip()
 # Basic logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger("mastering-ui")
@@ -290,7 +290,7 @@ async def api_key_guard(request: Request, call_next):
         if proxy_mark and is_trusted_proxy(proxy_mark):
             return await call_next(request)
         if proxy_mark and not is_trusted_proxy(proxy_mark):
-            logger.warning(f"[auth] proxy mark mismatch len={len(proxy_mark)} path={request.url.path} mark='{proxy_mark}' expected='{PROXY_SHARED_SECRET}'")
+            logger.warning(f"[auth] proxy mark mismatch len={len(proxy_mark)} path={request.url.path} mark={repr(proxy_mark)} expected={repr(PROXY_SHARED_SECRET)}")
         key = request.headers.get("X-API-Key")
         if not API_KEY:
             # No API key set; allow (proxy/basic auth provides guard)
