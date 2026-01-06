@@ -280,6 +280,10 @@ async def api_key_guard(request: Request, call_next):
     if request.url.path.startswith("/api/"):
         if API_AUTH_DISABLED:
             return await call_next(request)
+        # If proxy Basic Auth already authenticated, allow through
+        auth_header = request.headers.get("Authorization") or ""
+        if auth_header.startswith("Basic "):
+            return await call_next(request)
         key = request.headers.get("X-API-Key") or request.query_params.get("api_key")
         if not API_KEY:
             # No API key set; allow (proxy/basic auth provides guard)
