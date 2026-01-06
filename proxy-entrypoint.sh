@@ -38,12 +38,11 @@ if [ -z "$PROXY_SHARED_SECRET" ]; then
 fi
 export PROXY_SHARED_SECRET
 
-# Compute hash and render nginx config from template
-SECRET_HASH=$(printf '%s' "$PROXY_SHARED_SECRET" | sha256sum | awk '{print $1}')
-export PROXY_SHARED_SECRET_HASH="$SECRET_HASH"
+# Render nginx config from template with raw secret in header
+export PROXY_SHARED_SECRET="$PROXY_SHARED_SECRET"
 if [ -f /etc/nginx/templates/nginx.conf.template ]; then
-  envsubst '${PROXY_SHARED_SECRET_HASH}' < /etc/nginx/templates/nginx.conf.template > /etc/nginx/conf.d/default.conf
-  echo "[proxy] rendered config with PROXY_SHARED_SECRET_HASH len=${#SECRET_HASH}"
+  envsubst '${PROXY_SHARED_SECRET}' < /etc/nginx/templates/nginx.conf.template > /etc/nginx/conf.d/default.conf
+  echo "[proxy] rendered config with PROXY_SHARED_SECRET len=${#PROXY_SHARED_SECRET}"
 else
   echo "nginx.conf.template missing" >&2
   exit 1

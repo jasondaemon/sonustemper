@@ -37,13 +37,13 @@ if PROXY_SHARED_SECRET:
 # Basic logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger("mastering-ui")
-# Trusted proxy check via shared secret (hash or raw, to tolerate proxy inject differences)
+# Trusted proxy check via shared secret (raw or hash, to tolerate proxy inject differences)
 def is_trusted_proxy(mark: str) -> bool:
     if not mark:
         return False
-    if PROXY_SHARED_SECRET_HASH and mark == PROXY_SHARED_SECRET_HASH:
-        return True
     if PROXY_SHARED_SECRET and mark == PROXY_SHARED_SECRET:
+        return True
+    if PROXY_SHARED_SECRET_HASH and mark == PROXY_SHARED_SECRET_HASH:
         return True
     return False
 # Deprecated: master.py retained only as a fallback reference; master_pack.py is the unified runner.
