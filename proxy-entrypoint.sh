@@ -37,15 +37,17 @@ export PROXY_SHARED_SECRET
 
 # Render shared secret into nginx config (write via temp to avoid busy file)
 if [ -f /etc/nginx/conf.d/default.conf ]; then
-  esc_secret=$(printf '%s' "$PROXY_SHARED_SECRET" | sed -e 's/[\\/$&\"]/\\&/g')
+  # compute hash to send in header
+  SECRET_HASH=$(printf '%s' "$PROXY_SHARED_SECRET" | sha256sum | awk '{print $1}')
+  esc_hash=$(printf '%s' "$SECRET_HASH" | sed -e 's/[\\/$&\"]/\\&/g')
   tmpdir="/tmp/sonustemper"
   mkdir -p "$tmpdir"
   tmpfile="$tmpdir/default.conf.$$"
   cp /etc/nginx/conf.d/default.conf "$tmpfile"
-  sed -i "s/__PROXY_SHARED_SECRET__/${esc_secret}/g" "$tmpfile"
+  sed -i "s/__PROXY_SHARED_SECRET_HASH__/${esc_hash}/g" "$tmpfile"
   # Overwrite in place (handle overlay FS by writing via cat)
   if ! cat "$tmpfile" > /etc/nginx/conf.d/default.conf; then
-    echo "Failed to write proxy shared secret into nginx config" >&2
+    echo "Failed to write proxy shared secret hash into nginx config" >&2
     exit 1
   fi
   rm -f "$tmpfile"
