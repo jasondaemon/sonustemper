@@ -1,5 +1,6 @@
 services:
   sonustemper:
+    container_name: sonustemper-app
     build:
       context: .
       dockerfile: Dockerfile
@@ -23,6 +24,7 @@ services:
       timeout: 5s
       retries: 3
   proxy:
+    container_name: sonustemper-proxy
     image: nginx:1.25-alpine
     depends_on:
       - sonustemper

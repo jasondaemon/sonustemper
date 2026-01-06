@@ -1,5 +1,6 @@
 services:
   sonustemper:
+    container_name: sonustemper-app
     image: ghcr.io/jasondaemon/sonustemper:${SONUSTEMPER_TAG:-edge}
     restart: unless-stopped
     environment:
@@ -20,6 +21,7 @@ services:
       timeout: 5s
       retries: 3
   proxy:
+    container_name: sonustemper-proxy
     image: nginx:1.25-alpine
     depends_on:
       - sonustemper
