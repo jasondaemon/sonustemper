@@ -296,7 +296,8 @@ async def api_key_guard(request: Request, call_next):
         # Allow only when traffic came through trusted proxy marker
         proxy_mark = request.headers.get("X-SonusTemper-Proxy")
         client_host = request.client.host if request.client else None
-        if proxy_mark == "1" and is_trusted_proxy(client_host):
+        # Trust only traffic marked by the local proxy; fallback host check is defense-in-depth
+        if proxy_mark == "1" and (not client_host or is_trusted_proxy(client_host)):
             return await call_next(request)
         key = request.headers.get("X-API-Key") or request.query_params.get("api_key")
         if not API_KEY:
