@@ -75,8 +75,8 @@ SonusTemper is a one-page mastering workstation: drop in a song, choose a voicin
 ### Docker (recommended)
 ```bash
 cp .env.example .env   # optional: set PORT, SONUSTEMPER_TAG
-# set API_KEY (long random string); UI will send X-API-Key automatically
-echo "API_KEY=change-me-to-a-long-random-string" >> .env
+# Set Basic Auth creds (required): edit .env to change BASIC_AUTH_PASS from CHANGEME
+# Optional: set API_KEY only for CLI scripts (UI does not use it)
 docker compose pull
 docker compose up -d
 # open http://localhost:${PORT:-8383}
@@ -98,6 +98,11 @@ docker compose -f docker-compose.dev.yml up --build
 cd mastering-ui/app
 uvicorn app:app --reload --port 8383
 ```
+
+### Security defaults
+- Proxy-level Basic Auth is ON by default (BASIC_AUTH_ENABLED=1).
+- Defaults in `.env.example`: user `admin`, pass `CHANGEME`. You must change the password; proxy will refuse to start if unchanged.
+- All UI/API/SSE routes are behind Basic Auth. The optional `API_KEY` is only for CLI/scripting and is not embedded in the UI.
 
 ## Images and tags
 - GHCR: `ghcr.io/jasondaemon/sonustemper`

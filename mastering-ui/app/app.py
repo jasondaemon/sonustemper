@@ -282,11 +282,7 @@ async def api_key_guard(request: Request, call_next):
             return await call_next(request)
         key = request.headers.get("X-API-Key") or request.query_params.get("api_key")
         if not API_KEY:
-            # Safe default: if no key configured, only allow localhost
-            client = request.client.host if request.client else None
-            if client not in ("127.0.0.1", "::1", "localhost"):
-                print(f"[auth] reject: no API_KEY set and client {client} not localhost", file=sys.stderr)
-                return JSONResponse({"detail": "unauthorized"}, status_code=401)
+            # No API key set; allow (proxy/basic auth provides guard)
             return await call_next(request)
         if key != API_KEY:
             print(f"[auth] reject: bad api key from {request.client.host if request.client else 'unknown'} path={request.url.path}", file=sys.stderr)
@@ -2517,10 +2513,6 @@ function startRunPolling(files) {
   if (runPollPrimary) {
     statusEntries = [];
     let url = `/api/status-stream?song=${encodeURIComponent(runPollPrimary)}`;
-    if (window.__API_KEY__) {
-      const sep = url.includes("?") ? "&" : "?";
-      url = `${url}${sep}api_key=${encodeURIComponent(window.__API_KEY__)}`;
-    }
     statusStream = new EventSource(url);
     statusStream.onmessage = (ev) => {
       try {
@@ -2882,30 +2874,6 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
   try { await refreshAll(); } catch (e) { console.error('post-upload refreshAll failed', e); }
 });
 document.addEventListener('DOMContentLoaded', () => {
-  // Wrap fetch to always send API key on /api/* calls
-  try {
-    const apiKey = window.__API_KEY__ || "";
-    if (apiKey && typeof window.fetch === 'function') {
-      const origFetch = window.fetch.bind(window);
-      window.fetch = (input, init) => {
-        let url = "";
-        if (typeof input === "string") {
-          url = input;
-        } else if (input && typeof input.url === "string") {
-          url = input.url;
-        }
-        if (url.startsWith("/api/")) {
-          init = init || {};
-          const headers = new Headers(init.headers || (input && input.headers) || {});
-          headers.set("X-API-Key", apiKey);
-          init.headers = headers;
-          return origFetch(input, init);
-        }
-        return origFetch(input, init);
-      };
-    }
-  } catch(e){ console.warn("api key fetch wrapper failed", e); }
-
   try {
     wireUI();
     initLoudnessMode();
@@ -2981,7 +2949,6 @@ document.addEventListener('DOMContentLoaded', () => {
 window.PRESET_META = {{ preset_meta_json }};
 window.LOUDNESS_PROFILES = {{ loudness_profiles_json }};
 window.VOICING_META = {{ voicing_meta_json }};
-window.__API_KEY__ = "{{ api_key }}";
 </script>
 <div id="drawerBackdrop" class="drawer-backdrop hidden" tabindex="-1"></div>
 <aside id="infoDrawer"
@@ -3008,14 +2975,12 @@ def index():
     html = html.replace("{{ preset_meta_json }}", json.dumps(load_preset_meta()))
     html = html.replace("{{ loudness_profiles_json }}", json.dumps(LOUDNESS_PROFILES))
     html = html.replace("{{ voicing_meta_json }}", json.dumps(VOICING_META))
-    html = html.replace("{{ api_key }}", API_KEY or "")
     html = html.replace("{{IN_DIR}}", str(IN_DIR))
     html = html.replace("{{OUT_DIR}}", str(OUT_DIR))
     return HTMLResponse(html)
 @app.get("/manage-presets", response_class=HTMLResponse)
 def manage_presets():
-    html = MANAGE_PRESETS_HTML.replace("{{ api_key }}", API_KEY or "")
-    return HTMLResponse(html)
+    return HTMLResponse(MANAGE_PRESETS_HTML)
 MANAGE_PRESETS_HTML = r"""
 <!doctype html>
 <html>

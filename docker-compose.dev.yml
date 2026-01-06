@@ -32,3 +32,9 @@ services:
       - "${PORT:-8383}:80"
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./proxy-entrypoint.sh:/entrypoint.sh:ro
+    environment:
+      BASIC_AUTH_ENABLED: "${BASIC_AUTH_ENABLED:-1}"
+      BASIC_AUTH_USER: "${BASIC_AUTH_USER:-admin}"
+      BASIC_AUTH_PASS: "${BASIC_AUTH_PASS:-CHANGEME}"
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
