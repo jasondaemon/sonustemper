@@ -19,6 +19,7 @@ services:
       API_KEY: "${API_KEY:-}"
       API_AUTH_DISABLED: "${API_AUTH_DISABLED:-0}"
       PROXY_SHARED_SECRET: "${PROXY_SHARED_SECRET:-changeme-proxy}"
+      APP_VERSION: "${APP_VERSION:-dev}"
     volumes:
       - ./data:/data
       - ./presets:/presets
