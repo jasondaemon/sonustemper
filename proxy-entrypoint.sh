@@ -42,7 +42,11 @@ if [ -f /etc/nginx/conf.d/default.conf ]; then
   tmpfile="$tmpdir/default.conf.$$"
   cp /etc/nginx/conf.d/default.conf "$tmpfile"
   sed -i "s/__PROXY_SHARED_SECRET__/${esc_secret}/g" "$tmpfile"
-  cp -f "$tmpfile" /etc/nginx/conf.d/default.conf
+  # Overwrite in place (handle overlay FS by writing via cat)
+  if ! cat "$tmpfile" > /etc/nginx/conf.d/default.conf; then
+    echo "Failed to write proxy shared secret into nginx config" >&2
+    exit 1
+  fi
   rm -f "$tmpfile"
 fi
 
