@@ -43,6 +43,8 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 IN_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/out", StaticFiles(directory=str(OUT_DIR), html=True), name="out")
 MAIN_LOOP = None
+# Startup debug for security context
+print(f"[startup] API_KEY set? {bool(API_KEY)} API_AUTH_DISABLED={API_AUTH_DISABLED}", file=sys.stderr)
 MAX_CONCURRENT_RUNS = int(os.getenv("MAX_CONCURRENT_RUNS", "2"))
 RUNS_IN_FLIGHT = 0
 
@@ -283,9 +285,11 @@ async def api_key_guard(request: Request, call_next):
             # Safe default: if no key configured, only allow localhost
             client = request.client.host if request.client else None
             if client not in ("127.0.0.1", "::1", "localhost"):
+                print(f"[auth] reject: no API_KEY set and client {client} not localhost", file=sys.stderr)
                 return JSONResponse({"detail": "unauthorized"}, status_code=401)
             return await call_next(request)
         if key != API_KEY:
+            print(f"[auth] reject: bad api key from {request.client.host if request.client else 'unknown'} path={request.url.path}", file=sys.stderr)
             return JSONResponse({"detail": "unauthorized"}, status_code=401)
     return await call_next(request)
 
