@@ -13,8 +13,6 @@ services:
       MASTERING_BUILD: "dev"
       API_KEY: "${API_KEY:-}"
       API_AUTH_DISABLED: "${API_AUTH_DISABLED:-0}"
-      # Set a long random key; UI will send X-API-Key automatically.
-      # API_KEY: "change-me"
     volumes:
       - ./data:/data
       - ./presets:/presets

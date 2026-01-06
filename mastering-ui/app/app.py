@@ -7,6 +7,7 @@ import threading
 import sys
 import tempfile
 import asyncio
+import logging
 from collections import deque
 from pathlib import Path
 from datetime import datetime
@@ -21,12 +22,24 @@ OUT_DIR = Path(os.getenv("OUT_DIR", str(DATA_DIR / "out")))
 PRESET_DIR = Path(os.getenv("PRESET_DIR", "/presets"))
 GEN_PRESET_DIR = Path(os.getenv("GEN_PRESET_DIR", str(DATA_DIR / "generated_presets")))
 APP_DIR = Path(__file__).resolve().parent
-# Security: API key protection (set API_KEY); set API_AUTH_DISABLED=1 to bypass explicitly.
+# Security: API key protection (for CLI/scripts); set API_AUTH_DISABLED=1 to bypass explicitly.
 API_KEY = os.getenv("API_KEY")
 API_AUTH_DISABLED = os.getenv("API_AUTH_DISABLED") == "1"
-# Security: API key protection (set API_KEY); set API_AUTH_DISABLED=1 to bypass explicitly.
-API_KEY = os.getenv("API_KEY")
-API_AUTH_DISABLED = os.getenv("API_AUTH_DISABLED") == "1"
+PROXY_TRUSTED_PREFIXES = [p.strip() for p in os.getenv("PROXY_TRUSTED_PREFIXES", "127.,172.,10.,192.168.").split(",") if p.strip()]
+PROXY_TRUSTED_HOSTS = [h.strip() for h in os.getenv("PROXY_TRUSTED_HOSTS", "").split(",") if h.strip()]
+# Basic logging
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+logger = logging.getLogger("mastering-ui")
+# Trusted proxy check
+def is_trusted_proxy(host: str) -> bool:
+    if not host:
+        return False
+    if host in PROXY_TRUSTED_HOSTS:
+        return True
+    for pref in PROXY_TRUSTED_PREFIXES:
+        if pref and host.startswith(pref):
+            return True
+    return False
 # Deprecated: master.py retained only as a fallback reference; master_pack.py is the unified runner.
 _default_master = APP_DIR / "mastering" / "master.py"
 _default_pack = APP_DIR / "mastering" / "master_pack.py"
@@ -44,7 +57,7 @@ IN_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/out", StaticFiles(directory=str(OUT_DIR), html=True), name="out")
 MAIN_LOOP = None
 # Startup debug for security context
-print(f"[startup] API_KEY set? {bool(API_KEY)} API_AUTH_DISABLED={API_AUTH_DISABLED}", file=sys.stderr)
+logger.info(f"[startup] API_KEY set? {bool(API_KEY)} API_AUTH_DISABLED={API_AUTH_DISABLED}")
 MAX_CONCURRENT_RUNS = int(os.getenv("MAX_CONCURRENT_RUNS", "2"))
 RUNS_IN_FLIGHT = 0
 
@@ -280,9 +293,10 @@ async def api_key_guard(request: Request, call_next):
     if request.url.path.startswith("/api/"):
         if API_AUTH_DISABLED:
             return await call_next(request)
-        # If proxy Basic Auth already authenticated, allow through
-        auth_header = request.headers.get("Authorization") or ""
-        if auth_header.startswith("Basic "):
+        # Allow only when traffic came through trusted proxy marker
+        proxy_mark = request.headers.get("X-SonusTemper-Proxy")
+        client_host = request.client.host if request.client else None
+        if proxy_mark == "1" and is_trusted_proxy(client_host):
             return await call_next(request)
         key = request.headers.get("X-API-Key") or request.query_params.get("api_key")
         if not API_KEY:
@@ -3100,16 +3114,7 @@ MANAGE_PRESETS_HTML = r"""
     <div id="drawerBodyManage" class="drawer-body"></div>
   </aside>
 <script>
-window.__API_KEY__ = "{{ api_key }}";
-const manageApiKey = window.__API_KEY__ || "";
-const manageFetch = (url, opts = {}) => {
-  if (manageApiKey) {
-    const h = new Headers(opts.headers || {});
-    h.set("X-API-Key", manageApiKey);
-    opts.headers = h;
-  }
-  return fetch(url, opts);
-};
+const manageFetch = (url, opts = {}) => fetch(url, opts);
 async function loadPresets(){
   const list = document.getElementById('presetList');
   list.innerHTML = '<div class="small">Loading…</div>';

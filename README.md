@@ -102,7 +102,8 @@ uvicorn app:app --reload --port 8383
 ### Security defaults
 - Proxy-level Basic Auth is ON by default (BASIC_AUTH_ENABLED=1).
 - Defaults in `.env.example`: user `admin`, pass `CHANGEME`. You must change the password; proxy will refuse to start if unchanged.
-- All UI/API/SSE routes are behind Basic Auth. The optional `API_KEY` is only for CLI/scripting and is not embedded in the UI.
+- All UI/API/SSE routes are behind Basic Auth.
+- The optional `API_KEY` is only for non-browser clients/CLI scripts; it is not embedded in the UI and is not required once Basic Auth succeeds.
 
 ## Images and tags
 - GHCR: `ghcr.io/jasondaemon/sonustemper`
