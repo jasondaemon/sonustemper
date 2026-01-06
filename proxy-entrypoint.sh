@@ -28,9 +28,10 @@ else
   echo "# basic auth disabled" > "$AUTH_CONF"
 fi
 
+# Require a shared secret (must match app env)
 if [ -z "$PROXY_SHARED_SECRET" ]; then
-  # Generate a random default if not provided
-  PROXY_SHARED_SECRET="$(head -c 24 /dev/urandom | base64 | tr -d '=+/[:space:]' | cut -c1-24)"
+  echo "Missing PROXY_SHARED_SECRET. Set it in .env for both app and proxy." >&2
+  exit 1
 fi
 export PROXY_SHARED_SECRET
 
