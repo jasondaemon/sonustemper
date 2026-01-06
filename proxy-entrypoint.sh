@@ -43,6 +43,7 @@ SECRET_HASH=$(printf '%s' "$PROXY_SHARED_SECRET" | sha256sum | awk '{print $1}')
 export PROXY_SHARED_SECRET_HASH="$SECRET_HASH"
 if [ -f /etc/nginx/templates/nginx.conf.template ]; then
   envsubst '${PROXY_SHARED_SECRET_HASH}' < /etc/nginx/templates/nginx.conf.template > /etc/nginx/conf.d/default.conf
+  echo "[proxy] rendered config with PROXY_SHARED_SECRET_HASH len=${#SECRET_HASH}"
 else
   echo "nginx.conf.template missing" >&2
   exit 1
