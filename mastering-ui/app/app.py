@@ -289,7 +289,7 @@ async def api_key_guard(request: Request, call_next):
         proxy_mark = request.headers.get("X-SonusTemper-Proxy")
         if proxy_mark and is_trusted_proxy(proxy_mark):
             return await call_next(request)
-        key = request.headers.get("X-API-Key") or request.query_params.get("api_key")
+        key = request.headers.get("X-API-Key")
         if not API_KEY:
             # No API key set; allow (proxy/basic auth provides guard)
             return await call_next(request)

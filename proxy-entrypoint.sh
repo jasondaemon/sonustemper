@@ -34,4 +34,11 @@ if [ -z "$PROXY_SHARED_SECRET" ]; then
 fi
 export PROXY_SHARED_SECRET
 
+# Render shared secret into nginx config
+if [ -f /etc/nginx/conf.d/default.conf ]; then
+  # Escape delimiter for sed
+  esc_secret=$(printf '%s' "$PROXY_SHARED_SECRET" | sed -e 's/[\\/&]/\\&/g')
+  sed -i "s/__PROXY_SHARED_SECRET__/${esc_secret}/g" /etc/nginx/conf.d/default.conf
+fi
+
 exec nginx -g 'daemon off;'
