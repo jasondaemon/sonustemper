@@ -42,7 +42,7 @@ if [ -f /etc/nginx/conf.d/default.conf ]; then
   tmpfile="$tmpdir/default.conf.$$"
   cp /etc/nginx/conf.d/default.conf "$tmpfile"
   sed -i "s/__PROXY_SHARED_SECRET__/${esc_secret}/g" "$tmpfile"
-  cp "$tmpfile" /etc/nginx/conf.d/default.conf
+  cp -f "$tmpfile" /etc/nginx/conf.d/default.conf
   rm -f "$tmpfile"
 fi
 
