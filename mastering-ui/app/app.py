@@ -290,7 +290,7 @@ async def api_key_guard(request: Request, call_next):
         if proxy_mark and is_trusted_proxy(proxy_mark):
             return await call_next(request)
         if proxy_mark and not is_trusted_proxy(proxy_mark):
-            logger.warning(f"[auth] proxy mark mismatch len={len(proxy_mark)} path={request.url.path}")
+            logger.warning(f"[auth] proxy mark mismatch len={len(proxy_mark)} path={request.url.path} mark='{proxy_mark}' expected='{PROXY_SHARED_SECRET}'")
         key = request.headers.get("X-API-Key")
         if not API_KEY:
             # No API key set; allow (proxy/basic auth provides guard)
