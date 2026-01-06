@@ -128,3 +128,6 @@ uvicorn app:app --reload --port 8383
 ## License
 - Project code: Apache 2.0 (see `LICENSE`).
 - FFmpeg is installed from the distro package and remains under its original LGPL/GPL licensing; see `THIRD_PARTY_NOTICES.md` for details.
+
+## Future Features
+- MP3 ID3 tag  editing
