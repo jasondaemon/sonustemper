@@ -11,6 +11,7 @@ services:
       MASTERING_BUILD: "docker"
       API_KEY: "${API_KEY:-}"
       API_AUTH_DISABLED: "${API_AUTH_DISABLED:-0}"
+      PROXY_SHARED_SECRET: "${PROXY_SHARED_SECRET:-changeme-proxy}"
     volumes:
       - ./data:/data
       - ./presets:/presets
@@ -33,5 +34,5 @@ services:
       BASIC_AUTH_ENABLED: "${BASIC_AUTH_ENABLED:-1}"
       BASIC_AUTH_USER: "${BASIC_AUTH_USER:-admin}"
       BASIC_AUTH_PASS: "${BASIC_AUTH_PASS:-CHANGEME}"
-      PROXY_SHARED_SECRET: "${PROXY_SHARED_SECRET:-}"
+      PROXY_SHARED_SECRET: "${PROXY_SHARED_SECRET:-changeme-proxy}"
     entrypoint: ["/bin/sh", "/entrypoint.sh"]
