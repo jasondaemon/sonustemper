@@ -2719,12 +2719,6 @@ async function runOne(){
   try { await refreshAll(); } catch (e) { console.error(e); }
 }
 async function runPack(){
-  suppressRecentDuringRun = true;
-  clearOutList(); setLinks(''); setMetricsPanel('(waiting)');
-  setStatus("A/B pack running...");
-  startJobLog('Processing...');
-  setProgress(0.05);
-  try { localStorage.setItem("packInFlight", String(Date.now())); } catch {}
   const files = getSelectedBulkFiles();
   const presets = getSelectedPresets();
   const mode = getVoicingMode();
@@ -2732,10 +2726,18 @@ async function runPack(){
   const needPreset = (mode === 'presets');
   const needVoicing = (mode === 'voicing');
   if (!files.length || (needPreset && !presets.length) || (needVoicing && !voicing)) {
-    alert("Select at least one input file and a selection for the active mode (voicing or preset).");
-    suppressRecentDuringRun = false;
+    const msg = "Run failed: please select at least one input file and a voicing or preset.";
+    setStatus(msg);
+    setResultHTML(`<div id="joblog" class="mono"><div>${msg}</div></div>`);
+    setProgress(null);
     return;
   }
+  suppressRecentDuringRun = true;
+  clearOutList(); setLinks(''); setMetricsPanel('(waiting)');
+  setStatus("A/B pack running...");
+  startJobLog('Processing...');
+  setProgress(0.05);
+  try { localStorage.setItem("packInFlight", String(Date.now())); } catch {}
   const strength = document.getElementById('strength').value;
   const pollFiles = files.map(f => f.replace(/\.[^.]+$/, '') || f);
   const fd = new FormData();
@@ -2778,7 +2780,6 @@ async function runPack(){
   try { await refreshAll(); } catch (e) { console.error('post-job refreshAll failed', e); }
 }
 async function runBulk(){
-  suppressRecentDuringRun = true;
   const files = getSelectedBulkFiles();
   const presets = getSelectedPresets();
   const mode = getVoicingMode();
@@ -2786,10 +2787,13 @@ async function runBulk(){
   const needPreset = (mode === 'presets');
   const needVoicing = (mode === 'voicing');
   if (!files.length || (needPreset && !presets.length) || (needVoicing && !voicing)) {
-    alert("Select at least one input file and a selection for the active mode (voicing or preset).");
-    suppressRecentDuringRun = false;
+    const msg = "Run failed: please select at least one input file and a voicing or preset.";
+    setStatus(msg);
+    setResultHTML(`<div id="joblog" class="mono"><div>${msg}</div></div>`);
+    setProgress(null);
     return;
   }
+  suppressRecentDuringRun = true;
   clearOutList(); setLinks(''); setMetricsPanel('(waiting)');
   setStatus("Bulk run starting...");
   startJobLog('Processing...');
