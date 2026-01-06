@@ -37,7 +37,7 @@ export PROXY_SHARED_SECRET
 
 # Render shared secret into nginx config (write via temp to avoid busy file)
 if [ -f /etc/nginx/conf.d/default.conf ]; then
-  esc_secret=$(printf '%s' "$PROXY_SHARED_SECRET" | sed -e 's/[\\/&]/\\&/g')
+  esc_secret=$(printf '%s' "$PROXY_SHARED_SECRET" | sed -e 's/[\\/$&\"]/\\&/g')
   tmpdir="/tmp/sonustemper"
   mkdir -p "$tmpdir"
   tmpfile="$tmpdir/default.conf.$$"
