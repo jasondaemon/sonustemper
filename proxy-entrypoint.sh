@@ -7,6 +7,7 @@ HTPASS="/etc/nginx/conf.d/.htpasswd"
 : "${BASIC_AUTH_ENABLED:=1}"
 : "${BASIC_AUTH_USER:=admin}"
 : "${BASIC_AUTH_PASS:=CHANGEME}"
+: "${PROXY_SHARED_SECRET:=}"
 
 # Ensure htpasswd is available
 if ! command -v htpasswd >/dev/null 2>&1; then
@@ -26,5 +27,11 @@ EOF
 else
   echo "# basic auth disabled" > "$AUTH_CONF"
 fi
+
+if [ -z "$PROXY_SHARED_SECRET" ]; then
+  # Generate a random default if not provided
+  PROXY_SHARED_SECRET="$(head -c 24 /dev/urandom | base64 | tr -d '=+/[:space:]' | cut -c1-24)"
+fi
+export PROXY_SHARED_SECRET
 
 exec nginx -g 'daemon off;'

@@ -35,4 +35,5 @@ services:
       BASIC_AUTH_ENABLED: "${BASIC_AUTH_ENABLED:-1}"
       BASIC_AUTH_USER: "${BASIC_AUTH_USER:-admin}"
       BASIC_AUTH_PASS: "${BASIC_AUTH_PASS:-CHANGEME}"
+      PROXY_SHARED_SECRET: "${PROXY_SHARED_SECRET:-}"
     entrypoint: ["/bin/sh", "/entrypoint.sh"]

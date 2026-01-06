@@ -25,21 +25,13 @@ APP_DIR = Path(__file__).resolve().parent
 # Security: API key protection (for CLI/scripts); set API_AUTH_DISABLED=1 to bypass explicitly.
 API_KEY = os.getenv("API_KEY")
 API_AUTH_DISABLED = os.getenv("API_AUTH_DISABLED") == "1"
-PROXY_TRUSTED_PREFIXES = [p.strip() for p in os.getenv("PROXY_TRUSTED_PREFIXES", "127.,172.,10.,192.168.").split(",") if p.strip()]
-PROXY_TRUSTED_HOSTS = [h.strip() for h in os.getenv("PROXY_TRUSTED_HOSTS", "").split(",") if h.strip()]
+PROXY_SHARED_SECRET = os.getenv("PROXY_SHARED_SECRET", "")
 # Basic logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger("mastering-ui")
-# Trusted proxy check
-def is_trusted_proxy(host: str) -> bool:
-    if not host:
-        return False
-    if host in PROXY_TRUSTED_HOSTS:
-        return True
-    for pref in PROXY_TRUSTED_PREFIXES:
-        if pref and host.startswith(pref):
-            return True
-    return False
+# Trusted proxy check via shared secret header
+def is_trusted_proxy(mark: str) -> bool:
+    return bool(PROXY_SHARED_SECRET) and (mark == PROXY_SHARED_SECRET)
 # Deprecated: master.py retained only as a fallback reference; master_pack.py is the unified runner.
 _default_master = APP_DIR / "mastering" / "master.py"
 _default_pack = APP_DIR / "mastering" / "master_pack.py"
@@ -295,9 +287,7 @@ async def api_key_guard(request: Request, call_next):
             return await call_next(request)
         # Allow only when traffic came through trusted proxy marker
         proxy_mark = request.headers.get("X-SonusTemper-Proxy")
-        client_host = request.client.host if request.client else None
-        # Trust only traffic marked by the local proxy; fallback host check is defense-in-depth
-        if proxy_mark == "1" and (not client_host or is_trusted_proxy(client_host)):
+        if proxy_mark and is_trusted_proxy(proxy_mark):
             return await call_next(request)
         key = request.headers.get("X-API-Key") or request.query_params.get("api_key")
         if not API_KEY:
