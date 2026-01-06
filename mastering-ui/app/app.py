@@ -26,26 +26,12 @@ APP_DIR = Path(__file__).resolve().parent
 API_KEY = os.getenv("API_KEY")
 API_AUTH_DISABLED = os.getenv("API_AUTH_DISABLED") == "1"
 PROXY_SHARED_SECRET = os.getenv("PROXY_SHARED_SECRET", "")
-# Derive a hash for proxy marker comparison to avoid raw-secret handling
-PROXY_SHARED_SECRET_HASH = ""
-if PROXY_SHARED_SECRET:
-    try:
-        import hashlib
-        PROXY_SHARED_SECRET_HASH = hashlib.sha256(PROXY_SHARED_SECRET.encode("utf-8")).hexdigest()
-    except Exception:
-        PROXY_SHARED_SECRET_HASH = ""
 # Basic logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger("mastering-ui")
-# Trusted proxy check via shared secret (raw or hash, to tolerate proxy inject differences)
+# Trusted proxy check via shared secret (raw)
 def is_trusted_proxy(mark: str) -> bool:
-    if not mark:
-        return False
-    if PROXY_SHARED_SECRET and mark == PROXY_SHARED_SECRET:
-        return True
-    if PROXY_SHARED_SECRET_HASH and mark == PROXY_SHARED_SECRET_HASH:
-        return True
-    return False
+    return bool(mark) and bool(PROXY_SHARED_SECRET) and (mark == PROXY_SHARED_SECRET)
 # Deprecated: master.py retained only as a fallback reference; master_pack.py is the unified runner.
 _default_master = APP_DIR / "mastering" / "master.py"
 _default_pack = APP_DIR / "mastering" / "master_pack.py"
