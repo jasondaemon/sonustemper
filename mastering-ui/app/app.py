@@ -897,6 +897,7 @@ def load_preset_meta() -> dict:
         meta[pid] = merged
     return meta
 BUILD_STAMP = os.getenv("MASTERING_BUILD")
+VERSION = os.getenv("APP_VERSION", os.getenv("SONUSTEMPER_TAG", "dev"))
 git_rev = None
 try:
     git_rev = check_output_cmd(["git", "rev-parse", "--short", "HEAD"]).strip()
@@ -1215,10 +1216,6 @@ input[type="range"]{
         <h1>SonusTemper</h1>
         <div class="sub">Preset-Based Mastering &amp; Normalization</div>
       </div>
-      <div class="row">
-        <button class="btnGhost" onclick="refreshAll()">Refresh lists</button>
-<div id="statusMsg" class="small" style="margin-top:8px;opacity:.85"></div>
-      </div>
     </div>
 <div class="grid" id="masterView">
       <div class="card masterPane" id="uploadCard">
@@ -1510,7 +1507,7 @@ input[type="range"]{
         </div>
       </div>
     </div>
-    <div class="footer">developed by <a class="linkish" href="http://www.jasondaemon.net">jasondaemon.net</a></div>
+    <div class="footer">SonusTemper v{{VERSION}} – developed by <a class="linkish" href="http://www.jasondaemon.net">jasondaemon.net</a></div>
   </div>
 <script>
 function setStatus(msg) {
@@ -2998,6 +2995,7 @@ window.VOICING_META = {{ voicing_meta_json }};
 def index():
     html = HTML_TEMPLATE
     html = html.replace("{{BUILD_STAMP}}", BUILD_STAMP)
+    html = html.replace("{{VERSION}}", VERSION)
     html = html.replace("{{ preset_meta_json }}", json.dumps(load_preset_meta()))
     html = html.replace("{{ loudness_profiles_json }}", json.dumps(LOUDNESS_PROFILES))
     html = html.replace("{{ voicing_meta_json }}", json.dumps(VOICING_META))
@@ -3006,7 +3004,8 @@ def index():
     return HTMLResponse(html)
 @app.get("/manage-presets", response_class=HTMLResponse)
 def manage_presets():
-    return HTMLResponse(MANAGE_PRESETS_HTML)
+    html = MANAGE_PRESETS_HTML.replace("{{VERSION}}", VERSION)
+    return HTMLResponse(html)
 MANAGE_PRESETS_HTML = r"""
 <!doctype html>
 <html>
