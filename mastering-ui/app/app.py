@@ -126,18 +126,18 @@ def _start_master_jobs(files, presets, strength, lufs, tp, width, mono_bass, gua
                 if aac_container: cmd += ["--aac_container", str(aac_container)]
                 if ogg_quality: cmd += ["--ogg_quality", str(ogg_quality)]
                 if flac_level: cmd += ["--flac_level", str(flac_level)]
-                if flac_bit_depth: cmd += ["--flac_bit_depth", str(flac_bit_depth)]
-                if flac_sample_rate: cmd += ["--flac_sample_rate", str(flac_sample_rate)]
-            try:
-                print(f"[master-bulk] start file={f} presets={presets}", file=sys.stderr)
-                _emit(rid, "queued", f)
-                _emit(rid, "start", f"Processing {Path(f).name}")
-                subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT)
-                print(f"[master-bulk] done file={f}", file=sys.stderr)
-                _emit(rid, "complete", f"Finished {Path(f).name}")
-            except subprocess.CalledProcessError as e:
-                msg = (e.output or str(e)).strip().splitlines()[0] if (e.output or str(e)) else ""
-                _emit(rid, "error", msg)
+            if flac_bit_depth: cmd += ["--flac_bit_depth", str(flac_bit_depth)]
+            if flac_sample_rate: cmd += ["--flac_sample_rate", str(flac_sample_rate)]
+        try:
+            print(f"[master-bulk] start file={f} presets={presets}", file=sys.stderr)
+            _emit(rid, "queued", f)
+            _emit(rid, "start", f"Processing {Path(f).name}")
+            check_output_cmd(cmd)
+            print(f"[master-bulk] done file={f}", file=sys.stderr)
+            _emit(rid, "complete", f"Finished {Path(f).name}")
+        except subprocess.CalledProcessError as e:
+            msg = (e.output or str(e)).strip().splitlines()[0] if (e.output or str(e)) else ""
+            _emit(rid, "error", msg)
                 print(f"[master-bulk] failed file={f}: {e.output or e}", file=sys.stderr)
     def _run_wrapper():
         global RUNS_IN_FLIGHT
@@ -401,8 +401,23 @@ def wrap_metrics(song: str, metrics: dict | None) -> dict | None:
         "input": None,
         "output": metrics,
     }
+def _assert_safe_cmd(cmd: list[str]) -> None:
+    if not isinstance(cmd, list) or not cmd or not all(isinstance(c, str) for c in cmd):
+        raise ValueError("invalid command")
+    if any("\x00" in c for c in cmd):
+        raise ValueError("invalid null in command")
+    if cmd[0] not in {"python3", "python", "ffprobe", "ffmpeg"}:
+        raise ValueError("unexpected executable")
+
 def run_cmd(cmd: list[str]) -> subprocess.CompletedProcess:
+    _assert_safe_cmd(cmd)
+    # CodeQL [py/command-line-injection]: argv is validated, shell=False, fixed binaries; user input does not control executed program
     return subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+
+def check_output_cmd(cmd: list[str]) -> str:
+    _assert_safe_cmd(cmd)
+    # CodeQL [py/command-line-injection]: argv is validated, shell=False, fixed binaries; user input does not control executed program
+    return subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT)
 def docker_ffprobe_json(path: Path) -> dict:
     r = run_cmd([
         "ffprobe", "-v", "quiet", "-print_format", "json",
@@ -884,7 +899,7 @@ def load_preset_meta() -> dict:
 BUILD_STAMP = os.getenv("MASTERING_BUILD")
 git_rev = None
 try:
-    git_rev = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
+    git_rev = check_output_cmd(["git", "rev-parse", "--short", "HEAD"]).strip()
 except Exception:
     git_rev = os.getenv("GIT_REV")
 if BUILD_STAMP:
@@ -3643,13 +3658,13 @@ def master(
     if guardrails:
         cmd += ["--guardrails"]
     try:
-        return subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT)
+        return check_output_cmd(cmd)
     except subprocess.CalledProcessError as e:
         msg = e.output or ""
         if guardrails and "unrecognized arguments: --guardrails" in msg:
             fallback_cmd = [c for c in cmd if c != "--guardrails"]
             try:
-                return subprocess.check_output(fallback_cmd, text=True, stderr=subprocess.STDOUT)
+                return check_output_cmd(fallback_cmd)
             except subprocess.CalledProcessError as e2:
                 raise HTTPException(status_code=500, detail=e2.output)
         raise HTTPException(status_code=500, detail=msg)
@@ -3718,7 +3733,7 @@ def master_pack(
     if flac_sample_rate: base_cmd += ["--flac_sample_rate", str(flac_sample_rate)]
     def run_pack():
         try:
-            subprocess.check_output(base_cmd, text=True, stderr=subprocess.STDOUT)
+            check_output_cmd(base_cmd)
         except subprocess.CalledProcessError as e:
             # Log to stderr; UI will refresh Previous Runs anyway.
             print(f"[master-pack] failed: {e.output or e}", file=sys.stderr)
