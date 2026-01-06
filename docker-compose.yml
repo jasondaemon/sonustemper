@@ -2,6 +2,7 @@ services:
   sonustemper:
     container_name: sonustemper-app
     image: ghcr.io/jasondaemon/sonustemper:${SONUSTEMPER_TAG:-edge}
+    # Do not publish app ports; proxy is the perimeter
     build:
       context: .
       dockerfile: Dockerfile

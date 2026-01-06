@@ -104,6 +104,7 @@ uvicorn app:app --reload --port 8383
 - Defaults in `.env.example`: user `admin`, pass `CHANGEME`. You must change the password; proxy will refuse to start if unchanged.
 - All UI/API/SSE routes are behind Basic Auth.
 - The optional `API_KEY` is only for non-browser clients/CLI scripts; it is not embedded in the UI and is not required once Basic Auth succeeds. Proxy adds its own shared-secret header internally.
+- See `SECURITY.md` for the security posture and hardening notes (proxy perimeter, shared credentials, not Internet-facing without TLS/VPN).
 
 ## Images and tags
 - GHCR: `ghcr.io/jasondaemon/sonustemper`
@@ -111,6 +112,12 @@ uvicorn app:app --reload --port 8383
 
 ## Health
 `GET /health` reports ffmpeg/ffprobe availability, directory writability, preset status, build/app id.
+
+## Links
+- Security: `SECURITY.md`
+- Changelog: `CHANGELOG.md`
+- License: `LICENSE`
+- Third-party notices: `THIRD_PARTY_NOTICES.md`
 
 ## Quick regression checklist
 - Single-run happy path: one file, one voicing, all outputs, confirm status stream completes and Job Output auto-loads.

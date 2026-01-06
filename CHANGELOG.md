@@ -3,7 +3,12 @@
 ## [Unreleased]
 - TBD
 
-## [v1.1.0] - Pending
+## [v1.2.0] - Pending
+- Security hardening: proxy-only perimeter with Basic Auth + shared secret; proxy-generated config with envsubst; removed API key from UI; enforced .env secrets.
+- Added SECURITY.md and readme links; compose builds default non-root user (configurable APP_UID/GID); proxy/app share the same secret.
+- Simplified proxy bypass to a single shared secret header; Basic Auth remains required; clarified that app ports should not be exposed directly.
+
+## [v1.1.0] - Released
 - Replaced polling with SSE status-stream: `/api/run` start endpoint, `/api/status-stream` for live updates, `/api/run/{id}` snapshots for reconnects; in-memory ring buffer with TTL cleanup and keepalive.
 - Added source metrics analysis (loudnorm + astats) with status events, writing input metrics into `metrics.json` for full “In/Out” comparisons.
 - Status timeline now includes source-analysis stages and removes `.processing` checks; UI auto-refreshes on terminal events.
@@ -22,3 +27,4 @@
 
 [v1.0.0]: https://github.com/jasondaemon/sonustemper/releases/tag/v1.0.0
 [v1.1.0]: https://github.com/jasondaemon/sonustemper/releases/tag/v1.1.0
+[v1.2.0]: https://github.com/jasondaemon/sonustemper/releases/tag/v1.2.0
