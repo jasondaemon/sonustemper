@@ -74,7 +74,6 @@ class TaggerService:
         digest = hashlib.sha256(raw).digest()
         return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
 
-    @staticmethod
     def _parse_badges(self, basename: str, root: str | None = None) -> Tuple[str, List[Dict]]:
         stem = Path(basename).stem
         ext = Path(basename).suffix.lower().lstrip(".")
@@ -230,19 +229,14 @@ class TaggerService:
         for entry in self._index.values():
             if scope != "all" and entry["root"] != scope:
                 continue
-            root_key = entry["root"]
-            root_path = self.roots.get(root_key)
-            rel = Path(entry["relpath"])
-            abs_path = (root_path / rel).resolve() if root_path else None
-            display_title, badges = self._parse_badges(abs_path.name if abs_path else entry["basename"], root_key)
             items.append(
                 {
                     "id": entry["id"],
                     "root": entry["root"],
                     "basename": entry["basename"],
                     "relpath": entry["relpath"],
-                    "display_title": display_title or entry["basename"],
-                    "badges": badges or [],
+                    "display_title": entry.get("display_title") or entry["basename"],
+                    "badges": entry.get("badges") or [],
                     "full_name": entry["relpath"],
                 }
             )
