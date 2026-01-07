@@ -1017,6 +1017,9 @@ HTML_TEMPLATE = r"""
 .badge-param{ background:rgba(43,212,189,0.15); border-color:rgba(43,212,189,0.45); color:#9df1e5; }
 .badge-format{ background:rgba(255,255,255,0.04); border-color:rgba(255,255,255,0.15); color:#cfe0f1; }
 .badge-container{ background:rgba(255,255,255,0.02); border-color:rgba(255,255,255,0.12); color:#9fb0c0; }
+.outHeader{ display:flex; align-items:flex-start; gap:8px; min-width:0; }
+.outTitle{ font-weight:700; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:0 1 auto; color:#e7eef6; }
+.outHeader .badgeRow{ width:auto; flex:1 1 auto; min-width:0; justify-content:flex-end; margin-top:0; }
 
 
 /* --- Metrics compact overrides --- */
@@ -2819,8 +2822,8 @@ async function loadSong(song, options=false){
       const badgeRowId = `badges_${Math.random().toString(36).slice(2)}`;
       div.innerHTML = `
         <div class="mono" style="display:flex; flex-direction:column; gap:6px;">
-          <div style="display:flex; align-items:flex-start; gap:8px; min-width:0;">
-            <div class="tagRowTitle" style="font-weight:700; flex:1; min-width:0; color:#e7eef6;">${it.display_title || it.name}</div>
+          <div class="outHeader">
+            <div class="outTitle">${it.display_title || it.name}</div>
             <div class="badgeRow" id="${badgeRowId}"></div>
           </div>
         </div>
