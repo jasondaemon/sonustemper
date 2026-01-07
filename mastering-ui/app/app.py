@@ -3534,10 +3534,11 @@ function setupUtilMenu(toggleId, menuId){
   });
 }
 function tagToast(msg){ const s=document.getElementById('tagSaveStatus'); if(s) s.textContent=msg||''; }
-function makeBadge(label, type){
+function makeBadge(label, type, title){
   const span = document.createElement('span');
   span.className = 'badge' + (type ? ` badge-${type}` : '');
   span.textContent = label;
+  if(title) span.title = title;
   return span;
 }
 function renderBadges(badges){
@@ -3564,13 +3565,12 @@ function renderBadges(badges){
   visible.forEach(b => {
     const lbl = b.label || '';
     const type = b.type || '';
-    wrap.appendChild(makeBadge(lbl, type));
+    wrap.appendChild(makeBadge(lbl, type, b.title));
   });
   const total = badges.length;
   const hiddenCount = total - visible.length;
   if(hiddenCount > 0){
-    const more = makeBadge(`+${hiddenCount}`, 'format');
-    more.title = badges.map(b=>b.label).join(', ');
+    const more = makeBadge(`+${hiddenCount}`, 'format', badges.map(b=>b.title || b.label).join(', '));
     wrap.appendChild(more);
   }
   return wrap;

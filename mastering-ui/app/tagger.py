@@ -22,6 +22,21 @@ from mutagen.id3 import (
 
 class TaggerService:
     """Backend-only MP3 tagger service (no subprocess usage)."""
+    VOICING_TITLE_MAP = {
+        "universal": "Voicing: Universal",
+        "airlift": "Voicing: Airlift",
+        "ember": "Voicing: Ember",
+        "detail": "Voicing: Detail",
+        "glue": "Voicing: Glue",
+        "wide": "Voicing: Wide",
+        "cinematic": "Voicing: Cinematic",
+        "punch": "Voicing: Punch",
+        "warm": "Voicing: Warm",
+        "modern": "Voicing: Modern",
+        "clean": "Voicing: Clean",
+        "rock": "Voicing: Rock",
+        "acoustic": "Voicing: Acoustic",
+    }
 
     def __init__(
         self,
@@ -60,7 +75,7 @@ class TaggerService:
         return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
 
     @staticmethod
-    def _parse_badges(basename: str) -> Tuple[str, List[Dict]]:
+    def _parse_badges(self, basename: str, root: str | None = None) -> Tuple[str, List[Dict]]:
         stem = Path(basename).stem
         ext = Path(basename).suffix.lower().lstrip(".")
         display_title = stem
@@ -76,34 +91,41 @@ class TaggerService:
                 t = tokens[i]
                 # voicing / source
                 if t.startswith("V_") or t == "source":
-                    badges.append({"type": "voicing", "label": t})
+                    lbl = t
+                    if t == "source":
+                        title = "Source"
+                    else:
+                        slug = t[2:].lower()
+                        title = self.VOICING_TITLE_MAP.get(slug, f"Voicing: {slug.replace('_',' ').title()}")
+                    badges.append({"type": "voicing", "label": lbl, "title": title})
                     i += 1
                     continue
                 # strength
                 if t.startswith("S") and t[1:].isdigit():
-                    badges.append({"type": "param", "label": t})
+                    badges.append({"type": "param", "label": t, "title": f"Strength: {t[1:]}"})
                     i += 1
                     continue
                 # preset/chain
                 if t == "LMCustom":
-                    badges.append({"type": "param", "label": t})
+                    badges.append({"type": "preset", "label": t, "title": f"Preset: {t}"})
                     i += 1
                     continue
                 # TI / TTP / W / GR
                 if (t.startswith("TI-") and t[3:].replace(".","",1).replace("-","",1).lstrip("0").isdigit()) or t.startswith("TI-"):
-                    badges.append({"type": "param", "label": t})
+                    val = t[3:] if t.startswith("TI-") else t
+                    badges.append({"type": "param", "label": t, "title": f"Time/Intensity: {val}"})
                     i += 1
                     continue
                 if t.startswith("TTP-"):
-                    badges.append({"type": "param", "label": t})
+                    badges.append({"type": "param", "label": t, "title": f"True Peak Target: {t.replace('TTP-','-')} dBTP"})
                     i += 1
                     continue
                 if t.startswith("W") and t[1:]:
-                    badges.append({"type": "param", "label": t})
+                    badges.append({"type": "param", "label": t, "title": f"Weight: {t[1:]}"} )
                     i += 1
                     continue
                 if t.startswith("GR") and t[2:]:
-                    badges.append({"type": "param", "label": t})
+                    badges.append({"type": "param", "label": t, "title": f"Gain Reduction: {t[2:]}"})
                     i += 1
                     continue
                 # sample/bit pair
@@ -114,7 +136,8 @@ class TaggerService:
                         bit = tokens[i + 1]
                         i += 1  # consume bit token
                     lbl = f"{rate}k/{bit}" if bit else f"{rate}k"
-                    badges.append({"type": "format", "label": lbl})
+                    title = f"Source Format: {rate} kHz" + (f" / {bit}-bit" if bit else "")
+                    badges.append({"type": "format", "label": lbl, "title": title})
                     i += 1
                     continue
                 # MP3 with bitrate
@@ -124,7 +147,8 @@ class TaggerService:
                         br = tokens[i + 1].upper().replace("CBR", "")
                         lbl = f"MP3 {br}"
                         i += 1  # consume bitrate token
-                    badges.append({"type": "format", "label": lbl})
+                    title = f"Output Format: {lbl} kbps (CBR)" if " " in lbl else f"Output Format: {lbl}"
+                    badges.append({"type": "format", "label": lbl, "title": title})
                     i += 1
                     continue
                 # AAC with bitrate
@@ -138,13 +162,20 @@ class TaggerService:
                     elif nxt.isdigit():
                         lbl = f"AAC {nxt}"
                         i += 1
-                    badges.append({"type": "format", "label": lbl})
+                    title = f"Output Format: {lbl}"
+                    badges.append({"type": "format", "label": lbl, "title": title})
                     i += 1
                     continue
                 i += 1
         # container/ext (optional subtle)
         if ext:
-            badges.append({"type": "container", "label": ext})
+            badges.append({"type": "container", "label": ext, "title": f"Container: {ext}"})
+        # Ensure at least one voicing/preset badge exists (fallback by root)
+        if not any(b.get("type") in ("voicing", "preset") for b in badges):
+            if root == "out":
+                badges.insert(0, {"type": "preset", "label": "Mastered", "title": "Mastered output"})
+            elif root == "tag":
+                badges.insert(0, {"type": "preset", "label": "Imported", "title": "Imported MP3"})
         return display_title or stem, badges
 
     def _scan(self) -> None:
@@ -160,7 +191,7 @@ class TaggerService:
                     rel = self._safe_rel(root_path, p)
                     stat = p.stat()
                     fid = self._make_id(root_key, rel, stat.st_size, stat.st_mtime)
-                    display_title, badges = self._parse_badges(p.name)
+                    display_title, badges = self._parse_badges(p.name, root_key)
                     self._index[fid] = {
                         "id": fid,
                         "root": root_key,
