@@ -3411,7 +3411,7 @@ TAGGER_HTML = r"""
     .artBox{ padding:10px; border:1px dashed var(--line); border-radius:10px; background:rgba(255,255,255,0.02); }
     .placeholder{ color:var(--muted); font-size:13px; }
     .tagRowTitle{ font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .badgeRow{ display:flex; gap:6px; align-items:center; white-space:nowrap; overflow:hidden; margin-top:6px; }
+    .badgeRow{ display:flex; gap:6px; align-items:center; white-space:nowrap; overflow:hidden; margin-top:6px; width:100%; }
     .badge{ font-size:11px; padding:4px 8px; border-radius:999px; border:1px solid var(--line); background:#0f151d; color:#d7e6f5; }
     .badge-voicing{ background:rgba(255,138,61,0.2); border-color:rgba(255,138,61,0.6); color:#ffb07a; }
     .badge-param{ background:rgba(43,212,189,0.15); border-color:rgba(43,212,189,0.45); color:#9df1e5; }
@@ -3614,7 +3614,11 @@ function renderBadges(badges, container){
   wrap.className = 'badgeRow';
   wrap.innerHTML = '';
   if(!badges || !badges.length) return wrap;
-  const width = wrap.clientWidth || wrap.getBoundingClientRect().width || (wrap.parentElement ? wrap.parentElement.clientWidth : 0);
+  let width = wrap.getBoundingClientRect().width;
+  if(!width && wrap.parentElement){
+    width = wrap.parentElement.getBoundingClientRect().width;
+  }
+  if(!width) width = wrap.clientWidth || (wrap.parentElement ? wrap.parentElement.clientWidth : 0) || 320;
   const { visible, hidden } = computeVisibleBadges(badges, width);
   visible.forEach(b => {
     const lbl = b.label || '';
