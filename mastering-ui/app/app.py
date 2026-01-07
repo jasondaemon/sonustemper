@@ -2700,7 +2700,7 @@ async function loadSong(song, options=false){
         <div class="mono" style="display:flex; flex-direction:column; gap:6px;">
           <div style="display:flex; align-items:flex-start; gap:8px; min-width:0;">
             <div class="tagRowTitle" style="font-weight:700; flex:1; min-width:0;">${it.display_title || it.name}</div>
-            <div class="badgeRow" id="${badgeRowId}" data-badges='${JSON.stringify(it.badges || [])}'></div>
+            <div class="badgeRow" id="${badgeRowId}"></div>
           </div>
         </div>
         ${ioBlock}
@@ -2708,6 +2708,10 @@ async function loadSong(song, options=false){
         <div class="small">${linkParts.join(' | ')}</div>
         `;
       out.appendChild(div);
+      const br = document.getElementById(badgeRowId);
+      if (br) {
+        br.dataset.badges = JSON.stringify(it.badges || []);
+      }
       queueBadgeLayout();
     });
   } else {
