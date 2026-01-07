@@ -742,6 +742,6 @@ class TaggerService:
                     zip_path.unlink()
                 except Exception:
                     pass
-            raise HTTPException(status_code=500, detail=f\"zip_failed: {exc}\") from exc
+            raise HTTPException(status_code=500, detail=f"zip_failed: {exc}") from exc
         self._cleanup_tmp()
         return zip_path
