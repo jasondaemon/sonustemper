@@ -2695,13 +2695,20 @@ async function loadSong(song, options=false){
       linkParts.push(`<a class="linkish" href="#" onclick="deleteOutput('${song}','${it.name}'); return false;">Delete</a>`);
       const div = document.createElement('div');
       div.className = 'outitem';
+      const badgeRowId = `badges_${Math.random().toString(36).slice(2)}`;
       div.innerHTML = `
-        <div class="mono">${it.name}</div>
+        <div class="mono" style="display:flex; flex-direction:column; gap:6px;">
+          <div style="display:flex; align-items:flex-start; gap:8px; min-width:0;">
+            <div class="tagRowTitle" style="font-weight:700; flex:1; min-width:0;">${it.display_title || it.name}</div>
+            <div class="badgeRow" id="${badgeRowId}" data-badges='${JSON.stringify(it.badges || [])}'></div>
+          </div>
+        </div>
         ${ioBlock}
         ${audioSrc ? `<audio controls preload="none" src="${audioSrc}"></audio>` : ''}
         <div class="small">${linkParts.join(' | ')}</div>
         `;
       out.appendChild(div);
+      queueBadgeLayout();
     });
   } else {
     j.items.forEach(it => {
@@ -3678,7 +3685,7 @@ function renderTagList(){
   queueBadgeLayout();
 }
 function layoutBadgeRows(){
-  const rows = document.querySelectorAll('#tagList .tagItem .badgeRow');
+  const rows = document.querySelectorAll('.badgeRow');
   rows.forEach(br=>{
     let badges = [];
     try { badges = JSON.parse(br.dataset.badges || '[]'); } catch {}
@@ -3993,6 +4000,11 @@ def outlist(song: str):
         stems = sorted(set(p.stem for p in audio_files))
         pref = [".mp3",".m4a",".aac",".ogg",".flac",".wav"]
         for stem in stems:
+            # Parse display + badges using shared tagger logic
+            try:
+                display_title, badges = TAGGER._parse_badges(stem, "out")
+            except Exception:
+                display_title, badges = (stem, [])
             links = []
             primary = None
             wav_url = None
@@ -4062,6 +4074,8 @@ def outlist(song: str):
                     pass
             items.append({
                 "name": stem,
+                "display_title": display_title,
+                "badges": badges,
                 "wav": wav_url,
                 "mp3": mp3_url,
                 "audio": primary,
