@@ -38,6 +38,8 @@ services:
     image: nginx:1.25-alpine
     depends_on:
       - sonustemper
+    links:
+      - sonustemper
     ports:
       - "${PORT:-8383}:80"
     volumes:
