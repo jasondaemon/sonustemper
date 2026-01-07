@@ -3602,9 +3602,12 @@ function renderTagList(){
   items.forEach(it => {
     const enriched = {
       ...it,
-      display_title: it.display_title || it.basename || it.relpath,
+      display_title: it.display_title || it.basename || it.relpath || it.id,
       badges: (it.badges && Array.isArray(it.badges) ? it.badges : []).slice(),
     };
+    if(!enriched.display_title || enriched.display_title === enriched.root){
+      enriched.display_title = it.basename || it.relpath || it.id || '(untitled)';
+    }
     if(!enriched.badges.length){
       enriched.badges.push({ label: it.root === 'out' ? 'Mastered' : 'Imported', type:'format' });
     }
