@@ -1010,7 +1010,7 @@ HTML_TEMPLATE = r"""
 .advToggle{ display:flex; align-items:center; gap:10px; margin:10px 0 2px; }
 .advToggle button{ background:transparent; border:1px solid var(--line); color:var(--text); border-radius:10px; padding:6px 10px; }
 .advHidden{display:none !important;}
-.tagRowTitle{ font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.tagRowTitle{ font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#e7eef6; }
 .badgeRow{ display:flex; gap:6px; align-items:center; white-space:nowrap; overflow:hidden; margin-top:6px; width:100%; }
 .badge{ font-size:11px; padding:4px 8px; border-radius:999px; border:1px solid var(--line); background:#0f151d; color:#d7e6f5; }
 .badge-voicing{ background:rgba(255,138,61,0.2); border-color:rgba(255,138,61,0.6); color:#ffb07a; }
@@ -2820,7 +2820,7 @@ async function loadSong(song, options=false){
       div.innerHTML = `
         <div class="mono" style="display:flex; flex-direction:column; gap:6px;">
           <div style="display:flex; align-items:flex-start; gap:8px; min-width:0;">
-            <div class="tagRowTitle" style="font-weight:700; flex:1; min-width:0;">${it.display_title || it.name}</div>
+            <div class="tagRowTitle" style="font-weight:700; flex:1; min-width:0; color:#e7eef6;">${it.display_title || it.name}</div>
             <div class="badgeRow" id="${badgeRowId}"></div>
           </div>
         </div>
