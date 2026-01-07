@@ -224,7 +224,8 @@ class TaggerService:
         scope = (scope or "all").lower()
         if scope not in {"all", "out", "tag"}:
             raise HTTPException(status_code=400, detail="invalid_scope")
-        self._ensure_index()
+        # Always rescan so display_title/badges stay fresh
+        self._scan()
         items = []
         for entry in self._index.values():
             if scope != "all" and entry["root"] != scope:
