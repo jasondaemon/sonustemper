@@ -4263,7 +4263,6 @@ document.getElementById('albDownloadBtn').addEventListener('click', ()=>{
   const n = encodeURIComponent(name);
   window.location.href = `/api/tagger/album/download?ids=${q}&name=${n}`;
 });
-});
 </script>
 </body>
 </html>
