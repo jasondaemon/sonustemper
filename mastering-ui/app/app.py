@@ -1241,6 +1241,8 @@ input[type="range"]{
       <div class="utilMenu">
         <button class="utilToggle" id="utilToggleMain" aria-haspopup="true" aria-expanded="false">☰ Utilities</button>
         <div class="utilDropdown hidden" id="utilDropdownMain">
+          <a href="/">Mastering</a>
+          <div style="height:1px; background:var(--line); margin:4px 0;"></div>
           <a href="/">File Manager</a>
           <a href="/manage-presets">Preset Manager</a>
           <a href="/tagger">Tag Editor</a>
@@ -3161,6 +3163,8 @@ MANAGE_PRESETS_HTML = r"""
       <div class="utilMenu">
         <button class="utilToggle" id="utilToggleManage" aria-haspopup="true" aria-expanded="false">☰ Utilities</button>
         <div class="utilDropdown hidden" id="utilDropdownManage">
+          <a href="/">Mastering</a>
+          <div style="height:1px; background:var(--line); margin:4px 0;"></div>
           <a href="/">File Manager</a>
           <a href="/manage-presets">Preset Manager</a>
           <a href="/tagger">Tag Editor</a>
@@ -3407,7 +3411,7 @@ TAGGER_HTML = r"""
     .artBox{ padding:10px; border:1px dashed var(--line); border-radius:10px; background:rgba(255,255,255,0.02); }
     .placeholder{ color:var(--muted); font-size:13px; }
     .tagRowTitle{ font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .badgeRow{ display:flex; gap:6px; align-items:center; white-space:nowrap; overflow:hidden; }
+    .badgeRow{ display:flex; gap:6px; align-items:center; white-space:nowrap; overflow:hidden; margin-top:6px; }
     .badge{ font-size:11px; padding:4px 8px; border-radius:999px; border:1px solid var(--line); background:#0f151d; color:#d7e6f5; }
     .badge-voicing{ background:rgba(255,138,61,0.2); border-color:rgba(255,138,61,0.6); color:#ffb07a; }
     .badge-param{ background:rgba(43,212,189,0.15); border-color:rgba(43,212,189,0.45); color:#9df1e5; }
@@ -3425,6 +3429,8 @@ TAGGER_HTML = r"""
       <div class="utilMenu">
         <button class="utilToggle" id="utilToggleTag" aria-haspopup="true" aria-expanded="false">☰ Utilities</button>
         <div class="utilDropdown hidden" id="utilDropdownTag">
+          <a href="/">Mastering</a>
+          <div style="height:1px; background:var(--line); margin:4px 0;"></div>
           <a href="/">File Manager</a>
           <a href="/manage-presets">Preset Manager</a>
           <a href="/tagger">Tag Editor</a>
@@ -3538,15 +3544,32 @@ function renderBadges(badges){
   const wrap = document.createElement('div');
   wrap.className = 'badgeRow';
   if(!badges || !badges.length) return wrap;
-  const limited = badges.slice(0, TAG_BADGE_LIMIT);
-  limited.forEach(b => {
+  const pinned = [];
+  const seenPinned = new Set();
+  badges.forEach(b=>{
+    if(b && (b.type === 'voicing' || b.type === 'preset')){
+      const key = `${b.type}:${b.label}`;
+      if(!seenPinned.has(key)){
+        pinned.push(b);
+        seenPinned.add(key);
+      }
+    }
+  });
+  const rest = badges.filter(b=>!(b && (b.type === 'voicing' || b.type === 'preset')));
+  const visible = [...pinned];
+  const remainingSlots = Math.max(0, TAG_BADGE_LIMIT - visible.length);
+  if(remainingSlots > 0){
+    visible.push(...rest.slice(0, remainingSlots));
+  }
+  visible.forEach(b => {
     const lbl = b.label || '';
     const type = b.type || '';
     wrap.appendChild(makeBadge(lbl, type));
   });
-  if(badges.length > TAG_BADGE_LIMIT){
-    const extra = badges.length - TAG_BADGE_LIMIT;
-    const more = makeBadge(`+${extra}`, 'format');
+  const total = badges.length;
+  const hiddenCount = total - visible.length;
+  if(hiddenCount > 0){
+    const more = makeBadge(`+${hiddenCount}`, 'format');
     more.title = badges.map(b=>b.label).join(', ');
     wrap.appendChild(more);
   }
