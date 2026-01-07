@@ -12,8 +12,8 @@ from collections import deque
 from pathlib import Path
 from datetime import datetime
 import os
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request, Body
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, StreamingResponse
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request, Body, BackgroundTasks
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, StreamingResponse, Response
 from tagger import TaggerService
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -54,7 +54,14 @@ TAG_TMP_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/out", StaticFiles(directory=str(OUT_DIR), html=True), name="out")
 MAIN_LOOP = None
 TAGGER_MAX_UPLOAD = int(os.getenv("TAGGER_MAX_UPLOAD_BYTES", str(250 * 1024 * 1024)))
-TAGGER = TaggerService(OUT_DIR, TAG_IN_DIR, TAG_TMP_DIR, max_upload_bytes=TAGGER_MAX_UPLOAD)
+TAGGER_MAX_ARTWORK = int(os.getenv("TAGGER_MAX_ARTWORK_BYTES", str(10 * 1024 * 1024)))
+TAGGER = TaggerService(
+    OUT_DIR,
+    TAG_IN_DIR,
+    TAG_TMP_DIR,
+    max_upload_bytes=TAGGER_MAX_UPLOAD,
+    max_artwork_bytes=TAGGER_MAX_ARTWORK,
+)
 # Startup debug for security context
 logger.info(f"[startup] API_KEY set? {bool(API_KEY)} API_AUTH_DISABLED={API_AUTH_DISABLED} PROXY_SHARED_SECRET set? {bool(PROXY_SHARED_SECRET)}")
 MAX_CONCURRENT_RUNS = int(os.getenv("MAX_CONCURRENT_RUNS", "2"))
@@ -3550,8 +3557,13 @@ TAGGER_HTML = r"""
     .badge{ font-size:11px; padding:4px 8px; border-radius:999px; border:1px solid var(--line); background:#0f151d; color:#d7e6f5; }
     .badge-voicing{ background:rgba(255,138,61,0.2); border-color:rgba(255,138,61,0.6); color:#ffb07a; }
     .badge-param{ background:rgba(43,212,189,0.15); border-color:rgba(43,212,189,0.45); color:#9df1e5; }
-    .badge-format{ background:rgba(255,255,255,0.04); border-color:rgba(255,255,255,0.15); color:#cfe0f1; }
-    .badge-container{ background:rgba(255,255,255,0.02); border-color:rgba(255,255,255,0.12); color:#9fb0c0; }
+  .badge-format{ background:rgba(255,255,255,0.04); border-color:rgba(255,255,255,0.15); color:#cfe0f1; }
+  .badge-container{ background:rgba(255,255,255,0.02); border-color:rgba(255,255,255,0.12); color:#9fb0c0; }
+    .tagRow{ display:flex; gap:8px; align-items:flex-start; }
+    .tagRowLeft{ flex:1; min-width:0; display:flex; flex-direction:column; }
+    .tagRowTitle{ font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .badgeRow{ display:flex; gap:6px; align-items:center; white-space:nowrap; overflow:hidden; margin-top:6px; width:100%; }
+    .tagActions{ display:flex; align-items:center; gap:8px; }
   </style>
 </head>
 <body>
@@ -3582,63 +3594,129 @@ TAGGER_HTML = r"""
             <button class="btnGhost" data-scope="all">All</button>
           </div>
         </div>
-        <div class="row" style="margin-top:8px;">
-          <input type="text" id="tagSearch" placeholder="Search filename...">
+        <div class="row" style="margin-top:8px; justify-content:space-between; align-items:center;">
+          <input type="text" id="tagSearch" placeholder="Search filename..." style="flex:1; min-width:0;">
+          <div class="small" id="tagSelectedCount" style="min-width:110px; text-align:right;"></div>
         </div>
         <div id="tagList" class="tagList small"></div>
-        <div class="row" style="margin-top:10px;">
+        <div class="row" style="margin-top:10px; flex-wrap:wrap;">
           <input type="file" id="tagImportFile" accept=".mp3" style="display:none;">
           <button class="btn" type="button" onclick="triggerTagImport()">Import MP3</button>
+          <button class="btnGhost" type="button" id="tagSelectAllBtn">Select All (filtered)</button>
+          <button class="btnGhost" type="button" id="tagClearSelBtn">Clear Selection</button>
           <div id="tagImportStatus" class="small"></div>
         </div>
       </div>
       <div class="card">
-        <h2>Track Details</h2>
-        <div id="tagDetailEmpty" class="placeholder">Select a file to edit tags.</div>
-        <div id="tagDetailForm" class="col" style="display:none;">
-          <div class="fieldGrid">
-            <div>
-              <label for="tagTitle">Title</label>
-              <input type="text" id="tagTitle">
+        <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:10px;">
+          <h2 style="margin:0;">Editor</h2>
+          <div class="row scopeBtns" id="tagTabBtns">
+            <button class="btnGhost active" data-tab="track">Track</button>
+            <button class="btnGhost" data-tab="album">Album</button>
+          </div>
+        </div>
+        <div id="tagTrackPane">
+          <h3 style="margin:0 0 8px 0;">Track Details</h3>
+          <div id="tagDetailEmpty" class="placeholder">Select a file to edit tags.</div>
+          <div id="tagDetailForm" class="col" style="display:none;">
+            <div class="fieldGrid">
+              <div>
+                <label for="tagTitle">Title</label>
+                <input type="text" id="tagTitle">
+              </div>
+              <div>
+                <label for="tagArtist">Artist</label>
+                <input type="text" id="tagArtist">
+              </div>
+              <div>
+                <label for="tagAlbum">Album</label>
+                <input type="text" id="tagAlbum">
+              </div>
+              <div>
+                <label for="tagAlbumArtist">Album Artist</label>
+                <input type="text" id="tagAlbumArtist">
+              </div>
+              <div>
+                <label for="tagTrack">Track</label>
+                <input type="text" id="tagTrack" placeholder="e.g., 1 or 1/10">
+              </div>
+              <div>
+                <label for="tagDisc">Disc</label>
+                <input type="text" id="tagDisc" placeholder="e.g., 1 or 1/2">
+              </div>
+              <div>
+                <label for="tagYear">Year</label>
+                <input type="text" id="tagYear">
+              </div>
+              <div>
+                <label for="tagGenre">Genre</label>
+                <input type="text" id="tagGenre">
+              </div>
             </div>
             <div>
-              <label for="tagArtist">Artist</label>
-              <input type="text" id="tagArtist">
+              <label for="tagComment">Comment</label>
+              <input type="text" id="tagComment">
             </div>
-            <div>
-              <label for="tagAlbum">Album</label>
-              <input type="text" id="tagAlbum">
-            </div>
-            <div>
-              <label for="tagAlbumArtist">Album Artist</label>
-              <input type="text" id="tagAlbumArtist">
-            </div>
-            <div>
-              <label for="tagTrack">Track</label>
-              <input type="text" id="tagTrack" placeholder="e.g., 1 or 1/10">
-            </div>
-            <div>
-              <label for="tagDisc">Disc</label>
-              <input type="text" id="tagDisc" placeholder="e.g., 1 or 1/2">
-            </div>
-            <div>
-              <label for="tagYear">Year</label>
-              <input type="text" id="tagYear">
-            </div>
-            <div>
-              <label for="tagGenre">Genre</label>
-              <input type="text" id="tagGenre">
+            <div class="artBox" id="tagArtBox">Artwork: <span id="tagArtStatus">n/a</span></div>
+            <div class="row" style="gap:10px;">
+              <button class="btnPrimary" type="button" id="tagSaveBtn">Save Tags</button>
+              <button class="btnGhost" type="button" id="tagDownloadBtn">Download MP3</button>
+              <div id="tagSaveStatus" class="small"></div>
             </div>
           </div>
-          <div>
-            <label for="tagComment">Comment</label>
-            <input type="text" id="tagComment">
-          </div>
-          <div class="artBox" id="tagArtBox">Artwork: <span id="tagArtStatus">n/a</span></div>
-          <div class="row" style="gap:10px;">
-            <button class="btnPrimary" type="button" id="tagSaveBtn">Save Tags</button>
-            <button class="btnGhost" type="button" id="tagDownloadBtn">Download MP3</button>
-            <div id="tagSaveStatus" class="small"></div>
+        </div>
+        <div id="tagAlbumPane" style="display:none;">
+          <h3 style="margin:0 0 8px 0;">Album Details</h3>
+          <div id="tagAlbumEmpty" class="placeholder">Select two or more tracks to edit album metadata.</div>
+          <div id="tagAlbumForm" class="col" style="display:none; gap:12px;">
+            <div class="fieldGrid">
+              <div><label>Album</label><input type="text" id="albAlbum"></div>
+              <div><label>Album Artist</label><input type="text" id="albAlbumArtist"></div>
+              <div><label>Default Artist</label><input type="text" id="albArtist"></div>
+              <div><label>Year</label><input type="text" id="albYear"></div>
+              <div><label>Genre</label><input type="text" id="albGenre"></div>
+              <div><label>Disc</label><input type="text" id="albDisc" placeholder="e.g., 1/1"></div>
+            </div>
+            <div>
+              <label>Comment</label>
+              <input type="text" id="albComment">
+            </div>
+            <div class="artBox">
+              <div class="row" style="justify-content:space-between; align-items:center;">
+                <div>Artwork: <span id="albArtStatus">Unknown</span></div>
+                <div class="row" style="gap:8px;">
+                  <input type="file" id="albArtFile" accept=".png,.jpg,.jpeg" style="display:none;">
+                  <button class="btnGhost" type="button" onclick="document.getElementById('albArtFile').click()">Upload Artwork…</button>
+                  <button class="btnGhost" type="button" id="albArtApplyBtn">Apply</button>
+                  <button class="btnDanger" type="button" id="albArtClearBtn">Clear</button>
+                </div>
+              </div>
+              <div class="small" id="albArtInfo"></div>
+            </div>
+            <div class="row" style="justify-content:space-between; align-items:center;">
+              <h4 style="margin:0;">Tracks</h4>
+              <div class="row" style="gap:8px;">
+                <button class="btnGhost" type="button" id="albAutoNumberBtn">Auto-number</button>
+                <button class="btnGhost" type="button" id="albDownloadBtn">Download Album ZIP</button>
+              </div>
+            </div>
+            <div id="albTableWrap" class="small" style="border:1px solid var(--line); border-radius:10px; padding:8px; max-height:280px; overflow:auto;">
+              <table style="width:100%; border-collapse:collapse; color:var(--text); font-size:13px;">
+                <thead>
+                  <tr style="text-align:left;">
+                    <th style="padding:6px;">Track</th>
+                    <th style="padding:6px;">Title</th>
+                    <th style="padding:6px;">Artist</th>
+                    <th style="padding:6px;">Filename</th>
+                  </tr>
+                </thead>
+                <tbody id="albTableBody"></tbody>
+              </table>
+            </div>
+            <div class="row" style="gap:10px;">
+              <button class="btnPrimary" type="button" id="albApplyBtn">Apply Album to Selected</button>
+              <div id="albStatus" class="small"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -3651,8 +3729,18 @@ const tagState = {
   items: [],
   filtered: [],
   selectedId: null,
+  selectedIds: new Set(),
+  fileDetails: {},
+  albumArt: { mode:'keep', uploadId:null, mime:null, size:0 },
   loading: false,
 };
+function setTagTab(tab){
+  document.querySelectorAll('#tagTabBtns button').forEach(b=>b.classList.remove('active'));
+  const btn = document.querySelector(`#tagTabBtns button[data-tab="${tab}"]`);
+  if(btn) btn.classList.add('active');
+  document.getElementById('tagTrackPane').style.display = tab==='track' ? 'block' : 'none';
+  document.getElementById('tagAlbumPane').style.display = tab==='album' ? 'block' : 'none';
+}
 const TAG_BADGE_GAP = 6;
 let badgeMeasureHost = null;
 function setupUtilMenu(toggleId, menuId){
@@ -3789,11 +3877,14 @@ function renderTagList(){
   if(!list) return;
   const q = (document.getElementById('tagSearch')?.value || '').toLowerCase();
   const items = tagState.items.filter(it => !q || it.basename.toLowerCase().includes(q));
+  tagState.filtered = items;
   list.innerHTML = '';
   if(!items.length){
     list.innerHTML = '<div class="small" style="opacity:.7;">No MP3s found.</div>';
+    updateSelectedCount();
     return;
   }
+  updateSelectedCount();
   items.forEach(it => {
     const enriched = {
       ...it,
@@ -3806,11 +3897,37 @@ function renderTagList(){
     if(!enriched.badges.length){
       enriched.badges.push({ label: it.root === 'out' ? 'Mastered' : 'Imported', type:'format' });
     }
-    const row = fileListRow(enriched);
+    const row = document.createElement('div');
+    row.className = 'tagItem' + (tagState.selectedId === it.id ? ' active' : '');
+    row.dataset.id = it.id;
+    const left = document.createElement('div');
+    left.className = 'tagRow';
+    const leftCol = document.createElement('div');
+    leftCol.className = 'tagRowLeft';
+    leftCol.appendChild(badgeTitle(enriched.display_title, enriched.full_name || enriched.basename));
+    const badgeRow = document.createElement('div');
+    badgeRow.className = 'badgeRow';
+    badgeRow.dataset.badges = JSON.stringify(enriched.badges || []);
+    leftCol.appendChild(badgeRow);
+    left.appendChild(leftCol);
+    const right = document.createElement('div');
+    right.className = 'tagActions';
+    const chk = document.createElement('input');
+    chk.type = 'checkbox';
+    chk.checked = tagState.selectedIds.has(it.id);
+    chk.addEventListener('click',(e)=>{ e.stopPropagation(); toggleSelectId(it.id, e.target.checked); });
+    right.appendChild(chk);
+    const scope = document.createElement('div');
+    scope.className = 'badge';
+    scope.textContent = it.root === 'out' ? 'Mastered' : 'Imported';
+    right.appendChild(scope);
+    left.appendChild(right);
+    row.appendChild(left);
     row.addEventListener('click', ()=> selectTagFile(it.id));
     list.appendChild(row);
   });
   queueBadgeLayout();
+  renderAlbumForm();
 }
 function layoutBadgeRows(){
   const rows = document.querySelectorAll('.badgeRow');
@@ -3854,6 +3971,9 @@ async function selectTagFile(id){
     const res = await fetch(`/api/tagger/file/${encodeURIComponent(id)}`, { cache:'no-store' });
     if(!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
+    if(data && data.id){
+      tagState.fileDetails[data.id] = data;
+    }
     const tags = data.tags || {};
     const set = (id,val='') => { const el=document.getElementById(id); if(el) el.value = val ?? ''; };
     set('tagTitle', tags.title);
@@ -3944,7 +4064,205 @@ document.addEventListener('DOMContentLoaded', ()=>{
       fetchTagList(btn.dataset.scope || 'out');
     });
   });
+  document.querySelectorAll('#tagTabBtns button').forEach(btn=>{
+    btn.addEventListener('click', ()=> setTagTab(btn.dataset.tab));
+  });
+  setTagTab('track');
   fetchTagList('out');
+});
+
+// Selection helpers
+document.getElementById('tagSelectAllBtn').addEventListener('click', ()=>{
+  tagState.selectedIds = new Set(tagState.filtered.map(i=>i.id));
+  updateSelectedCount();
+  renderTagList();
+  renderAlbumForm();
+});
+document.getElementById('tagClearSelBtn').addEventListener('click', ()=>{
+  tagState.selectedIds = new Set();
+  updateSelectedCount();
+  renderTagList();
+  renderAlbumForm();
+});
+
+function updateSelectedCount(){
+  const el = document.getElementById('tagSelectedCount');
+  if(el) el.textContent = `${tagState.selectedIds.size} selected`;
+}
+
+async function ensureFileDetail(id){
+  if(tagState.fileDetails[id]) return tagState.fileDetails[id];
+  try{
+    const res = await fetch(`/api/tagger/file/${encodeURIComponent(id)}`, { cache:'no-store' });
+    if(!res.ok) throw new Error();
+    const data = await res.json();
+    tagState.fileDetails[id] = data;
+    return data;
+  }catch(e){
+    return null;
+  }
+}
+function toggleSelectId(id, checked){
+  if(checked){ tagState.selectedIds.add(id); ensureFileDetail(id).then(renderAlbumForm); }
+  else tagState.selectedIds.delete(id);
+  updateSelectedCount();
+  renderAlbumForm();
+}
+function renderAlbumForm(){
+  const sel = Array.from(tagState.selectedIds);
+  const empty = document.getElementById('tagAlbumEmpty');
+  const form = document.getElementById('tagAlbumForm');
+  if(!form || !empty) return;
+  if(!sel.length){
+    empty.style.display = 'block';
+    form.style.display = 'none';
+    return;
+  }
+  empty.style.display = 'none';
+  form.style.display = 'flex';
+  const tbody = document.getElementById('albTableBody');
+  tbody.innerHTML = '';
+  // artwork mixed status
+  let artPresent = null;
+  sel.forEach(id=>{
+    const row = document.createElement('tr');
+    row.dataset.id = id;
+    const detail = tagState.fileDetails[id];
+    if(!detail){
+      ensureFileDetail(id).then(renderAlbumForm);
+    }
+    const tags = detail?.tags || {};
+    const base = detail?.basename || detail?.display_title || id;
+    const trackVal = tags.track || '';
+    const titleVal = tags.title || (detail?.display_title) || base;
+    const artistVal = tags.artist || '';
+    const discVal = tags.disc || '';
+    const tds = [
+      `<input name="albTrack" style="width:80px;" value="${trackVal || ''}">`,
+      `<input name="albTitle" style="width:100%;" value="${titleVal || ''}">`,
+      `<input name="albArtist" style="width:120px;" value="${artistVal || ''}">`,
+      `<div title="${base}" style="max-width:180px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${base}</div>`,
+    ];
+    tds.forEach(html=>{
+      const td = document.createElement('td');
+      td.style.padding = '6px';
+      td.innerHTML = html;
+      row.appendChild(td);
+    });
+    tbody.appendChild(row);
+    const present = !!(tags.artwork && tags.artwork.present);
+    if(artPresent === null) artPresent = present;
+    else if(artPresent !== present) artPresent = 'mixed';
+  });
+  const artStatus = document.getElementById('albArtStatus');
+  if(artStatus){
+    if(artPresent === 'mixed') artStatus.textContent = 'Mixed';
+    else if(artPresent) artStatus.textContent = 'Present';
+    else artStatus.textContent = 'None';
+  }
+}
+
+// Artwork upload for album
+document.getElementById('albArtFile').addEventListener('change', async (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const info = document.getElementById('albArtInfo');
+  info.textContent = 'Uploading...';
+  const fd = new FormData();
+  fd.append('file', file, file.name);
+  try{
+    const res = await fetch('/api/tagger/artwork', { method:'POST', body: fd });
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    tagState.albumArt = { mode:'apply', uploadId:data.upload_id || data.uploadId || data.uploadId, mime:data.mime, size:data.size };
+    info.textContent = `Ready to apply (${(data.size/1024).toFixed(1)} KB)`;
+    document.getElementById('albArtStatus').textContent = 'Uploaded (pending apply)';
+  }catch(err){
+    info.textContent = 'Upload failed';
+  }finally{
+    e.target.value = '';
+  }
+});
+
+document.getElementById('albArtApplyBtn').addEventListener('click', ()=>{
+  tagState.albumArt.mode = tagState.albumArt.uploadId ? 'apply' : 'keep';
+  document.getElementById('albArtStatus').textContent = tagState.albumArt.uploadId ? 'Will apply uploaded artwork' : 'No upload selected';
+});
+document.getElementById('albArtClearBtn').addEventListener('click', ()=>{
+  tagState.albumArt = { mode:'clear', uploadId:null, mime:null, size:0 };
+  document.getElementById('albArtStatus').textContent = 'Will clear artwork';
+  document.getElementById('albArtInfo').textContent = '';
+});
+
+// Album auto-number
+document.getElementById('albAutoNumberBtn').addEventListener('click', ()=>{
+  const ids = Array.from(tagState.selectedIds);
+  ids.sort();
+  ids.forEach((id, idx)=>{
+    const row = document.querySelector(`tr[data-id="${id}"]`);
+    if(row){
+      const inp = row.querySelector('input[name="albTrack"]');
+      if(inp) inp.value = `${idx+1}/${ids.length}`;
+    }
+  });
+});
+
+// Album apply
+document.getElementById('albApplyBtn').addEventListener('click', async ()=>{
+  const status = document.getElementById('albStatus');
+  const ids = Array.from(tagState.selectedIds);
+  if(ids.length === 0){ status.textContent = 'No tracks selected.'; return; }
+  status.textContent = 'Applying...';
+  const shared = {
+    album: document.getElementById('albAlbum').value,
+    album_artist: document.getElementById('albAlbumArtist').value,
+    artist: document.getElementById('albArtist').value,
+    year: document.getElementById('albYear').value,
+    genre: document.getElementById('albGenre').value,
+    comment: document.getElementById('albComment').value,
+    disc: document.getElementById('albDisc').value,
+  };
+  const tracks = [];
+  document.querySelectorAll('#albTableBody tr').forEach(tr=>{
+    const id = tr.dataset.id;
+    tracks.push({
+      id,
+      track: tr.querySelector('input[name="albTrack"]').value,
+      title: tr.querySelector('input[name="albTitle"]').value,
+      artist: tr.querySelector('input[name="albArtist"]').value,
+      disc: tr.querySelector('input[name="albDisc"]').value,
+    });
+  });
+  const payload = {
+    file_ids: ids,
+    shared,
+    tracks,
+    artwork: { mode: tagState.albumArt.mode || 'keep', upload_id: tagState.albumArt.uploadId }
+  };
+  try{
+    const res = await fetch('/api/tagger/album/apply', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    status.textContent = `Updated ${data.updated.length} files${data.errors?.length? ', errors: '+data.errors.length:''}`;
+    fetchTagList(tagState.scope);
+  }catch(err){
+    status.textContent = 'Apply failed';
+  }
+});
+
+// Album download
+document.getElementById('albDownloadBtn').addEventListener('click', ()=>{
+  const ids = Array.from(tagState.selectedIds);
+  if(!ids.length) return;
+  const name = document.getElementById('albAlbum').value || 'album';
+  const q = encodeURIComponent(ids.join(','));
+  const n = encodeURIComponent(name);
+  window.location.href = `/api/tagger/album/download?ids=${q}&name=${n}`;
+});
 });
 </script>
 </body>
@@ -3976,6 +4294,48 @@ def tagger_download(file_id: str):
     path, filename = TAGGER.download_file(file_id)
     return FileResponse(
         path, media_type="audio/mpeg", filename=filename, content_disposition_type="attachment"
+    )
+
+@app.get("/api/tagger/file/{file_id}/artwork")
+def tagger_artwork(file_id: str):
+    data, mime = TAGGER.get_artwork(file_id)
+    return Response(content=data, media_type=mime)
+
+@app.post("/api/tagger/artwork")
+async def tagger_artwork_upload(file: UploadFile = File(...)):
+    return await TAGGER.upload_artwork(file)
+
+@app.post("/api/tagger/album/apply")
+def tagger_album_apply(body: dict = Body(...)):
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="invalid_payload")
+    file_ids = body.get("file_ids") or []
+    shared = body.get("shared") or {}
+    tracks = body.get("tracks") or []
+    artwork = body.get("artwork") or {}
+    mode = (artwork.get("mode") or "keep").lower()
+    upload_id = artwork.get("upload_id")
+    if mode not in {"keep", "apply", "clear"}:
+        raise HTTPException(status_code=400, detail="invalid_artwork_mode")
+    return TAGGER.apply_album(file_ids, shared, tracks, artwork_mode=mode, artwork_upload_id=upload_id)
+
+@app.get("/api/tagger/album/download")
+def tagger_album_download(ids: str, name: str = "album", background_tasks: BackgroundTasks = None):
+    file_ids = [i for i in (ids or "").split(",") if i]
+    zip_path = TAGGER.album_download(file_ids, name)
+    def _cleanup(path: Path):
+        try:
+            path.unlink()
+        except Exception:
+            pass
+    if background_tasks is None:
+        background_tasks = BackgroundTasks()
+    background_tasks.add_task(_cleanup, zip_path)
+    return FileResponse(
+        zip_path,
+        media_type="application/zip",
+        filename=f"{name or 'album'}.zip",
+        background=background_tasks,
     )
 
 @app.get("/api/files")

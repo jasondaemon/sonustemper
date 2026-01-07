@@ -1,8 +1,13 @@
 import base64
 import hashlib
 import os
+import time
+import uuid
+import mimetypes
+import re
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
+import zipfile
 
 from fastapi import HTTPException, UploadFile
 from mutagen.id3 import (
@@ -17,6 +22,7 @@ from mutagen.id3 import (
     TDRC,
     TCON,
     COMM,
+    APIC,
 )
 
 
@@ -44,18 +50,26 @@ class TaggerService:
         tag_in_dir: Path,
         tag_tmp_dir: Path,
         max_upload_bytes: int = 250 * 1024 * 1024,
+        max_artwork_bytes: int = 10 * 1024 * 1024,
     ):
         self.out_dir = out_dir
         self.tag_in_dir = tag_in_dir
         self.tag_tmp_dir = tag_tmp_dir
         self.max_upload_bytes = max_upload_bytes
+        self.max_artwork_bytes = max_artwork_bytes
         for d in (self.out_dir, self.tag_in_dir, self.tag_tmp_dir):
+            d.mkdir(parents=True, exist_ok=True)
+        # subdirs for uploads/temps
+        self.artwork_tmp_dir = self.tag_tmp_dir / "artwork"
+        self.zip_tmp_dir = self.tag_tmp_dir / "zip"
+        for d in (self.artwork_tmp_dir, self.zip_tmp_dir):
             d.mkdir(parents=True, exist_ok=True)
         self.roots: Dict[str, Path] = {
             "out": self.out_dir,
             "tag": self.tag_in_dir,
         }
         self._index: Dict[str, Dict] = {}
+        self._upload_cache: Dict[str, Dict] = {}
 
     # ---------------------- indexing + path resolution ----------------------
     @staticmethod
@@ -265,6 +279,100 @@ class TaggerService:
             raise HTTPException(status_code=404, detail="file_not_found")
         return entry, path
 
+    # ---------------------- artwork helpers ----------------------
+    @staticmethod
+    def _infer_mime(data: bytes, fallback: Optional[str] = None) -> str:
+        if data.startswith(b"\x89PNG\r\n\x1a\n"):
+            return "image/png"
+        if data[0:3] == b"\xff\xd8\xff":
+            return "image/jpeg"
+        if fallback and fallback.lower() in {"image/png", "image/jpeg", "image/jpg"}:
+            return fallback.lower()
+        raise HTTPException(status_code=400, detail="unsupported_artwork_format")
+
+    def _read_artwork_bytes(self, path: Path) -> Tuple[bool, Optional[bytes], Optional[str]]:
+        try:
+            id3 = ID3(path)
+        except ID3NoHeaderError:
+            return False, None, None
+        apics = [f for k, f in id3.items() if k.startswith("APIC")]
+        if not apics:
+            return False, None, None
+        frame: APIC = apics[0]
+        return True, frame.data, frame.mime or None
+
+    def read_artwork_info(self, file_id: str) -> Dict:
+        _, path = self.resolve_id(file_id)
+        present, _, mime = self._read_artwork_bytes(path)
+        return {"present": bool(present), "mime": mime}
+
+    def get_artwork(self, file_id: str) -> Tuple[bytes, str]:
+        _, path = self.resolve_id(file_id)
+        present, data, mime = self._read_artwork_bytes(path)
+        if not present or data is None:
+            raise HTTPException(status_code=404, detail="artwork_not_found")
+        mime = mime or self._infer_mime(data)
+        return data, mime
+
+    def set_artwork(self, file_id: str, data: bytes, mime: Optional[str]) -> Dict:
+        if not data:
+            raise HTTPException(status_code=400, detail="missing_artwork")
+        if len(data) > self.max_artwork_bytes:
+            raise HTTPException(status_code=413, detail="artwork_too_large")
+        mime = self._infer_mime(data, mime)
+        entry, path = self.resolve_id(file_id)
+        try:
+            id3 = ID3(path)
+        except ID3NoHeaderError:
+            id3 = ID3()
+        # remove old APIC frames
+        try:
+            id3.delall("APIC")
+        except Exception:
+            for k in list(id3.keys()):
+                if k.startswith("APIC"):
+                    try:
+                        id3.pop(k, None)
+                    except Exception:
+                        pass
+        apic = APIC(
+            encoding=3,
+            mime=mime,
+            type=3,
+            desc="Cover",
+            data=data,
+        )
+        id3.add(apic)
+        try:
+            id3.save(path)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"failed_to_write_artwork: {exc}") from exc
+        return {
+            "id": entry["id"],
+            "artwork": {"present": True, "mime": mime},
+        }
+
+    def clear_artwork(self, file_id: str) -> Dict:
+        entry, path = self.resolve_id(file_id)
+        try:
+            id3 = ID3(path)
+        except ID3NoHeaderError:
+            return {"id": entry["id"], "artwork": {"present": False}}
+        try:
+            id3.delall("APIC")
+        except Exception:
+            for k in list(id3.keys()):
+                if k.startswith("APIC"):
+                    try:
+                        id3.pop(k, None)
+                    except Exception:
+                        pass
+        try:
+            id3.save(path)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"failed_to_clear_artwork: {exc}") from exc
+        return {"id": entry["id"], "artwork": {"present": False}}
+
     # ---------------------- tag read/write helpers ----------------------
     @staticmethod
     def _clean_str(val, max_len: int = 512) -> str | None:
@@ -467,3 +575,173 @@ class TaggerService:
     def download_file(self, file_id: str) -> Tuple[Path, str]:
         entry, path = self.resolve_id(file_id)
         return path, entry["basename"]
+
+    # ---------------------- artwork uploads + album helpers ----------------------
+    def _cleanup_tmp(self, ttl_sec: int = 3600) -> None:
+        cutoff = time.time() - ttl_sec
+        for directory in (self.artwork_tmp_dir, self.zip_tmp_dir):
+            if not directory.exists():
+                continue
+            for p in directory.iterdir():
+                try:
+                    if p.is_file() and p.stat().st_mtime < cutoff:
+                        p.unlink()
+                except Exception:
+                    continue
+        # purge stale upload cache
+        for k, meta in list(self._upload_cache.items()):
+            if meta.get("ts", 0) < cutoff:
+                self._upload_cache.pop(k, None)
+
+    async def upload_artwork(self, upload: UploadFile) -> Dict:
+        if not upload or not upload.filename:
+            raise HTTPException(status_code=400, detail="missing_file")
+        data = await upload.read(self.max_artwork_bytes + 1)
+        if len(data) > self.max_artwork_bytes:
+            raise HTTPException(status_code=413, detail="artwork_too_large")
+        mime = self._infer_mime(data, upload.content_type)
+        uid = uuid.uuid4().hex
+        dest = self.artwork_tmp_dir / f"{uid}.bin"
+        try:
+            dest.write_bytes(data)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"artwork_write_failed: {exc}") from exc
+        self._upload_cache[uid] = {"path": dest, "mime": mime, "ts": time.time()}
+        self._cleanup_tmp()
+        return {"upload_id": uid, "mime": mime, "size": len(data)}
+
+    def _load_artwork_upload(self, upload_id: str) -> Tuple[bytes, str]:
+        if not upload_id:
+            raise HTTPException(status_code=400, detail="missing_artwork_upload")
+        meta = self._upload_cache.get(upload_id)
+        if not meta:
+            candidate = self.artwork_tmp_dir / f"{upload_id}.bin"
+            if candidate.exists():
+                meta = {"path": candidate, "mime": None, "ts": candidate.stat().st_mtime}
+                self._upload_cache[upload_id] = meta
+        if not meta:
+            raise HTTPException(status_code=404, detail="artwork_upload_not_found")
+        try:
+            data = Path(meta["path"]).read_bytes()
+        except Exception as exc:
+            raise HTTPException(status_code=404, detail="artwork_upload_not_found") from exc
+        mime = meta.get("mime") or self._infer_mime(data)
+        return data, mime
+
+    @staticmethod
+    def _validate_trackdisc(val: Optional[str], field: str) -> Optional[str]:
+        if val is None:
+            return None
+        if isinstance(val, (int, float)):
+            val = str(val)
+        if not isinstance(val, str):
+            raise HTTPException(status_code=400, detail=f"invalid_{field}")
+        val = val.strip()
+        if not val:
+            return None
+        if not re.match(r"^[0-9]+(\/[0-9]+)?$", val):
+            raise HTTPException(status_code=400, detail=f"invalid_{field}")
+        return val
+
+    def apply_album(
+        self,
+        file_ids: List[str],
+        shared: Dict,
+        tracks: List[Dict],
+        artwork_mode: str = "keep",
+        artwork_upload_id: Optional[str] = None,
+    ) -> Dict:
+        if not file_ids:
+            raise HTTPException(status_code=400, detail="no_files_selected")
+        if len(file_ids) > 200:
+            raise HTTPException(status_code=400, detail="too_many_files")
+        # map track overrides
+        track_map = {t.get("id"): t for t in (tracks or []) if t.get("id")}
+        # optional artwork
+        art_bytes = None
+        art_mime = None
+        if artwork_mode == "apply":
+            art_bytes, art_mime = self._load_artwork_upload(artwork_upload_id) if artwork_upload_id else (None, None)
+            if not art_bytes:
+                raise HTTPException(status_code=400, detail="artwork_missing")
+
+        updated = []
+        errors = []
+        for fid in file_ids:
+            try:
+                entry, path = self.resolve_id(fid)
+                tag_payload: Dict[str, str] = {}
+                for key in ("album", "album_artist", "artist", "year", "genre", "comment"):
+                    if shared and key in shared:
+                        tag_payload[key] = self._clean_str(shared.get(key))
+                if shared.get("disc"):
+                    tag_payload["disc"] = self._validate_trackdisc(shared.get("disc"), "disc")
+                per_track = track_map.get(fid, {})
+                if "title" in per_track:
+                    tag_payload["title"] = self._clean_str(per_track.get("title"))
+                if "track" in per_track:
+                    tag_payload["track"] = self._validate_trackdisc(per_track.get("track"), "track")
+                if per_track.get("artist"):
+                    tag_payload["artist"] = self._clean_str(per_track["artist"])
+                if per_track.get("disc"):
+                    tag_payload["disc"] = self._validate_trackdisc(per_track.get("disc"), "disc")
+                # write tags
+                tags = self.write_tags(path, tag_payload)
+                # artwork handling
+                if artwork_mode == "clear":
+                    art_info = self.clear_artwork(fid)
+                elif artwork_mode == "apply" and art_bytes:
+                    art_info = self.set_artwork(fid, art_bytes, art_mime)
+                else:
+                    art_info = {"artwork": {"present": tags.get("artwork", {}).get("present", False)}}
+                updated.append(
+                    {
+                        "id": fid,
+                        "basename": entry["basename"],
+                        "tags": tags,
+                        "artwork": art_info.get("artwork", {"present": False}),
+                    }
+                )
+            except HTTPException as exc:
+                errors.append({"id": fid, "error": exc.detail})
+            except Exception as exc:
+                errors.append({"id": fid, "error": str(exc)})
+        self._cleanup_tmp()
+        return {"updated": updated, "errors": errors}
+
+    def album_download(self, file_ids: List[str], album_name: str | None = None) -> Path:
+        if not file_ids:
+            raise HTTPException(status_code=400, detail="no_files_selected")
+        if len(file_ids) > 200:
+            raise HTTPException(status_code=400, detail="too_many_files")
+        # build zip
+        safe_album = (album_name or "album").strip() or "album"
+        safe_album = re.sub(r"[^A-Za-z0-9 _.-]+", "", safe_album)[:100]
+        zip_path = self.zip_tmp_dir / f"{uuid.uuid4().hex}.zip"
+        try:
+            with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                for fid in file_ids:
+                    try:
+                        entry, path = self.resolve_id(fid)
+                        tags = self.read_tags(path)
+                        base = entry["basename"]
+                        track = tags.get("track") or ""
+                        title = tags.get("title") or Path(base).stem
+                        title = re.sub(r"[^A-Za-z0-9 _.-]+", "", title)[:128]
+                        fname = f"{title}.mp3"
+                        if "/" in track or track.isdigit():
+                            num = track.split("/")[0] if "/" in track else track
+                            if num.isdigit():
+                                fname = f"{int(num):02d} - {title}.mp3"
+                        zf.write(path, arcname=fname)
+                    except Exception:
+                        continue
+        except Exception as exc:
+            if zip_path.exists():
+                try:
+                    zip_path.unlink()
+                except Exception:
+                    pass
+            raise HTTPException(status_code=500, detail=f\"zip_failed: {exc}\") from exc
+        self._cleanup_tmp()
+        return zip_path
