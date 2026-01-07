@@ -138,7 +138,7 @@ def _start_master_jobs(files, presets, strength, lufs, tp, width, mono_bass, gua
         except subprocess.CalledProcessError as e:
             msg = (e.output or str(e)).strip().splitlines()[0] if (e.output or str(e)) else ""
             _emit(rid, "error", msg)
-                print(f"[master-bulk] failed file={f}: {e.output or e}", file=sys.stderr)
+            print(f"[master-bulk] failed file={f}: {e.output or e}", file=sys.stderr)
     def _run_wrapper():
         global RUNS_IN_FLIGHT
         try:
