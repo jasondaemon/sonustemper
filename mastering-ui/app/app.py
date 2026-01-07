@@ -12,8 +12,9 @@ from collections import deque
 from pathlib import Path
 from datetime import datetime
 import os
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request, Body
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, StreamingResponse
+from tagger import TaggerService
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
@@ -21,6 +22,8 @@ IN_DIR = Path(os.getenv("IN_DIR", str(DATA_DIR / "in")))
 OUT_DIR = Path(os.getenv("OUT_DIR", str(DATA_DIR / "out")))
 PRESET_DIR = Path(os.getenv("PRESET_DIR", "/presets"))
 GEN_PRESET_DIR = Path(os.getenv("GEN_PRESET_DIR", str(DATA_DIR / "generated_presets")))
+TAG_IN_DIR = Path(os.getenv("TAG_IN_DIR", str(DATA_DIR / "tag" / "in")))
+TAG_TMP_DIR = Path(os.getenv("TAG_TMP_DIR", str(DATA_DIR / "tag" / "tmp")))
 APP_DIR = Path(__file__).resolve().parent
 # Security: API key protection (for CLI/scripts); set API_AUTH_DISABLED=1 to bypass explicitly.
 API_KEY = os.getenv("API_KEY")
@@ -46,8 +49,12 @@ MASTER_SCRIPT = Path(os.getenv("MASTER_SCRIPT", str(_default_pack)))
 app = FastAPI()
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 IN_DIR.mkdir(parents=True, exist_ok=True)
+TAG_IN_DIR.mkdir(parents=True, exist_ok=True)
+TAG_TMP_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/out", StaticFiles(directory=str(OUT_DIR), html=True), name="out")
 MAIN_LOOP = None
+TAGGER_MAX_UPLOAD = int(os.getenv("TAGGER_MAX_UPLOAD_BYTES", str(250 * 1024 * 1024)))
+TAGGER = TaggerService(OUT_DIR, TAG_IN_DIR, TAG_TMP_DIR, max_upload_bytes=TAGGER_MAX_UPLOAD)
 # Startup debug for security context
 logger.info(f"[startup] API_KEY set? {bool(API_KEY)} API_AUTH_DISABLED={API_AUTH_DISABLED} PROXY_SHARED_SECRET set? {bool(PROXY_SHARED_SECRET)}")
 MAX_CONCURRENT_RUNS = int(os.getenv("MAX_CONCURRENT_RUNS", "2"))
@@ -3249,6 +3256,32 @@ document.body.addEventListener('click', (e)=>{
 </body>
 </html>
 """
+
+@app.get("/api/tagger/mp3s")
+def tagger_list(scope: str = "all"):
+    return {"items": TAGGER.list_mp3s(scope)}
+
+@app.get("/api/tagger/file/{file_id}")
+def tagger_get(file_id: str):
+    return TAGGER.get_file_payload(file_id)
+
+@app.post("/api/tagger/file/{file_id}")
+def tagger_update(file_id: str, body: dict = Body(...)):
+    tags = body.get("tags") if isinstance(body, dict) else None
+    if tags is None:
+        raise HTTPException(status_code=400, detail="missing_tags")
+    return TAGGER.update_file_tags(file_id, tags)
+
+@app.post("/api/tagger/import")
+async def tagger_import(file: UploadFile = File(...)):
+    entry = await TAGGER.import_mp3(file)
+    return entry
+
+@app.get("/api/tagger/file/{file_id}/download")
+def tagger_download(file_id: str):
+    entry, path = TAGGER.resolve_id(file_id)
+    return FileResponse(path, media_type="audio/mpeg", filename=entry["basename"])
+
 @app.get("/api/files")
 def list_files():
     IN_DIR.mkdir(parents=True, exist_ok=True)
