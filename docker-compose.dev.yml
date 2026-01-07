@@ -1,6 +1,7 @@
 services:
   sonustemper:
     container_name: sonustemper-app
+    hostname: sonustemper
     build:
       context: .
       dockerfile: Dockerfile
@@ -38,6 +39,7 @@ services:
       - sonustemper
     links:
       - sonustemper
+    restart: unless-stopped
     ports:
       - "${PORT:-8383}:80"
     volumes:

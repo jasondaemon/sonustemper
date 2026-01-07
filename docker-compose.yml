@@ -1,6 +1,7 @@
 services:
   sonustemper:
     container_name: sonustemper-app
+    hostname: sonustemper
     image: ghcr.io/jasondaemon/sonustemper:${SONUSTEMPER_TAG:-edge}
     # Do not publish app ports; proxy is the perimeter
     build:
@@ -40,6 +41,7 @@ services:
       - sonustemper
     links:
       - sonustemper
+    restart: unless-stopped
     ports:
       - "${PORT:-8383}:80"
     volumes:
