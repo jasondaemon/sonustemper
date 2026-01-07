@@ -3518,7 +3518,8 @@ const tagState = {
   selectedId: null,
   loading: false,
 };
-const TAG_BADGE_LIMIT = 5;
+const TAG_BADGE_GAP = 6;
+let badgeMeasureHost = null;
 function setupUtilMenu(toggleId, menuId){
   const toggle = document.getElementById(toggleId);
   const menu = document.getElementById(menuId);
@@ -3534,6 +3535,27 @@ function setupUtilMenu(toggleId, menuId){
   });
 }
 function tagToast(msg){ const s=document.getElementById('tagSaveStatus'); if(s) s.textContent=msg||''; }
+function ensureBadgeMeasureHost(){
+  if(badgeMeasureHost) return badgeMeasureHost;
+  const host = document.createElement('div');
+  host.style.position = 'absolute';
+  host.style.visibility = 'hidden';
+  host.style.pointerEvents = 'none';
+  host.style.top = '-9999px';
+  host.style.left = '-9999px';
+  host.style.display = 'flex';
+  host.style.gap = `${TAG_BADGE_GAP}px`;
+  document.body.appendChild(host);
+  badgeMeasureHost = host;
+  return host;
+}
+function measureBadgeWidth(badgeEl){
+  const host = ensureBadgeMeasureHost();
+  host.appendChild(badgeEl);
+  const w = badgeEl.offsetWidth;
+  host.removeChild(badgeEl);
+  return w;
+}
 function makeBadge(label, type, title){
   const span = document.createElement('span');
   span.className = 'badge' + (type ? ` badge-${type}` : '');
@@ -3541,10 +3563,8 @@ function makeBadge(label, type, title){
   if(title) span.title = title;
   return span;
 }
-function renderBadges(badges){
-  const wrap = document.createElement('div');
-  wrap.className = 'badgeRow';
-  if(!badges || !badges.length) return wrap;
+function computeVisibleBadges(badges, containerWidth){
+  if(!badges || !badges.length || !containerWidth) return { visible: badges || [], hidden: [] };
   const pinned = [];
   const seenPinned = new Set();
   badges.forEach(b=>{
@@ -3557,20 +3577,52 @@ function renderBadges(badges){
     }
   });
   const rest = badges.filter(b=>!(b && (b.type === 'voicing' || b.type === 'preset')));
-  const visible = [...pinned];
-  const remainingSlots = Math.max(0, TAG_BADGE_LIMIT - visible.length);
-  if(remainingSlots > 0){
-    visible.push(...rest.slice(0, remainingSlots));
+  const ordered = [...pinned, ...rest];
+  if(!ordered.length) return { visible: [], hidden: [] };
+
+  // Pre-measure widths
+  const widths = ordered.map(b => {
+    const el = makeBadge(b.label || '', b.type || '', b.title);
+    return measureBadgeWidth(el);
+  });
+  // Reserve space for a potential +N badge
+  const reserveBadge = makeBadge("+99", "format");
+  const reserveWidth = measureBadgeWidth(reserveBadge);
+  let used = 0;
+  const visible = [];
+  let hiddenStart = ordered.length; // index where hidden begins
+
+  for(let i=0;i<ordered.length;i++){
+    const w = widths[i] + (visible.length ? TAG_BADGE_GAP : 0);
+    // Determine if more badges remain beyond this one
+    const remaining = ordered.length - (i+1);
+    const needReserve = remaining > 0; // if we might hide anything
+    const available = containerWidth - (needReserve ? (reserveWidth + TAG_BADGE_GAP) : 0);
+    if(used + w <= available){
+      visible.push(ordered[i]);
+      used += w;
+    }else{
+      hiddenStart = i;
+      break;
+    }
   }
+  const hidden = ordered.slice(hiddenStart);
+  return { visible, hidden };
+}
+function renderBadges(badges, container){
+  const wrap = container || document.createElement('div');
+  wrap.className = 'badgeRow';
+  wrap.innerHTML = '';
+  if(!badges || !badges.length) return wrap;
+  const width = wrap.clientWidth || wrap.getBoundingClientRect().width;
+  const { visible, hidden } = computeVisibleBadges(badges, width);
   visible.forEach(b => {
     const lbl = b.label || '';
     const type = b.type || '';
     wrap.appendChild(makeBadge(lbl, type, b.title));
   });
-  const total = badges.length;
-  const hiddenCount = total - visible.length;
-  if(hiddenCount > 0){
-    const more = makeBadge(`+${hiddenCount}`, 'format', badges.map(b=>b.title || b.label).join(', '));
+  if(hidden.length > 0){
+    const more = makeBadge(`+${hidden.length}`, 'format', hidden.map(b=>b.title || b.label).join(', '));
     wrap.appendChild(more);
   }
   return wrap;
@@ -3582,7 +3634,9 @@ function fileListRow(item){
   const title = document.createElement('div');
   title.className = 'tagRowTitle';
   title.textContent = item.display_title || item.basename || item.relpath || '(untitled)';
-  const badgeRow = renderBadges(item.badges);
+  const badgeRow = document.createElement('div');
+  badgeRow.className = 'badgeRow';
+  badgeRow.dataset.badges = JSON.stringify(item.badges || []);
   const left = document.createElement('div');
   left.appendChild(title);
   left.appendChild(badgeRow);
@@ -3615,7 +3669,22 @@ function renderTagList(){
     row.addEventListener('click', ()=> selectTagFile(it.id));
     list.appendChild(row);
   });
+  queueBadgeLayout();
 }
+function layoutBadgeRows(){
+  const rows = document.querySelectorAll('#tagList .tagItem .badgeRow');
+  rows.forEach(br=>{
+    let badges = [];
+    try { badges = JSON.parse(br.dataset.badges || '[]'); } catch {}
+    renderBadges(badges, br);
+  });
+}
+let badgeLayoutRaf = null;
+function queueBadgeLayout(){
+  if(badgeLayoutRaf) cancelAnimationFrame(badgeLayoutRaf);
+  badgeLayoutRaf = requestAnimationFrame(()=>{ badgeLayoutRaf = null; layoutBadgeRows(); });
+}
+window.addEventListener('resize', queueBadgeLayout);
 async function fetchTagList(scope = 'out'){
   tagState.scope = scope;
   try{
