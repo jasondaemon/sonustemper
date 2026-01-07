@@ -8,6 +8,11 @@ services:
         APP_UID: "${APP_UID:-1000}"
         APP_GID: "${APP_GID:-1000}"
     restart: unless-stopped
+    networks:
+      default:
+        aliases:
+          - sonustemper
+          - sonustemper-app
     environment:
       DATA_DIR: "/data"
       IN_DIR: "/data/in"

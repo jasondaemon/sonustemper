@@ -28,6 +28,11 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+    networks:
+      default:
+        aliases:
+          - sonustemper
+          - sonustemper-app
   proxy:
     container_name: sonustemper-proxy
     image: nginx:1.25-alpine
