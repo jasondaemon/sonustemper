@@ -1214,6 +1214,21 @@ input[type="range"]{
 .ioTable td{ opacity:.9; }
 .progressWrap{margin-top:8px; height:10px; background:rgba(255,255,255,0.08); border:1px solid var(--line); border-radius:999px; overflow:hidden; display:none;}
 .progressBar{height:100%; width:0%; background:linear-gradient(90deg, var(--accent), #9ef4ff);}
+/* Utilities menu */
+.utilMenu{ position:relative; }
+.utilToggle{ padding:8px 12px; border-radius:10px; border:1px solid var(--line); background:#0f151d; color:#d7e6f5; cursor:pointer; }
+.utilToggle:hover{ border-color:var(--accent); color:var(--text); }
+.utilDropdown{
+  position:absolute; right:0; top:calc(100% + 6px);
+  background:#0f151d; border:1px solid var(--line); border-radius:10px;
+  min-width:160px; z-index:50; box-shadow:0 8px 22px rgba(0,0,0,0.35);
+  display:flex; flex-direction:column; overflow:hidden;
+}
+.utilDropdown a{
+  padding:10px 12px; color:#d7e6f5; text-decoration:none; font-size:13px;
+}
+.utilDropdown a:hover{ background:rgba(255,138,61,0.12); color:var(--text); }
+.utilDropdown.hidden{ display:none; }
 </style>
 </head>
 <body>
@@ -1222,6 +1237,14 @@ input[type="range"]{
       <div>
         <h1>SonusTemper</h1>
         <div class="sub">Preset-Based Mastering &amp; Normalization</div>
+      </div>
+      <div class="utilMenu">
+        <button class="utilToggle" id="utilToggleMain" aria-haspopup="true" aria-expanded="false">☰ Utilities</button>
+        <div class="utilDropdown hidden" id="utilDropdownMain">
+          <a href="/">File Manager</a>
+          <a href="/manage-presets">Preset Manager</a>
+          <a href="/tagger">Tag Editor</a>
+        </div>
       </div>
     </div>
 <div class="grid" id="masterView">
@@ -1520,6 +1543,20 @@ input[type="range"]{
 function setStatus(msg) {
   const el = document.getElementById('statusMsg');
   if (el) el.textContent = msg;
+}
+function setupUtilMenu(toggleId, menuId){
+  const toggle = document.getElementById(toggleId);
+  const menu = document.getElementById(menuId);
+  if(!toggle || !menu) return;
+  const close = ()=>{ menu.classList.add('hidden'); toggle.setAttribute('aria-expanded','false'); };
+  toggle.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    const isOpen = !menu.classList.contains('hidden');
+    if(isOpen){ close(); } else { menu.classList.remove('hidden'); toggle.setAttribute('aria-expanded','true'); }
+  });
+  document.addEventListener('click', (e)=>{
+    if(!menu.contains(e.target) && e.target !== toggle){ close(); }
+  });
 }
 const LOUDNESS_MODES = {
   apple: { label: "Apple Music", lufs: -16.0, tp: -1.0, hint: "Target -16 LUFS / -1.0 dBTP" },
@@ -2928,6 +2965,7 @@ document.addEventListener('DOMContentLoaded', () => {
     refreshAll();
     initInfoDrawer();
     wireUploadForm();
+    setupUtilMenu('utilToggleMain','utilDropdownMain');
   } catch(e){
     console.error(e);
     setStatus("UI init error (open console)");
@@ -3013,6 +3051,9 @@ def index():
 def manage_presets():
     html = MANAGE_PRESETS_HTML.replace("{{VERSION}}", VERSION)
     return HTMLResponse(html)
+@app.get("/tagger", response_class=HTMLResponse)
+def tagger_page():
+    return HTMLResponse(TAGGER_HTML.replace("{{VERSION}}", VERSION))
 MANAGE_PRESETS_HTML = r"""
 <!doctype html>
 <html>
@@ -3064,6 +3105,20 @@ MANAGE_PRESETS_HTML = r"""
       z-index:1000; transform: translateX(100%); transition: transform .25s ease;
       display:flex; flex-direction:column; padding:16px;
     }
+    .utilMenu{ position:relative; }
+    .utilToggle{ padding:8px 12px; border-radius:10px; border:1px solid var(--line); background:#0f151d; color:#d7e6f5; cursor:pointer; }
+    .utilToggle:hover{ border-color:var(--accent); color:var(--text); }
+    .utilDropdown{
+      position:absolute; right:0; top:calc(100% + 6px);
+      background:#0f151d; border:1px solid var(--line); border-radius:10px;
+      min-width:160px; z-index:50; box-shadow:0 8px 22px rgba(0,0,0,0.35);
+      display:flex; flex-direction:column; overflow:hidden;
+    }
+    .utilDropdown a{
+      padding:10px 12px; color:#d7e6f5; text-decoration:none; font-size:13px;
+    }
+    .utilDropdown a:hover{ background:rgba(255,138,61,0.12); color:var(--text); }
+    .utilDropdown.hidden{ display:none; }
     .info-drawer.open{ transform: translateX(0); }
     @media (max-width: 768px){
       .info-drawer{ width:100%; height:65vh; top:auto; bottom:0; border-left:0; border-top:1px solid var(--line); transform: translateY(100%); }
@@ -3080,6 +3135,20 @@ MANAGE_PRESETS_HTML = r"""
     .hidden{ display:none !important; }
     .info-drawer.hidden{ display:none !important; }
     .drawer-backdrop.hidden{ display:none !important; }
+    .utilMenu{ position:relative; }
+    .utilToggle{ padding:8px 12px; border-radius:10px; border:1px solid var(--line); background:#0f151d; color:#d7e6f5; cursor:pointer; }
+    .utilToggle:hover{ border-color:var(--accent); color:var(--text); }
+    .utilDropdown{
+      position:absolute; right:0; top:calc(100% + 6px);
+      background:#0f151d; border:1px solid var(--line); border-radius:10px;
+      min-width:160px; z-index:50; box-shadow:0 8px 22px rgba(0,0,0,0.35);
+      display:flex; flex-direction:column; overflow:hidden;
+    }
+    .utilDropdown a{
+      padding:10px 12px; color:#d7e6f5; text-decoration:none; font-size:13px;
+    }
+    .utilDropdown a:hover{ background:rgba(255,138,61,0.12); color:var(--text); }
+    .utilDropdown.hidden{ display:none; }
   </style>
 </head>
 <body>
@@ -3089,7 +3158,14 @@ MANAGE_PRESETS_HTML = r"""
         <h1>Manage Presets</h1>
         <div class="small">Download, delete, or create presets from a reference audio file (≤100MB).</div>
       </div>
-      <button class="btnGhost" onclick="window.location.href='/'">Return to SonusTemper</button>
+      <div class="utilMenu">
+        <button class="utilToggle" id="utilToggleManage" aria-haspopup="true" aria-expanded="false">☰ Utilities</button>
+        <div class="utilDropdown hidden" id="utilDropdownManage">
+          <a href="/">File Manager</a>
+          <a href="/manage-presets">Preset Manager</a>
+          <a href="/tagger">Tag Editor</a>
+        </div>
+      </div>
     </div>
 
     <div class="card">
@@ -3251,6 +3327,337 @@ document.body.addEventListener('click', (e)=>{
     `;
     openDrawerManage("Reference-Based Preset", "", body);
   }
+});
+// Utilities menu
+function setupUtilMenu(toggleId, menuId){
+  const toggle = document.getElementById(toggleId);
+  const menu = document.getElementById(menuId);
+  if(!toggle || !menu) return;
+  const close = ()=>{ menu.classList.add('hidden'); toggle.setAttribute('aria-expanded','false'); };
+  toggle.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    const isOpen = !menu.classList.contains('hidden');
+    if(isOpen){ close(); } else { menu.classList.remove('hidden'); toggle.setAttribute('aria-expanded','true'); }
+  });
+  document.addEventListener('click', (e)=>{
+    if(!menu.contains(e.target) && e.target !== toggle){ close(); }
+  });
+}
+setupUtilMenu('utilToggleManage','utilDropdownManage');
+</script>
+</body>
+</html>
+"""
+TAGGER_HTML = r"""
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <title>Tag Editor - SonusTemper</title>
+  <style>
+    :root{
+      --bg:#0b0f14; --card:#121a23; --muted:#9fb0c0; --text:#e7eef6;
+      --line:#203042; --accent:#ff8a3d; --accent2:#2bd4bd; --danger:#ff4d4d;
+    }
+    body{ margin:0; background:linear-gradient(180deg,#0b0f14,#070a0e); color:var(--text);
+      font-family:-apple-system,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
+    .wrap{ max-width:1200px; margin:0 auto; padding:22px 18px 40px; }
+    h1{ font-size:20px; margin:0 0 6px 0; letter-spacing:.2px; }
+    h2{ margin:0 0 10px 0; font-size:16px; }
+    .sub{ color:var(--muted); font-size:13px; }
+    .top{ display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }
+    .card{ background:rgba(18,26,35,.9); border:1px solid var(--line); border-radius:16px; padding:16px; }
+    .grid{ display:grid; grid-template-columns: 360px 1fr; gap:16px; align-items:start; }
+    @media (max-width: 960px){ .grid{ grid-template-columns: 1fr; } }
+    .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .col{ display:flex; flex-direction:column; gap:8px; }
+    .btn{ background:linear-gradient(180deg, rgba(255,138,61,.95), rgba(255,138,61,.75));
+      border:0; color:#1a0f07; font-weight:800; padding:8px 14px; border-radius:10px; cursor:pointer; }
+    .btnGhost{ padding:8px 14px; border-radius:10px; border:1px solid var(--line); background:#0f151d; color:#d7e6f5; cursor:pointer; }
+    .btnPrimary{ background:linear-gradient(180deg, #2bd4bd, #1aa390); border:0; color:#062d28; font-weight:800; padding:8px 14px; border-radius:10px; cursor:pointer; }
+    .btnDanger{ padding:8px 14px; border-radius:10px; border:1px solid rgba(255,77,77,.35); background:rgba(255,77,77,.15); color:#ffd0d0; cursor:pointer; }
+    input[type="text"]{ width:100%; padding:9px 10px; border-radius:10px; border:1px solid var(--line); background:#0f151d; color:var(--text); }
+    label{ color:#cfe0f1; font-size:13px; font-weight:600; }
+    .small{ color:var(--muted); font-size:12px; }
+    .tagList{ margin-top:10px; max-height:460px; overflow:auto; display:flex; flex-direction:column; gap:8px; }
+    .tagItem{ border:1px solid var(--line); border-radius:12px; padding:10px; background:#0f151d; cursor:pointer; display:flex; justify-content:space-between; align-items:center; gap:8px; }
+    .tagItem:hover{ border-color:var(--accent); }
+    .tagItem.active{ border-color:var(--accent); box-shadow:0 0 0 1px rgba(255,138,61,0.35); }
+    .badge{ font-size:11px; padding:4px 8px; border-radius:999px; background:rgba(255,138,61,0.12); color:#ffb07a; border:1px solid rgba(255,138,61,0.35); }
+    .scopeBtns button{ padding:6px 10px; }
+    .scopeBtns .active{ border-color:var(--accent); color:var(--text); }
+    .utilMenu{ position:relative; }
+    .utilToggle{ padding:8px 12px; border-radius:10px; border:1px solid var(--line); background:#0f151d; color:#d7e6f5; cursor:pointer; }
+    .utilToggle:hover{ border-color:var(--accent); color:var(--text); }
+    .utilDropdown{
+      position:absolute; right:0; top:calc(100% + 6px);
+      background:#0f151d; border:1px solid var(--line); border-radius:10px;
+      min-width:160px; z-index:50; box-shadow:0 8px 22px rgba(0,0,0,0.35);
+      display:flex; flex-direction:column; overflow:hidden;
+    }
+    .utilDropdown a{
+      padding:10px 12px; color:#d7e6f5; text-decoration:none; font-size:13px;
+    }
+    .utilDropdown a:hover{ background:rgba(255,138,61,0.12); color:var(--text); }
+    .utilDropdown.hidden{ display:none; }
+    .fieldGrid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(220px,1fr)); gap:10px; }
+    .fieldGrid label{ display:block; margin-bottom:4px; }
+    .artBox{ padding:10px; border:1px dashed var(--line); border-radius:10px; background:rgba(255,255,255,0.02); }
+    .placeholder{ color:var(--muted); font-size:13px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <div>
+        <h1>Tag Editor</h1>
+        <div class="sub">Edit ID3 tags for mastered and imported MP3s.</div>
+      </div>
+      <div class="utilMenu">
+        <button class="utilToggle" id="utilToggleTag" aria-haspopup="true" aria-expanded="false">☰ Utilities</button>
+        <div class="utilDropdown hidden" id="utilDropdownTag">
+          <a href="/">File Manager</a>
+          <a href="/manage-presets">Preset Manager</a>
+          <a href="/tagger">Tag Editor</a>
+        </div>
+      </div>
+    </div>
+    <div class="grid">
+      <div class="card">
+        <div class="row" style="justify-content:space-between; align-items:center;">
+          <h2 style="margin:0;">MP3 Files</h2>
+          <div class="row scopeBtns" id="tagScopeBtns">
+            <button class="btnGhost active" data-scope="out">Mastered</button>
+            <button class="btnGhost" data-scope="tag">Imported</button>
+            <button class="btnGhost" data-scope="all">All</button>
+          </div>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <input type="text" id="tagSearch" placeholder="Search filename...">
+        </div>
+        <div id="tagList" class="tagList small"></div>
+        <div class="row" style="margin-top:10px;">
+          <input type="file" id="tagImportFile" accept=".mp3" style="display:none;">
+          <button class="btn" type="button" onclick="triggerTagImport()">Import MP3</button>
+          <div id="tagImportStatus" class="small"></div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Track Details</h2>
+        <div id="tagDetailEmpty" class="placeholder">Select a file to edit tags.</div>
+        <div id="tagDetailForm" class="col" style="display:none;">
+          <div class="fieldGrid">
+            <div>
+              <label for="tagTitle">Title</label>
+              <input type="text" id="tagTitle">
+            </div>
+            <div>
+              <label for="tagArtist">Artist</label>
+              <input type="text" id="tagArtist">
+            </div>
+            <div>
+              <label for="tagAlbum">Album</label>
+              <input type="text" id="tagAlbum">
+            </div>
+            <div>
+              <label for="tagAlbumArtist">Album Artist</label>
+              <input type="text" id="tagAlbumArtist">
+            </div>
+            <div>
+              <label for="tagTrack">Track</label>
+              <input type="text" id="tagTrack" placeholder="e.g., 1 or 1/10">
+            </div>
+            <div>
+              <label for="tagDisc">Disc</label>
+              <input type="text" id="tagDisc" placeholder="e.g., 1 or 1/2">
+            </div>
+            <div>
+              <label for="tagYear">Year</label>
+              <input type="text" id="tagYear">
+            </div>
+            <div>
+              <label for="tagGenre">Genre</label>
+              <input type="text" id="tagGenre">
+            </div>
+          </div>
+          <div>
+            <label for="tagComment">Comment</label>
+            <input type="text" id="tagComment">
+          </div>
+          <div class="artBox" id="tagArtBox">Artwork: <span id="tagArtStatus">n/a</span></div>
+          <div class="row" style="gap:10px;">
+            <button class="btnPrimary" type="button" id="tagSaveBtn">Save Tags</button>
+            <button class="btnGhost" type="button" id="tagDownloadBtn">Download MP3</button>
+            <div id="tagSaveStatus" class="small"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="small" style="margin-top:12px; color:var(--muted);">SonusTemper v{{VERSION}} – Tag Editor</div>
+  </div>
+<script>
+const tagState = {
+  scope: 'out',
+  items: [],
+  filtered: [],
+  selectedId: null,
+  loading: false,
+};
+function setupUtilMenu(toggleId, menuId){
+  const toggle = document.getElementById(toggleId);
+  const menu = document.getElementById(menuId);
+  if(!toggle || !menu) return;
+  const close = ()=>{ menu.classList.add('hidden'); toggle.setAttribute('aria-expanded','false'); };
+  toggle.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    const isOpen = !menu.classList.contains('hidden');
+    if(isOpen){ close(); } else { menu.classList.remove('hidden'); toggle.setAttribute('aria-expanded','true'); }
+  });
+  document.addEventListener('click', (e)=>{
+    if(!menu.contains(e.target) && e.target !== toggle){ close(); }
+  });
+}
+function tagToast(msg){ const s=document.getElementById('tagSaveStatus'); if(s) s.textContent=msg||''; }
+function renderTagList(){
+  const list = document.getElementById('tagList');
+  if(!list) return;
+  const q = (document.getElementById('tagSearch')?.value || '').toLowerCase();
+  const items = tagState.items.filter(it => !q || it.basename.toLowerCase().includes(q));
+  list.innerHTML = '';
+  if(!items.length){
+    list.innerHTML = '<div class="small" style="opacity:.7;">No MP3s found.</div>';
+    return;
+  }
+  items.forEach(it => {
+    const div = document.createElement('div');
+    div.className = 'tagItem' + (tagState.selectedId === it.id ? ' active' : '');
+    div.innerHTML = `
+      <div>
+        <div class="mono" style="font-weight:600;">${it.basename}</div>
+        <div class="small">${it.relpath}</div>
+      </div>
+      <span class="badge">${it.root === 'out' ? 'Mastered' : 'Imported'}</span>
+    `;
+    div.addEventListener('click', ()=> selectTagFile(it.id));
+    list.appendChild(div);
+  });
+}
+async function fetchTagList(scope = 'out'){
+  tagState.scope = scope;
+  try{
+    const res = await fetch(`/api/tagger/mp3s?scope=${encodeURIComponent(scope)}`, { cache:'no-store' });
+    const data = await res.json();
+    tagState.items = data.items || [];
+    renderTagList();
+  }catch(e){
+    document.getElementById('tagList').innerHTML = '<div class="small" style="color:#f99;">Failed to load list.</div>';
+  }
+}
+async function selectTagFile(id){
+  tagState.selectedId = id;
+  renderTagList();
+  const detailEmpty = document.getElementById('tagDetailEmpty');
+  const detailForm = document.getElementById('tagDetailForm');
+  if(detailEmpty) detailEmpty.style.display = 'none';
+  if(detailForm) detailForm.style.display = 'flex';
+  tagToast('Loading tags...');
+  try{
+    const res = await fetch(`/api/tagger/file/${encodeURIComponent(id)}`, { cache:'no-store' });
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const tags = data.tags || {};
+    const set = (id,val='') => { const el=document.getElementById(id); if(el) el.value = val ?? ''; };
+    set('tagTitle', tags.title);
+    set('tagArtist', tags.artist);
+    set('tagAlbum', tags.album);
+    set('tagAlbumArtist', tags.album_artist);
+    set('tagTrack', tags.track);
+    set('tagDisc', tags.disc);
+    set('tagYear', tags.year);
+    set('tagGenre', tags.genre);
+    set('tagComment', tags.comment);
+    const art = document.getElementById('tagArtStatus');
+    if(art) art.textContent = tags.artwork && tags.artwork.present ? 'Embedded artwork present' : 'No artwork';
+    tagToast('');
+  }catch(e){
+    tagToast('Failed to load tags.');
+  }
+}
+async function saveTags(){
+  if(!tagState.selectedId) return;
+  const btn = document.getElementById('tagSaveBtn');
+  if(btn) btn.disabled = true;
+  tagToast('Saving...');
+  const payload = {
+    tags:{
+      title: document.getElementById('tagTitle')?.value || "",
+      artist: document.getElementById('tagArtist')?.value || "",
+      album: document.getElementById('tagAlbum')?.value || "",
+      album_artist: document.getElementById('tagAlbumArtist')?.value || "",
+      track: document.getElementById('tagTrack')?.value || "",
+      disc: document.getElementById('tagDisc')?.value || "",
+      year: document.getElementById('tagYear')?.value || "",
+      genre: document.getElementById('tagGenre')?.value || "",
+      comment: document.getElementById('tagComment')?.value || "",
+    }
+  };
+  try{
+    const res = await fetch(`/api/tagger/file/${encodeURIComponent(tagState.selectedId)}`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload),
+    });
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    tagToast('Saved.');
+  }catch(e){
+    tagToast('Save failed.');
+  }finally{
+    if(btn) btn.disabled = false;
+  }
+}
+function downloadTagFile(){
+  if(!tagState.selectedId) return;
+  window.location.href = `/api/tagger/file/${encodeURIComponent(tagState.selectedId)}/download`;
+}
+function triggerTagImport(){
+  const input = document.getElementById('tagImportFile');
+  if(input) input.click();
+}
+document.addEventListener('DOMContentLoaded', ()=>{
+  setupUtilMenu('utilToggleTag','utilDropdownTag');
+  document.getElementById('tagSaveBtn')?.addEventListener('click', saveTags);
+  document.getElementById('tagDownloadBtn')?.addEventListener('click', downloadTagFile);
+  document.getElementById('tagSearch')?.addEventListener('input', renderTagList);
+  document.getElementById('tagImportFile')?.addEventListener('change', async (e)=>{
+    const status = document.getElementById('tagImportStatus');
+    const file = e.target.files[0];
+    if(!file){ return; }
+    status.textContent = 'Uploading...';
+    const fd = new FormData();
+    fd.append('file', file, file.name);
+    try{
+      const res = await fetch('/api/tagger/import', { method:'POST', body: fd });
+      if(!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      status.textContent = 'Imported.';
+      await fetchTagList(tagState.scope);
+      if(data && data.id){ selectTagFile(data.id); }
+    }catch(err){
+      status.textContent = 'Import failed.';
+    }finally{
+      e.target.value = '';
+    }
+  });
+  document.querySelectorAll('#tagScopeBtns button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.querySelectorAll('#tagScopeBtns button').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      fetchTagList(btn.dataset.scope || 'out');
+    });
+  });
+  fetchTagList('out');
 });
 </script>
 </body>
