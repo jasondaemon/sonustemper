@@ -3793,6 +3793,13 @@ function makeBadge(label, type, title){
   if(title) span.title = title;
   return span;
 }
+function badgeTitle(text, tooltip){
+  const div = document.createElement('div');
+  div.className = 'tagRowTitle';
+  div.textContent = text || '';
+  if(tooltip) div.title = tooltip;
+  return div;
+}
 function computeVisibleBadges(badges, containerWidth){
   if(!badges || !badges.length || !containerWidth) return { visible: badges || [], hidden: [] };
   const pinned = [];
