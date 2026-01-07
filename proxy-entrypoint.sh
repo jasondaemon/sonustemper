@@ -38,7 +38,7 @@ export PROXY_SHARED_SECRET
 # Render nginx config from template with raw secret in header (escape $)
 if [ -f /etc/nginx/templates/nginx.conf.template ]; then
   cp /etc/nginx/templates/nginx.conf.template /etc/nginx/conf.d/default.conf
-  esc_secret=$(printf '%s' "$PROXY_SHARED_SECRET" | sed -e 's/[\\/&]/\\&/g' -e 's/\\$/\\\\$/g')
+  esc_secret=$(printf '%s' "$PROXY_SHARED_SECRET" | sed -e 's/[\\/&]/\\&/g')
   sed -i "s/__PROXY_SHARED_SECRET__/${esc_secret}/g" /etc/nginx/conf.d/default.conf
   echo "[proxy] rendered config with PROXY_SHARED_SECRET len=${#PROXY_SHARED_SECRET}"
 else
