@@ -3386,7 +3386,7 @@ TAGGER_HTML = r"""
     label{ color:#cfe0f1; font-size:13px; font-weight:600; }
     .small{ color:var(--muted); font-size:12px; }
     .tagList{ margin-top:10px; max-height:460px; overflow:auto; display:flex; flex-direction:column; gap:8px; }
-    .tagItem{ border:1px solid var(--line); border-radius:12px; padding:10px; background:#0f151d; cursor:pointer; display:flex; justify-content:space-between; align-items:center; gap:8px; }
+    .tagItem{ border:1px solid var(--line); border-radius:12px; padding:10px; background:#0f151d; cursor:pointer; display:flex; justify-content:space-between; align-items:flex-start; gap:8px; }
     .tagItem:hover{ border-color:var(--accent); }
     .tagItem.active{ border-color:var(--accent); box-shadow:0 0 0 1px rgba(255,138,61,0.35); }
     .badge{ font-size:11px; padding:4px 8px; border-radius:999px; background:rgba(255,138,61,0.12); color:#ffb07a; border:1px solid rgba(255,138,61,0.35); }
@@ -3614,11 +3614,9 @@ function renderBadges(badges, container){
   wrap.className = 'badgeRow';
   wrap.innerHTML = '';
   if(!badges || !badges.length) return wrap;
-  let width = wrap.getBoundingClientRect().width;
-  if(!width && wrap.parentElement){
-    width = wrap.parentElement.getBoundingClientRect().width;
-  }
-  if(!width) width = wrap.clientWidth || (wrap.parentElement ? wrap.parentElement.clientWidth : 0) || 320;
+  let width = wrap.parentElement ? wrap.parentElement.clientWidth : 0;
+  if(!width) width = wrap.getBoundingClientRect().width || wrap.clientWidth;
+  if(!width) width = 320;
   const { visible, hidden } = computeVisibleBadges(badges, width);
   visible.forEach(b => {
     const lbl = b.label || '';
@@ -3642,6 +3640,10 @@ function fileListRow(item){
   badgeRow.className = 'badgeRow';
   badgeRow.dataset.badges = JSON.stringify(item.badges || []);
   const left = document.createElement('div');
+  left.style.flex = '1';
+  left.style.minWidth = '0';
+  left.style.display = 'flex';
+  left.style.flexDirection = 'column';
   left.appendChild(title);
   left.appendChild(badgeRow);
   row.appendChild(left);
@@ -3689,6 +3691,11 @@ function queueBadgeLayout(){
   badgeLayoutRaf = requestAnimationFrame(()=>{ badgeLayoutRaf = null; layoutBadgeRows(); });
 }
 window.addEventListener('resize', queueBadgeLayout);
+const tagListObserver = new ResizeObserver(() => queueBadgeLayout());
+document.addEventListener('DOMContentLoaded', () => {
+  const list = document.getElementById('tagList');
+  if(list) tagListObserver.observe(list);
+});
 async function fetchTagList(scope = 'out'){
   tagState.scope = scope;
   try{
