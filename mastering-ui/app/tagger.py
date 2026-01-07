@@ -59,6 +59,94 @@ class TaggerService:
         digest = hashlib.sha256(raw).digest()
         return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
 
+    @staticmethod
+    def _parse_badges(basename: str) -> Tuple[str, List[Dict]]:
+        stem = Path(basename).stem
+        ext = Path(basename).suffix.lower().lstrip(".")
+        display_title = stem
+        badges: List[Dict] = []
+        if "__" not in stem:
+            display_title = stem.replace("_", " ").strip() or stem
+        else:
+            title_part, suffix = stem.split("__", 1)
+            display_title = title_part.replace("_", " ").strip() or title_part
+            tokens = [t for t in suffix.split("_") if t]
+            i = 0
+            while i < len(tokens):
+                t = tokens[i]
+                # voicing / source
+                if t.startswith("V_") or t == "source":
+                    badges.append({"type": "voicing", "label": t})
+                    i += 1
+                    continue
+                # strength
+                if t.startswith("S") and t[1:].isdigit():
+                    badges.append({"type": "param", "label": t})
+                    i += 1
+                    continue
+                # preset/chain
+                if t == "LMCustom":
+                    badges.append({"type": "param", "label": t})
+                    i += 1
+                    continue
+                # TI / TTP / W / GR
+                if (t.startswith("TI-") and t[3:].replace(".","",1).replace("-","",1).lstrip("0").isdigit()) or t.startswith("TI-"):
+                    badges.append({"type": "param", "label": t})
+                    i += 1
+                    continue
+                if t.startswith("TTP-"):
+                    badges.append({"type": "param", "label": t})
+                    i += 1
+                    continue
+                if t.startswith("W") and t[1:]:
+                    badges.append({"type": "param", "label": t})
+                    i += 1
+                    continue
+                if t.startswith("GR") and t[2:]:
+                    badges.append({"type": "param", "label": t})
+                    i += 1
+                    continue
+                # sample/bit pair
+                if t.upper().startswith("WAV") and t[3:-1].isdigit():
+                    rate = t[3:].rstrip("kK")
+                    bit = None
+                    if (i + 1) < len(tokens) and tokens[i + 1].isdigit():
+                        bit = tokens[i + 1]
+                        i += 1  # consume bit token
+                    lbl = f"{rate}k/{bit}" if bit else f"{rate}k"
+                    badges.append({"type": "format", "label": lbl})
+                    i += 1
+                    continue
+                # MP3 with bitrate
+                if t == "MP3":
+                    lbl = "MP3"
+                    if (i + 1) < len(tokens) and tokens[i + 1].upper().startswith("CBR"):
+                        br = tokens[i + 1].upper().replace("CBR", "")
+                        lbl = f"MP3 {br}"
+                        i += 1  # consume bitrate token
+                    badges.append({"type": "format", "label": lbl})
+                    i += 1
+                    continue
+                # AAC with bitrate
+                if t.upper().startswith("AAC"):
+                    lbl = "AAC"
+                    nxt = tokens[i + 1] if (i + 1) < len(tokens) else ""
+                    if "_" in t:
+                        parts = t.split("_", 1)
+                        if len(parts) == 2 and parts[1].isdigit():
+                            lbl = f"AAC {parts[1]}"
+                    elif nxt.isdigit():
+                        lbl = f"AAC {nxt}"
+                        i += 1
+                    badges.append({"type": "format", "label": lbl})
+                    i += 1
+                    continue
+                i += 1
+        # container/ext (optional subtle)
+        if ext:
+            badges.append({"type": "container", "label": ext})
+        return display_title or stem, badges
+
     def _scan(self) -> None:
         """Rebuild the in-memory index of available MP3 files."""
         self._index = {}
@@ -72,6 +160,7 @@ class TaggerService:
                     rel = self._safe_rel(root_path, p)
                     stat = p.stat()
                     fid = self._make_id(root_key, rel, stat.st_size, stat.st_mtime)
+                    display_title, badges = self._parse_badges(p.name)
                     self._index[fid] = {
                         "id": fid,
                         "root": root_key,
@@ -79,6 +168,8 @@ class TaggerService:
                         "basename": p.name,
                         "size": stat.st_size,
                         "mtime": stat.st_mtime,
+                        "display_title": display_title,
+                        "badges": badges,
                     }
                 except HTTPException:
                     continue
@@ -104,6 +195,9 @@ class TaggerService:
                     "root": entry["root"],
                     "basename": entry["basename"],
                     "relpath": entry["relpath"],
+                    "display_title": entry.get("display_title") or entry["basename"],
+                    "badges": entry.get("badges") or [],
+                    "full_name": entry["relpath"],
                 }
             )
         items.sort(key=lambda e: (e["root"], e["relpath"]))
