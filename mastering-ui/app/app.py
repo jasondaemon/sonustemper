@@ -3280,7 +3280,12 @@ async def tagger_import(file: UploadFile = File(...)):
 @app.get("/api/tagger/file/{file_id}/download")
 def tagger_download(file_id: str):
     entry, path = TAGGER.resolve_id(file_id)
-    return FileResponse(path, media_type="audio/mpeg", filename=entry["basename"])
+    return FileResponse(
+        path,
+        media_type="audio/mpeg",
+        filename=entry["basename"],
+        content_disposition_type="attachment",
+    )
 
 @app.get("/api/files")
 def list_files():
