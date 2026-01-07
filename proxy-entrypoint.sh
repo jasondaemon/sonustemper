@@ -9,12 +9,9 @@ HTPASS="/etc/nginx/conf.d/.htpasswd"
 : "${BASIC_AUTH_PASS:=CHANGEME}"
 : "${PROXY_SHARED_SECRET:=}"
 
-# Ensure htpasswd and envsubst are available
+# Ensure htpasswd is available
 if ! command -v htpasswd >/dev/null 2>&1; then
   apk add --no-cache apache2-utils >/dev/null
-fi
-if ! command -v envsubst >/dev/null 2>&1; then
-  apk add --no-cache gettext >/dev/null
 fi
 
 if [ "$BASIC_AUTH_ENABLED" = "1" ]; then
@@ -38,10 +35,11 @@ if [ -z "$PROXY_SHARED_SECRET" ]; then
 fi
 export PROXY_SHARED_SECRET
 
-# Render nginx config from template with raw secret in header
-export PROXY_SHARED_SECRET="$PROXY_SHARED_SECRET"
+# Render nginx config from template with raw secret in header (escape $)
 if [ -f /etc/nginx/templates/nginx.conf.template ]; then
-  envsubst '${PROXY_SHARED_SECRET}' < /etc/nginx/templates/nginx.conf.template > /etc/nginx/conf.d/default.conf
+  cp /etc/nginx/templates/nginx.conf.template /etc/nginx/conf.d/default.conf
+  esc_secret=$(printf '%s' "$PROXY_SHARED_SECRET" | sed -e 's/[\\/&]/\\&/g' -e 's/\\$/\\\\$/g')
+  sed -i "s/__PROXY_SHARED_SECRET__/${esc_secret}/g" /etc/nginx/conf.d/default.conf
   echo "[proxy] rendered config with PROXY_SHARED_SECRET len=${#PROXY_SHARED_SECRET}"
 else
   echo "nginx.conf.template missing" >&2
