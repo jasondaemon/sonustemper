@@ -3406,6 +3406,13 @@ TAGGER_HTML = r"""
     .fieldGrid label{ display:block; margin-bottom:4px; }
     .artBox{ padding:10px; border:1px dashed var(--line); border-radius:10px; background:rgba(255,255,255,0.02); }
     .placeholder{ color:var(--muted); font-size:13px; }
+    .tagRowTitle{ font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .badgeRow{ display:flex; gap:6px; align-items:center; white-space:nowrap; overflow:hidden; }
+    .badge{ font-size:11px; padding:4px 8px; border-radius:999px; border:1px solid var(--line); background:#0f151d; color:#d7e6f5; }
+    .badge-voicing{ background:rgba(255,138,61,0.2); border-color:rgba(255,138,61,0.6); color:#ffb07a; }
+    .badge-param{ background:rgba(43,212,189,0.15); border-color:rgba(43,212,189,0.45); color:#9df1e5; }
+    .badge-format{ background:rgba(255,255,255,0.04); border-color:rgba(255,255,255,0.15); color:#cfe0f1; }
+    .badge-container{ background:rgba(255,255,255,0.02); border-color:rgba(255,255,255,0.12); color:#9fb0c0; }
   </style>
 </head>
 <body>
@@ -3505,6 +3512,7 @@ const tagState = {
   selectedId: null,
   loading: false,
 };
+const TAG_BADGE_LIMIT = 5;
 function setupUtilMenu(toggleId, menuId){
   const toggle = document.getElementById(toggleId);
   const menu = document.getElementById(menuId);
@@ -3520,6 +3528,44 @@ function setupUtilMenu(toggleId, menuId){
   });
 }
 function tagToast(msg){ const s=document.getElementById('tagSaveStatus'); if(s) s.textContent=msg||''; }
+function makeBadge(label, type){
+  const span = document.createElement('span');
+  span.className = 'badge' + (type ? ` badge-${type}` : '');
+  span.textContent = label;
+  return span;
+}
+function renderBadges(badges){
+  const wrap = document.createElement('div');
+  wrap.className = 'badgeRow';
+  if(!badges || !badges.length) return wrap;
+  const limited = badges.slice(0, TAG_BADGE_LIMIT);
+  limited.forEach(b => {
+    const lbl = b.label || '';
+    const type = b.type || '';
+    wrap.appendChild(makeBadge(lbl, type));
+  });
+  if(badges.length > TAG_BADGE_LIMIT){
+    const extra = badges.length - TAG_BADGE_LIMIT;
+    const more = makeBadge(`+${extra}`, 'format');
+    more.title = badges.map(b=>b.label).join(', ');
+    wrap.appendChild(more);
+  }
+  return wrap;
+}
+function fileListRow(item){
+  const row = document.createElement('div');
+  row.className = 'tagItem' + (tagState.selectedId === item.id ? ' active' : '');
+  row.title = item.basename || item.relpath || '';
+  const title = document.createElement('div');
+  title.className = 'tagRowTitle';
+  title.textContent = item.display_title || item.basename || item.relpath || '(untitled)';
+  const badgeRow = renderBadges(item.badges);
+  const left = document.createElement('div');
+  left.appendChild(title);
+  left.appendChild(badgeRow);
+  row.appendChild(left);
+  return row;
+}
 function renderTagList(){
   const list = document.getElementById('tagList');
   if(!list) return;
@@ -3531,17 +3577,17 @@ function renderTagList(){
     return;
   }
   items.forEach(it => {
-    const div = document.createElement('div');
-    div.className = 'tagItem' + (tagState.selectedId === it.id ? ' active' : '');
-    div.innerHTML = `
-      <div>
-        <div class="mono" style="font-weight:600;">${it.basename}</div>
-        <div class="small">${it.relpath}</div>
-      </div>
-      <span class="badge">${it.root === 'out' ? 'Mastered' : 'Imported'}</span>
-    `;
-    div.addEventListener('click', ()=> selectTagFile(it.id));
-    list.appendChild(div);
+    const enriched = {
+      ...it,
+      display_title: it.display_title || it.basename || it.relpath,
+      badges: (it.badges && Array.isArray(it.badges) ? it.badges : []).slice(),
+    };
+    if(!enriched.badges.length){
+      enriched.badges.push({ label: it.root === 'out' ? 'Mastered' : 'Imported', type:'format' });
+    }
+    const row = fileListRow(enriched);
+    row.addEventListener('click', ()=> selectTagFile(it.id));
+    list.appendChild(row);
   });
 }
 async function fetchTagList(scope = 'out'){
