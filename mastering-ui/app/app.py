@@ -3952,11 +3952,17 @@ async function fetchTagList(scope = 'out'){
   tagState.scope = scope;
   try{
     const res = await fetch(`/api/tagger/mp3s?scope=${encodeURIComponent(scope)}`, { cache:'no-store' });
+    if(!res.ok){
+      const txt = await res.text();
+      throw new Error(`HTTP ${res.status} ${txt || ''}`);
+    }
     const data = await res.json();
     tagState.items = data.items || [];
     renderTagList();
   }catch(e){
-    document.getElementById('tagList').innerHTML = '<div class="small" style="color:#f99;">Failed to load list.</div>';
+    console.error('tagger list error', e);
+    const list = document.getElementById('tagList');
+    if(list) list.innerHTML = '<div class="small" style="color:#f99;">Failed to load list.</div>';
   }
 }
 async function selectTagFile(id){
