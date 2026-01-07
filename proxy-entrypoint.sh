@@ -46,4 +46,13 @@ else
   exit 1
 fi
 
+# Wait for app host to resolve before starting nginx (up to 30s)
+for i in $(seq 1 30); do
+  if getent hosts sonustemper >/dev/null 2>&1; then
+    break
+  fi
+  echo "[proxy] waiting for DNS of sonustemper (attempt $i)..."
+  sleep 1
+done
+
 exec nginx -g 'daemon off;'
