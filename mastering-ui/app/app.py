@@ -3580,24 +3580,24 @@ function computeVisibleBadges(badges, containerWidth){
   const ordered = [...pinned, ...rest];
   if(!ordered.length) return { visible: [], hidden: [] };
 
-  // Pre-measure widths
+  // Pre-measure widths and total
   const widths = ordered.map(b => {
     const el = makeBadge(b.label || '', b.type || '', b.title);
     return measureBadgeWidth(el);
   });
-  // Reserve space for a potential +N badge
+  const totalWidth = widths.reduce((acc,w,idx)=> acc + w + (idx>0 ? TAG_BADGE_GAP : 0), 0);
+  if(totalWidth <= containerWidth){
+    return { visible: ordered, hidden: [] };
+  }
+  // Need overflow handling; reserve space for +N
   const reserveBadge = makeBadge("+99", "format");
   const reserveWidth = measureBadgeWidth(reserveBadge);
+  const available = Math.max(0, containerWidth - reserveWidth - TAG_BADGE_GAP);
   let used = 0;
   const visible = [];
-  let hiddenStart = ordered.length; // index where hidden begins
-
+  let hiddenStart = ordered.length;
   for(let i=0;i<ordered.length;i++){
     const w = widths[i] + (visible.length ? TAG_BADGE_GAP : 0);
-    // Determine if more badges remain beyond this one
-    const remaining = ordered.length - (i+1);
-    const needReserve = remaining > 0; // if we might hide anything
-    const available = containerWidth - (needReserve ? (reserveWidth + TAG_BADGE_GAP) : 0);
     if(used + w <= available){
       visible.push(ordered[i]);
       used += w;
@@ -3614,7 +3614,7 @@ function renderBadges(badges, container){
   wrap.className = 'badgeRow';
   wrap.innerHTML = '';
   if(!badges || !badges.length) return wrap;
-  const width = wrap.clientWidth || wrap.getBoundingClientRect().width;
+  const width = wrap.clientWidth || wrap.getBoundingClientRect().width || (wrap.parentElement ? wrap.parentElement.clientWidth : 0);
   const { visible, hidden } = computeVisibleBadges(badges, width);
   visible.forEach(b => {
     const lbl = b.label || '';
