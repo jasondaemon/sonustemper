@@ -89,6 +89,15 @@ class TaggerService:
             i = 0
             while i < len(tokens):
                 t = tokens[i]
+                # voicing split form: "V", "<name>"
+                if t == "V" and (i + 1) < len(tokens):
+                    vname = tokens[i + 1]
+                    lbl = f"V_{vname}"
+                    slug = vname.lower()
+                    title = self.VOICING_TITLE_MAP.get(slug, f"Voicing: {vname.replace('_',' ').title()}")
+                    badges.append({"type": "voicing", "label": lbl, "title": title})
+                    i += 2
+                    continue
                 # voicing / source
                 if t.startswith("V_") or t == "source":
                     lbl = t
