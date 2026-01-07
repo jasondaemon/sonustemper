@@ -79,7 +79,6 @@ class TaggerService:
                         "basename": p.name,
                         "size": stat.st_size,
                         "mtime": stat.st_mtime,
-                        "path": p,
                     }
                 except HTTPException:
                     continue
@@ -119,11 +118,12 @@ class TaggerService:
             entry = self._index.get(file_id)
         if not entry:
             raise HTTPException(status_code=404, detail="file_not_found")
-        path = Path(entry["path"])
         root_path = self.roots.get(entry["root"])
         if not root_path:
             raise HTTPException(status_code=404, detail="file_not_found")
         try:
+            rel = Path(entry["relpath"])
+            path = (root_path / rel).resolve()
             _ = self._safe_rel(root_path, path)
         except HTTPException:
             raise HTTPException(status_code=404, detail="file_not_found")
@@ -259,6 +259,15 @@ class TaggerService:
             raise HTTPException(status_code=400, detail="missing_file")
         safe_name = self._safe_filename(upload.filename)
         dest = (self.tag_in_dir / safe_name).resolve()
+        if dest.exists():
+            stem = dest.stem
+            idx = 1
+            while True:
+                candidate = dest.with_name(f"{stem}-{idx}{dest.suffix}")
+                if not candidate.exists():
+                    dest = candidate
+                    break
+                idx += 1
         if self.tag_in_dir.resolve() not in dest.parents:
             raise HTTPException(status_code=400, detail="invalid_path")
         bytes_written = 0
@@ -320,3 +329,7 @@ class TaggerService:
             "relpath": entry["relpath"],
             "tags": updated,
         }
+
+    def download_file(self, file_id: str) -> Tuple[Path, str]:
+        entry, path = self.resolve_id(file_id)
+        return path, entry["basename"]
