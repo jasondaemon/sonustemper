@@ -1010,6 +1010,13 @@ HTML_TEMPLATE = r"""
 .advToggle{ display:flex; align-items:center; gap:10px; margin:10px 0 2px; }
 .advToggle button{ background:transparent; border:1px solid var(--line); color:var(--text); border-radius:10px; padding:6px 10px; }
 .advHidden{display:none !important;}
+.tagRowTitle{ font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.badgeRow{ display:flex; gap:6px; align-items:center; white-space:nowrap; overflow:hidden; margin-top:6px; width:100%; }
+.badge{ font-size:11px; padding:4px 8px; border-radius:999px; border:1px solid var(--line); background:#0f151d; color:#d7e6f5; }
+.badge-voicing{ background:rgba(255,138,61,0.2); border-color:rgba(255,138,61,0.6); color:#ffb07a; }
+.badge-param{ background:rgba(43,212,189,0.15); border-color:rgba(43,212,189,0.45); color:#9df1e5; }
+.badge-format{ background:rgba(255,255,255,0.04); border-color:rgba(255,255,255,0.15); color:#cfe0f1; }
+.badge-container{ background:rgba(255,255,255,0.02); border-color:rgba(255,255,255,0.12); color:#9fb0c0; }
 
 
 /* --- Metrics compact overrides --- */
@@ -1582,6 +1589,120 @@ const pendingMetricsRetry = new Set();
 const metricsRetryCount = new Map();
 let statusStream = null;
 let statusEntries = [];
+// Badge rendering (shared with Tag Editor)
+const TAG_BADGE_GAP = 6;
+let badgeMeasureHost = null;
+function ensureBadgeMeasureHost(){
+  if(badgeMeasureHost) return badgeMeasureHost;
+  const host = document.createElement('div');
+  host.style.position = 'absolute';
+  host.style.visibility = 'hidden';
+  host.style.pointerEvents = 'none';
+  host.style.top = '-9999px';
+  host.style.left = '-9999px';
+  host.style.display = 'flex';
+  host.style.gap = `${TAG_BADGE_GAP}px`;
+  document.body.appendChild(host);
+  badgeMeasureHost = host;
+  return host;
+}
+function measureBadgeWidth(badgeEl){
+  const host = ensureBadgeMeasureHost();
+  host.appendChild(badgeEl);
+  const w = badgeEl.offsetWidth;
+  host.removeChild(badgeEl);
+  return w;
+}
+function makeBadge(label, type, title){
+  const span = document.createElement('span');
+  span.className = 'badge' + (type ? ` badge-${type}` : '');
+  span.textContent = label;
+  if(title) span.title = title;
+  return span;
+}
+function computeVisibleBadges(badges, containerWidth){
+  if(!badges || !badges.length || !containerWidth) return { visible: badges || [], hidden: [] };
+  const pinned = [];
+  const seenPinned = new Set();
+  badges.forEach(b=>{
+    if(b && (b.type === 'voicing' || b.type === 'preset')){
+      const key = `${b.type}:${b.label}`;
+      if(!seenPinned.has(key)){
+        pinned.push(b);
+        seenPinned.add(key);
+      }
+    }
+  });
+  const rest = badges.filter(b=>!(b && (b.type === 'voicing' || b.type === 'preset')));
+  const ordered = [...pinned, ...rest];
+  if(!ordered.length) return { visible: [], hidden: [] };
+
+  const widths = ordered.map(b => {
+    const el = makeBadge(b.label || '', b.type || '', b.title);
+    return measureBadgeWidth(el);
+  });
+  const totalWidth = widths.reduce((acc,w,idx)=> acc + w + (idx>0 ? TAG_BADGE_GAP : 0), 0);
+  if(totalWidth <= containerWidth){
+    return { visible: ordered, hidden: [] };
+  }
+  const reserveBadge = makeBadge("+99", "format");
+  const reserveWidth = measureBadgeWidth(reserveBadge);
+  const available = Math.max(0, containerWidth - reserveWidth - TAG_BADGE_GAP);
+  let used = 0;
+  const visible = [];
+  let hiddenStart = ordered.length;
+  for(let i=0;i<ordered.length;i++){
+    const w = widths[i] + (visible.length ? TAG_BADGE_GAP : 0);
+    if(used + w <= available){
+      visible.push(ordered[i]);
+      used += w;
+    }else{
+      hiddenStart = i;
+      break;
+    }
+  }
+  const hidden = ordered.slice(hiddenStart);
+  return { visible, hidden };
+}
+function renderBadges(badges, container){
+  const wrap = container || document.createElement('div');
+  wrap.className = 'badgeRow';
+  wrap.innerHTML = '';
+  if(!badges || !badges.length) return wrap;
+  let width = wrap.parentElement ? wrap.parentElement.clientWidth : 0;
+  if(!width) width = wrap.getBoundingClientRect().width || wrap.clientWidth;
+  if(!width) width = 320;
+  const { visible, hidden } = computeVisibleBadges(badges, width);
+  visible.forEach(b => {
+    const lbl = b.label || '';
+    const type = b.type || '';
+    wrap.appendChild(makeBadge(lbl, type, b.title));
+  });
+  if(hidden.length > 0){
+    const more = makeBadge(`+${hidden.length}`, 'format', hidden.map(b=>b.title || b.label).join(', '));
+    wrap.appendChild(more);
+  }
+  return wrap;
+}
+function layoutBadgeRows(){
+  const rows = document.querySelectorAll('.badgeRow');
+  rows.forEach(br=>{
+    let badges = [];
+    try { badges = JSON.parse(br.dataset.badges || '[]'); } catch {}
+    renderBadges(badges, br);
+  });
+}
+let badgeLayoutRaf = null;
+function queueBadgeLayout(){
+  if(badgeLayoutRaf) cancelAnimationFrame(badgeLayoutRaf);
+  badgeLayoutRaf = requestAnimationFrame(()=>{ badgeLayoutRaf = null; layoutBadgeRows(); });
+}
+window.addEventListener('resize', queueBadgeLayout);
+const mainBadgeObserver = new ResizeObserver(() => queueBadgeLayout());
+document.addEventListener('DOMContentLoaded', () => {
+  const out = document.getElementById('outlist');
+  if(out) mainBadgeObserver.observe(out);
+});
 const METRIC_META = [
   { key:"I", label:"I", desc:"Integrated loudness (LUFS) averaged over the whole song. Higher (less negative) is louder; aim for musical balance, not just numbers." },
   { key:"TP", label:"TP", desc:"True Peak (dBTP) or peak dBFS if TP unavailable. Closer to 0 dBTP is louder but riskier; keep headroom for clean playback." },
