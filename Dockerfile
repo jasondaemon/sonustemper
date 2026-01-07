@@ -19,7 +19,7 @@ WORKDIR /app
 COPY mastering-ui/app/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
-COPY mastering-ui/app/app.py /app/app.py
+COPY mastering-ui/app/ /app/
 COPY mastering /app/mastering
 
 ENV DATA_DIR=/data \
