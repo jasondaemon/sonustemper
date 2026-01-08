@@ -3961,8 +3961,6 @@ function renderTagList(){
     list.appendChild(row);
   });
   queueBadgeLayout();
-  renderWorkingList();
-  updateEditorView();
 }
 function layoutBadgeRows(){
   const rows = document.querySelectorAll('.badgeRow');
@@ -4000,9 +3998,12 @@ async function fetchTagList(scope = 'out'){
     if(list) list.innerHTML = '<div class="small" style="color:#f99;">Failed to load list.</div>';
   }
 }
-async function selectTagFile(id){
+async function selectTagFile(id, skipRender=false){
   tagState.selectedId = id;
-  renderTagList();
+  if(!skipRender){
+    renderTagList();
+    renderWorkingList();
+  }
   const detailEmpty = document.getElementById('tagDetailEmpty');
   const detailForm = document.getElementById('tagDetailForm');
   if(detailEmpty) detailEmpty.style.display = 'none';
@@ -4170,7 +4171,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
       fetchTagList(btn.dataset.scope || 'out');
     });
   });
-  document.querySelectorAll('#tagTabBtns button').forEach(btn=>{
+ document.querySelectorAll('#tagTabBtns button').forEach(btn=>{
     btn.addEventListener('click', ()=> setTagTab(btn.dataset.tab));
   });
   setTagTab('track');
@@ -4250,12 +4251,13 @@ function renderWorkingList(){
     right.appendChild(rem);
     left.appendChild(right);
     row.appendChild(left);
-    row.addEventListener('click', ()=> { tagState.selectedId = it.id; updateEditorView(); renderWorkingList(); renderTagList(); selectTagFile(it.id); });
+    row.addEventListener('click', ()=> { tagState.selectedId = it.id; renderWorkingList(); selectTagFile(it.id, true); updateEditorView({fromSelection:true}); });
     list.appendChild(row);
   });
   queueBadgeLayout();
 }
-function updateEditorView(){
+function updateEditorView(opts={}){
+  const fromSelection = opts.fromSelection || false;
   const emptyTrack = document.getElementById('tagDetailEmpty');
   const formTrack = document.getElementById('tagDetailForm');
   const albumPane = document.getElementById('tagAlbumPane');
@@ -4272,7 +4274,11 @@ function updateEditorView(){
     setTagTab('track');
     trackPane.style.display = 'block';
     albumPane.style.display = 'none';
-    selectTagFile(tagState.selectedId || tagState.working[0].id, true);
+    const targetId = tagState.selectedId || tagState.working[0].id;
+    tagState.selectedId = targetId;
+    if(!fromSelection){
+      selectTagFile(targetId, true);
+    }
   }else{
     setTagTab('album');
     trackPane.style.display = 'none';
