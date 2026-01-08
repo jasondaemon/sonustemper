@@ -4421,12 +4421,13 @@ document.getElementById('albApplyBtn').addEventListener('click', async ()=>{
   const tracks = [];
   document.querySelectorAll('#albTableBody tr').forEach(tr=>{
     const id = tr.dataset.id;
+    const val = (sel)=>{ const el = tr.querySelector(sel); return el ? el.value : ''; };
     tracks.push({
       id,
-      track: tr.querySelector('input[name="albTrack"]').value,
-      title: tr.querySelector('input[name="albTitle"]').value,
-      artist: tr.querySelector('input[name="albArtist"]').value,
-      disc: tr.querySelector('input[name="albDisc"]').value,
+      track: val('input[name="albTrack"]'),
+      title: val('input[name="albTitle"]'),
+      artist: val('input[name="albArtist"]'),
+      disc: val('input[name="albDisc"]'),
     });
   });
   const payload = {
