@@ -50,7 +50,7 @@ class TaggerService:
         tag_in_dir: Path,
         tag_tmp_dir: Path,
         max_upload_bytes: int = 250 * 1024 * 1024,
-        max_artwork_bytes: int = 10 * 1024 * 1024,
+        max_artwork_bytes: int = 30 * 1024 * 1024,
     ):
         self.out_dir = out_dir
         self.tag_in_dir = tag_in_dir
