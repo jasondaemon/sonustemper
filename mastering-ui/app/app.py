@@ -4019,7 +4019,9 @@ function fileListRow(item){
   left.className = 'tagRow';
   const leftCol = document.createElement('div');
   leftCol.className = 'tagRowLeft';
-  leftCol.appendChild(badgeTitle(item.display_title || item.basename || item.relpath || '(untitled)', item.full_name || item.basename || item.relpath || ''));
+  const titleText = item.display_title || item.basename || item.relpath || '(untitled)';
+  const titleNode = badgeTitle(titleText, item.full_name || item.basename || item.relpath || titleText);
+  leftCol.appendChild(titleNode);
   const badgeRow = document.createElement('div');
   badgeRow.className = 'badgeRow';
   badgeRow.dataset.badges = JSON.stringify(item.badges || []);
