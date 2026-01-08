@@ -1690,7 +1690,8 @@ function renderBadges(badges, container){
   if(!width) width = wrap.getBoundingClientRect().width || wrap.clientWidth;
   if(!width) width = 320;
   const { visible, hidden } = computeVisibleBadges(badges, width);
-  visible.forEach(b => {
+  const toRender = visible.length ? visible : badges;
+  toRender.forEach(b => {
     const lbl = b.label || '';
     const type = b.type || '';
     wrap.appendChild(makeBadge(lbl, type, b.title));
@@ -3886,29 +3887,31 @@ function renderTagList(){
     const left = document.createElement('div');
     left.className = 'tagRow';
     const leftCol = document.createElement('div');
-    leftCol.className = 'tagRowLeft';
-    leftCol.appendChild(badgeTitle(enriched.display_title, enriched.full_name || enriched.basename));
-    const badgeRow = document.createElement('div');
-    badgeRow.className = 'badgeRow';
-    badgeRow.dataset.badges = JSON.stringify(enriched.badges || []);
-    leftCol.appendChild(badgeRow);
-    left.appendChild(leftCol);
-    const right = document.createElement('div');
-    right.className = 'tagActions';
-    right.style.marginLeft = 'auto';
-    const btn = document.createElement('button');
-    btn.className = 'btnGhost';
-    btn.textContent = 'Add';
-    btn.addEventListener('click', (e)=>{
-      e.stopPropagation();
-      addToWorking(enriched);
-    });
-    right.appendChild(btn);
-    left.appendChild(right);
-    row.appendChild(left);
-    row.addEventListener('click', ()=> { addToWorking(enriched); });
-    list.appendChild(row);
+  leftCol.className = 'tagRowLeft';
+  leftCol.appendChild(badgeTitle(enriched.display_title, enriched.full_name || enriched.basename));
+  const badgeRow = document.createElement('div');
+  badgeRow.className = 'badgeRow';
+  badgeRow.dataset.badges = JSON.stringify(enriched.badges || []);
+  leftCol.appendChild(badgeRow);
+  left.appendChild(leftCol);
+  const right = document.createElement('div');
+  right.className = 'tagActions';
+  right.style.marginLeft = 'auto';
+  const btn = document.createElement('button');
+  btn.className = 'btnGhost';
+  btn.textContent = 'Add';
+  btn.style.marginLeft = 'auto';
+  btn.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    addToWorking(enriched);
   });
+  right.appendChild(btn);
+  row.appendChild(left);
+  row.appendChild(right);
+  row.appendChild(left);
+  row.addEventListener('click', ()=> { addToWorking(enriched); });
+  list.appendChild(row);
+});
   queueBadgeLayout();
 }
 function layoutBadgeRows(){
@@ -4081,10 +4084,11 @@ function renderWorkingList(){
     rem.className = 'btnGhost';
     rem.textContent = '✕';
     rem.style.padding = '4px 8px';
+    rem.style.marginLeft = 'auto';
     rem.addEventListener('click',(e)=>{ e.stopPropagation(); removeFromWorking(it.id); });
     right.appendChild(rem);
-    left.appendChild(right);
     row.appendChild(left);
+    row.appendChild(right);
     row.addEventListener('click', ()=> { tagState.selectedId = it.id; renderWorkingList(); selectTagFile(it.id, true); updateEditorView({fromSelection:true}); });
     list.appendChild(row);
   });
