@@ -3320,9 +3320,10 @@ MANAGE_PRESETS_HTML = r"""
       </div>
     </div>
 
-    <div class="card">
+    <div class="row" style="gap:16px; flex-wrap:wrap;">
+      <div class="card" style="flex:1 1 0; min-width:320px;">
         <h2 style="margin:0 0 8px 0; font-size:15px; display:flex; align-items:center; gap:8px;">
-          Create preset from reference
+          Analyze reference to create preset
           <button class="info-btn" type="button" data-info-type="manage-preset-info" aria-label="How this works">ⓘ</button>
         </h2>
         <div class="small" style="margin-bottom:6px;">Upload supported audio (wav/mp3/flac/aiff, ≤100MB). We will analyze loudness/tonal balance and seed a preset.</div>
@@ -3333,17 +3334,20 @@ MANAGE_PRESETS_HTML = r"""
             <div id="uploadStatus" class="small"></div>
           </div>
         </form>
-        <div class="row" style="align-items:flex-start; gap:16px; margin-top:10px;">
-          <div class="col" style="gap:4px;">
-            <div class="small">Have a JSON preset you edited? Upload it here (≤1MB).</div>
-            <input type="file" id="presetJsonFile" accept=".json" />
-            <div class="row" style="margin-top:6px; gap:10px;">
-              <button class="btnGhost" type="button" id="uploadPresetJsonBtn">Upload Preset</button>
-              <div id="uploadPresetJsonStatus" class="small"></div>
-            </div>
+      </div>
+
+      <div class="card" style="flex:1 1 0; min-width:320px;">
+        <h2 style="margin:0 0 8px 0; font-size:15px;">Upload preset JSON</h2>
+        <div class="small" style="margin-bottom:6px;">Have a JSON preset you edited? Upload it here (≤1MB). Invalid JSON will be rejected.</div>
+        <div class="col" style="gap:8px;">
+          <input type="file" id="presetJsonFile" accept=".json" />
+          <div class="row" style="margin-top:6px; gap:10px;">
+            <button class="btnGhost" type="button" id="uploadPresetJsonBtn">Upload Preset</button>
+            <div id="uploadPresetJsonStatus" class="small"></div>
           </div>
         </div>
       </div>
+    </div>
 
       <div class="card">
         <h2 style="margin:0 0 8px 0; font-size:15px;">Available presets</h2>
