@@ -3693,7 +3693,7 @@ TAGGER_HTML = r"""
       </div>
         <div id="tagAlbumPane" style="display:none;">
           <h3 style="margin:0 0 8px 0;">Album Details</h3>
-          <div id="tagAlbumEmpty" class="placeholder">Select two or more tracks to edit album metadata.</div>
+          <div id="tagAlbumEmpty" class="placeholder">Add files to edit tags.</div>
           <div id="tagAlbumForm" class="col" style="display:none; gap:12px;">
             <div class="fieldGrid">
               <div><label>Album</label><input type="text" id="albAlbum"></div>
@@ -4006,7 +4006,7 @@ async function selectTagFile(id, skipRender=false){
   const detailEmpty = document.getElementById('tagDetailEmpty');
   const detailForm = document.getElementById('tagDetailForm');
   if(detailEmpty) detailEmpty.style.display = 'none';
-  if(detailForm) detailForm.style.display = 'flex';
+  if(detailForm) detailForm.style.display = 'none'; // track form hidden in unified view
   tagToast('Loading tags...');
   try{
     const res = await fetch(`/api/tagger/file/${encodeURIComponent(id)}`, { cache:'no-store' });
@@ -4029,15 +4029,17 @@ async function selectTagFile(id, skipRender=false){
     const art = document.getElementById('tagArtStatus');
     if(art) art.textContent = tags.artwork && tags.artwork.present ? 'Embedded artwork present' : 'No artwork';
     const artImg = document.getElementById('tagArtImg');
-    if(artImg){
+    const artThumb = document.getElementById('tagArtThumb');
+    if(artImg && artThumb){
       if(tags.artwork && tags.artwork.present){
         artImg.src = `/api/tagger/file/${encodeURIComponent(id)}/artwork?cb=${Date.now()}`;
-        artImg.style.display = 'block';
+        artThumb.style.display = 'inline-block';
       }else{
-        artImg.style.display = 'none';
+        artThumb.style.display = 'none';
         artImg.src = '';
       }
     }
+    tagState.trackArt = { mode:'keep', uploadId:null, mime:null, size:0, preview:null };
     tagToast('');
   }catch(e){
     tagToast('Failed to load tags.');
@@ -4061,6 +4063,37 @@ async function saveTags(){
       comment: document.getElementById('tagComment')?.value || "",
     }
   };
+  // If artwork upload/clear is pending, route through album apply to keep single-save behavior
+  if(tagState.trackArt && (tagState.trackArt.mode === 'apply' || tagState.trackArt.mode === 'clear')){
+    const payloadAlbum = {
+      file_ids: [tagState.selectedId],
+      shared: {},
+      tracks: [{
+        id: tagState.selectedId,
+        track: payload.tags.track,
+        title: payload.tags.title,
+        artist: payload.tags.artist,
+        disc: payload.tags.disc,
+      }],
+      artwork: { mode: tagState.trackArt.mode, upload_id: tagState.trackArt.uploadId }
+    };
+    try{
+      const res = await fetch('/api/tagger/album/apply', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(payloadAlbum),
+      });
+      if(!res.ok) throw new Error(`HTTP ${res.status}`);
+      tagToast('Saved.');
+      tagState.trackArt = { mode:'keep', uploadId:null, mime:null, size:0, preview:null };
+      selectTagFile(tagState.selectedId, true);
+    }catch(err){
+      tagToast('Save failed.');
+    }finally{
+      if(btn) btn.disabled = false;
+    }
+    return;
+  }
   try{
     const res = await fetch(`/api/tagger/file/${encodeURIComponent(tagState.selectedId)}`, {
       method:'POST',
@@ -4170,10 +4203,11 @@ document.addEventListener('DOMContentLoaded', ()=>{
       fetchTagList(btn.dataset.scope || 'out');
     });
   });
- document.querySelectorAll('#tagTabBtns button').forEach(btn=>{
+  document.querySelectorAll('#tagTabBtns button').forEach(btn=>{
+    if(btn.dataset.tab === 'track'){ btn.style.display = 'none'; }
     btn.addEventListener('click', ()=> setTagTab(btn.dataset.tab));
   });
-  setTagTab('track');
+  setTagTab('album');
   fetchTagList('out');
 });
 
@@ -4266,24 +4300,20 @@ function updateEditorView(opts={}){
     if(emptyTrack) emptyTrack.style.display = 'block';
     if(formTrack) formTrack.style.display = 'none';
     setTagTab('track');
+    if(albumPane) albumPane.style.display = 'none';
     renderAlbumForm();
     return;
   }
   syncWorkingSelected();
-  if(tagState.working.length === 1){
-    setTagTab('track');
-    trackPane.style.display = 'block';
-    albumPane.style.display = 'none';
+  // Always use album view for consistency
+  setTagTab('album');
+  if(trackPane) trackPane.style.display = 'none';
+  if(albumPane) albumPane.style.display = 'block';
+  renderAlbumForm();
+  if(!fromSelection){
     const targetId = tagState.selectedId || tagState.working[0].id;
     tagState.selectedId = targetId;
-    if(!fromSelection){
-      selectTagFile(targetId, true);
-    }
-  }else{
-    setTagTab('album');
-    trackPane.style.display = 'none';
-    albumPane.style.display = 'block';
-    renderAlbumForm();
+    ensureFileDetail(targetId);
   }
 }
 
