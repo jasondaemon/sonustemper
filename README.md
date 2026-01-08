@@ -66,6 +66,12 @@ SonusTemper is a one-page mastering workstation: drop in a song, choose a voicin
 
 ![Metrics panel](images/jobmetrics.png)
 
+## ID3 Tag Editing
+- Add processed mp3s, or import directly to apply your tags and album art
+- Download individual songs or a full album after tagging
+
+![taggin ui](images/tagging.png)
+
 ## Data paths
 - Inputs: `./data/in`
 - Outputs: `./data/out`
@@ -131,7 +137,11 @@ uvicorn app:app --reload --port 8383
 
 ## Future Features
 - Audio Analysis
+  - Loudness Report
+  - Streaming platform complaince
+  - Potential cliping
 - Frequency Filtering
 - Wabeform visual integration
 - Drag and Drop file handling
 - Enhanced file management
+- Preset Manager enhancement

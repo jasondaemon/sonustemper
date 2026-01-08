@@ -3321,23 +3321,33 @@ MANAGE_PRESETS_HTML = r"""
     </div>
 
     <div class="card">
-      <h2 style="margin:0 0 8px 0; font-size:15px; display:flex; align-items:center; gap:8px;">
-        Create preset from reference
-        <button class="info-btn" type="button" data-info-type="manage-preset-info" aria-label="How this works">ⓘ</button>
-      </h2>
-      <div class="small" style="margin-bottom:6px;">Upload supported audio (wav/mp3/flac/aiff, ≤100MB). We will analyze loudness/tonal balance and seed a preset.</div>
-      <form id="uploadPresetForm" class="col">
-        <input type="file" id="presetFile" accept=".wav,.mp3,.flac,.aiff,.aif" required />
-        <div class="row">
-          <button class="btn" type="submit">Upload & Create</button>
-          <div id="uploadStatus" class="small"></div>
+        <h2 style="margin:0 0 8px 0; font-size:15px; display:flex; align-items:center; gap:8px;">
+          Create preset from reference
+          <button class="info-btn" type="button" data-info-type="manage-preset-info" aria-label="How this works">ⓘ</button>
+        </h2>
+        <div class="small" style="margin-bottom:6px;">Upload supported audio (wav/mp3/flac/aiff, ≤100MB). We will analyze loudness/tonal balance and seed a preset.</div>
+        <form id="uploadPresetForm" class="col">
+          <input type="file" id="presetFile" accept=".wav,.mp3,.flac,.aiff,.aif" required />
+          <div class="row">
+            <button class="btn" type="submit">Analyze & Create</button>
+            <div id="uploadStatus" class="small"></div>
+          </div>
+        </form>
+        <div class="row" style="align-items:flex-start; gap:16px; margin-top:10px;">
+          <div class="col" style="gap:4px;">
+            <div class="small">Have a JSON preset you edited? Upload it here (≤1MB).</div>
+            <input type="file" id="presetJsonFile" accept=".json" />
+            <div class="row" style="margin-top:6px; gap:10px;">
+              <button class="btnGhost" type="button" id="uploadPresetJsonBtn">Upload Preset</button>
+              <div id="uploadPresetJsonStatus" class="small"></div>
+            </div>
+          </div>
         </div>
-      </form>
-    </div>
+      </div>
 
-    <div class="card">
-      <h2 style="margin:0 0 8px 0; font-size:15px;">Available presets</h2>
-      <div id="presetList" class="list"></div>
+      <div class="card">
+        <h2 style="margin:0 0 8px 0; font-size:15px;">Available presets</h2>
+        <div id="presetList" class="list"></div>
     </div>
   </div>
   <div id="drawerBackdropManage" class="drawer-backdrop hidden" tabindex="-1"></div>
@@ -3421,6 +3431,29 @@ document.getElementById('uploadPresetForm').addEventListener('submit', async (e)
     status.textContent = j.message || 'Preset created.';
     fileInput.value = '';
     loadPresets();
+  }
+});
+document.getElementById('uploadPresetJsonBtn').addEventListener('click', async ()=>{
+  const input = document.getElementById('presetJsonFile');
+  const status = document.getElementById('uploadPresetJsonStatus');
+  const f = input.files && input.files[0];
+  if(!f){ status.textContent = 'Select a JSON preset.'; return; }
+  status.textContent = 'Uploading...';
+  const fd = new FormData();
+  fd.append('file', f, f.name);
+  try{
+    const res = await manageFetch('/api/preset/upload', { method:'POST', body: fd });
+    if(!res.ok){
+      const t = await res.text();
+      status.textContent = `Upload failed: ${t || res.status}`;
+      return;
+    }
+    const j = await res.json();
+    status.textContent = j.message || 'Preset uploaded.';
+    input.value = '';
+    loadPresets();
+  }catch(err){
+    status.textContent = 'Upload failed.';
   }
 });
 loadPresets();
@@ -4803,6 +4836,34 @@ def preset_delete(name: str):
         raise HTTPException(status_code=404, detail="preset_not_found")
     target.unlink()
     return {"message": f"Deleted preset {name}"}
+@app.post("/api/preset/upload")
+async def preset_upload(file: UploadFile = File(...)):
+    # Accept only JSON presets, size capped to 1MB
+    suffix = Path(file.filename).suffix.lower()
+    if suffix != ".json":
+        raise HTTPException(status_code=400, detail="unsupported_type")
+    raw = await file.read()
+    if len(raw) > 1 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="file_too_large")
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid_json")
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="invalid_preset")
+    # Minimal sanity check
+    name = data.get("name") or Path(file.filename).stem
+    if not isinstance(name, str) or not name.strip():
+        raise HTTPException(status_code=400, detail="invalid_name")
+    safe_name = re.sub(r"[^a-zA-Z0-9._-]+", "_", name.strip())
+    if not safe_name:
+        raise HTTPException(status_code=400, detail="invalid_name")
+    dest = PRESET_DIR / f"{safe_name}.json"
+    try:
+        dest.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="write_failed") from exc
+    return {"message": f"Preset uploaded as {dest.name}", "filename": dest.name}
 @app.post("/api/preset/generate")
 async def preset_generate(file: UploadFile = File(...)):
     # Limit to audio extensions already supported
