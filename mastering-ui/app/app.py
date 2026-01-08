@@ -8,6 +8,7 @@ import sys
 import tempfile
 import asyncio
 import logging
+import time
 from collections import deque
 from pathlib import Path
 from datetime import datetime
@@ -62,6 +63,9 @@ TAGGER = TaggerService(
     max_upload_bytes=TAGGER_MAX_UPLOAD,
     max_artwork_bytes=TAGGER_MAX_ARTWORK,
 )
+# Small in-memory cache for outlist to reduce disk scans
+OUTLIST_CACHE_TTL = int(os.getenv("OUTLIST_CACHE_TTL", "30"))
+OUTLIST_CACHE: dict = {}
 # Startup debug for security context
 logger.info(f"[startup] API_KEY set? {bool(API_KEY)} API_AUTH_DISABLED={API_AUTH_DISABLED} PROXY_SHARED_SECRET set? {bool(PROXY_SHARED_SECRET)}")
 MAX_CONCURRENT_RUNS = int(os.getenv("MAX_CONCURRENT_RUNS", "2"))
@@ -4698,9 +4702,16 @@ def delete_upload(name: str):
     return {"message": f"Deleted upload {name}."}
 @app.get("/api/outlist")
 def outlist(song: str):
+    now = time.time()
+    cached = OUTLIST_CACHE.get(song)
+    if cached and (now - cached["ts"] < OUTLIST_CACHE_TTL):
+        return cached["data"]
+
     folder = OUT_DIR / song
-    items = []
+    items: list[dict] = []
     input_m = None
+
+    # Prefer existing metrics; avoid expensive recomputation
     try:
         m_full = wrap_metrics(song, read_run_metrics(folder))
         if not m_full:
@@ -4710,49 +4721,18 @@ def outlist(song: str):
             input_m = m_full.get("input")
     except Exception:
         pass
-    # Fallback: derive input metrics directly from source if still missing
-    if not input_m:
-        try:
-            src = find_input_file(song)
-            if src:
-                # Compute fuller input metrics (loudness + astats) similar to mastered outputs
-                input_m = measure_loudness(src) or {}
-                try:
-                    cf_corr = calc_cf_corr(src)
-                    if isinstance(cf_corr, dict):
-                        for k in ("crest_factor", "peak_level", "rms_level", "dynamic_range", "noise_floor"):
-                            if k not in input_m or input_m.get(k) is None:
-                                input_m[k] = cf_corr.get(k)
-                except Exception:
-                    pass
-                # add duration
-                try:
-                    info = docker_ffprobe_json(src)
-                    dur = float(info.get("format", {}).get("duration")) if info else None
-                    if dur is not None:
-                        input_m["duration_sec"] = dur
-                except Exception:
-                    pass
-                # Cache input metrics into metrics.json for quicker subsequent loads
-                try:
-                    m_stub = wrap_metrics(song, read_run_metrics(folder)) or {"output": None}
-                    m_stub["input"] = input_m
-                    (folder / "metrics.json").write_text(json.dumps(m_stub, indent=2), encoding="utf-8")
-                except Exception:
-                    pass
-        except Exception:
-            input_m = None
+
     if folder.exists() and folder.is_dir():
-        audio_exts = {".wav":"WAV",".mp3":"MP3",".m4a":"M4A",".aac":"AAC",".ogg":"OGG",".flac":"FLAC"}
+        audio_exts = {".wav": "WAV", ".mp3": "MP3", ".m4a": "M4A", ".aac": "AAC", ".ogg": "OGG", ".flac": "FLAC"}
         audio_files = [p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in audio_exts]
         stems = sorted(set(p.stem for p in audio_files))
-        pref = [".mp3",".m4a",".aac",".ogg",".flac",".wav"]
+        pref = [".mp3", ".m4a", ".aac", ".ogg", ".flac", ".wav"]
         for stem in stems:
-            # Parse display + badges using shared tagger logic
             try:
                 display_title, badges = TAGGER._parse_badges(stem, "out")
             except Exception:
                 display_title, badges = (stem, [])
+
             links = []
             primary = None
             wav_url = None
@@ -4769,40 +4749,12 @@ def outlist(song: str):
                     wav_url = url
                 if ext == ".mp3":
                     mp3_url = url
+
             m = read_metrics_for_wav(folder / f"{stem}.wav")
             if not m:
                 m = read_metrics_file(folder / f"{stem}.metrics.json")
-            if not m:
-                try:
-                    # Fall back to first available file for quick metrics
-                    first_fp = folder / f"{stem}{pref[0]}"
-                    if not first_fp.exists():
-                        for ext in pref[1:]:
-                            alt = folder / f"{stem}{ext}"
-                            if alt.exists():
-                                first_fp = alt
-                                break
-                    if first_fp.exists():
-                        m = basic_metrics(first_fp)
-                except Exception:
-                    m = None
-            else:
-                # Backfill missing fields from a quick analysis if present metrics are partial
-                try:
-                    first_fp = folder / f"{stem}.wav"
-                    if not first_fp.exists():
-                        for ext in pref:
-                            alt = folder / f"{stem}{ext}"
-                            if alt.exists():
-                                first_fp = alt
-                                break
-                    bm = basic_metrics(first_fp) if first_fp.exists() else {}
-                    if isinstance(bm, dict) and isinstance(m, dict):
-                        for key in ["crest_factor","peak_level","rms_level","dynamic_range","noise_floor","duration_sec","TP","I","LRA"]:
-                            if m.get(key) is None and bm.get(key) is not None:
-                                m[key] = bm[key]
-                except Exception:
-                    pass
+
+            # Light backfill: duration only if missing
             if (not m) or ("duration_sec" not in m):
                 try:
                     target = folder / f"{stem}{pref[0]}"
@@ -4820,6 +4772,7 @@ def outlist(song: str):
                         m["duration_sec"] = dur
                 except Exception:
                     pass
+
             items.append({
                 "name": stem,
                 "display_title": display_title,
@@ -4832,7 +4785,10 @@ def outlist(song: str):
                 "metrics": fmt_metrics(m),
                 "metrics_obj": m,
             })
-    return {"items": items, "input": input_m}
+
+    resp = {"items": items, "input": input_m}
+    OUTLIST_CACHE[song] = {"ts": now, "data": resp}
+    return resp
 @app.get("/api/preset/list")
 def preset_list():
     items = []
