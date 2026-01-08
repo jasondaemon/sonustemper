@@ -3742,9 +3742,9 @@ TAGGER_HTML = r"""
     .badge-param{ background:rgba(43,212,189,0.15); border-color:rgba(43,212,189,0.45); color:#9df1e5; }
   .badge-format{ background:rgba(255,255,255,0.04); border-color:rgba(255,255,255,0.15); color:#cfe0f1; }
   .badge-container{ background:rgba(255,255,255,0.02); border-color:rgba(255,255,255,0.12); color:#9fb0c0; }
-    .tagRow{ display:flex; gap:8px; align-items:flex-start; }
-    .tagRowLeft{ flex:1; min-width:0; display:flex; flex-direction:column; }
-    .tagRowTitle{ font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .tagRow{ display:flex; gap:12px; align-items:flex-start; width:100%; }
+    .tagRowLeft{ flex:1; min-width:0; display:flex; flex-direction:column; overflow:hidden; }
+    .tagRowTitle{ font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
     .badgeRow{ display:flex; gap:6px; align-items:center; white-space:nowrap; overflow:hidden; margin-top:6px; width:100%; }
     .tagActions{ display:flex; align-items:center; gap:8px; margin-left:auto; justify-content:flex-end; }
     .trackDlBtn{ padding:4px 8px; }
@@ -4014,7 +4014,7 @@ function renderBadges(badges, container){
 function fileListRow(item){
   const row = document.createElement('div');
   row.className = 'tagItem' + (tagState.selectedId === item.id ? ' active' : '');
-  row.title = item.basename || item.relpath || '';
+  row.title = item.full_name || item.basename || item.relpath || '';
   const left = document.createElement('div');
   left.className = 'tagRow';
   const leftCol = document.createElement('div');
@@ -4062,12 +4062,15 @@ function renderTagList(){
     const left = document.createElement('div');
     left.className = 'tagRow';
     const leftCol = document.createElement('div');
-  leftCol.className = 'tagRowLeft';
-  leftCol.appendChild(badgeTitle(enriched.display_title, enriched.full_name || enriched.basename));
-  const badgeRow = document.createElement('div');
-  badgeRow.className = 'badgeRow';
-  badgeRow.dataset.badges = JSON.stringify(enriched.badges || []);
-  leftCol.appendChild(badgeRow);
+    const leftCol = document.createElement('div');
+    leftCol.className = 'tagRowLeft';
+    const titleText = enriched.display_title || enriched.basename || enriched.relpath || '(untitled)';
+    const titleNode = badgeTitle(titleText, enriched.full_name || enriched.basename || enriched.relpath || titleText);
+    leftCol.appendChild(titleNode);
+    const badgeRow = document.createElement('div');
+    badgeRow.className = 'badgeRow';
+    badgeRow.dataset.badges = JSON.stringify(enriched.badges || []);
+    leftCol.appendChild(badgeRow);
     left.appendChild(leftCol);
     const right = document.createElement('div');
     right.className = 'tagActions';
