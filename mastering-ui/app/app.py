@@ -1260,7 +1260,7 @@ input[type="range"]{
         <div class="utilDropdown hidden" id="utilDropdownMain">
           <a href="/">Mastering</a>
           <div style="height:1px; background:var(--line); margin:4px 0;"></div>
-          <a href="/">File Manager</a>
+          <a href="/manage-files">File Manager</a>
           <a href="/manage-presets">Preset Manager</a>
           <a href="/tagger">Tag Editor</a>
         </div>
@@ -1273,7 +1273,7 @@ input[type="range"]{
           <div class="row">
             <input type="file" id="file" name="files" accept=".wav,.mp3,.flac,.aiff,.aif" multiple style="display:none" />
             <button class="btn2" type="button" id="uploadBtn" onclick="triggerUpload()">Upload files</button>
-            <button class="btnGhost" type="button" onclick="showManage()">Manage Files</button>
+            <button class="btnGhost" type="button" onclick="window.location.href='/manage-files'">Manage Files</button>
           </div>
         </form>
         <div id="uploadResult" class="small" style="margin-top:10px;"></div>
@@ -3203,6 +3203,10 @@ def index():
 def manage_presets():
     html = MANAGE_PRESETS_HTML.replace("{{VERSION}}", VERSION)
     return HTMLResponse(html)
+@app.get("/manage-files", response_class=HTMLResponse)
+def manage_files():
+    html = MANAGE_FILES_HTML.replace("{{VERSION}}", VERSION)
+    return HTMLResponse(html)
 @app.get("/tagger", response_class=HTMLResponse)
 def tagger_page():
     return HTMLResponse(TAGGER_HTML.replace("{{VERSION}}", VERSION))
@@ -3315,7 +3319,7 @@ MANAGE_PRESETS_HTML = r"""
         <div class="utilDropdown hidden" id="utilDropdownManage">
           <a href="/">Mastering</a>
           <div style="height:1px; background:var(--line); margin:4px 0;"></div>
-          <a href="/">File Manager</a>
+          <a href="/manage-files">File Manager</a>
           <a href="/manage-presets">Preset Manager</a>
           <a href="/tagger">Tag Editor</a>
         </div>
@@ -3502,6 +3506,180 @@ setupUtilMenu('utilToggleManage','utilDropdownManage');
 </body>
 </html>
 """
+MANAGE_FILES_HTML = r"""
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <title>Manage Files - SonusTemper</title>
+  <style>
+    :root{
+      --bg:#0b0f14; --card:#121a23; --muted:#9fb0c0; --text:#e7eef6;
+      --line:#203042; --accent:#ff8a3d; --accent2:#2bd4bd; --danger:#ff4d4d;
+    }
+    body{ margin:0; background:linear-gradient(180deg,#0b0f14,#070a0e); color:var(--text);
+      font-family:-apple-system,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
+    .wrap{ max-width:1100px; margin:0 auto; padding:26px 18px 40px; }
+    h1{ font-size:20px; margin:0 0 6px 0; letter-spacing:.2px; }
+    .card{ background:rgba(18,26,35,.9); border:1px solid var(--line); border-radius:16px; padding:16px; margin-top:14px; }
+    .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .btn{ background:linear-gradient(180deg, rgba(255,138,61,.95), rgba(255,138,61,.75));
+      border:0; color:#1a0f07; font-weight:800; padding:8px 14px; border-radius:10px; cursor:pointer; }
+    .btnGhost{ padding:8px 14px; border-radius:10px; border:1px solid var(--line); background:#0f151d; color:#d7e6f5; cursor:pointer; }
+    .btnDanger{ padding:8px 14px; border-radius:10px; border:1px solid rgba(255,77,77,.35); background:rgba(255,77,77,.15); color:#ffd0d0; cursor:pointer; }
+    .list{ display:flex; flex-direction:column; gap:10px; margin-top:10px; }
+    .item{ padding:10px; border:1px solid var(--line); border-radius:12px; background:#0f151d; display:flex; justify-content:space-between; align-items:center; gap:10px; }
+    .mono{ font-family: ui-monospace, Menlo, Consolas, monospace; }
+    .small{ color:var(--muted); font-size:12px; }
+    .utilMenu{ position:relative; }
+    .utilToggle{ padding:8px 12px; border-radius:10px; border:1px solid var(--line); background:#0f151d; color:#d7e6f5; cursor:pointer; }
+    .utilToggle:hover{ border-color:var(--accent); color:#fff; }
+    .utilDropdown{
+      position:absolute; right:0; top:calc(100% + 6px);
+      background:#0f151d; border:1px solid var(--line); border-radius:10px;
+      min-width:160px; z-index:50; box-shadow:0 8px 22px rgba(0,0,0,0.35);
+      display:flex; flex-direction:column; overflow:hidden;
+    }
+    .utilDropdown a{
+      padding:10px 12px; color:#d7e6f5; text-decoration:none; font-size:13px;
+    }
+    .utilDropdown a:hover{ background:rgba(255,138,61,0.12); color:#fff; }
+    .utilDropdown.hidden{ display:none; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="row" style="justify-content:space-between; align-items:center;">
+      <div>
+        <h1>Manage Files</h1>
+        <div class="small">Upload housekeeping: remove uploaded sources or past runs.</div>
+      </div>
+      <div class="utilMenu">
+        <button class="utilToggle" id="utilToggleFiles" aria-haspopup="true" aria-expanded="false">☰ Utilities</button>
+        <div class="utilDropdown hidden" id="utilDropdownFiles">
+          <a href="/">Mastering</a>
+          <div style="height:1px; background:var(--line); margin:4px 0;"></div>
+          <a href="/manage-files">File Manager</a>
+          <a href="/manage-presets">Preset Manager</a>
+          <a href="/tagger">Tag Editor</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 style="margin:0 0 6px 0; font-size:15px;">Uploads</h2>
+      <div id="uploadsList" class="list"></div>
+    </div>
+
+    <div class="card">
+      <h2 style="margin:0 0 6px 0; font-size:15px;">Runs</h2>
+      <div id="runsList" class="list"></div>
+    </div>
+  </div>
+<script>
+function setupUtilMenu(toggleId, menuId){
+  const toggle = document.getElementById(toggleId);
+  const menu = document.getElementById(menuId);
+  if(!toggle || !menu) return;
+  const close = ()=>{ menu.classList.add('hidden'); toggle.setAttribute('aria-expanded','false'); };
+  toggle.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    const isOpen = !menu.classList.contains('hidden');
+    if(isOpen){ close(); } else { menu.classList.remove('hidden'); toggle.setAttribute('aria-expanded','true'); }
+  });
+  document.addEventListener('click', (e)=>{
+    if(!menu.contains(e.target) && e.target !== toggle){ close(); }
+  });
+}
+async function loadUploads(){
+  const list = document.getElementById('uploadsList');
+  list.innerHTML = '<div class="small">Loading…</div>';
+  try{
+    const res = await fetch('/api/files', { cache:'no-store' });
+    if(!res.ok) throw new Error();
+    const data = await res.json();
+    const files = data.files || [];
+    if(!files.length){
+      list.innerHTML = '<div class="small" style="opacity:.7;">No uploads</div>';
+      return;
+    }
+    list.innerHTML = '';
+    const controls = document.createElement('div');
+    controls.className = 'item';
+    controls.innerHTML = `<div class="small">Bulk actions</div><div><button class="btnGhost" id="uploadsSelectAll">Select all</button> <button class="btnDanger" id="uploadsDelete">Delete selected</button></div>`;
+    list.appendChild(controls);
+    files.forEach(f=>{
+      const row = document.createElement('div');
+      row.className = 'item';
+      row.innerHTML = `<label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" data-upload="${f}"><span class="mono">${f}</span></label>`;
+      list.appendChild(row);
+    });
+    document.getElementById('uploadsSelectAll').onclick = ()=>{
+      document.querySelectorAll('input[data-upload]').forEach(cb=> cb.checked = true);
+    };
+    document.getElementById('uploadsDelete').onclick = async ()=>{
+      const targets = Array.from(document.querySelectorAll('input[data-upload]:checked')).map(cb=>cb.dataset.upload);
+      if(!targets.length) return;
+      if(!confirm(`Delete ${targets.length} upload(s)?`)) return;
+      for(const t of targets){
+        await fetch(`/api/upload/${encodeURIComponent(t)}`, { method:'DELETE' });
+      }
+      loadUploads();
+    };
+  }catch(e){
+    list.innerHTML = '<div class="small" style="color:#f99;">Failed to load uploads</div>';
+  }
+}
+async function loadRuns(){
+  const list = document.getElementById('runsList');
+  list.innerHTML = '<div class="small">Loading…</div>';
+  try{
+    const res = await fetch('/api/recent?limit=200', { cache:'no-store' });
+    if(!res.ok) throw new Error();
+    const data = await res.json();
+    const runs = data.items || [];
+    if(!runs.length){
+      list.innerHTML = '<div class="small" style="opacity:.7;">No runs</div>';
+      return;
+    }
+    list.innerHTML = '';
+    const controls = document.createElement('div');
+    controls.className = 'item';
+    controls.innerHTML = `<div class="small">Bulk actions</div><div><button class="btnGhost" id="runsSelectAll">Select all</button> <button class="btnDanger" id="runsDelete">Delete selected</button></div>`;
+    list.appendChild(controls);
+    runs.forEach(r=>{
+      const row = document.createElement('div');
+      row.className = 'item';
+      row.innerHTML = `<label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" data-run="${r.song}"><span class="mono">${r.song}</span></label>`;
+      list.appendChild(row);
+    });
+    document.getElementById('runsSelectAll').onclick = ()=>{
+      document.querySelectorAll('input[data-run]').forEach(cb=> cb.checked = true);
+    };
+    document.getElementById('runsDelete').onclick = async ()=>{
+      const targets = Array.from(document.querySelectorAll('input[data-run]:checked')).map(cb=>cb.dataset.run);
+      if(!targets.length) return;
+      if(!confirm(`Delete ${targets.length} run(s)?`)) return;
+      for(const t of targets){
+        await fetch(`/api/song/${encodeURIComponent(t)}`, { method:'DELETE' });
+      }
+      loadRuns();
+    };
+  }catch(e){
+    list.innerHTML = '<div class="small" style="color:#f99;">Failed to load runs</div>';
+  }
+}
+document.addEventListener('DOMContentLoaded', ()=>{
+  setupUtilMenu('utilToggleFiles','utilDropdownFiles');
+  loadUploads();
+  loadRuns();
+});
+</script>
+</body>
+</html>
+"""
 TAGGER_HTML = r"""
 <!doctype html>
 <html>
@@ -3591,7 +3769,7 @@ TAGGER_HTML = r"""
         <div class="utilDropdown hidden" id="utilDropdownTag">
           <a href="/">Mastering</a>
           <div style="height:1px; background:var(--line); margin:4px 0;"></div>
-          <a href="/">File Manager</a>
+          <a href="/manage-files">File Manager</a>
           <a href="/manage-presets">Preset Manager</a>
           <a href="/tagger">Tag Editor</a>
         </div>
