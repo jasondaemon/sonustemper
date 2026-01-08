@@ -4254,6 +4254,8 @@ function renderWorkingList(){
     row.dataset.id = it.id;
     const left = document.createElement('div');
     left.className = 'tagRow';
+    left.style.flex = '1';
+    left.style.minWidth = '0';
     const leftCol = document.createElement('div');
     leftCol.className = 'tagRowLeft';
     leftCol.appendChild(badgeTitle(it.display_title || it.basename || it.relpath || '(untitled)', it.full_name || it.basename || it.relpath || ''));
@@ -4265,6 +4267,7 @@ function renderWorkingList(){
     const right = document.createElement('div');
     right.className = 'tagActions';
     right.style.marginLeft = 'auto';
+    right.style.flex = '0 0 auto';
     const rem = document.createElement('button');
     rem.className = 'btnGhost';
     rem.textContent = '✕';
