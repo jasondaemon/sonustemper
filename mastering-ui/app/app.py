@@ -3980,22 +3980,26 @@ function triggerTagImport(){
   document.addEventListener('DOMContentLoaded', ()=>{
     setupUtilMenu('utilToggleTag','utilDropdownTag');
     document.getElementById('tagSearch')?.addEventListener('input', renderTagList);
-    document.getElementById('tagImportFile')?.addEventListener('change', async (e)=>{
+  document.getElementById('tagImportFile')?.addEventListener('change', async (e)=>{
     const status = document.getElementById('tagImportStatus');
+    const setStatus = (msg) => {
+      if(status) status.textContent = msg || '';
+      else tagToast(msg || '');
+    };
     const file = e.target.files[0];
     if(!file){ return; }
-    status.textContent = 'Uploading...';
+    setStatus('Uploading...');
     const fd = new FormData();
     fd.append('file', file, file.name);
     try{
       const res = await fetch('/api/tagger/import', { method:'POST', body: fd });
       if(!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      status.textContent = 'Imported.';
+      setStatus('Imported.');
       await fetchTagList(tagState.scope);
       if(data && data.id){ selectTagFile(data.id); }
     }catch(err){
-      status.textContent = 'Import failed.';
+      setStatus('Import failed.');
     }finally{
       e.target.value = '';
     }
