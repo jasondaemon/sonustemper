@@ -2802,16 +2802,6 @@ async function loadSong(song, options=false){
   if (opts.skipEmpty && !hasItems) return { hasItems:false, hasPlayable:false, processing:false };
   let hasPlayable = false;
   let anyMetricsStrings = false;
-  // Preload input metrics once per run when interactive
-  if (!opts.quiet && hasItems) {
-    try {
-      const mr = await fetch(`/api/metrics?song=${encodeURIComponent(song)}`, { cache: 'no-store' });
-      if (mr.ok) {
-        const mjson = await mr.json();
-        lastRunInputMetrics = mjson.input || null;
-      }
-    } catch (e) { console.debug('metrics preload failed', e); }
-  }
   if (!opts.quiet) {
     const out = document.getElementById('outlist');
     out.innerHTML = '';
@@ -4753,25 +4743,6 @@ def outlist(song: str):
             m = read_metrics_for_wav(folder / f"{stem}.wav")
             if not m:
                 m = read_metrics_file(folder / f"{stem}.metrics.json")
-
-            # Light backfill: duration only if missing
-            if (not m) or ("duration_sec" not in m):
-                try:
-                    target = folder / f"{stem}{pref[0]}"
-                    if not target.exists():
-                        for ext in pref[1:]:
-                            alt = folder / f"{stem}{ext}"
-                            if alt.exists():
-                                target = alt
-                                break
-                    info = docker_ffprobe_json(target)
-                    dur = float(info.get("format", {}).get("duration")) if info else None
-                    if m is None:
-                        m = {}
-                    if dur is not None:
-                        m["duration_sec"] = dur
-                except Exception:
-                    pass
 
             items.append({
                 "name": stem,
