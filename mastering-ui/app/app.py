@@ -1018,7 +1018,7 @@ HTML_TEMPLATE = r"""
 .advToggle button{ background:transparent; border:1px solid var(--line); color:var(--text); border-radius:10px; padding:6px 10px; }
 .advHidden{display:none !important;}
 .tagRowTitle{ font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#e7eef6; }
-.badgeRow{ display:flex; gap:6px; align-items:center; white-space:nowrap; overflow:hidden; margin-top:6px; width:100%; }
+  .badgeRow{ display:flex; gap:6px; align-items:center; white-space:nowrap; overflow:hidden; margin-top:6px; width:100%; }
 .badge{ font-size:11px; padding:4px 8px; border-radius:999px; border:1px solid var(--line); background:#0f151d; color:#d7e6f5; }
 .badge-voicing{ background:rgba(255,138,61,0.2); border-color:rgba(255,138,61,0.6); color:#ffb07a; }
 .badge-param{ background:rgba(43,212,189,0.15); border-color:rgba(43,212,189,0.45); color:#9df1e5; }
@@ -3522,7 +3522,7 @@ TAGGER_HTML = r"""
     .sub{ color:var(--muted); font-size:13px; }
     .top{ display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }
     .card{ background:rgba(18,26,35,.9); border:1px solid var(--line); border-radius:16px; padding:16px; }
-    .grid{ display:grid; grid-template-columns: 360px 1fr; gap:16px; align-items:start; margin-top:14px; }
+    .grid{ display:grid; grid-template-columns: 360px 1fr; gap:16px; align-items:start; margin-top:22px; }
     @media (max-width: 960px){ .grid{ grid-template-columns: 1fr; } }
     .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
     .col{ display:flex; flex-direction:column; gap:8px; }
@@ -3615,8 +3615,8 @@ TAGGER_HTML = r"""
           <button class="btnGhost" type="button" id="tagClearSelBtn">Clear Working Set</button>
         </div>
         <div class="row" style="justify-content:space-between; align-items:center; margin-top:4px;">
-          <h3 style="margin:0;">Working Set</h3>
-          <div class="small">Order = track order</div>
+      <h3 style="margin:0;">Working Set</h3>
+      <div class="small">Order = track order</div>
         </div>
         <div id="workingList" class="tagList small" style="max-height:none; overflow:visible;"></div>
         <div class="row" style="flex-wrap:wrap;">
@@ -3626,124 +3626,63 @@ TAGGER_HTML = r"""
         </div>
       </div>
       <div class="card">
-        <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:6px;">
           <h2 style="margin:0;">Editor</h2>
-          <div class="row scopeBtns" id="tagTabBtns">
-            <button class="btnGhost active" data-tab="track">Track</button>
-            <button class="btnGhost" data-tab="album">Album</button>
-          </div>
+          <div class="small" id="tagSaveStatus"></div>
         </div>
-        <div id="tagTrackPane">
-          <h3 style="margin:0 0 8px 0;">Track Details</h3>
-          <div id="tagDetailEmpty" class="placeholder">Select a file to edit tags.</div>
-          <div id="tagDetailForm" class="col" style="display:none;">
+        <h3 style="margin:0 0 8px 0;">Album Details</h3>
+        <div id="tagAlbumEmpty" class="placeholder">Add files to edit tags.</div>
+        <div id="tagAlbumForm" class="col" style="display:none; gap:12px;">
           <div class="fieldGrid">
-            <div>
-              <label for="tagTitle">Title</label>
-              <input type="text" id="tagTitle">
-            </div>
-              <div>
-                <label for="tagArtist">Artist</label>
-                <input type="text" id="tagArtist">
-              </div>
-              <div>
-                <label for="tagAlbum">Album</label>
-                <input type="text" id="tagAlbum">
-              </div>
-              <div>
-                <label for="tagAlbumArtist">Album Artist</label>
-                <input type="text" id="tagAlbumArtist">
-              </div>
-              <div>
-                <label for="tagTrack">Track</label>
-                <input type="text" id="tagTrack" placeholder="e.g., 1 or 1/10">
-              </div>
-              <div>
-                <label for="tagDisc">Disc</label>
-                <input type="text" id="tagDisc" placeholder="e.g., 1 or 1/2">
-              </div>
-              <div>
-                <label for="tagYear">Year</label>
-                <input type="text" id="tagYear">
-              </div>
-              <div>
-                <label for="tagGenre">Genre</label>
-                <input type="text" id="tagGenre">
-              </div>
-            </div>
+            <div><label>Album</label><input type="text" id="albAlbum"></div>
+            <div><label>Album Artist</label><input type="text" id="albAlbumArtist"></div>
+            <div><label>Default Artist</label><input type="text" id="albArtist"></div>
+            <div><label>Year</label><input type="text" id="albYear"></div>
+            <div><label>Genre</label><input type="text" id="albGenre"></div>
+            <div><label>Disc</label><input type="text" id="albDisc" placeholder="e.g., 1/1"></div>
+          </div>
           <div>
-            <label for="tagComment">Comment</label>
-            <input type="text" id="tagComment">
+            <label>Comment</label>
+            <input type="text" id="albComment">
           </div>
-          <div class="artBox" id="tagArtBox">
-            <div>Artwork: <span id="tagArtStatus">n/a</span></div>
-            <div class="artThumb" id="tagArtThumb" style="margin-top:8px; display:none;">
-              <img id="tagArtImg" />
-              <div class="artClear" id="tagArtClearBtn">✕</div>
-            </div>
-          </div>
-          <div class="row" style="gap:10px; flex-wrap:wrap;">
-            <input type="file" id="tagTrackArtFile" accept=".png,.jpg,.jpeg" style="display:none;">
-            <button class="btnGhost" type="button" onclick="document.getElementById('tagTrackArtFile').click()">Upload Artwork…</button>
-            <button class="btnPrimary" type="button" id="tagSaveBtn">Save</button>
-            <button class="btnGhost" type="button" id="tagDownloadBtn">Download MP3</button>
-            <div id="tagSaveStatus" class="small"></div>
-          </div>
-        </div>
-      </div>
-        <div id="tagAlbumPane" style="display:none;">
-          <h3 style="margin:0 0 8px 0;">Album Details</h3>
-          <div id="tagAlbumEmpty" class="placeholder">Add files to edit tags.</div>
-          <div id="tagAlbumForm" class="col" style="display:none; gap:12px;">
-            <div class="fieldGrid">
-              <div><label>Album</label><input type="text" id="albAlbum"></div>
-              <div><label>Album Artist</label><input type="text" id="albAlbumArtist"></div>
-              <div><label>Default Artist</label><input type="text" id="albArtist"></div>
-              <div><label>Year</label><input type="text" id="albYear"></div>
-              <div><label>Genre</label><input type="text" id="albGenre"></div>
-              <div><label>Disc</label><input type="text" id="albDisc" placeholder="e.g., 1/1"></div>
-            </div>
-            <div>
-              <label>Comment</label>
-              <input type="text" id="albComment">
-            </div>
-            <div class="artBox">
-              <div class="row" style="justify-content:space-between; align-items:center;">
-                <div>Artwork: <span id="albArtStatus">Unknown</span></div>
-                <div class="row" style="gap:8px;">
-                  <input type="file" id="albArtFile" accept=".png,.jpg,.jpeg" style="display:none;">
-                  <button class="btnGhost" type="button" onclick="document.getElementById('albArtFile').click()">Upload Artwork…</button>
-                  <button class="btnGhost" type="button" id="albArtApplyBtn">Apply</button>
-                  <button class="btnDanger" type="button" id="albArtClearBtn">Clear</button>
-                </div>
-              </div>
+          <div class="artBox">
+            <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:6px;">
+              <div>Artwork: <span id="albArtStatus">Unknown</span></div>
               <div class="small" id="albArtInfo"></div>
             </div>
-            <div class="row" style="justify-content:space-between; align-items:center;">
-              <h4 style="margin:0;">Tracks</h4>
-              <div class="row" style="gap:8px;">
-                <button class="btnGhost" type="button" id="albAutoNumberBtn">Auto-number</button>
-                <button class="btnGhost" type="button" id="albDownloadBtn">Download Album ZIP</button>
-              </div>
+            <div class="artThumb" id="albArtThumb" style="display:none; margin-top:6px;">
+              <img id="albArtImg" />
+              <div class="artClear" id="albArtClearBtn">✕</div>
             </div>
-            <div id="albTableWrap" class="small" style="border:1px solid var(--line); border-radius:10px; padding:8px; max-height:280px; overflow:auto;">
-              <table style="width:100%; border-collapse:collapse; color:var(--text); font-size:13px;">
-                <thead>
-                  <tr style="text-align:left;">
-                    <th style="padding:6px;">Track</th>
-                    <th style="padding:6px;">Title</th>
-                    <th style="padding:6px;">Artist</th>
-                    <th style="padding:6px;">Filename</th>
-                  </tr>
-                </thead>
-                <tbody id="albTableBody"></tbody>
-              </table>
-            </div>
-            <div class="row" style="gap:10px;">
-              <button class="btnPrimary" type="button" id="albApplyBtn">Apply Album to Selected</button>
-              <div id="albStatus" class="small"></div>
+            <div class="small" id="albArtNone" style="color:var(--muted);">No artwork</div>
+          </div>
+          <div class="row" style="justify-content:space-between; align-items:center;">
+            <h4 style="margin:0;">Tracks</h4>
+            <div class="row" style="gap:8px;">
+              <button class="btnGhost" type="button" id="albAutoNumberBtn">Auto-number</button>
+              <button class="btnGhost" type="button" id="albDownloadBtn">Download Album ZIP</button>
             </div>
           </div>
+          <div id="albTableWrap" class="small" style="border:1px solid var(--line); border-radius:10px; padding:8px; max-height:320px; overflow:auto;">
+            <table style="width:100%; border-collapse:collapse; color:var(--text); font-size:13px;">
+              <thead>
+                <tr style="text-align:left;">
+                  <th style="padding:6px;">Track</th>
+                  <th style="padding:6px;">Title</th>
+                  <th style="padding:6px;">Artist</th>
+                  <th style="padding:6px;">Filename</th>
+                </tr>
+              </thead>
+              <tbody id="albTableBody"></tbody>
+            </table>
+          </div>
+          <div class="row" style="gap:10px; flex-wrap:wrap;">
+            <input type="file" id="albArtFile" accept=".png,.jpg,.jpeg" style="display:none;">
+            <button class="btnGhost" type="button" id="albArtUploadBtn">Upload Artwork…</button>
+            <button class="btnPrimary" type="button" id="albApplyBtn">Save</button>
+            <button class="btnGhost" type="button" id="albDownloadBtnFooter">Download Album ZIP</button>
+          </div>
+          <div id="albStatus" class="small"></div>
         </div>
       </div>
     </div>
@@ -3758,17 +3697,9 @@ const tagState = {
   working: [],
   selectedIds: new Set(),
   fileDetails: {},
-  albumArt: { mode:'keep', uploadId:null, mime:null, size:0 },
-  trackArt: { mode:'keep', uploadId:null, mime:null, size:0, preview:null },
+  albumArt: { mode:'keep', uploadId:null, mime:null, size:0, preview:null },
   loading: false,
 };
-function setTagTab(tab){
-  document.querySelectorAll('#tagTabBtns button').forEach(b=>b.classList.remove('active'));
-  const btn = document.querySelector(`#tagTabBtns button[data-tab="${tab}"]`);
-  if(btn) btn.classList.add('active');
-  document.getElementById('tagTrackPane').style.display = tab==='track' ? 'block' : 'none';
-  document.getElementById('tagAlbumPane').style.display = tab==='album' ? 'block' : 'none';
-}
 const TAG_BADGE_GAP = 6;
 let badgeMeasureHost = null;
 function setupUtilMenu(toggleId, menuId){
@@ -4007,7 +3938,6 @@ async function selectTagFile(id, skipRender=false){
   const detailForm = document.getElementById('tagDetailForm');
   if(detailEmpty) detailEmpty.style.display = 'none';
   if(detailForm) detailForm.style.display = 'none'; // track form hidden in unified view
-  tagToast('Loading tags...');
   try{
     const res = await fetch(`/api/tagger/file/${encodeURIComponent(id)}`, { cache:'no-store' });
     if(!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -4015,168 +3945,20 @@ async function selectTagFile(id, skipRender=false){
     if(data && data.id){
       tagState.fileDetails[data.id] = data;
     }
-    const tags = data.tags || {};
-    const set = (id,val='') => { const el=document.getElementById(id); if(el) el.value = val ?? ''; };
-    set('tagTitle', tags.title);
-    set('tagArtist', tags.artist);
-    set('tagAlbum', tags.album);
-    set('tagAlbumArtist', tags.album_artist);
-    set('tagTrack', tags.track);
-    set('tagDisc', tags.disc);
-    set('tagYear', tags.year);
-    set('tagGenre', tags.genre);
-    set('tagComment', tags.comment);
-    const art = document.getElementById('tagArtStatus');
-    if(art) art.textContent = tags.artwork && tags.artwork.present ? 'Embedded artwork present' : 'No artwork';
-    const artImg = document.getElementById('tagArtImg');
-    const artThumb = document.getElementById('tagArtThumb');
-    if(artImg && artThumb){
-      if(tags.artwork && tags.artwork.present){
-        artImg.src = `/api/tagger/file/${encodeURIComponent(id)}/artwork?cb=${Date.now()}`;
-        artThumb.style.display = 'inline-block';
-      }else{
-        artThumb.style.display = 'none';
-        artImg.src = '';
-      }
-    }
-    tagState.trackArt = { mode:'keep', uploadId:null, mime:null, size:0, preview:null };
     tagToast('');
   }catch(e){
     tagToast('Failed to load tags.');
   }
 }
-async function saveTags(){
-  if(!tagState.selectedId) return;
-  const btn = document.getElementById('tagSaveBtn');
-  if(btn) btn.disabled = true;
-  tagToast('Saving...');
-  const payload = {
-    tags:{
-      title: document.getElementById('tagTitle')?.value || "",
-      artist: document.getElementById('tagArtist')?.value || "",
-      album: document.getElementById('tagAlbum')?.value || "",
-      album_artist: document.getElementById('tagAlbumArtist')?.value || "",
-      track: document.getElementById('tagTrack')?.value || "",
-      disc: document.getElementById('tagDisc')?.value || "",
-      year: document.getElementById('tagYear')?.value || "",
-      genre: document.getElementById('tagGenre')?.value || "",
-      comment: document.getElementById('tagComment')?.value || "",
-    }
-  };
-  // If artwork upload/clear is pending, route through album apply to keep single-save behavior
-  if(tagState.trackArt && (tagState.trackArt.mode === 'apply' || tagState.trackArt.mode === 'clear')){
-    const payloadAlbum = {
-      file_ids: [tagState.selectedId],
-      shared: {},
-      tracks: [{
-        id: tagState.selectedId,
-        track: payload.tags.track,
-        title: payload.tags.title,
-        artist: payload.tags.artist,
-        disc: payload.tags.disc,
-      }],
-      artwork: { mode: tagState.trackArt.mode, upload_id: tagState.trackArt.uploadId }
-    };
-    try{
-      const res = await fetch('/api/tagger/album/apply', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify(payloadAlbum),
-      });
-      if(!res.ok) throw new Error(`HTTP ${res.status}`);
-      tagToast('Saved.');
-      tagState.trackArt = { mode:'keep', uploadId:null, mime:null, size:0, preview:null };
-      selectTagFile(tagState.selectedId, true);
-    }catch(err){
-      tagToast('Save failed.');
-    }finally{
-      if(btn) btn.disabled = false;
-    }
-    return;
-  }
-  try{
-    const res = await fetch(`/api/tagger/file/${encodeURIComponent(tagState.selectedId)}`, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(payload),
-    });
-    if(!res.ok) throw new Error(`HTTP ${res.status}`);
-    tagToast('Saved.');
-  }catch(e){
-    tagToast('Save failed.');
-  }finally{
-    if(btn) btn.disabled = false;
-  }
-}
-function downloadTagFile(){
-  if(!tagState.selectedId) return;
-  window.location.href = `/api/tagger/file/${encodeURIComponent(tagState.selectedId)}/download`;
-}
+// Legacy track save (unused with unified album view) removed
 function triggerTagImport(){
   const input = document.getElementById('tagImportFile');
   if(input) input.click();
 }
-// Track artwork upload/apply/clear
-document.getElementById('tagTrackArtFile')?.addEventListener('change', async (e)=>{
-  const file = e.target.files[0];
-  if(!file) return;
-  const status = document.getElementById('tagArtStatus');
-  status.textContent = 'Uploading...';
-  const fd = new FormData();
-  fd.append('file', file, file.name);
-  try{
-    const res = await fetch('/api/tagger/artwork', { method:'POST', body: fd });
-    if(!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    tagState.albumArt = { mode:'apply', uploadId:data.upload_id || data.uploadId, mime:data.mime, size:data.size, preview:file };
-    const img = document.getElementById('tagArtImg');
-    if(img){
-      img.src = URL.createObjectURL(file);
-      img.style.display = 'block';
-    }
-    status.textContent = 'Uploaded (pending apply)';
-  }catch(err){
-    status.textContent = 'Upload failed';
-  }finally{
-    e.target.value = '';
-  }
-});
-document.getElementById('tagArtApplyBtn')?.addEventListener('click', async ()=>{
-  if(!tagState.selectedId) return;
-  if(tagState.albumArt.mode !== 'apply' || !tagState.albumArt.uploadId){
-    tagToast('No uploaded artwork to apply');
-    return;
-  }
-  try{
-    const payload = { file_ids: [tagState.selectedId], shared:{}, tracks:[], artwork:{ mode:'apply', upload_id: tagState.albumArt.uploadId } };
-    const res = await fetch('/api/tagger/album/apply', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
-    if(!res.ok) throw new Error(`HTTP ${res.status}`);
-    tagToast('Artwork applied');
-    tagState.albumArt = { mode:'keep', uploadId:null, mime:null, size:0 };
-    selectTagFile(tagState.selectedId, true);
-  }catch(err){
-    tagToast('Artwork apply failed');
-  }
-});
-document.getElementById('tagArtClearBtn')?.addEventListener('click', async ()=>{
-  if(!tagState.selectedId) return;
-  try{
-    const payload = { file_ids: [tagState.selectedId], shared:{}, tracks:[], artwork:{ mode:'clear' } };
-    const res = await fetch('/api/tagger/album/apply', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
-    if(!res.ok) throw new Error(`HTTP ${res.status}`);
-    tagToast('Artwork cleared');
-    const img = document.getElementById('tagArtImg'); if(img){ img.src=''; img.style.display='none'; }
-    const art = document.getElementById('tagArtStatus'); if(art) art.textContent = 'No artwork';
-  }catch(err){
-    tagToast('Artwork clear failed');
-  }
-});
-document.addEventListener('DOMContentLoaded', ()=>{
-  setupUtilMenu('utilToggleTag','utilDropdownTag');
-  document.getElementById('tagSaveBtn')?.addEventListener('click', saveTags);
-  document.getElementById('tagDownloadBtn')?.addEventListener('click', downloadTagFile);
-  document.getElementById('tagSearch')?.addEventListener('input', renderTagList);
-  document.getElementById('tagImportFile')?.addEventListener('change', async (e)=>{
+  document.addEventListener('DOMContentLoaded', ()=>{
+    setupUtilMenu('utilToggleTag','utilDropdownTag');
+    document.getElementById('tagSearch')?.addEventListener('input', renderTagList);
+    document.getElementById('tagImportFile')?.addEventListener('change', async (e)=>{
     const status = document.getElementById('tagImportStatus');
     const file = e.target.files[0];
     if(!file){ return; }
@@ -4203,11 +3985,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
       fetchTagList(btn.dataset.scope || 'out');
     });
   });
-  document.querySelectorAll('#tagTabBtns button').forEach(btn=>{
-    if(btn.dataset.tab === 'track'){ btn.style.display = 'none'; }
-    btn.addEventListener('click', ()=> setTagTab(btn.dataset.tab));
-  });
-  setTagTab('album');
   fetchTagList('out');
 });
 
@@ -4292,23 +4069,16 @@ function renderWorkingList(){
 }
 function updateEditorView(opts={}){
   const fromSelection = opts.fromSelection || false;
-  const emptyTrack = document.getElementById('tagDetailEmpty');
-  const formTrack = document.getElementById('tagDetailForm');
-  const albumPane = document.getElementById('tagAlbumPane');
-  const trackPane = document.getElementById('tagTrackPane');
+  const albumPane = document.getElementById('tagAlbumForm');
+  const albumEmpty = document.getElementById('tagAlbumEmpty');
   if(!tagState.working.length){
-    if(emptyTrack) emptyTrack.style.display = 'block';
-    if(formTrack) formTrack.style.display = 'none';
-    setTagTab('track');
+    if(albumEmpty) albumEmpty.style.display = 'block';
     if(albumPane) albumPane.style.display = 'none';
-    renderAlbumForm();
     return;
   }
   syncWorkingSelected();
-  // Always use album view for consistency
-  setTagTab('album');
-  if(trackPane) trackPane.style.display = 'none';
-  if(albumPane) albumPane.style.display = 'block';
+  if(albumEmpty) albumEmpty.style.display = 'none';
+  if(albumPane) albumPane.style.display = 'flex';
   renderAlbumForm();
   if(!fromSelection){
     const targetId = tagState.selectedId || tagState.working[0].id;
@@ -4382,10 +4152,23 @@ function renderAlbumForm(){
     else if(artPresent !== present) artPresent = 'mixed';
   });
   const artStatus = document.getElementById('albArtStatus');
+  const artNone = document.getElementById('albArtNone');
+  const artThumb = document.getElementById('albArtThumb');
+  const artImg = document.getElementById('albArtImg');
   if(artStatus){
     if(artPresent === 'mixed') artStatus.textContent = 'Mixed';
     else if(artPresent) artStatus.textContent = 'Present';
     else artStatus.textContent = 'None';
+  }
+  if(artNone) artNone.style.display = artPresent ? 'none' : 'block';
+  if(artThumb && artImg){
+    if(artPresent === true && sel[0]){
+      artImg.src = `/api/tagger/file/${encodeURIComponent(sel[0])}/artwork?cb=${Date.now()}`;
+      artThumb.style.display = 'inline-block';
+    }else{
+      if(!tagState.albumArt.preview) artImg.src = '';
+      artThumb.style.display = tagState.albumArt.preview ? 'inline-block' : 'none';
+    }
   }
 }
 
@@ -4401,24 +4184,35 @@ document.getElementById('albArtFile').addEventListener('change', async (e)=>{
     const res = await fetch('/api/tagger/artwork', { method:'POST', body: fd });
     if(!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    tagState.albumArt = { mode:'apply', uploadId:data.upload_id || data.uploadId || data.uploadId, mime:data.mime, size:data.size };
+    tagState.albumArt = { mode:'apply', uploadId:data.upload_id || data.uploadId || data.uploadId, mime:data.mime, size:data.size, preview:file };
     info.textContent = `Ready to apply (${(data.size/1024).toFixed(1)} KB)`;
     document.getElementById('albArtStatus').textContent = 'Uploaded (pending apply)';
+    const thumb = document.getElementById('albArtThumb');
+    const img = document.getElementById('albArtImg');
+    const none = document.getElementById('albArtNone');
+    if(img){ img.src = URL.createObjectURL(file); }
+    if(thumb){ thumb.style.display = 'inline-block'; }
+    if(none){ none.style.display = 'none'; }
   }catch(err){
     info.textContent = 'Upload failed';
   }finally{
     e.target.value = '';
   }
 });
-
-document.getElementById('albArtApplyBtn').addEventListener('click', ()=>{
-  tagState.albumArt.mode = tagState.albumArt.uploadId ? 'apply' : 'keep';
-  document.getElementById('albArtStatus').textContent = tagState.albumArt.uploadId ? 'Will apply uploaded artwork' : 'No upload selected';
+document.getElementById('albArtUploadBtn').addEventListener('click', ()=>{
+  const input = document.getElementById('albArtFile');
+  if(input) input.click();
 });
 document.getElementById('albArtClearBtn').addEventListener('click', ()=>{
-  tagState.albumArt = { mode:'clear', uploadId:null, mime:null, size:0 };
+  tagState.albumArt = { mode:'clear', uploadId:null, mime:null, size:0, preview:null };
   document.getElementById('albArtStatus').textContent = 'Will clear artwork';
   document.getElementById('albArtInfo').textContent = '';
+  const thumb = document.getElementById('albArtThumb');
+  const img = document.getElementById('albArtImg');
+  const none = document.getElementById('albArtNone');
+  if(img){ img.src=''; }
+  if(thumb){ thumb.style.display = 'none'; }
+  if(none){ none.style.display = 'block'; }
 });
 
 // Album auto-number
@@ -4433,7 +4227,7 @@ document.getElementById('albAutoNumberBtn').addEventListener('click', ()=>{
   });
 });
 
-// Album apply
+// Album apply / save
 document.getElementById('albApplyBtn').addEventListener('click', async ()=>{
   const status = document.getElementById('albStatus');
   const ids = tagState.working.map(w=>w.id);
@@ -4483,6 +4277,14 @@ document.getElementById('albApplyBtn').addEventListener('click', async ()=>{
 
 // Album download
 document.getElementById('albDownloadBtn').addEventListener('click', ()=>{
+  const ids = tagState.working.map(w=>w.id);
+  if(!ids.length) return;
+  const name = document.getElementById('albAlbum').value || 'album';
+  const q = encodeURIComponent(ids.join(','));
+  const n = encodeURIComponent(name);
+  window.location.href = `/api/tagger/album/download?ids=${q}&name=${n}`;
+});
+document.getElementById('albDownloadBtnFooter').addEventListener('click', ()=>{
   const ids = tagState.working.map(w=>w.id);
   if(!ids.length) return;
   const name = document.getElementById('albAlbum').value || 'album';
