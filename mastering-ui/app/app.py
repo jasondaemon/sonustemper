@@ -4062,7 +4062,6 @@ function renderTagList(){
     const left = document.createElement('div');
     left.className = 'tagRow';
     const leftCol = document.createElement('div');
-    const leftCol = document.createElement('div');
     leftCol.className = 'tagRowLeft';
     const titleText = enriched.display_title || enriched.basename || enriched.relpath || '(untitled)';
     const titleNode = badgeTitle(titleText, enriched.full_name || enriched.basename || enriched.relpath || titleText);

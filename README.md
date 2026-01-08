@@ -130,4 +130,6 @@ uvicorn app:app --reload --port 8383
 - FFmpeg is installed from the distro package and remains under its original LGPL/GPL licensing; see `THIRD_PARTY_NOTICES.md` for details.
 
 ## Future Features
-- MP3 ID3 tag  editing
+- Audio Analysis
+- Frequency Filtering
+- Wabeform visual integration
