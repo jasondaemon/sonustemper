@@ -3597,34 +3597,36 @@ TAGGER_HTML = r"""
       </div>
     </div>
     <div class="grid">
-      <div class="card" style="display:flex; flex-direction:column; gap:12px;">
-        <div class="row" style="justify-content:space-between; align-items:center;">
-          <h2 style="margin:0;">Library</h2>
-          <div class="row scopeBtns" id="tagScopeBtns">
-            <button class="btnGhost active" data-scope="out">Mastered</button>
-            <button class="btnGhost" data-scope="tag">Imported</button>
-            <button class="btnGhost" data-scope="all">All</button>
+      <div class="col" style="gap:12px;">
+        <div class="card" style="display:flex; flex-direction:column; gap:12px;">
+          <div class="row" style="justify-content:space-between; align-items:center;">
+            <h2 style="margin:0;">Library</h2>
+            <div class="row scopeBtns" id="tagScopeBtns">
+              <button class="btnGhost active" data-scope="out">Mastered</button>
+              <button class="btnGhost" data-scope="tag">Imported</button>
+              <button class="btnGhost" data-scope="all">All</button>
+            </div>
+          </div>
+          <div class="row" style="margin-top:8px; justify-content:space-between; align-items:center;">
+            <input type="text" id="tagSearch" placeholder="Search filename..." style="flex:1; min-width:0;">
+            <div class="small" id="tagSelectedCount" style="min-width:110px; text-align:right;"></div>
+          </div>
+          <div id="tagList" class="tagList small"></div>
+          <div class="row" style="margin-top:10px; flex-wrap:wrap; justify-content:space-between;">
+            <input type="file" id="tagImportFile" accept=".mp3" style="display:none;">
+            <button class="btn" type="button" onclick="triggerTagImport()">Import MP3</button>
+            <button class="btnGhost" type="button" id="tagSelectAllBtn">Add All (filtered)</button>
           </div>
         </div>
-        <div class="row" style="margin-top:8px; justify-content:space-between; align-items:center;">
-          <input type="text" id="tagSearch" placeholder="Search filename..." style="flex:1; min-width:0;">
-          <div class="small" id="tagSelectedCount" style="min-width:110px; text-align:right;"></div>
-        </div>
-        <div id="tagList" class="tagList small"></div>
-        <div class="row" style="margin-top:10px; flex-wrap:wrap;">
-          <input type="file" id="tagImportFile" accept=".mp3" style="display:none;">
-          <button class="btn" type="button" onclick="triggerTagImport()">Import MP3</button>
-          <button class="btnGhost" type="button" id="tagSelectAllBtn">Add All (filtered)</button>
-        </div>
-      </div>
-      <div class="card" style="display:flex; flex-direction:column; gap:12px;">
-        <div class="row" style="justify-content:space-between; align-items:center; margin-top:4px;">
-          <h3 style="margin:0;">Working Set</h3>
-          <div class="small">Order = track order</div>
-        </div>
-        <div id="workingList" class="tagList small" style="max-height:none; overflow:visible;"></div>
-        <div class="row" style="flex-wrap:wrap; justify-content:flex-end;">
-          <button class="btnGhost" type="button" id="tagClearSelBtn">Clear Working Set</button>
+        <div class="card" style="display:flex; flex-direction:column; gap:12px;">
+          <div class="row" style="justify-content:space-between; align-items:center; margin-top:4px;">
+            <h3 style="margin:0;">Working Set</h3>
+            <div class="small">Order = track order</div>
+          </div>
+          <div id="workingList" class="tagList small" style="max-height:none; overflow:visible;"></div>
+          <div class="row" style="flex-wrap:wrap; justify-content:flex-end;">
+            <button class="btnGhost" type="button" id="tagClearSelBtn">Clear Working Set</button>
+          </div>
         </div>
       </div>
       <div class="card">
