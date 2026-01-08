@@ -3651,18 +3651,18 @@ TAGGER_HTML = r"""
             <input type="text" id="albComment">
           </div>
           <div class="artBox">
-            <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:6px;">
-              <div>Artwork: <span id="albArtStatus">Unknown</span></div>
-              <div class="small" id="albArtInfo"></div>
-            </div>
-            <div class="artThumb" id="albArtThumb" style="display:none; margin-top:6px;">
-              <img id="albArtImg" />
-              <div class="artClear" id="albArtClearBtn">✕</div>
-            </div>
-            <div class="small" id="albArtNone" style="color:var(--muted);">No artwork</div>
-            <div class="row" style="margin-top:8px; gap:8px; flex-wrap:wrap;">
-              <input type="file" id="albArtFile" accept=".png,.jpg,.jpeg" style="display:none;">
-              <button class="btnGhost" type="button" id="albArtUploadBtn">Upload Artwork…</button>
+            <div class="row" style="justify-content:space-between; align-items:flex-start; margin-bottom:6px; gap:12px;">
+              <div class="col" style="gap:6px; flex:1; min-width:0;">
+                <div>Artwork: <span id="albArtStatus">Unknown</span></div>
+                <input type="file" id="albArtFile" accept=".png,.jpg,.jpeg" style="display:none;">
+                <button class="btnGhost" type="button" id="albArtUploadBtn" style="align-self:flex-start;">Upload Artwork…</button>
+                <div class="small" id="albArtInfo"></div>
+                <div class="small" id="albArtNone" style="color:var(--muted);">No artwork</div>
+              </div>
+              <div class="artThumb" id="albArtThumb" style="display:none; margin-top:0; margin-left:auto;">
+                <img id="albArtImg" />
+                <div class="artClear" id="albArtClearBtn">✕</div>
+              </div>
             </div>
           </div>
           <div class="row" style="justify-content:space-between; align-items:center;">
@@ -3687,6 +3687,7 @@ TAGGER_HTML = r"""
           </div>
           <div class="row" style="gap:10px; flex-wrap:wrap; justify-content:flex-start;">
             <button class="btnPrimary" type="button" id="albApplyBtn">Save</button>
+            <button class="btnGhost" type="button" id="albDownloadBtn">Download Zip</button>
           </div>
           <div id="albStatus" class="small"></div>
         </div>
@@ -4219,6 +4220,9 @@ document.getElementById('albArtFile').addEventListener('change', async (e)=>{
   fd.append('file', file, file.name);
   try{
     const res = await fetch('/api/tagger/artwork', { method:'POST', body: fd });
+    if(res.status === 413){
+      throw new Error('size_exceeded');
+    }
     if(!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     tagState.albumArt = { mode:'apply', uploadId:data.upload_id || data.uploadId || data.uploadId, mime:data.mime, size:data.size, preview:file };
@@ -4232,7 +4236,11 @@ document.getElementById('albArtFile').addEventListener('change', async (e)=>{
     if(none){ none.style.display = 'none'; }
     markDirty();
   }catch(err){
-    info.textContent = 'Upload failed';
+    if(err && err.message === 'size_exceeded'){
+      info.textContent = 'File size exceeded.';
+    }else{
+      info.textContent = 'Upload failed';
+    }
   }finally{
     e.target.value = '';
   }
