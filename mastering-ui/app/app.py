@@ -3612,17 +3612,17 @@ TAGGER_HTML = r"""
         <div class="row" style="margin-top:10px; flex-wrap:wrap;">
           <input type="file" id="tagImportFile" accept=".mp3" style="display:none;">
           <button class="btn" type="button" onclick="triggerTagImport()">Import MP3</button>
-          <button class="btnGhost" type="button" id="tagClearSelBtn">Clear Working Set</button>
         </div>
+        <div style="height:1px; background:var(--line); margin:12px 0;"></div>
         <div class="row" style="justify-content:space-between; align-items:center; margin-top:4px;">
-      <h3 style="margin:0;">Working Set</h3>
-      <div class="small">Order = track order</div>
+          <h3 style="margin:0;">Working Set</h3>
+          <div class="small">Order = track order</div>
         </div>
         <div id="workingList" class="tagList small" style="max-height:none; overflow:visible;"></div>
         <div class="row" style="flex-wrap:wrap;">
           <button class="btnGhost" type="button" id="tagSelectAllBtn">Add All (filtered)</button>
           <button class="btnGhost" type="button" id="albAutoNumberBtn">Auto-number</button>
-          <button class="btnGhost" type="button" id="albDownloadBtn">Download Album ZIP</button>
+          <button class="btnGhost" type="button" id="tagClearSelBtn">Clear Working Set</button>
         </div>
       </div>
       <div class="card">
@@ -3655,6 +3655,10 @@ TAGGER_HTML = r"""
               <div class="artClear" id="albArtClearBtn">✕</div>
             </div>
             <div class="small" id="albArtNone" style="color:var(--muted);">No artwork</div>
+            <div class="row" style="margin-top:8px; gap:8px; flex-wrap:wrap;">
+              <input type="file" id="albArtFile" accept=".png,.jpg,.jpeg" style="display:none;">
+              <button class="btnGhost" type="button" id="albArtUploadBtn">Upload Artwork…</button>
+            </div>
           </div>
           <div class="row" style="justify-content:space-between; align-items:center;">
             <h4 style="margin:0;">Tracks</h4>
@@ -3667,6 +3671,7 @@ TAGGER_HTML = r"""
             <table style="width:100%; border-collapse:collapse; color:var(--text); font-size:13px;">
               <thead>
                 <tr style="text-align:left;">
+                  <th style="padding:6px; width:30px;"></th>
                   <th style="padding:6px;">Track</th>
                   <th style="padding:6px;">Title</th>
                   <th style="padding:6px;">Artist</th>
@@ -3677,10 +3682,8 @@ TAGGER_HTML = r"""
             </table>
           </div>
           <div class="row" style="gap:10px; flex-wrap:wrap;">
-            <input type="file" id="albArtFile" accept=".png,.jpg,.jpeg" style="display:none;">
-            <button class="btnGhost" type="button" id="albArtUploadBtn">Upload Artwork…</button>
             <button class="btnPrimary" type="button" id="albApplyBtn">Save</button>
-            <button class="btnGhost" type="button" id="albDownloadBtnFooter">Download Album ZIP</button>
+            <button class="btnGhost" type="button" id="albDownloadBtn">Download Zip</button>
           </div>
           <div id="albStatus" class="small"></div>
         </div>
@@ -3699,7 +3702,21 @@ const tagState = {
   fileDetails: {},
   albumArt: { mode:'keep', uploadId:null, mime:null, size:0, preview:null },
   loading: false,
+  dirty: false,
 };
+function markDirty(){
+  tagState.dirty = true;
+  updateDownloadState();
+}
+function updateDownloadState(){
+  const zipBtn = document.getElementById('albDownloadBtn');
+  if(zipBtn){
+    zipBtn.disabled = tagState.dirty || !tagState.working.length;
+  }
+  document.querySelectorAll('.trackDlBtn').forEach(btn=>{
+    btn.disabled = tagState.dirty;
+  });
+}
 const TAG_BADGE_GAP = 6;
 let badgeMeasureHost = null;
 function setupUtilMenu(toggleId, menuId){
@@ -3986,6 +4003,7 @@ function triggerTagImport(){
     });
   });
   fetchTagList('out');
+  updateDownloadState();
 });
 
 // Selection helpers
@@ -3999,6 +4017,8 @@ document.getElementById('tagClearSelBtn').addEventListener('click', ()=>{
   renderWorkingList();
   renderTagList();
   updateEditorView();
+  tagState.dirty = false;
+  updateDownloadState();
 });
 
 function updateSelectedCount(){
@@ -4018,6 +4038,7 @@ function addToWorking(item){
   renderWorkingList();
   renderTagList();
   updateEditorView();
+  updateDownloadState();
 }
 function removeFromWorking(id){
   tagState.working = tagState.working.filter(w=>w.id !== id);
@@ -4113,6 +4134,7 @@ function renderAlbumForm(){
   if(!sel.length){
     empty.style.display = 'block';
     form.style.display = 'none';
+    updateDownloadState();
     return;
   }
   empty.style.display = 'none';
@@ -4135,6 +4157,7 @@ function renderAlbumForm(){
     const artistVal = tags.artist || '';
     const discVal = tags.disc || '';
     const tds = [
+      `<button class="btnGhost trackDlBtn" type="button" data-id="${id}" title="Download track" style="padding:4px 8px;">⏬</button>`,
       `<input name="albTrack" style="width:80px;" value="${trackVal || ''}">`,
       `<input name="albTitle" style="width:100%;" value="${titleVal || ''}">`,
       `<input name="albArtist" style="width:120px;" value="${artistVal || ''}">`,
@@ -4170,6 +4193,15 @@ function renderAlbumForm(){
       artThumb.style.display = tagState.albumArt.preview ? 'inline-block' : 'none';
     }
   }
+  document.querySelectorAll('.trackDlBtn').forEach(btn=>{
+    btn.disabled = tagState.dirty;
+    btn.onclick = ()=> downloadSingle(btn.dataset.id);
+  });
+  updateDownloadState();
+  // mark dirty on field edits
+  document.querySelectorAll('#tagAlbumForm input').forEach(inp=>{
+    inp.oninput = markDirty;
+  });
 }
 
 // Artwork upload for album
@@ -4193,6 +4225,7 @@ document.getElementById('albArtFile').addEventListener('change', async (e)=>{
     if(img){ img.src = URL.createObjectURL(file); }
     if(thumb){ thumb.style.display = 'inline-block'; }
     if(none){ none.style.display = 'none'; }
+    markDirty();
   }catch(err){
     info.textContent = 'Upload failed';
   }finally{
@@ -4213,6 +4246,7 @@ document.getElementById('albArtClearBtn').addEventListener('click', ()=>{
   if(img){ img.src=''; }
   if(thumb){ thumb.style.display = 'none'; }
   if(none){ none.style.display = 'block'; }
+  markDirty();
 });
 
 // Album auto-number
@@ -4270,28 +4304,29 @@ document.getElementById('albApplyBtn').addEventListener('click', async ()=>{
     const data = await res.json();
     status.textContent = `Updated ${data.updated.length} files${data.errors?.length? ', errors: '+data.errors.length:''}`;
     fetchTagList(tagState.scope);
+    tagState.dirty = false;
+    tagState.albumArt = { mode:'keep', uploadId:null, mime:null, size:0, preview:null };
+    updateDownloadState();
   }catch(err){
     status.textContent = 'Apply failed';
   }
 });
 
 // Album download
-document.getElementById('albDownloadBtn').addEventListener('click', ()=>{
+function downloadZip(){
   const ids = tagState.working.map(w=>w.id);
-  if(!ids.length) return;
+  if(!ids.length || tagState.dirty) return;
   const name = document.getElementById('albAlbum').value || 'album';
   const q = encodeURIComponent(ids.join(','));
   const n = encodeURIComponent(name);
   window.location.href = `/api/tagger/album/download?ids=${q}&name=${n}`;
-});
-document.getElementById('albDownloadBtnFooter').addEventListener('click', ()=>{
-  const ids = tagState.working.map(w=>w.id);
-  if(!ids.length) return;
-  const name = document.getElementById('albAlbum').value || 'album';
-  const q = encodeURIComponent(ids.join(','));
-  const n = encodeURIComponent(name);
-  window.location.href = `/api/tagger/album/download?ids=${q}&name=${n}`;
-});
+}
+function downloadSingle(id){
+  if(tagState.dirty) return;
+  if(!id) return;
+  window.location.href = `/api/tagger/file/${encodeURIComponent(id)}/download`;
+}
+document.getElementById('albDownloadBtn').addEventListener('click', downloadZip);
 </script>
 </body>
 </html>
