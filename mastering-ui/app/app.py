@@ -3707,7 +3707,7 @@ TAGGER_HTML = r"""
     input[type="text"]{ width:100%; padding:9px 10px; border-radius:10px; border:1px solid var(--line); background:#0f151d; color:var(--text); box-sizing:border-box; }
     label{ color:#cfe0f1; font-size:13px; font-weight:600; }
     .small{ color:var(--muted); font-size:12px; }
-  .tagList{ margin-top:10px; max-height:460px; overflow:auto; display:flex; flex-direction:column; gap:8px; }
+  .tagList{ margin-top:10px; max-height:none; overflow:visible; display:flex; flex-direction:column; gap:8px; }
   .tagItem{ border:1px solid var(--line); border-radius:12px; padding:10px; background:#0f151d; cursor:pointer; display:flex; justify-content:space-between; align-items:flex-start; gap:8px; }
     .tagItem:hover{ border-color:var(--accent); }
     .tagItem.active{ border-color:var(--accent); box-shadow:0 0 0 1px rgba(255,138,61,0.35); }
@@ -3732,7 +3732,7 @@ TAGGER_HTML = r"""
     .fieldGrid label{ display:block; margin-bottom:4px; }
     .artBox{ padding:10px; border:1px dashed var(--line); border-radius:10px; background:rgba(255,255,255,0.02); position:relative; }
     .artThumb{ position:relative; display:inline-block; }
-    .artThumb img{ max-width:140px; max-height:140px; border-radius:8px; display:block; }
+    .artThumb img{ max-width:280px; max-height:280px; border-radius:8px; display:block; }
     .artThumb .artClear{ position:absolute; top:4px; right:4px; background:rgba(0,0,0,0.5); border:1px solid var(--line); color:#fff; border-radius:999px; width:20px; height:20px; display:flex; align-items:center; justify-content:center; cursor:pointer; }
     .placeholder{ color:var(--muted); font-size:13px; }
     .tagRowTitle{ font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
