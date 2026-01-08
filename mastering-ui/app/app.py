@@ -3516,8 +3516,8 @@ TAGGER_HTML = r"""
     }
     body{ margin:0; background:linear-gradient(180deg,#0b0f14,#070a0e); color:var(--text);
       font-family:-apple-system,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
-    .wrap{ max-width:1200px; margin:0 auto; padding:22px 18px 40px; }
-    h1{ font-size:20px; margin:0 0 6px 0; letter-spacing:.2px; }
+    .wrap{ max-width:1100px; margin:0 auto; padding:18px 18px 40px; }
+    h1{ font-size:20px; margin:0 0 4px 0; letter-spacing:.2px; }
     h2{ margin:0 0 10px 0; font-size:16px; }
     .sub{ color:var(--muted); font-size:13px; }
     .top{ display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }
@@ -3534,8 +3534,8 @@ TAGGER_HTML = r"""
     input[type="text"]{ width:100%; padding:9px 10px; border-radius:10px; border:1px solid var(--line); background:#0f151d; color:var(--text); }
     label{ color:#cfe0f1; font-size:13px; font-weight:600; }
     .small{ color:var(--muted); font-size:12px; }
-    .tagList{ margin-top:10px; max-height:460px; overflow:auto; display:flex; flex-direction:column; gap:8px; }
-    .tagItem{ border:1px solid var(--line); border-radius:12px; padding:10px; background:#0f151d; cursor:pointer; display:flex; justify-content:space-between; align-items:flex-start; gap:8px; }
+  .tagList{ margin-top:10px; max-height:460px; overflow:auto; display:flex; flex-direction:column; gap:8px; }
+  .tagItem{ border:1px solid var(--line); border-radius:12px; padding:10px; background:#0f151d; cursor:pointer; display:flex; justify-content:space-between; align-items:flex-start; gap:8px; }
     .tagItem:hover{ border-color:var(--accent); }
     .tagItem.active{ border-color:var(--accent); box-shadow:0 0 0 1px rgba(255,138,61,0.35); }
     .badge{ font-size:11px; padding:4px 8px; border-radius:999px; background:rgba(255,138,61,0.12); color:#ffb07a; border:1px solid rgba(255,138,61,0.35); }
@@ -3615,7 +3615,7 @@ TAGGER_HTML = r"""
           <h3 style="margin:0;">Working Set</h3>
           <div class="small">Order = track order</div>
         </div>
-        <div id="workingList" class="tagList small" style="max-height:240px;"></div>
+        <div id="workingList" class="tagList small" style="max-height:none; overflow:visible;"></div>
         <div class="row" style="flex-wrap:wrap;">
           <button class="btnGhost" type="button" id="tagSelectAllBtn">Add All (filtered)</button>
           <button class="btnGhost" type="button" id="albAutoNumberBtn">Auto-number</button>
@@ -3909,7 +3909,8 @@ function renderTagList(){
   const list = document.getElementById('tagList');
   if(!list) return;
   const q = (document.getElementById('tagSearch')?.value || '').toLowerCase();
-  const items = tagState.items.filter(it => !q || it.basename.toLowerCase().includes(q));
+  const workingIds = new Set(tagState.working.map(w=>w.id));
+  const items = tagState.items.filter(it => !workingIds.has(it.id)).filter(it => !q || it.basename.toLowerCase().includes(q));
   tagState.filtered = items;
   list.innerHTML = '';
   if(!items.length){
@@ -3945,11 +3946,10 @@ function renderTagList(){
     left.appendChild(leftCol);
     const right = document.createElement('div');
     right.className = 'tagActions';
+    right.style.marginLeft = 'auto';
     const btn = document.createElement('button');
     btn.className = 'btnGhost';
-    const inSet = tagState.working.find(w=>w.id === it.id);
-    btn.textContent = inSet ? 'Added' : 'Add';
-    btn.disabled = !!inSet;
+    btn.textContent = 'Add';
     btn.addEventListener('click', (e)=>{
       e.stopPropagation();
       addToWorking(enriched);
@@ -4243,6 +4243,7 @@ function renderWorkingList(){
     left.appendChild(leftCol);
     const right = document.createElement('div');
     right.className = 'tagActions';
+    right.style.marginLeft = 'auto';
     const rem = document.createElement('button');
     rem.className = 'btnGhost';
     rem.textContent = '✕';
