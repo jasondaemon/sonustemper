@@ -3893,22 +3893,21 @@ function renderTagList(){
   badgeRow.className = 'badgeRow';
   badgeRow.dataset.badges = JSON.stringify(enriched.badges || []);
   leftCol.appendChild(badgeRow);
-  left.appendChild(leftCol);
-  const right = document.createElement('div');
-  right.className = 'tagActions';
-  right.style.marginLeft = 'auto';
-  const btn = document.createElement('button');
-  btn.className = 'btnGhost';
-  btn.textContent = 'Add';
-  btn.style.marginLeft = 'auto';
-  btn.addEventListener('click', (e)=>{
-    e.stopPropagation();
-    addToWorking(enriched);
-  });
-  right.appendChild(btn);
-  row.appendChild(left);
-  row.appendChild(right);
-  row.appendChild(left);
+    left.appendChild(leftCol);
+    const right = document.createElement('div');
+    right.className = 'tagActions';
+    right.style.marginLeft = 'auto';
+    const btn = document.createElement('button');
+    btn.className = 'btnGhost';
+    btn.textContent = 'Add';
+    btn.style.marginLeft = 'auto';
+    btn.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      addToWorking(enriched);
+    });
+    right.appendChild(btn);
+    row.appendChild(left);
+    row.appendChild(right);
   row.addEventListener('click', ()=> { addToWorking(enriched); });
   list.appendChild(row);
 });
