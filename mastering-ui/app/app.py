@@ -4017,6 +4017,8 @@ function fileListRow(item){
   row.title = item.full_name || item.basename || item.relpath || '';
   const left = document.createElement('div');
   left.className = 'tagRow';
+  left.style.flex = '1';
+  left.style.minWidth = '0';
   const leftCol = document.createElement('div');
   leftCol.className = 'tagRowLeft';
   const titleText = item.display_title || item.basename || item.relpath || '(untitled)';
@@ -4061,6 +4063,8 @@ function renderTagList(){
     row.dataset.id = it.id;
     const left = document.createElement('div');
     left.className = 'tagRow';
+    left.style.flex = '1';
+    left.style.minWidth = '0';
     const leftCol = document.createElement('div');
     leftCol.className = 'tagRowLeft';
     const titleText = enriched.display_title || enriched.basename || enriched.relpath || '(untitled)';
@@ -4074,6 +4078,7 @@ function renderTagList(){
     const right = document.createElement('div');
     right.className = 'tagActions';
     right.style.marginLeft = 'auto';
+    right.style.flex = '0 0 auto';
     const btn = document.createElement('button');
     btn.className = 'btnGhost';
     btn.textContent = 'Add';

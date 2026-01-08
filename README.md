@@ -133,3 +133,5 @@ uvicorn app:app --reload --port 8383
 - Audio Analysis
 - Frequency Filtering
 - Wabeform visual integration
+- Drag and Drop file handling
+- Enhanced file management
