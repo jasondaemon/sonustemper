@@ -3531,7 +3531,7 @@ TAGGER_HTML = r"""
     .btnGhost{ padding:8px 14px; border-radius:10px; border:1px solid var(--line); background:#0f151d; color:#d7e6f5; cursor:pointer; }
     .btnPrimary{ background:linear-gradient(180deg, #2bd4bd, #1aa390); border:0; color:#062d28; font-weight:800; padding:8px 14px; border-radius:10px; cursor:pointer; }
     .btnDanger{ padding:8px 14px; border-radius:10px; border:1px solid rgba(255,77,77,.35); background:rgba(255,77,77,.15); color:#ffd0d0; cursor:pointer; }
-    input[type="text"]{ width:100%; padding:9px 10px; border-radius:10px; border:1px solid var(--line); background:#0f151d; color:var(--text); }
+    input[type="text"]{ width:100%; padding:9px 10px; border-radius:10px; border:1px solid var(--line); background:#0f151d; color:var(--text); box-sizing:border-box; }
     label{ color:#cfe0f1; font-size:13px; font-weight:600; }
     .small{ color:var(--muted); font-size:12px; }
   .tagList{ margin-top:10px; max-height:460px; overflow:auto; display:flex; flex-direction:column; gap:8px; }
@@ -3555,7 +3555,7 @@ TAGGER_HTML = r"""
     }
     .utilDropdown a:hover{ background:rgba(255,138,61,0.12); color:var(--text); }
     .utilDropdown.hidden{ display:none; }
-    .fieldGrid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(240px,1fr)); gap:10px; }
+    .fieldGrid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(240px,1fr)); gap:10px; width:100%; box-sizing:border-box; }
     .fieldGrid label{ display:block; margin-bottom:4px; }
     .artBox{ padding:10px; border:1px dashed var(--line); border-radius:10px; background:rgba(255,255,255,0.02); position:relative; }
     .artThumb{ position:relative; display:inline-block; }
