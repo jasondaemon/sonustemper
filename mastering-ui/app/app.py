@@ -3328,8 +3328,8 @@ MANAGE_PRESETS_HTML = r"""
         </h2>
         <div class="small" style="margin-bottom:6px;">Upload supported audio (wav/mp3/flac/aiff, ≤100MB). We will analyze loudness/tonal balance and seed a preset.</div>
         <form id="uploadPresetForm" class="col">
-          <input type="file" id="presetFile" accept=".wav,.mp3,.flac,.aiff,.aif" required />
-          <div class="row">
+          <div class="row" style="gap:10px; align-items:center; flex-wrap:wrap;">
+            <input type="file" id="presetFile" accept=".wav,.mp3,.flac,.aiff,.aif" required />
             <button class="btn" type="submit">Analyze & Create</button>
             <div id="uploadStatus" class="small"></div>
           </div>
@@ -3340,8 +3340,8 @@ MANAGE_PRESETS_HTML = r"""
         <h2 style="margin:0 0 8px 0; font-size:15px;">Upload preset JSON</h2>
         <div class="small" style="margin-bottom:6px;">Have a JSON preset you edited? Upload it here (≤1MB). Invalid JSON will be rejected.</div>
         <div class="col" style="gap:8px;">
-          <input type="file" id="presetJsonFile" accept=".json" />
-          <div class="row" style="margin-top:6px; gap:10px;">
+          <div class="row" style="gap:10px; align-items:center; flex-wrap:wrap;">
+            <input type="file" id="presetJsonFile" accept=".json" />
             <button class="btnGhost" type="button" id="uploadPresetJsonBtn">Upload Preset</button>
             <div id="uploadPresetJsonStatus" class="small"></div>
           </div>
