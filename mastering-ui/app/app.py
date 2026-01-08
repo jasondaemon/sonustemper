@@ -3225,7 +3225,7 @@ MANAGE_PRESETS_HTML = r"""
     }
     body{ margin:0; background:linear-gradient(180deg,#0b0f14,#070a0e); color:var(--text);
       font-family:-apple-system,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
-    .wrap{ max-width:1100px; margin:0 auto; padding:26px 18px 40px; }
+    .wrap{ max-width:1200px; margin:0 auto; padding:26px 18px 40px; }
     h1{ font-size:20px; margin:0 0 6px 0; letter-spacing:.2px; }
     .card{ background:rgba(18,26,35,.9); border:1px solid var(--line); border-radius:16px; padding:16px; margin-top:14px; }
     .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
@@ -3521,7 +3521,7 @@ MANAGE_FILES_HTML = r"""
     }
     body{ margin:0; background:linear-gradient(180deg,#0b0f14,#070a0e); color:var(--text);
       font-family:-apple-system,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
-    .wrap{ max-width:1100px; margin:0 auto; padding:26px 18px 40px; }
+    .wrap{ max-width:1200px; margin:0 auto; padding:26px 18px 40px; }
     h1{ font-size:20px; margin:0 0 6px 0; letter-spacing:.2px; }
     .card{ background:rgba(18,26,35,.9); border:1px solid var(--line); border-radius:16px; padding:16px; margin-top:14px; }
     .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
