@@ -3592,9 +3592,9 @@ TAGGER_HTML = r"""
       </div>
     </div>
     <div class="grid">
-      <div class="card">
+      <div class="card" style="display:flex; flex-direction:column; gap:12px;">
         <div class="row" style="justify-content:space-between; align-items:center;">
-          <h2 style="margin:0;">MP3 Files</h2>
+          <h2 style="margin:0;">Library</h2>
           <div class="row scopeBtns" id="tagScopeBtns">
             <button class="btnGhost active" data-scope="out">Mastered</button>
             <button class="btnGhost" data-scope="tag">Imported</button>
@@ -3609,9 +3609,17 @@ TAGGER_HTML = r"""
         <div class="row" style="margin-top:10px; flex-wrap:wrap;">
           <input type="file" id="tagImportFile" accept=".mp3" style="display:none;">
           <button class="btn" type="button" onclick="triggerTagImport()">Import MP3</button>
-          <button class="btnGhost" type="button" id="tagSelectAllBtn">Select All (filtered)</button>
-          <button class="btnGhost" type="button" id="tagClearSelBtn">Clear Selection</button>
-          <div id="tagImportStatus" class="small"></div>
+          <button class="btnGhost" type="button" id="tagClearSelBtn">Clear Working Set</button>
+        </div>
+        <div class="row" style="justify-content:space-between; align-items:center; margin-top:4px;">
+          <h3 style="margin:0;">Working Set</h3>
+          <div class="small">Order = track order</div>
+        </div>
+        <div id="workingList" class="tagList small" style="max-height:240px;"></div>
+        <div class="row" style="flex-wrap:wrap;">
+          <button class="btnGhost" type="button" id="tagSelectAllBtn">Add All (filtered)</button>
+          <button class="btnGhost" type="button" id="albAutoNumberBtn">Auto-number</button>
+          <button class="btnGhost" type="button" id="albDownloadBtn">Download Album ZIP</button>
         </div>
       </div>
       <div class="card">
@@ -3626,11 +3634,11 @@ TAGGER_HTML = r"""
           <h3 style="margin:0 0 8px 0;">Track Details</h3>
           <div id="tagDetailEmpty" class="placeholder">Select a file to edit tags.</div>
           <div id="tagDetailForm" class="col" style="display:none;">
-            <div class="fieldGrid">
-              <div>
-                <label for="tagTitle">Title</label>
-                <input type="text" id="tagTitle">
-              </div>
+          <div class="fieldGrid">
+            <div>
+              <label for="tagTitle">Title</label>
+              <input type="text" id="tagTitle">
+            </div>
               <div>
                 <label for="tagArtist">Artist</label>
                 <input type="text" id="tagArtist">
@@ -3660,16 +3668,29 @@ TAGGER_HTML = r"""
                 <input type="text" id="tagGenre">
               </div>
             </div>
-            <div>
-              <label for="tagComment">Comment</label>
-              <input type="text" id="tagComment">
+          <div>
+            <label for="tagComment">Comment</label>
+            <input type="text" id="tagComment">
+          </div>
+          <div class="artBox" id="tagArtBox">
+            <div class="row" style="justify-content:space-between; align-items:center; flex-wrap:wrap;">
+              <div>Artwork: <span id="tagArtStatus">n/a</span></div>
+              <div class="row" style="gap:8px;">
+                <input type="file" id="tagTrackArtFile" accept=".png,.jpg,.jpeg" style="display:none;">
+                <button class="btnGhost" type="button" onclick="document.getElementById('tagTrackArtFile').click()">Upload Artwork…</button>
+                <button class="btnGhost" type="button" id="tagArtApplyBtn">Apply</button>
+                <button class="btnDanger" type="button" id="tagArtClearBtn">Clear</button>
+              </div>
             </div>
-            <div class="artBox" id="tagArtBox">Artwork: <span id="tagArtStatus">n/a</span></div>
-            <div class="row" style="gap:10px;">
-              <button class="btnPrimary" type="button" id="tagSaveBtn">Save Tags</button>
-              <button class="btnGhost" type="button" id="tagDownloadBtn">Download MP3</button>
-              <div id="tagSaveStatus" class="small"></div>
+            <div style="margin-top:8px;">
+              <img id="tagArtImg" style="max-width:140px; max-height:140px; border-radius:8px; display:none;" />
             </div>
+          </div>
+          <div class="row" style="gap:10px;">
+            <button class="btnPrimary" type="button" id="tagSaveBtn">Save Tags</button>
+            <button class="btnGhost" type="button" id="tagDownloadBtn">Download MP3</button>
+            <div id="tagSaveStatus" class="small"></div>
+          </div>
           </div>
         </div>
         <div id="tagAlbumPane" style="display:none;">
@@ -3736,6 +3757,7 @@ const tagState = {
   items: [],
   filtered: [],
   selectedId: null,
+  working: [],
   selectedIds: new Set(),
   fileDetails: {},
   albumArt: { mode:'keep', uploadId:null, mime:null, size:0 },
@@ -3870,19 +3892,16 @@ function fileListRow(item){
   const row = document.createElement('div');
   row.className = 'tagItem' + (tagState.selectedId === item.id ? ' active' : '');
   row.title = item.basename || item.relpath || '';
-  const title = document.createElement('div');
-  title.className = 'tagRowTitle';
-  title.textContent = item.display_title || item.basename || item.relpath || '(untitled)';
+  const left = document.createElement('div');
+  left.className = 'tagRow';
+  const leftCol = document.createElement('div');
+  leftCol.className = 'tagRowLeft';
+  leftCol.appendChild(badgeTitle(item.display_title || item.basename || item.relpath || '(untitled)', item.full_name || item.basename || item.relpath || ''));
   const badgeRow = document.createElement('div');
   badgeRow.className = 'badgeRow';
   badgeRow.dataset.badges = JSON.stringify(item.badges || []);
-  const left = document.createElement('div');
-  left.style.flex = '1';
-  left.style.minWidth = '0';
-  left.style.display = 'flex';
-  left.style.flexDirection = 'column';
-  left.appendChild(title);
-  left.appendChild(badgeRow);
+  leftCol.appendChild(badgeRow);
+  left.appendChild(leftCol);
   row.appendChild(left);
   return row;
 }
@@ -3926,22 +3945,24 @@ function renderTagList(){
     left.appendChild(leftCol);
     const right = document.createElement('div');
     right.className = 'tagActions';
-    const chk = document.createElement('input');
-    chk.type = 'checkbox';
-    chk.checked = tagState.selectedIds.has(it.id);
-    chk.addEventListener('click',(e)=>{ e.stopPropagation(); toggleSelectId(it.id, e.target.checked); });
-    right.appendChild(chk);
-    const scope = document.createElement('div');
-    scope.className = 'badge';
-    scope.textContent = it.root === 'out' ? 'Mastered' : 'Imported';
-    right.appendChild(scope);
+    const btn = document.createElement('button');
+    btn.className = 'btnGhost';
+    const inSet = tagState.working.find(w=>w.id === it.id);
+    btn.textContent = inSet ? 'Added' : 'Add';
+    btn.disabled = !!inSet;
+    btn.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      addToWorking(enriched);
+    });
+    right.appendChild(btn);
     left.appendChild(right);
     row.appendChild(left);
-    row.addEventListener('click', ()=> selectTagFile(it.id));
+    row.addEventListener('click', ()=> { addToWorking(enriched); });
     list.appendChild(row);
   });
   queueBadgeLayout();
-  renderAlbumForm();
+  renderWorkingList();
+  updateEditorView();
 }
 function layoutBadgeRows(){
   const rows = document.querySelectorAll('.badgeRow');
@@ -4007,6 +4028,16 @@ async function selectTagFile(id){
     set('tagComment', tags.comment);
     const art = document.getElementById('tagArtStatus');
     if(art) art.textContent = tags.artwork && tags.artwork.present ? 'Embedded artwork present' : 'No artwork';
+    const artImg = document.getElementById('tagArtImg');
+    if(artImg){
+      if(tags.artwork && tags.artwork.present){
+        artImg.src = `/api/tagger/file/${encodeURIComponent(id)}/artwork?cb=${Date.now()}`;
+        artImg.style.display = 'block';
+      }else{
+        artImg.style.display = 'none';
+        artImg.src = '';
+      }
+    }
     tagToast('');
   }catch(e){
     tagToast('Failed to load tags.');
@@ -4052,6 +4083,61 @@ function triggerTagImport(){
   const input = document.getElementById('tagImportFile');
   if(input) input.click();
 }
+// Track artwork upload/apply/clear
+document.getElementById('tagTrackArtFile')?.addEventListener('change', async (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const status = document.getElementById('tagArtStatus');
+  status.textContent = 'Uploading...';
+  const fd = new FormData();
+  fd.append('file', file, file.name);
+  try{
+    const res = await fetch('/api/tagger/artwork', { method:'POST', body: fd });
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    tagState.albumArt = { mode:'apply', uploadId:data.upload_id || data.uploadId, mime:data.mime, size:data.size, preview:file };
+    const img = document.getElementById('tagArtImg');
+    if(img){
+      img.src = URL.createObjectURL(file);
+      img.style.display = 'block';
+    }
+    status.textContent = 'Uploaded (pending apply)';
+  }catch(err){
+    status.textContent = 'Upload failed';
+  }finally{
+    e.target.value = '';
+  }
+});
+document.getElementById('tagArtApplyBtn')?.addEventListener('click', async ()=>{
+  if(!tagState.selectedId) return;
+  if(tagState.albumArt.mode !== 'apply' || !tagState.albumArt.uploadId){
+    tagToast('No uploaded artwork to apply');
+    return;
+  }
+  try{
+    const payload = { file_ids: [tagState.selectedId], shared:{}, tracks:[], artwork:{ mode:'apply', upload_id: tagState.albumArt.uploadId } };
+    const res = await fetch('/api/tagger/album/apply', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    tagToast('Artwork applied');
+    tagState.albumArt = { mode:'keep', uploadId:null, mime:null, size:0 };
+    selectTagFile(tagState.selectedId, true);
+  }catch(err){
+    tagToast('Artwork apply failed');
+  }
+});
+document.getElementById('tagArtClearBtn')?.addEventListener('click', async ()=>{
+  if(!tagState.selectedId) return;
+  try{
+    const payload = { file_ids: [tagState.selectedId], shared:{}, tracks:[], artwork:{ mode:'clear' } };
+    const res = await fetch('/api/tagger/album/apply', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    tagToast('Artwork cleared');
+    const img = document.getElementById('tagArtImg'); if(img){ img.src=''; img.style.display='none'; }
+    const art = document.getElementById('tagArtStatus'); if(art) art.textContent = 'No artwork';
+  }catch(err){
+    tagToast('Artwork clear failed');
+  }
+});
 document.addEventListener('DOMContentLoaded', ()=>{
   setupUtilMenu('utilToggleTag','utilDropdownTag');
   document.getElementById('tagSaveBtn')?.addEventListener('click', saveTags);
@@ -4093,21 +4179,106 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
 // Selection helpers
 document.getElementById('tagSelectAllBtn').addEventListener('click', ()=>{
-  tagState.selectedIds = new Set(tagState.filtered.map(i=>i.id));
-  updateSelectedCount();
-  renderTagList();
-  renderAlbumForm();
+  tagState.filtered.forEach(i=> addToWorking(i));
 });
 document.getElementById('tagClearSelBtn').addEventListener('click', ()=>{
-  tagState.selectedIds = new Set();
-  updateSelectedCount();
+  tagState.working = [];
+  tagState.selectedId = null;
+  syncWorkingSelected();
+  renderWorkingList();
   renderTagList();
-  renderAlbumForm();
+  updateEditorView();
 });
 
 function updateSelectedCount(){
   const el = document.getElementById('tagSelectedCount');
   if(el) el.textContent = `${tagState.selectedIds.size} selected`;
+}
+function syncWorkingSelected(){
+  tagState.selectedIds = new Set(tagState.working.map(w=>w.id));
+  updateSelectedCount();
+}
+function addToWorking(item){
+  if(!item || !item.id) return;
+  if(tagState.working.find(w=>w.id === item.id)) return;
+  tagState.working.push(item);
+  if(!tagState.selectedId) tagState.selectedId = item.id;
+  syncWorkingSelected();
+  renderWorkingList();
+  renderTagList();
+  updateEditorView();
+}
+function removeFromWorking(id){
+  tagState.working = tagState.working.filter(w=>w.id !== id);
+  if(tagState.selectedId === id){
+    tagState.selectedId = tagState.working.length ? tagState.working[0].id : null;
+  }
+  syncWorkingSelected();
+  renderWorkingList();
+  renderTagList();
+  updateEditorView();
+}
+function renderWorkingList(){
+  const list = document.getElementById('workingList');
+  if(!list) return;
+  list.innerHTML = '';
+  if(!tagState.working.length){
+    list.innerHTML = '<div class="small" style="opacity:.7;">Add files from Library to start.</div>';
+    return;
+  }
+  tagState.working.forEach(it=>{
+    const row = document.createElement('div');
+    row.className = 'tagItem' + (tagState.selectedId === it.id ? ' active' : '');
+    row.dataset.id = it.id;
+    const left = document.createElement('div');
+    left.className = 'tagRow';
+    const leftCol = document.createElement('div');
+    leftCol.className = 'tagRowLeft';
+    leftCol.appendChild(badgeTitle(it.display_title || it.basename || it.relpath || '(untitled)', it.full_name || it.basename || it.relpath || ''));
+    const badgeRow = document.createElement('div');
+    badgeRow.className = 'badgeRow';
+    badgeRow.dataset.badges = JSON.stringify(it.badges || []);
+    leftCol.appendChild(badgeRow);
+    left.appendChild(leftCol);
+    const right = document.createElement('div');
+    right.className = 'tagActions';
+    const rem = document.createElement('button');
+    rem.className = 'btnGhost';
+    rem.textContent = '✕';
+    rem.style.padding = '4px 8px';
+    rem.addEventListener('click',(e)=>{ e.stopPropagation(); removeFromWorking(it.id); });
+    right.appendChild(rem);
+    left.appendChild(right);
+    row.appendChild(left);
+    row.addEventListener('click', ()=> { tagState.selectedId = it.id; updateEditorView(); renderWorkingList(); renderTagList(); selectTagFile(it.id); });
+    list.appendChild(row);
+  });
+  queueBadgeLayout();
+}
+function updateEditorView(){
+  const emptyTrack = document.getElementById('tagDetailEmpty');
+  const formTrack = document.getElementById('tagDetailForm');
+  const albumPane = document.getElementById('tagAlbumPane');
+  const trackPane = document.getElementById('tagTrackPane');
+  if(!tagState.working.length){
+    if(emptyTrack) emptyTrack.style.display = 'block';
+    if(formTrack) formTrack.style.display = 'none';
+    setTagTab('track');
+    renderAlbumForm();
+    return;
+  }
+  syncWorkingSelected();
+  if(tagState.working.length === 1){
+    setTagTab('track');
+    trackPane.style.display = 'block';
+    albumPane.style.display = 'none';
+    selectTagFile(tagState.selectedId || tagState.working[0].id, true);
+  }else{
+    setTagTab('album');
+    trackPane.style.display = 'none';
+    albumPane.style.display = 'block';
+    renderAlbumForm();
+  }
 }
 
 async function ensureFileDetail(id){
@@ -4129,7 +4300,7 @@ function toggleSelectId(id, checked){
   renderAlbumForm();
 }
 function renderAlbumForm(){
-  const sel = Array.from(tagState.selectedIds);
+  const sel = tagState.working.map(w=>w.id);
   const empty = document.getElementById('tagAlbumEmpty');
   const form = document.getElementById('tagAlbumForm');
   if(!form || !empty) return;
@@ -4144,7 +4315,7 @@ function renderAlbumForm(){
   tbody.innerHTML = '';
   // artwork mixed status
   let artPresent = null;
-  sel.forEach(id=>{
+  sel.forEach((id, idx)=>{
     const row = document.createElement('tr');
     row.dataset.id = id;
     const detail = tagState.fileDetails[id];
@@ -4216,8 +4387,7 @@ document.getElementById('albArtClearBtn').addEventListener('click', ()=>{
 
 // Album auto-number
 document.getElementById('albAutoNumberBtn').addEventListener('click', ()=>{
-  const ids = Array.from(tagState.selectedIds);
-  ids.sort();
+  const ids = tagState.working.map(w=>w.id);
   ids.forEach((id, idx)=>{
     const row = document.querySelector(`tr[data-id="${id}"]`);
     if(row){
@@ -4230,7 +4400,7 @@ document.getElementById('albAutoNumberBtn').addEventListener('click', ()=>{
 // Album apply
 document.getElementById('albApplyBtn').addEventListener('click', async ()=>{
   const status = document.getElementById('albStatus');
-  const ids = Array.from(tagState.selectedIds);
+  const ids = tagState.working.map(w=>w.id);
   if(ids.length === 0){ status.textContent = 'No tracks selected.'; return; }
   status.textContent = 'Applying...';
   const shared = {
@@ -4276,7 +4446,7 @@ document.getElementById('albApplyBtn').addEventListener('click', async ()=>{
 
 // Album download
 document.getElementById('albDownloadBtn').addEventListener('click', ()=>{
-  const ids = Array.from(tagState.selectedIds);
+  const ids = tagState.working.map(w=>w.id);
   if(!ids.length) return;
   const name = document.getElementById('albAlbum').value || 'album';
   const q = encodeURIComponent(ids.join(','));
