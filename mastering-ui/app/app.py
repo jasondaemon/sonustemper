@@ -3668,7 +3668,6 @@ TAGGER_HTML = r"""
             <h4 style="margin:0;">Tracks</h4>
             <div class="row" style="gap:8px;">
               <button class="btnGhost" type="button" id="albAutoNumberBtn">Auto-number</button>
-              <button class="btnGhost" type="button" id="albDownloadBtn">Download Album ZIP</button>
             </div>
           </div>
           <div id="albTableWrap" class="small" style="border:1px solid var(--line); border-radius:10px; padding:8px; max-height:320px; overflow:auto;">
@@ -3685,9 +3684,8 @@ TAGGER_HTML = r"""
               <tbody id="albTableBody"></tbody>
             </table>
           </div>
-          <div class="row" style="gap:10px; flex-wrap:wrap;">
+          <div class="row" style="gap:10px; flex-wrap:wrap; justify-content:flex-start;">
             <button class="btnPrimary" type="button" id="albApplyBtn">Save</button>
-            <button class="btnGhost" type="button" id="albDownloadBtn">Download Zip</button>
           </div>
           <div id="albStatus" class="small"></div>
         </div>
@@ -4308,7 +4306,7 @@ document.getElementById('albApplyBtn').addEventListener('click', async ()=>{
     if(!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     status.textContent = `Updated ${data.updated.length} files${data.errors?.length? ', errors: '+data.errors.length:''}`;
-    fetchTagList(tagState.scope);
+    renderTagList();
     tagState.dirty = false;
     tagState.albumArt = { mode:'keep', uploadId:null, mime:null, size:0, preview:null };
     updateDownloadState();
@@ -4331,7 +4329,8 @@ function downloadSingle(id){
   if(!id) return;
   window.location.href = `/api/tagger/file/${encodeURIComponent(id)}/download`;
 }
-document.getElementById('albDownloadBtn').addEventListener('click', downloadZip);
+const albDlBtn = document.getElementById('albDownloadBtn');
+if(albDlBtn) albDlBtn.addEventListener('click', downloadZip);
 </script>
 </body>
 </html>
