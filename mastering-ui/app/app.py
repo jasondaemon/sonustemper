@@ -3516,13 +3516,13 @@ TAGGER_HTML = r"""
     }
     body{ margin:0; background:linear-gradient(180deg,#0b0f14,#070a0e); color:var(--text);
       font-family:-apple-system,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
-    .wrap{ max-width:1100px; margin:0 auto; padding:18px 18px 40px; }
-    h1{ font-size:20px; margin:0 0 4px 0; letter-spacing:.2px; }
+    .wrap{ max-width:1200px; margin:0 auto; padding:22px 18px 40px; }
+    h1{ font-size:20px; margin:0 0 6px 0; letter-spacing:.2px; }
     h2{ margin:0 0 10px 0; font-size:16px; }
     .sub{ color:var(--muted); font-size:13px; }
     .top{ display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }
     .card{ background:rgba(18,26,35,.9); border:1px solid var(--line); border-radius:16px; padding:16px; }
-    .grid{ display:grid; grid-template-columns: 360px 1fr; gap:16px; align-items:start; }
+    .grid{ display:grid; grid-template-columns: 360px 1fr; gap:16px; align-items:start; margin-top:14px; }
     @media (max-width: 960px){ .grid{ grid-template-columns: 1fr; } }
     .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
     .col{ display:flex; flex-direction:column; gap:8px; }
@@ -3557,7 +3557,10 @@ TAGGER_HTML = r"""
     .utilDropdown.hidden{ display:none; }
     .fieldGrid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(220px,1fr)); gap:10px; }
     .fieldGrid label{ display:block; margin-bottom:4px; }
-    .artBox{ padding:10px; border:1px dashed var(--line); border-radius:10px; background:rgba(255,255,255,0.02); }
+    .artBox{ padding:10px; border:1px dashed var(--line); border-radius:10px; background:rgba(255,255,255,0.02); position:relative; }
+    .artThumb{ position:relative; display:inline-block; }
+    .artThumb img{ max-width:140px; max-height:140px; border-radius:8px; display:block; }
+    .artThumb .artClear{ position:absolute; top:4px; right:4px; background:rgba(0,0,0,0.5); border:1px solid var(--line); color:#fff; border-radius:999px; width:20px; height:20px; display:flex; align-items:center; justify-content:center; cursor:pointer; }
     .placeholder{ color:var(--muted); font-size:13px; }
     .tagRowTitle{ font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .badgeRow{ display:flex; gap:6px; align-items:center; white-space:nowrap; overflow:hidden; margin-top:6px; width:100%; }
@@ -3673,26 +3676,21 @@ TAGGER_HTML = r"""
             <input type="text" id="tagComment">
           </div>
           <div class="artBox" id="tagArtBox">
-            <div class="row" style="justify-content:space-between; align-items:center; flex-wrap:wrap;">
-              <div>Artwork: <span id="tagArtStatus">n/a</span></div>
-              <div class="row" style="gap:8px;">
-                <input type="file" id="tagTrackArtFile" accept=".png,.jpg,.jpeg" style="display:none;">
-                <button class="btnGhost" type="button" onclick="document.getElementById('tagTrackArtFile').click()">Upload Artwork…</button>
-                <button class="btnGhost" type="button" id="tagArtApplyBtn">Apply</button>
-                <button class="btnDanger" type="button" id="tagArtClearBtn">Clear</button>
-              </div>
-            </div>
-            <div style="margin-top:8px;">
-              <img id="tagArtImg" style="max-width:140px; max-height:140px; border-radius:8px; display:none;" />
+            <div>Artwork: <span id="tagArtStatus">n/a</span></div>
+            <div class="artThumb" id="tagArtThumb" style="margin-top:8px; display:none;">
+              <img id="tagArtImg" />
+              <div class="artClear" id="tagArtClearBtn">✕</div>
             </div>
           </div>
-          <div class="row" style="gap:10px;">
-            <button class="btnPrimary" type="button" id="tagSaveBtn">Save Tags</button>
+          <div class="row" style="gap:10px; flex-wrap:wrap;">
+            <input type="file" id="tagTrackArtFile" accept=".png,.jpg,.jpeg" style="display:none;">
+            <button class="btnGhost" type="button" onclick="document.getElementById('tagTrackArtFile').click()">Upload Artwork…</button>
+            <button class="btnPrimary" type="button" id="tagSaveBtn">Save</button>
             <button class="btnGhost" type="button" id="tagDownloadBtn">Download MP3</button>
             <div id="tagSaveStatus" class="small"></div>
           </div>
-          </div>
         </div>
+      </div>
         <div id="tagAlbumPane" style="display:none;">
           <h3 style="margin:0 0 8px 0;">Album Details</h3>
           <div id="tagAlbumEmpty" class="placeholder">Select two or more tracks to edit album metadata.</div>
@@ -3761,6 +3759,7 @@ const tagState = {
   selectedIds: new Set(),
   fileDetails: {},
   albumArt: { mode:'keep', uploadId:null, mime:null, size:0 },
+  trackArt: { mode:'keep', uploadId:null, mime:null, size:0, preview:null },
   loading: false,
 };
 function setTagTab(tab){
