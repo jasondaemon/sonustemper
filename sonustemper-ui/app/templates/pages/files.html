@@ -2,6 +2,9 @@
 {% block page_title %}File Manager | SonusTemper{% endblock %}
 {% block title %}File Manager{% endblock %}
 {% block subtitle %}Browse and manage audio and presets.{% endblock %}
+{% block sidebar %}
+  {% include "partials/sidebar.html" %}
+{% endblock %}
 {% block content %}
   <div class="sections-wrap" hx-target="this">
     <div id="sectionsIndicator" class="muted hx-indicator">Loading…</div>
