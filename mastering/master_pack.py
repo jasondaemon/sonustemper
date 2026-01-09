@@ -1197,7 +1197,7 @@ def main():
                 if args.guardrails:
                     guard_max = float(args.guard_max_width or 1.1)
                     if width_applied > guard_max:
-                width_applied = guard_max
+                        width_applied = guard_max
 
                 strength_pct = int(strength * 100)
                 af = build_filters(preset, strength, args.lufs, args.tp, width_applied)
