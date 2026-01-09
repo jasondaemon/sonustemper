@@ -4188,7 +4188,8 @@ async function fetchTagList(scope = 'out'){
       throw new Error(`HTTP ${res.status} ${txt || ''}`);
     }
     const data = await res.json();
-    tagState.items = data.items || [];
+    const workingIds = new Set(tagState.working.map(w=>w.id));
+    tagState.items = (data.items || []).filter(it => !workingIds.has(it.id));
     renderTagList();
   }catch(e){
     console.error('tagger list error', e);
