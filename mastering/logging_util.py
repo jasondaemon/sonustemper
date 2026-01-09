@@ -5,7 +5,15 @@ from typing import Any
 
 LEVELS = {"error": 0, "summary": 1, "debug": 2}
 LOG_LEVEL = LEVELS.get(os.getenv("LOG_LEVEL", "error").lower(), 0)
-REDACT_KEYS = {"api_key", "proxy_shared_secret", "authorization"}
+REDACT_KEYS = {
+    "api_key",
+    "proxy_shared_secret",
+    "authorization",
+    "cookie",
+    "x-api-key",
+    "x-sonustemper-proxy",
+    "proxy-authorization",
+}
 
 
 def fmt_kv(**kv: Any) -> str:

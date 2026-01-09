@@ -272,11 +272,18 @@ def extract_json_from_stderr(stderr: str) -> dict:
     """Extract first JSON blob from stderr/stdout combined."""
     if not stderr:
         return {}
-    start = stderr.find("{")
-    end = stderr.rfind("}")
-    if start == -1 or end == -1 or end <= start:
+    matches = list(re.finditer(r"\{.*?\}", stderr, re.S))
+    # prefer the last object that looks like loudnorm output (contains output_i)
+    blob = None
+    for m in reversed(matches):
+        candidate = m.group(0)
+        if "output_i" in candidate or "input_i" in candidate:
+            blob = candidate
+            break
+    if blob is None and matches:
+        blob = matches[-1].group(0)
+    if not blob:
         raise RuntimeError("json_not_found")
-    blob = stderr[start:end+1]
     log_debug("ffmpeg", "json_extract", blob=blob[:600])
     return json.loads(blob)
 
@@ -1101,6 +1108,16 @@ def main():
     IN_DIR.mkdir(parents=True, exist_ok=True)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Clamp user-provided overrides centrally
+    if args.lufs is not None:
+        args.lufs = clamp(float(args.lufs), -30.0, -6.0)
+    if args.tp is not None:
+        args.tp = clamp(float(args.tp), -3.0, 0.0)
+    if args.width is not None:
+        args.width = clamp(float(args.width), 0.5, 1.5)
+    if args.mono_bass is not None:
+        args.mono_bass = clamp(float(args.mono_bass), 60.0, 200.0)
+
     strength = clamp(args.strength, 0, 100) / 100.0
 
     infile = Path(args.infile)
@@ -1175,19 +1192,29 @@ def main():
 
     job_completed = False
     try:
-        if do_master and voicing_mode == "presets":
-            for p in presets:
-                preset_path = PRESET_DIR / f"{p}.json"
-                if not preset_path.exists():
-                    alt = GEN_PRESET_DIR / f"{p}.json"
-                    if alt.exists():
-                        preset_path = alt
-                if not preset_path.exists():
-                    print(f"Skipping missing preset: {p}", file=sys.stderr)
-                    continue
+    if do_master and voicing_mode == "presets":
+        safe_presets = []
+        preset_pattern = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+        for raw in presets:
+            if not preset_pattern.match(raw or ""):
+                log_error("preset", "invalid_name", preset=raw)
+                continue
+            safe_presets.append(raw)
+        for p in safe_presets:
+            preset_path = (PRESET_DIR / f"{p}.json").resolve()
+            if PRESET_DIR.resolve() not in preset_path.parents:
+                log_error("preset", "reject_out_of_tree", preset=p)
+                continue
+            if not preset_path.exists():
+                alt = (GEN_PRESET_DIR / f"{p}.json").resolve()
+                if GEN_PRESET_DIR.resolve() in alt.parents and alt.exists():
+                    preset_path = alt
+            if not preset_path.exists():
+                print(f"Skipping missing preset: {p}", file=sys.stderr)
+                continue
 
-                with open(preset_path, "r") as f:
-                    preset = json.load(f)
+            with open(preset_path, "r") as f:
+                preset = json.load(f)
 
                 target_lufs = float(args.lufs) if args.lufs is not None else float(preset.get("lufs", -14))
                 lim = preset.get("limiter", {}) or {}
