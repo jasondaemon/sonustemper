@@ -267,6 +267,8 @@ async def master_output(request: Request, song: str = ""):
             except Exception:
                 continue
     items.sort(key=lambda x: x["name"].lower())
+    # sort so WAV/W64 first, then others
+    items.sort(key=lambda x: (0 if x["name"].lower().endswith((".wav", ".w64")) else 1, x["name"].lower()))
     return TEMPLATES.TemplateResponse(
         "partials/master_output.html",
         {"request": request, "song": song, "items": items, "human_size": _human_size, "fmt_mtime": _fmt_mtime},
