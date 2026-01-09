@@ -305,59 +305,74 @@ def measure_loudness_stats(path: Path, target_I: float, target_TP: float) -> dic
         stats = {}
     return stats
 
-def apply_static_gain(input_path: Path, output_path: Path, gain_db: float, sample_rate: int, bit_depth: int, tp_limit: float | None):
-    """Second pass: apply fixed gain (no time-varying normalization)."""
-    filters = []
-    if abs(gain_db) > 1e-6:
-        filters.append(f"volume={gain_db:+.6f}dB")
-    if tp_limit is not None:
-        lin = min(0.999, db_to_lin(tp_limit))
-        filters.append(f"alimiter=limit={lin}:level=disabled")
-    af = ",".join(filters) if filters else "anull"
-    r = run_cmd([
-        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-        "-i", str(input_path),
-        "-af", af,
-        "-ar", str(sample_rate), "-ac", "2", "-c:a", _pcm_codec_for_depth(bit_depth),
-        str(output_path)
-    ])
-    if r.returncode != 0:
-        raise RuntimeError(r.stderr.strip() or "ffmpeg gain apply failed")
-
 def render_with_static_loudness(source: Path, tone_filters: str, final_wav: Path, sample_rate: int, bit_depth: int,
                                 target_I: float | None, target_TP: float | None, do_loudness: bool, log_label: str = "") -> dict:
     """
-    Two-pass loudness: render tone/EQ/comp first, then apply a static gain offset.
-    If within +/-1 LUFS of target, skip gain but still enforce the true-peak ceiling.
+    Two-pass ffmpeg loudnorm (measure + apply) after the tone/EQ/comp chain.
+    If loudness is disabled, we simply render the tone chain.
     """
-    tmp = final_wav.with_suffix(".tone.wav")
-    stats = {"measured_I": None, "applied_gain": 0.0, "action": "disabled"}
+    target_I = target_I if target_I is not None else -14.0
+    target_TP = target_TP if target_TP is not None else -1.0
+    target_LRA = 11.0
+
+    # Bypass loudness entirely
+    if not do_loudness:
+        run_ffmpeg_wav(source, final_wav, tone_filters, sample_rate, bit_depth)
+        return {"action": "bypass", "measured_I": None, "output_I": None}
+
+    # Pass 1: measure
     try:
-        run_ffmpeg_wav(source, tmp, tone_filters, sample_rate, bit_depth)
-        applied_gain = 0.0
-        measured_I = None
-        action = "disabled"
-        if do_loudness:
-            action = "skip"
-            stats_raw = measure_loudness_stats(tmp, target_I if target_I is not None else -14.0, target_TP if target_TP is not None else -1.0)
-            measured_I = stats_raw.get("input_i") if isinstance(stats_raw, dict) else None
-            if measured_I is not None:
-                delta = float(target_I) - float(measured_I) if target_I is not None else 0.0
-                if abs(delta) > 1.0:
-                    applied_gain = delta
-                    action = "apply"
-            else:
-                action = "measure_failed"
-        tp_limit = target_TP if target_TP is not None else None
-        apply_static_gain(tmp, final_wav, applied_gain, sample_rate, bit_depth, tp_limit)
-        stats = {"measured_I": measured_I, "applied_gain": applied_gain, "action": action}
-        print(f"[loudness] {log_label} measured_I={measured_I} target_I={target_I} gain={applied_gain:+.2f}dB action={action} tp_limit={tp_limit}", file=sys.stderr, flush=True)
-    finally:
-        try:
-            tmp.unlink(missing_ok=True)
-        except Exception:
-            pass
-    return stats
+        stats = loudnorm_measure_json(source, tone_filters or "anull", target_I, target_TP, target_LRA)
+    except Exception as exc:
+        print(f"[loudness] {log_label} measure failed: {exc}", file=sys.stderr, flush=True)
+        # fallback to tone render without loudnorm
+        run_ffmpeg_wav(source, final_wav, tone_filters, sample_rate, bit_depth)
+        return {"action": "measure_failed", "error": str(exc)}
+
+    # Pass 2: apply loudnorm with measured values
+    ln_apply = (
+        f"loudnorm=I={target_I}:TP={target_TP}:LRA={target_LRA}:"
+        f"measured_I={stats['input_i']}:"
+        f"measured_TP={stats['input_tp']}:"
+        f"measured_LRA={stats['input_lra']}:"
+        f"measured_thresh={stats['input_thresh']}:"
+        f"offset={stats['target_offset']}:linear=true:print_format=json:dual_mono=true"
+    )
+    af = tone_filters.strip() if tone_filters else ""
+    if af:
+        af = f"{af},{ln_apply}"
+    else:
+        af = ln_apply
+
+    r = run_cmd([
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-i", str(source),
+        "-af", af,
+        "-ar", str(sample_rate), "-ac", "2", "-c:a", _pcm_codec_for_depth(bit_depth),
+        str(final_wav)
+    ])
+    txt = (r.stderr or "") + "\n" + (r.stdout or "")
+    out_stats = {}
+    try:
+        start = txt.find("{")
+        end = txt.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            j = json.loads(txt[start:end+1])
+            out_stats["output_i"] = float(j.get("output_i")) if j.get("output_i") is not None else None
+            out_stats["output_tp"] = float(j.get("output_tp")) if j.get("output_tp") is not None else None
+    except Exception:
+        pass
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr.strip() or "ffmpeg loudnorm apply failed")
+    merged = {
+        "action": "loudnorm",
+        "measured_I": stats.get("input_i"),
+        "measured_TP": stats.get("input_tp"),
+        "output_I": out_stats.get("output_i"),
+        "output_TP": out_stats.get("output_tp"),
+    }
+    print(f"[loudnorm] {log_label} measured_I={merged.get('measured_I')} output_I={merged.get('output_I')} target_I={target_I} tp={target_TP}", file=sys.stderr, flush=True)
+    return merged
 
 # --- voicing chains (alternative to presets) ---
 def _voicing_filters(slug: str, strength_pct: int, width: float | None, do_stereo: bool, do_loudness: bool,
@@ -633,6 +648,43 @@ def measure_astats_overall(wav_path: Path) -> dict:
     if out["crest_factor"] is None and out["peak_level"] is not None and out["rms_level"] is not None:
         out["crest_factor"] = out["peak_level"] - out["rms_level"]
     return out
+
+def loudnorm_measure_json(input_path: Path, pre_filters: str, target_I: float, target_TP: float, target_LRA: float = 11.0) -> dict:
+    """Run loudnorm in measure mode after the provided filter chain and return parsed stats."""
+    ln = f"loudnorm=I={target_I}:TP={target_TP}:LRA={target_LRA}:print_format=json:dual_mono=true"
+    af = pre_filters.strip()
+    if af:
+        af = f"{af},{ln}"
+    else:
+        af = ln
+    r = run_cmd([
+        "ffmpeg", "-hide_banner", "-nostats",
+        "-i", str(input_path),
+        "-af", af,
+        "-f", "null", "-"
+    ])
+    txt = (r.stderr or "") + "\n" + (r.stdout or "")
+    start = txt.find("{")
+    end = txt.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        raise RuntimeError("loudnorm_measure_parse_failed")
+    try:
+        j = json.loads(txt[start:end+1])
+    except Exception as exc:
+        raise RuntimeError("loudnorm_measure_json_load_failed") from exc
+    def _pick(key: str):
+        return j.get(key) if key in j else j.get(key.upper()) if key.upper() in j else j.get(key.lower())
+    stats = {
+        "input_i": float(_pick("input_i")) if _pick("input_i") is not None else None,
+        "input_tp": float(_pick("input_tp")) if _pick("input_tp") is not None else None,
+        "input_lra": float(_pick("input_lra")) if _pick("input_lra") is not None else None,
+        "input_thresh": float(_pick("input_thresh")) if _pick("input_thresh") is not None else None,
+        "target_offset": float(_pick("target_offset")) if _pick("target_offset") is not None else None,
+        "raw": j,
+    }
+    if any(v is None for v in [stats["input_i"], stats["input_tp"], stats["input_lra"], stats["input_thresh"], stats["target_offset"]]):
+        raise RuntimeError("loudnorm_measure_missing_fields")
+    return stats
 
 def write_metrics(wav_out: Path, target_lufs: float, ceiling_db: float, width: float, write_file: bool = True):
     m = measure_loudness(wav_out)
