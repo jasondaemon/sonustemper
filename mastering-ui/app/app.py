@@ -4626,6 +4626,8 @@ def tagger_album_apply(body: dict = Body(...)):
 def tagger_album_download(ids: str, name: str = "album", background_tasks: BackgroundTasks = None):
     file_ids = [i for i in (ids or "").split(",") if i]
     zip_path = TAGGER.album_download(file_ids, name)
+    safe = (name or "album").strip() or "album"
+    safe = re.sub(r"[^A-Za-z0-9 _.-]+", "", safe)[:100]
     def _cleanup(path: Path):
         try:
             path.unlink()
@@ -4637,7 +4639,7 @@ def tagger_album_download(ids: str, name: str = "album", background_tasks: Backg
     return FileResponse(
         zip_path,
         media_type="application/zip",
-        filename=f"{name or 'album'}.zip",
+        filename=f"{safe}.zip",
         background=background_tasks,
     )
 

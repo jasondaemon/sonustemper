@@ -613,6 +613,8 @@ class TaggerService:
     def _load_artwork_upload(self, upload_id: str) -> Tuple[bytes, str]:
         if not upload_id:
             raise HTTPException(status_code=400, detail="missing_artwork_upload")
+        if not re.fullmatch(r"[a-f0-9]{32}", upload_id or ""):
+            raise HTTPException(status_code=400, detail="invalid_artwork_upload")
         meta = self._upload_cache.get(upload_id)
         if not meta:
             candidate = self.artwork_tmp_dir / f"{upload_id}.bin"
