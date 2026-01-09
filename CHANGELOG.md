@@ -3,10 +3,12 @@
 ## [Unreleased]
 - TBD
 
-## [v1.2.0] - Pending
-- Security hardening: proxy-only perimeter with Basic Auth + shared secret; proxy-generated config with envsubst; removed API key from UI; enforced .env secrets.
-- Added SECURITY.md and readme links; compose builds default non-root user (configurable APP_UID/GID); proxy/app share the same secret.
-- Simplified proxy bypass to a single shared secret header; Basic Auth remains required; clarified that app ports should not be exposed directly.
+## [v1.2.0] - Released
+- Security hardening: proxy-only perimeter with Basic Auth + shared secret header; envsubst-rendered nginx config; UI no longer embeds API keys; proxy refuses default creds.
+- Non-root containers by default (configurable APP_UID/GID); single `/data` tree for mastering/tagging/presets/analysis; removed separate `/presets` mount.
+- Tag Editor: full ID3 workflow (list/import, single/album editing, artwork apply/clear, album ZIP download), badge parsing, working set UX, width-based overflow badges, tooltips.
+- Utilities menu expanded: Tag Editor, Preset Manager, File Manager promoted to full pages; preset manager now supports direct JSON preset upload with validation.
+- Performance: cached `/api/outlist`, avoids expensive metric recompute on Previous Runs; main output list uses parsed titles/badges.
 
 ## [v1.1.0] - Released
 - Replaced polling with SSE status-stream: `/api/run` start endpoint, `/api/status-stream` for live updates, `/api/run/{id}` snapshots for reconnects; in-memory ring buffer with TTL cleanup and keepalive.
