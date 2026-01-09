@@ -18,10 +18,6 @@ from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, Streamin
 from tagger import TaggerService
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
-try:
-    from ui import router as new_ui_router
-except Exception:
-    new_ui_router = None
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 MASTER_IN_DIR = Path(os.getenv("IN_DIR", os.getenv("MASTER_IN_DIR", str(DATA_DIR / "mastering" / "in"))))
 MASTER_OUT_DIR = Path(os.getenv("OUT_DIR", os.getenv("MASTER_OUT_DIR", str(DATA_DIR / "mastering" / "out"))))
@@ -54,6 +50,14 @@ logger.info(
     os.getenv("LOG_LEVEL", "error"),
     os.getenv("EVENT_LOG_LEVEL", os.getenv("LOG_LEVEL", "error")),
 )
+# New UI import (after sys.path update)
+new_ui_router = None
+logger.info("[startup] UI_APP_DIR=%s exists=%s", UI_APP_DIR, UI_APP_DIR.exists())
+try:
+    from ui import router as new_ui_router  # type: ignore
+    logger.info("[startup] new UI router import success")
+except Exception as exc:
+    logger.warning("[startup] new UI router import failed: %s", exc)
 # Trusted proxy check via shared secret (raw)
 def is_trusted_proxy(mark: str) -> bool:
     return bool(mark) and bool(PROXY_SHARED_SECRET) and (mark == PROXY_SHARED_SECRET)
