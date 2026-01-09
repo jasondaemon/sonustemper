@@ -104,6 +104,11 @@ cd mastering-ui/app
 uvicorn app:app --reload --port 8383
 ```
 
+### Logging
+- `LOG_LEVEL` controls structured logs from the mastering pipeline: `error` (default), `summary`, `debug`.
+- Levels include tagged prefixes like `[error][master]`, `[summary][loudnorm]`, `[debug][ffmpeg]`; secrets are redacted.
+- Set in `.env` for docker (e.g., `LOG_LEVEL=summary`) or export before running locally.
+
 ### Security defaults
 - Proxy-level Basic Auth is ON by default (BASIC_AUTH_ENABLED=1).
 - Defaults in `.env.example`: user `admin`, pass `CHANGEME`. You must change the password; proxy will refuse to start if unchanged.

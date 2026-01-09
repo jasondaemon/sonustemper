@@ -216,7 +216,11 @@ def db_to_lin(db: float) -> float:
 
 # Event logging level: debug < summary < error
 _EVENT_LEVELS = {"debug": 0, "summary": 1, "error": 2}
-EVENT_LOG_LEVEL = _EVENT_LEVELS.get(os.getenv("EVENT_LOG_LEVEL", "error").lower(), 2)
+# If EVENT_LOG_LEVEL is unset, fall back to LOG_LEVEL so one env can drive both.
+_evt_raw = os.getenv("EVENT_LOG_LEVEL")
+if _evt_raw is None:
+    _evt_raw = os.getenv("LOG_LEVEL", "error")
+EVENT_LOG_LEVEL = _EVENT_LEVELS.get(str(_evt_raw).lower(), 2)
 
 def _should_log(level: str) -> bool:
     return _EVENT_LEVELS.get(level, 1) >= EVENT_LOG_LEVEL
@@ -399,7 +403,17 @@ def render_with_static_loudness(source: Path, tone_filters: str, final_wav: Path
         "output_I": out_stats.get("output_i"),
         "output_TP": out_stats.get("output_tp"),
     }
-    print(f"[loudnorm] {log_label} measured_I={merged.get('measured_I')} output_I={merged.get('output_I')} target_I={target_I} tp={target_TP}", file=sys.stderr, flush=True)
+    log_summary(
+        "loudnorm",
+        "pass2",
+        label=log_label,
+        measured_I=merged.get("measured_I"),
+        measured_TP=merged.get("measured_TP"),
+        output_I=merged.get("output_I"),
+        output_TP=merged.get("output_TP"),
+        target_I=target_I,
+        target_TP=target_TP,
+    )
     return merged
 
 # --- voicing chains (alternative to presets) ---
@@ -712,6 +726,17 @@ def loudnorm_measure_json(input_path: Path, pre_filters: str, target_I: float, t
     }
     if any(v is None for v in [stats["input_i"], stats["input_tp"], stats["input_lra"], stats["input_thresh"], stats["target_offset"]]):
         raise RuntimeError("loudnorm_measure_missing_fields")
+    log_summary(
+        "loudnorm",
+        "pass1",
+        I=stats["input_i"],
+        TP=stats["input_tp"],
+        LRA=stats["input_lra"],
+        thresh=stats["input_thresh"],
+        offset=stats["target_offset"],
+        target_I=target_I,
+        target_TP=target_TP,
+    )
     return stats
 
 def write_metrics(wav_out: Path, target_lufs: float, ceiling_db: float, width: float, write_file: bool = True):
@@ -1102,6 +1127,18 @@ def main():
         (song_dir / ".status.json").unlink(missing_ok=True)
     except Exception:
         pass
+    job_cfg = {
+        "infile": infile.name,
+        "voicing_mode": voicing_mode,
+        "voicing_name": voicing_name,
+        "presets": presets,
+        "lufs": args.lufs,
+        "tp": args.tp,
+        "width": args.width,
+        "stages": stages,
+        "outputs": outputs_cfg,
+    }
+    log_summary("master", "job_start", **job_cfg)
     if voicing_mode == "voicing":
         voicing_label = voicing_name or "voicing"
         append_status(song_dir, "start", f"Job started for {infile.name} with voicing: {voicing_label}")
@@ -1157,6 +1194,7 @@ def main():
                         width_applied = guard_max
 
                 af = build_filters(preset, strength, args.lufs, args.tp, width_applied)
+                log_summary("preset", "filter_chain", preset=p, strength=strength_pct, width=width_applied, lufs=target_lufs, tp=ceiling_db, af=af)
                 strength_pct = int(strength * 100)
                 descriptor = {
                     "preset": p,
@@ -1262,6 +1300,7 @@ def main():
             print(f"[pack] variant tag={variant_tag} voicing={slug}", file=sys.stderr, flush=True)
             append_status(song_dir, "preset_start", f"Voicing '{slug}' (S={strength_pct}, width={width_applied})", preset=slug)
             af = _voicing_filters(slug, strength_pct, width_applied if do_stereo else None, do_stereo, do_loudness, target_lufs, ceiling_db)
+            log_summary("voicing", "filter_chain", voicing=slug, strength=strength_pct, width=width_applied, lufs=target_lufs, tp=ceiling_db, af=af)
             render_with_static_loudness(
                 infile,
                 af,
@@ -1401,6 +1440,7 @@ def main():
             print("\n".join(outputs))
         append_status(song_dir, "playlist", "Playlist generated" if do_output else "Playlist skipped (no outputs)")
         append_status(song_dir, "complete", "Job complete")
+        log_summary("master", "job_complete", infile=infile.name, outputs=len(outputs))
         job_completed = True
     except Exception as exc:
         append_status(song_dir, "error", f"Job failed: {exc}", level="error")
