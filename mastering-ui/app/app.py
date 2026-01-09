@@ -3734,8 +3734,8 @@ MANAGE_FILES_HTML = r"""
     <div class="wrap">
     <div class="top">
       <div>
-        <h1>Utilities File Manager</h1>
-        <div class="small">Browse and manage audio and presets. Metrics/sidecars are hidden but removed with outputs.</div>
+        <h1>File Manager</h1>
+        <div class="small">Browse and manage audio and presets.</div>
       </div>
       <div class="utilMenu">
         <button class="utilToggle" id="utilToggleFiles" aria-haspopup="true" aria-expanded="false">☰ Utilities</button>
