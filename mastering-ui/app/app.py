@@ -3718,6 +3718,7 @@ MANAGE_FILES_HTML = r"""
     .utilDropdown a{ padding:10px 12px; color:#d7e6f5; text-decoration:none; font-size:13px; }
     .utilDropdown a:hover{ background:rgba(255,138,61,0.12); color:#fff; }
     .utilDropdown.hidden{ display:none; }
+    .sidebar h3{ margin:0 0 8px 0; font-size:13px; color:#cfe0f1; }
     .sidebar a{ display:block; padding:10px 12px; border-radius:10px; color:#d7e6f5; text-decoration:none; border:1px solid var(--line); margin-bottom:8px; }
     .sidebar a.active{ border-color:var(--accent); color:#fff; }
     table{ width:100%; border-collapse:collapse; }
@@ -3729,12 +3730,12 @@ MANAGE_FILES_HTML = r"""
 </head>
 <body>
   <div class="wrap">
-    <div class="row" style="justify-content:space-between; align-items:center;">
+    <div class="row" style="justify-content:space-between; align-items:flex-start;">
       <div>
         <h1>Utilities File Manager</h1>
         <div class="small">Browse and manage audio and presets. Metrics/sidecars are hidden but removed with outputs.</div>
       </div>
-      <div class="utilMenu">
+      <div class="utilMenu" style="margin-left:auto;">
         <button class="utilToggle" id="utilToggleFiles" aria-haspopup="true" aria-expanded="false">☰ Utilities</button>
         <div class="utilDropdown hidden" id="utilDropdownFiles">
           <a href="/">Mastering</a>
@@ -3748,6 +3749,7 @@ MANAGE_FILES_HTML = r"""
 
     <div class="grid">
       <div class="sidebar">
+        <h3>Utilities</h3>
         <a href="#" data-utility="mastering" class="active">Mastering</a>
         <a href="#" data-utility="tagging">Tagging</a>
         <a href="#" data-utility="presets">Presets</a>
