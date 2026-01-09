@@ -21,6 +21,8 @@ services:
       API_AUTH_DISABLED: "${API_AUTH_DISABLED:-0}"
       PROXY_SHARED_SECRET: "${PROXY_SHARED_SECRET:-changeme-proxy}"
       APP_VERSION: "${SONUSTEMPER_TAG:-dev}"
+      LOG_LEVEL: "${LOG_LEVEL:-error}"
+      EVENT_LOG_LEVEL: "${EVENT_LOG_LEVEL:-}"
     volumes:
       - ./data:/data
     healthcheck:
