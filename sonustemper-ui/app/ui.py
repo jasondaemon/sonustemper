@@ -137,6 +137,36 @@ async def files(request: Request, util: str = "mastering"):
     )
 
 
+@router.get("/mastering", response_class=HTMLResponse)
+async def mastering_page(request: Request):
+    return TEMPLATES.TemplateResponse(
+        "pages/mastering.html",
+        {
+            "request": request,
+        },
+    )
+
+
+@router.get("/tagging", response_class=HTMLResponse)
+async def tagging_page(request: Request):
+    return TEMPLATES.TemplateResponse(
+        "pages/tagging.html",
+        {
+            "request": request,
+        },
+    )
+
+
+@router.get("/presets", response_class=HTMLResponse)
+async def presets_page(request: Request):
+    return TEMPLATES.TemplateResponse(
+        "pages/presets.html",
+        {
+            "request": request,
+        },
+    )
+
+
 def _render_sections(request: Request, util: str) -> HTMLResponse:
     util = util if util in ("mastering", "tagging", "presets", "analysis") else "mastering"
     sections_meta = _sections_for(util)
