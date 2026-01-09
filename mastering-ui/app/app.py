@@ -85,6 +85,15 @@ TAGGER = TaggerService(
     max_upload_bytes=TAGGER_MAX_UPLOAD,
     max_artwork_bytes=TAGGER_MAX_ARTWORK,
 )
+
+# Utility roots for file manager
+UTILITY_ROOTS = {
+    ("mastering", "source"): MASTER_IN_DIR,
+    ("mastering", "output"): MASTER_OUT_DIR,
+    ("tagging", "library"): TAG_IN_DIR,
+    ("presets", "user"): PRESET_DIR,
+}
+UTILITY_AUDIO_EXTS = {".wav", ".flac", ".aiff", ".aif", ".mp3", ".m4a", ".aac", ".ogg"}
 # Small in-memory cache for outlist to reduce disk scans
 OUTLIST_CACHE_TTL = int(os.getenv("OUTLIST_CACHE_TTL", "30"))
 OUTLIST_CACHE: dict = {}
@@ -3228,6 +3237,116 @@ def manage_files():
 @app.get("/tagger", response_class=HTMLResponse)
 def tagger_page():
     return HTMLResponse(TAGGER_HTML.replace("{{VERSION}}", VERSION))
+
+# --- Utility file manager API ---
+def _util_root(utility: str, section: str) -> Path:
+    root = UTILITY_ROOTS.get((utility, section))
+    if not root:
+        raise HTTPException(status_code=400, detail="invalid_utility")
+    return root.resolve()
+
+def _safe_rel(root: Path, rel: str) -> Path:
+    rel = rel.strip().lstrip("/").replace("\\", "/")
+    candidate = (root / rel).resolve()
+    if root not in candidate.parents and candidate != root:
+        raise HTTPException(status_code=400, detail="invalid_path")
+    return candidate
+
+def _list_dir_filtered(root: Path, allow_audio: bool = True, allow_json: bool = False, prefix: str = "") -> list[dict]:
+    base = _safe_rel(root, prefix) if prefix else root
+    items = []
+    if not base.exists():
+        return items
+    for entry in base.iterdir():
+        try:
+            is_dir = entry.is_dir()
+            ext = entry.suffix.lower()
+            if is_dir:
+                items.append({
+                    "name": entry.name,
+                    "rel": str(entry.relative_to(root)),
+                    "is_dir": True,
+                    "size": None,
+                    "mtime": entry.stat().st_mtime,
+                })
+                continue
+            ok = False
+            if allow_audio and ext in UTILITY_AUDIO_EXTS:
+                ok = True
+            if allow_json and ext == ".json":
+                ok = True
+            if not ok:
+                continue
+            st = entry.stat()
+            items.append({
+                "name": entry.name,
+                "rel": str(entry.relative_to(root)),
+                "is_dir": False,
+                "size": st.st_size,
+                "mtime": st.st_mtime,
+            })
+        except Exception:
+            continue
+    items.sort(key=lambda x: (not x["is_dir"], x["name"].lower()))
+    return items
+
+@app.get("/api/utility-files")
+def list_utility_files(utility: str, section: str, prefix: str = ""):
+    root = _util_root(utility, section)
+    allow_audio = utility in ("mastering", "tagging")
+    allow_json = utility == "presets"
+    items = _list_dir_filtered(root, allow_audio=allow_audio, allow_json=allow_json, prefix=prefix)
+    return {"items": items}
+
+@app.get("/api/utility-download")
+def download_utility_file(utility: str, section: str, rel: str):
+    root = _util_root(utility, section)
+    target = _safe_rel(root, rel)
+    if not target.exists() or target.is_dir():
+        raise HTTPException(status_code=404, detail="not_found")
+    return FileResponse(target)
+
+@app.post("/api/utility-delete")
+async def delete_utility_files(payload: dict):
+    utility = payload.get("utility")
+    section = payload.get("section")
+    rels = payload.get("rels") or []
+    if not isinstance(rels, list) or not rels:
+        raise HTTPException(status_code=400, detail="no_targets")
+    root = _util_root(utility, section)
+    deleted = []
+    for rel in rels:
+        try:
+            target = _safe_rel(root, rel)
+            if not target.exists() or target.is_dir():
+                continue
+            parent = target.parent
+            stem = target.stem
+            if utility == "mastering" and section == "output":
+                # delete sidecars sharing the stem in the same dir
+                for f in parent.glob(f"{stem}.*"):
+                    try:
+                        f.unlink()
+                        deleted.append(str(f.relative_to(root)))
+                    except Exception:
+                        pass
+                # clean up empty folder
+                try:
+                    if not any(parent.iterdir()):
+                        parent.rmdir()
+                except Exception:
+                    pass
+            else:
+                try:
+                    target.unlink()
+                    deleted.append(str(target.relative_to(root)))
+                except Exception:
+                    pass
+        except HTTPException:
+            raise
+        except Exception:
+            continue
+    return {"deleted": deleted}
 MANAGE_PRESETS_HTML = r"""
 <!doctype html>
 <html>
@@ -3568,7 +3687,7 @@ MANAGE_FILES_HTML = r"""
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
-  <title>Manage Files - SonusTemper</title>
+  <title>Utilities File Manager - SonusTemper</title>
   <style>
     :root{
       --bg:#0b0f14; --card:#121a23; --muted:#9fb0c0; --text:#e7eef6;
@@ -3578,15 +3697,13 @@ MANAGE_FILES_HTML = r"""
       font-family:-apple-system,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
     .wrap{ max-width:1200px; margin:0 auto; padding:26px 18px 40px; }
     h1{ font-size:20px; margin:0 0 6px 0; letter-spacing:.2px; }
-    .card{ background:rgba(18,26,35,.9); border:1px solid var(--line); border-radius:16px; padding:16px; margin-top:14px; }
-    .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .card{ background:rgba(18,26,35,.9); border:1px solid var(--line); border-radius:16px; padding:16px; }
+    .grid{ display:grid; grid-template-columns: 240px 1fr; gap:16px; align-items:start; margin-top:16px; }
+    @media (max-width: 960px){ .grid{ grid-template-columns: 1fr; } }
     .btn{ background:linear-gradient(180deg, rgba(255,138,61,.95), rgba(255,138,61,.75));
       border:0; color:#1a0f07; font-weight:800; padding:8px 14px; border-radius:10px; cursor:pointer; }
     .btnGhost{ padding:8px 14px; border-radius:10px; border:1px solid var(--line); background:#0f151d; color:#d7e6f5; cursor:pointer; }
     .btnDanger{ padding:8px 14px; border-radius:10px; border:1px solid rgba(255,77,77,.35); background:rgba(255,77,77,.15); color:#ffd0d0; cursor:pointer; }
-    .list{ display:flex; flex-direction:column; gap:10px; margin-top:10px; }
-    .item{ padding:10px; border:1px solid var(--line); border-radius:12px; background:#0f151d; display:flex; justify-content:space-between; align-items:center; gap:10px; }
-    .mono{ font-family: ui-monospace, Menlo, Consolas, monospace; }
     .small{ color:var(--muted); font-size:12px; }
     .utilMenu{ position:relative; }
     .utilToggle{ padding:8px 12px; border-radius:10px; border:1px solid var(--line); background:#0f151d; color:#d7e6f5; cursor:pointer; }
@@ -3597,40 +3714,47 @@ MANAGE_FILES_HTML = r"""
       min-width:160px; z-index:50; box-shadow:0 8px 22px rgba(0,0,0,0.35);
       display:flex; flex-direction:column; overflow:hidden;
     }
-    .utilDropdown a{
-      padding:10px 12px; color:#d7e6f5; text-decoration:none; font-size:13px;
-    }
+    .utilDropdown a{ padding:10px 12px; color:#d7e6f5; text-decoration:none; font-size:13px; }
     .utilDropdown a:hover{ background:rgba(255,138,61,0.12); color:#fff; }
     .utilDropdown.hidden{ display:none; }
+    .sidebar a{ display:block; padding:10px 12px; border-radius:10px; color:#d7e6f5; text-decoration:none; border:1px solid var(--line); margin-bottom:8px; }
+    .sidebar a.active{ border-color:var(--accent); color:#fff; }
+    table{ width:100%; border-collapse:collapse; }
+    th,td{ padding:8px; border-bottom:1px solid var(--line); text-align:left; }
+    th{ color:#cfe0f1; font-size:12px; }
+    td{ font-size:13px; }
+    .mono{ font-family: ui-monospace, Menlo, Consolas, monospace; }
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="row" style="justify-content:space-between; align-items:center;">
       <div>
-        <h1>Manage Files</h1>
-        <div class="small">Upload housekeeping: remove uploaded sources or past runs.</div>
+        <h1>Utilities File Manager</h1>
+        <div class="small">Browse and manage audio and presets. Metrics/sidecars are hidden but removed with outputs.</div>
       </div>
       <div class="utilMenu">
         <button class="utilToggle" id="utilToggleFiles" aria-haspopup="true" aria-expanded="false">☰ Utilities</button>
         <div class="utilDropdown hidden" id="utilDropdownFiles">
           <a href="/">Mastering</a>
+          <a href="/tagger">Tagging</a>
+          <a href="/manage-presets">Presets</a>
           <div style="height:1px; background:var(--line); margin:4px 0;"></div>
-          <a href="/manage-files">File Manager</a>
-          <a href="/manage-presets">Preset Manager</a>
-          <a href="/tagger">Tag Editor</a>
+          <a href="#" style="opacity:.4; pointer-events:none;">Analysis (coming soon)</a>
         </div>
       </div>
     </div>
 
-    <div class="card">
-      <h2 style="margin:0 0 6px 0; font-size:15px;">Uploads</h2>
-      <div id="uploadsList" class="list"></div>
-    </div>
-
-    <div class="card">
-      <h2 style="margin:0 0 6px 0; font-size:15px;">Runs</h2>
-      <div id="runsList" class="list"></div>
+    <div class="grid">
+      <div class="sidebar">
+        <a href="#" data-utility="mastering" class="active">Mastering</a>
+        <a href="#" data-utility="tagging">Tagging</a>
+        <a href="#" data-utility="presets">Presets</a>
+        <a href="#" style="opacity:.4; pointer-events:none;">Analysis (coming soon)</a>
+      </div>
+      <div id="utilPanels" class="col" style="gap:14px;">
+        <!-- Panels injected -->
+      </div>
     </div>
   </div>
 <script>
@@ -3648,88 +3772,153 @@ function setupUtilMenu(toggleId, menuId){
     if(!menu.contains(e.target) && e.target !== toggle){ close(); }
   });
 }
-async function loadUploads(){
-  const list = document.getElementById('uploadsList');
-  list.innerHTML = '<div class="small">Loading…</div>';
+const panels = {
+  mastering: [
+    { title:"Source Files", section:"source", utility:"mastering" },
+    { title:"Job Output", section:"output", utility:"mastering" },
+  ],
+  tagging: [
+    { title:"MP3 Library", section:"library", utility:"tagging" },
+  ],
+  presets: [
+    { title:"User Presets", section:"user", utility:"presets" },
+  ],
+};
+const state = {
+  utility: 'mastering',
+  selections: {}, // key utility:section -> Set
+};
+function renderPanels(){
+  const cont = document.getElementById('utilPanels');
+  cont.innerHTML = '';
+  (panels[state.utility] || []).forEach(p=>{
+    cont.appendChild(renderPanel(p.utility, p.section, p.title));
+  });
+  loadAll();
+}
+function renderPanel(utility, section, title){
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML = `
+    <div class="row" style="justify-content:space-between; align-items:center;">
+      <h2 style="margin:0; font-size:15px;">${title}</h2>
+      <div class="small" id="status-${utility}-${section}"></div>
+    </div>
+    <div class="row" style="justify-content:flex-end; gap:8px; margin:6px 0 10px 0;">
+      <button class="btnGhost" type="button" data-action="delete-all" data-utility="${utility}" data-section="${section}">Delete All</button>
+      <button class="btnDanger" type="button" data-action="delete-sel" data-utility="${utility}" data-section="${section}">Delete Selected</button>
+    </div>
+    <div class="tableWrap">
+      <table>
+        <thead><tr><th></th><th>Name</th><th>Size</th><th>Modified</th><th>Actions</th></tr></thead>
+        <tbody id="tbody-${utility}-${section}"><tr><td colspan="5" class="small">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  `;
+  return card;
+}
+function humanSize(bytes){
+  if(bytes === null || bytes === undefined) return '';
+  const units = ['B','KB','MB','GB'];
+  let b = bytes; let i=0;
+  while(b>=1024 && i<units.length-1){ b/=1024; i++; }
+  return `${b.toFixed(1)} ${units[i]}`;
+}
+async function loadTable(utility, section){
+  const tbody = document.getElementById(`tbody-${utility}-${section}`);
+  const status = document.getElementById(`status-${utility}-${section}`);
+  if(tbody) tbody.innerHTML = '<tr><td colspan="5" class="small">Loading…</td></tr>';
   try{
-    const res = await fetch('/api/files', { cache:'no-store' });
+    const res = await fetch(`/api/utility-files?utility=${utility}&section=${section}`, { cache:'no-store' });
     if(!res.ok) throw new Error();
     const data = await res.json();
-    const files = data.files || [];
-    if(!files.length){
-      list.innerHTML = '<div class="small" style="opacity:.7;">No uploads</div>';
-      return;
-    }
-    list.innerHTML = '';
-    const controls = document.createElement('div');
-    controls.className = 'item';
-    controls.innerHTML = `<div class="small">Bulk actions</div><div><button class="btnGhost" id="uploadsSelectAll">Select all</button> <button class="btnDanger" id="uploadsDelete">Delete selected</button></div>`;
-    list.appendChild(controls);
-    files.forEach(f=>{
-      const row = document.createElement('div');
-      row.className = 'item';
-      row.innerHTML = `<label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" data-upload="${f}"><span class="mono">${f}</span></label>`;
-      list.appendChild(row);
-    });
-    document.getElementById('uploadsSelectAll').onclick = ()=>{
-      document.querySelectorAll('input[data-upload]').forEach(cb=> cb.checked = true);
-    };
-    document.getElementById('uploadsDelete').onclick = async ()=>{
-      const targets = Array.from(document.querySelectorAll('input[data-upload]:checked')).map(cb=>cb.dataset.upload);
-      if(!targets.length) return;
-      if(!confirm(`Delete ${targets.length} upload(s)?`)) return;
-      for(const t of targets){
-        await fetch(`/api/upload/${encodeURIComponent(t)}`, { method:'DELETE' });
+    const items = data.items || [];
+    if(tbody){
+      tbody.innerHTML = '';
+      if(!items.length){
+        tbody.innerHTML = '<tr><td colspan="5" class="small" style="opacity:.7;">No files</td></tr>';
       }
-      loadUploads();
-    };
+      items.forEach(it=>{
+        const tr = document.createElement('tr');
+        const key = `${utility}:${section}`;
+        const selected = state.selections[key]?.has(it.rel);
+        tr.innerHTML = `
+          <td><input type="checkbox" data-rel="${it.rel}"></td>
+          <td title="${it.rel}" class="mono">${it.name}</td>
+          <td>${it.is_dir ? '' : humanSize(it.size)}</td>
+          <td>${it.mtime ? new Date(it.mtime*1000).toLocaleString() : ''}</td>
+          <td><button class="btnGhost" type="button" data-dl="${it.rel}" data-utility="${utility}" data-section="${section}">Download</button></td>
+        `;
+        const cb = tr.querySelector('input[type=checkbox]');
+        if(cb && selected) cb.checked = true;
+        tbody.appendChild(tr);
+      });
+      tbody.querySelectorAll('input[type=checkbox]').forEach(cb=>{
+        cb.addEventListener('change', ()=>{
+          const key = `${utility}:${section}`;
+          if(!state.selections[key]) state.selections[key] = new Set();
+          if(cb.checked) state.selections[key].add(cb.dataset.rel);
+          else state.selections[key].delete(cb.dataset.rel);
+        });
+      });
+      tbody.querySelectorAll('button[data-dl]').forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+          const u = btn.dataset.utility, s = btn.dataset.section, rel = btn.dataset.dl;
+          window.location.href = `/api/utility-download?utility=${u}&section=${s}&rel=${encodeURIComponent(rel)}`;
+        });
+      });
+    }
+    if(status) status.textContent = `${items.length} item(s)`;
   }catch(e){
-    list.innerHTML = '<div class="small" style="color:#f99;">Failed to load uploads</div>';
+    if(tbody) tbody.innerHTML = '<tr><td colspan="5" class="small" style="color:#f99;">Failed to load</td></tr>';
   }
 }
-async function loadRuns(){
-  const list = document.getElementById('runsList');
-  list.innerHTML = '<div class="small">Loading…</div>';
-  try{
-    const res = await fetch('/api/recent?limit=200', { cache:'no-store' });
-    if(!res.ok) throw new Error();
+function loadAll(){
+  (panels[state.utility] || []).forEach(p=> loadTable(p.utility, p.section));
+}
+async function deleteAction(utility, section, all=false){
+  const key = `${utility}:${section}`;
+  const sels = Array.from(state.selections[key] || []);
+  if(!all && !sels.length) return;
+  if(all){
+    // re-fetch to get all rels
+    const res = await fetch(`/api/utility-files?utility=${utility}&section=${section}`, { cache:'no-store' });
+    if(!res.ok) return;
     const data = await res.json();
-    const runs = data.items || [];
-    if(!runs.length){
-      list.innerHTML = '<div class="small" style="opacity:.7;">No runs</div>';
-      return;
-    }
-    list.innerHTML = '';
-    const controls = document.createElement('div');
-    controls.className = 'item';
-    controls.innerHTML = `<div class="small">Bulk actions</div><div><button class="btnGhost" id="runsSelectAll">Select all</button> <button class="btnDanger" id="runsDelete">Delete selected</button></div>`;
-    list.appendChild(controls);
-    runs.forEach(r=>{
-      const row = document.createElement('div');
-      row.className = 'item';
-      row.innerHTML = `<label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" data-run="${r.song}"><span class="mono">${r.song}</span></label>`;
-      list.appendChild(row);
-    });
-    document.getElementById('runsSelectAll').onclick = ()=>{
-      document.querySelectorAll('input[data-run]').forEach(cb=> cb.checked = true);
-    };
-    document.getElementById('runsDelete').onclick = async ()=>{
-      const targets = Array.from(document.querySelectorAll('input[data-run]:checked')).map(cb=>cb.dataset.run);
-      if(!targets.length) return;
-      if(!confirm(`Delete ${targets.length} run(s)?`)) return;
-      for(const t of targets){
-        await fetch(`/api/song/${encodeURIComponent(t)}`, { method:'DELETE' });
-      }
-      loadRuns();
-    };
-  }catch(e){
-    list.innerHTML = '<div class="small" style="color:#f99;">Failed to load runs</div>';
+    sels.push(...(data.items||[]).filter(i=>!i.is_dir).map(i=>i.rel));
   }
+  if(!sels.length) return;
+  if(!confirm(`Delete ${sels.length} file(s)?`)) return;
+  await fetch('/api/utility-delete', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ utility, section, rels: sels })
+  });
+  state.selections[key] = new Set();
+  loadAll();
 }
 document.addEventListener('DOMContentLoaded', ()=>{
   setupUtilMenu('utilToggleFiles','utilDropdownFiles');
-  loadUploads();
-  loadRuns();
+  document.querySelectorAll('.sidebar a[data-utility]').forEach(a=>{
+    a.addEventListener('click', (e)=>{
+      e.preventDefault();
+      document.querySelectorAll('.sidebar a[data-utility]').forEach(el=> el.classList.remove('active'));
+      a.classList.add('active');
+      state.utility = a.dataset.utility;
+      state.selections = {};
+      renderPanels();
+    });
+  });
+  document.addEventListener('click', (e)=>{
+    const btn = e.target.closest('button[data-action]');
+    if(!btn) return;
+    const action = btn.dataset.action;
+    const utility = btn.dataset.utility;
+    const section = btn.dataset.section;
+    if(action === 'delete-sel') deleteAction(utility, section, false);
+    if(action === 'delete-all') deleteAction(utility, section, true);
+  });
+  renderPanels();
 });
 </script>
 </body>
