@@ -1192,29 +1192,29 @@ def main():
 
     job_completed = False
     try:
-    if do_master and voicing_mode == "presets":
-        safe_presets = []
-        preset_pattern = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
-        for raw in presets:
-            if not preset_pattern.match(raw or ""):
-                log_error("preset", "invalid_name", preset=raw)
-                continue
-            safe_presets.append(raw)
-        for p in safe_presets:
-            preset_path = (PRESET_DIR / f"{p}.json").resolve()
-            if PRESET_DIR.resolve() not in preset_path.parents:
-                log_error("preset", "reject_out_of_tree", preset=p)
-                continue
-            if not preset_path.exists():
-                alt = (GEN_PRESET_DIR / f"{p}.json").resolve()
-                if GEN_PRESET_DIR.resolve() in alt.parents and alt.exists():
-                    preset_path = alt
-            if not preset_path.exists():
-                print(f"Skipping missing preset: {p}", file=sys.stderr)
-                continue
+        if do_master and voicing_mode == "presets":
+            safe_presets = []
+            preset_pattern = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+            for raw in presets:
+                if not preset_pattern.match(raw or ""):
+                    log_error("preset", "invalid_name", preset=raw)
+                    continue
+                safe_presets.append(raw)
+            for p in safe_presets:
+                preset_path = (PRESET_DIR / f"{p}.json").resolve()
+                if PRESET_DIR.resolve() not in preset_path.parents:
+                    log_error("preset", "reject_out_of_tree", preset=p)
+                    continue
+                if not preset_path.exists():
+                    alt = (GEN_PRESET_DIR / f"{p}.json").resolve()
+                    if GEN_PRESET_DIR.resolve() in alt.parents and alt.exists():
+                        preset_path = alt
+                if not preset_path.exists():
+                    print(f"Skipping missing preset: {p}", file=sys.stderr)
+                    continue
 
-            with open(preset_path, "r") as f:
-                preset = json.load(f)
+                with open(preset_path, "r") as f:
+                    preset = json.load(f)
 
                 target_lufs = float(args.lufs) if args.lufs is not None else float(preset.get("lufs", -14))
                 lim = preset.get("limiter", {}) or {}

@@ -2347,12 +2347,9 @@ function triggerUpload(){
 }
 
 async function uploadFilesSequential(files){
-  const uploadResult = document.getElementById('uploadResult');
-
   const setMsg = (msg) => {
     try { setResult(msg); } catch(_){}
     try { setStatus(msg); } catch(_){}
-    if (uploadResult) uploadResult.textContent = msg;
   };
 
   setResultHTML('<span class="spinner">Uploading…</span>');
@@ -3110,7 +3107,6 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
   fd.append('file', f);
   const r = await fetch('/api/upload', { method:'POST', body: fd });
   const j = await r.json();
-  document.getElementById('uploadResult').textContent = j.message;
   
   try { await refreshAll(); } catch (e) { console.error('post-upload refreshAll failed', e); }
 });
