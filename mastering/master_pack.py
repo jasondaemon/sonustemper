@@ -3,6 +3,7 @@ import argparse, json, shlex, subprocess, sys, re, os, time, hashlib
 from pathlib import Path
 import shutil
 import json
+from logging_util import log_error, log_summary, log_debug
 
 def _safe_tag(s: str, max_len: int = 80) -> str:
     """Make a filesystem-safe tag chunk."""
@@ -213,6 +214,13 @@ def clamp(v, lo, hi):
 def db_to_lin(db: float) -> float:
     return 10 ** (db / 20.0)
 
+# Event logging level: debug < summary < error
+_EVENT_LEVELS = {"debug": 0, "summary": 1, "error": 2}
+EVENT_LOG_LEVEL = _EVENT_LEVELS.get(os.getenv("EVENT_LOG_LEVEL", "error").lower(), 2)
+
+def _should_log(level: str) -> bool:
+    return _EVENT_LEVELS.get(level, 1) >= EVENT_LOG_LEVEL
+
 def analyze_reference(path: Path) -> dict:
     """Extract basic spectral/loudness cues from a reference file to seed a preset."""
     info = docker_ffprobe_json(path)
@@ -235,8 +243,32 @@ def analyze_reference(path: Path) -> dict:
         "crest_factor": cf_corr.get("crest_factor"),
     }
 
-def run_cmd(cmd: list[str]):
-    return subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+def run_ffmpeg(cmd: list[str], *, stage: str = "ffmpeg", capture: bool = True):
+    """Run ffmpeg (or similar) with logging and optional capture."""
+    log_debug(stage, "exec", args=cmd)
+    res = subprocess.run(
+        cmd,
+        text=True,
+        stdout=subprocess.PIPE if capture else None,
+        stderr=subprocess.PIPE if capture else None,
+        check=False,
+    )
+    if res.returncode != 0:
+        stderr_tail = (res.stderr or "")[-1000:] if capture else ""
+        log_error(stage, "returncode", returncode=res.returncode, stderr=stderr_tail)
+    return res
+
+def extract_json_from_stderr(stderr: str) -> dict:
+    """Extract first JSON blob from stderr/stdout combined."""
+    if not stderr:
+        return {}
+    start = stderr.find("{")
+    end = stderr.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        raise RuntimeError("json_not_found")
+    blob = stderr[start:end+1]
+    log_debug("ffmpeg", "json_extract", blob=blob[:600])
+    return json.loads(blob)
 
 def build_filters(preset: dict, strength: float, lufs_override, tp_override, width: float) -> str:
     eq = preset.get("eq", [])
@@ -273,29 +305,28 @@ def _pcm_codec_for_depth(bit_depth: int) -> str:
     return "pcm_s16le"
 
 def run_ffmpeg_wav(input_path: Path, output_path: Path, af: str, sample_rate: int, bit_depth: int):
-    r = run_cmd([
+    r = run_ffmpeg([
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(input_path),
         "-af", af,
         "-ar", str(sample_rate), "-ac", "2", "-c:a", _pcm_codec_for_depth(bit_depth),
         str(output_path)
-    ])
+    ], stage="tone_render")
     if r.returncode != 0:
         raise RuntimeError(r.stderr.strip() or "ffmpeg failed")
 
 def measure_loudness_stats(path: Path, target_I: float, target_TP: float) -> dict:
     """First-pass loudnorm measure; returns measured I/TP."""
-    r = run_cmd([
+    r = run_ffmpeg([
         "ffmpeg", "-hide_banner", "-nostats",
         "-i", str(path),
         "-af", f"loudnorm=I={target_I}:TP={target_TP}:print_format=json:dual_mono=true",
         "-f", "null", "-"
-    ])
+    ], stage="loudnorm_measure")
     txt = (r.stderr or "") + "\n" + (r.stdout or "")
     stats = {}
     try:
-        jtxt = txt[txt.find("{"):]
-        j = json.loads(jtxt)
+        j = extract_json_from_stderr(txt)
         stats = {
             "input_i": float(j.get("input_i")) if j.get("input_i") is not None else None,
             "input_tp": float(j.get("input_tp")) if j.get("input_tp") is not None else None,
@@ -344,24 +375,21 @@ def render_with_static_loudness(source: Path, tone_filters: str, final_wav: Path
     else:
         af = ln_apply
 
-    r = run_cmd([
+    r = run_ffmpeg([
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(source),
         "-af", af,
         "-ar", str(sample_rate), "-ac", "2", "-c:a", _pcm_codec_for_depth(bit_depth),
         str(final_wav)
-    ])
+    ], stage="loudnorm_apply")
     txt = (r.stderr or "") + "\n" + (r.stdout or "")
     out_stats = {}
     try:
-        start = txt.find("{")
-        end = txt.rfind("}")
-        if start != -1 and end != -1 and end > start:
-            j = json.loads(txt[start:end+1])
-            out_stats["output_i"] = float(j.get("output_i")) if j.get("output_i") is not None else None
-            out_stats["output_tp"] = float(j.get("output_tp")) if j.get("output_tp") is not None else None
+        j = extract_json_from_stderr(txt)
+        out_stats["output_i"] = float(j.get("output_i")) if j.get("output_i") is not None else None
+        out_stats["output_tp"] = float(j.get("output_tp")) if j.get("output_tp") is not None else None
     except Exception:
-        pass
+        log_debug("loudnorm", "apply_parse_failed")
     if r.returncode != 0:
         raise RuntimeError(r.stderr.strip() or "ffmpeg loudnorm apply failed")
     merged = {
@@ -554,10 +582,10 @@ def generate_preset_from_reference(ref_path: Path, name_slug: str) -> Path:
     return dest
 
 def measure_loudness(wav_path: Path) -> dict:
-    r = run_cmd([
+    r = run_ffmpeg([
         "ffmpeg", "-hide_banner", "-nostats", "-i", str(wav_path),
         "-filter_complex", "ebur128=peak=true", "-f", "null", "-"
-    ])
+    ], stage="ebur128")
     txt = (r.stderr or "") + "\n" + (r.stdout or "")
 
     flags = re.IGNORECASE
@@ -583,11 +611,11 @@ def measure_astats_overall(wav_path: Path) -> dict:
     """
     # Include RMS_peak so we can compute a useful DR fallback
     want = "Peak_level+RMS_level+RMS_peak+Noise_floor+Crest_factor"
-    r = run_cmd([
+    r = run_ffmpeg([
         "ffmpeg", "-hide_banner", "-v", "verbose", "-nostats", "-i", str(wav_path),
         "-af", f"astats=measure_overall={want}:measure_perchannel=none:reset=0",
         "-f", "null", "-"
-    ])
+    ], stage="astats")
     txt = (r.stderr or "") + "\n" + (r.stdout or "")
     out = {
         "peak_level": None,
@@ -919,7 +947,7 @@ def write_playlist_html(folder: Path, title: str, source_name: str):
     (folder / "index.html").write_text(html, encoding="utf-8")
 
 # --- status logging (for UI progress) ---
-def append_status(folder: Path, stage: str, detail: str = "", preset: str | None = None):
+def append_status(folder: Path, stage: str, detail: str = "", preset: str | None = None, level: str = "summary"):
     """Append a lightweight status entry to .status.json in the run folder."""
     try:
         status_fp = folder / ".status.json"
@@ -944,6 +972,9 @@ def append_status(folder: Path, stage: str, detail: str = "", preset: str | None
         if len(payload["entries"]) > 300:
             payload["entries"] = payload["entries"][-300:]
         status_fp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        if _should_log(level):
+            msg = f"[status] stage={stage} preset={preset or ''} detail={detail}"
+            print(msg, file=sys.stderr, flush=True)
     except Exception:
         pass
 
@@ -1372,7 +1403,8 @@ def main():
         append_status(song_dir, "complete", "Job complete")
         job_completed = True
     except Exception as exc:
-        append_status(song_dir, "error", f"Job failed: {exc}")
+        append_status(song_dir, "error", f"Job failed: {exc}", level="error")
+        log_error("master", "job_failed", error=str(exc))
         job_completed = True  # allow marker cleanup so UI can refresh
         raise
     finally:
