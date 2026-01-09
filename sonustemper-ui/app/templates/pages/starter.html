@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SonusTemper</title>
+  <link rel="stylesheet" href="/ui/static/css/app.css">
+  <style>
+    body{margin:0;background:#0b0f14;color:#dbe7ff;font-family:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;}
+    .starter-wrap{
+      min-height:100vh;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      justify-content:center;
+      gap:24px;
+      text-align:center;
+      padding:24px;
+    }
+    .starter-logo img{max-width:120px;filter:drop-shadow(0 10px 25px rgba(0,0,0,0.35));}
+    .starter-title{font-size:32px;font-weight:800;letter-spacing:0.5px;}
+    .starter-sub{color:#92a4c0;font-size:15px;}
+    .starter-grid{
+      display:grid;
+      grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
+      gap:16px;
+      width:100%;
+      max-width:640px;
+    }
+    .starter-card{
+      background:#0f141c;
+      border:1px solid #1a2230;
+      border-radius:12px;
+      padding:16px;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      gap:8px;
+      transition:all 140ms ease;
+      cursor:pointer;
+      text-decoration:none;
+      color:#dbe7ff;
+    }
+    .starter-card:hover{
+      border-color:#1aa0ff;
+      box-shadow:0 0 0 1px #1aa0ff33, 0 8px 24px rgba(26,160,255,0.15);
+      transform:translateY(-2px);
+    }
+    .starter-icon{
+      width:44px;height:44px;
+      border-radius:12px;
+      background:#111a25;
+      display:flex;align-items:center;justify-content:center;
+      font-size:22px;
+      box-shadow:inset 0 0 0 1px #0d131c;
+    }
+    .starter-name{font-weight:700;}
+  </style>
+</head>
+<body>
+  <div class="starter-wrap">
+    <div class="starter-logo">
+      <img src="/images/SonusTemper-128.png" alt="SonusTemper">
+    </div>
+    <div class="starter-title">SonusTemper</div>
+    <div class="starter-sub">Master, tag, and manage your audio. Pick a utility to begin.</div>
+    <div class="starter-grid">
+      <a class="starter-card" href="/ui/mastering">
+        <div class="starter-icon">🎛️</div>
+        <div class="starter-name">Mastering</div>
+        <div class="starter-sub">Process and export songs</div>
+      </a>
+      <a class="starter-card" href="/ui/files">
+        <div class="starter-icon">🗂️</div>
+        <div class="starter-name">File Manager</div>
+        <div class="starter-sub">Browse sources and outputs</div>
+      </a>
+      <a class="starter-card" href="/ui/tagging">
+        <div class="starter-icon">🏷️</div>
+        <div class="starter-name">Tagging</div>
+        <div class="starter-sub">Edit ID3 tags & artwork</div>
+      </a>
+      <a class="starter-card" href="/ui/presets">
+        <div class="starter-icon">🧰</div>
+        <div class="starter-name">Presets</div>
+        <div class="starter-sub">Manage user & generated presets</div>
+      </a>
+    </div>
+  </div>
+</body>
+</html>

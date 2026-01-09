@@ -137,6 +137,16 @@ async def files(request: Request, util: str = "mastering"):
     )
 
 
+@router.get("/", response_class=HTMLResponse)
+async def starter(request: Request):
+    return TEMPLATES.TemplateResponse(
+        "pages/starter.html",
+        {
+            "request": request,
+        },
+    )
+
+
 @router.get("/mastering", response_class=HTMLResponse)
 async def mastering_page(request: Request):
     return TEMPLATES.TemplateResponse(
