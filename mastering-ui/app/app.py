@@ -33,10 +33,18 @@ ANALYSIS_TMP_DIR = Path(os.getenv("ANALYSIS_TMP_DIR", str(DATA_DIR / "analysis" 
 IN_DIR = MASTER_IN_DIR
 OUT_DIR = MASTER_OUT_DIR
 APP_DIR = Path(__file__).resolve().parent
-# New UI (sonustemper-ui) support
-UI_APP_DIR = APP_DIR.parent.parent / "sonustemper-ui" / "app"
-if UI_APP_DIR.exists():
-    sys.path.append(str(UI_APP_DIR))
+# New UI (sonustemper-ui) support; resolve both repo layout and container layout
+UI_CANDIDATES = [
+    APP_DIR / "sonustemper-ui" / "app",              # in-container after COPY sonustemper-ui/app -> /app/sonustemper-ui/app
+    APP_DIR.parent / "sonustemper-ui" / "app",        # local dev: mastering-ui/app/... one level up
+    APP_DIR.parent.parent / "sonustemper-ui" / "app", # local dev from repo root
+]
+UI_APP_DIR = None
+for cand in UI_CANDIDATES:
+    if cand.exists():
+        UI_APP_DIR = cand
+        sys.path.append(str(cand))
+        break
 # Security: API key protection (for CLI/scripts); set API_AUTH_DISABLED=1 to bypass explicitly.
 API_KEY = os.getenv("API_KEY")
 API_AUTH_DISABLED = os.getenv("API_AUTH_DISABLED") == "1"
@@ -52,7 +60,7 @@ logger.info(
 )
 # New UI import (after sys.path update)
 new_ui_router = None
-logger.info("[startup] UI_APP_DIR=%s exists=%s", UI_APP_DIR, UI_APP_DIR.exists())
+logger.info("[startup] UI_APP_DIR=%s exists=%s", UI_APP_DIR, bool(UI_APP_DIR and UI_APP_DIR.exists()))
 try:
     from ui import router as new_ui_router  # type: ignore
     logger.info("[startup] new UI router import success")
@@ -88,7 +96,7 @@ for p in [
     p.mkdir(parents=True, exist_ok=True)
 app.mount("/out", StaticFiles(directory=str(MASTER_OUT_DIR), html=True), name="out")
 # Mount new UI static assets if present
-UI_STATIC_DIR = UI_APP_DIR / "static" if UI_APP_DIR.exists() else None
+UI_STATIC_DIR = UI_APP_DIR / "static" if UI_APP_DIR and UI_APP_DIR.exists() else None
 if UI_STATIC_DIR and UI_STATIC_DIR.exists():
     app.mount("/ui/static", StaticFiles(directory=str(UI_STATIC_DIR)), name="ui-static")
 MAIN_LOOP = None
