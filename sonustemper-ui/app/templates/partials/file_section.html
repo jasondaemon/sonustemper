@@ -1,0 +1,60 @@
+<div class="card" id="section-{{section.utility}}-{{section.section}}">
+  <div class="card-head">
+    <div>
+      <div class="card-title">{{ section.title }}</div>
+      <div class="muted">{{ section.items|length }} item(s)</div>
+    </div>
+    {% if section.items|length > 0 %}
+    <form hx-post="/ui/actions/delete" hx-target="#sections" hx-swap="outerHTML">
+      <input type="hidden" name="util" value="{{section.utility}}">
+      <input type="hidden" name="section" value="{{section.section}}">
+      <input type="hidden" name="delete_all" value="1">
+      <button type="submit" class="btn danger small">Delete All</button>
+    </form>
+    {% endif %}
+  </div>
+  {% if section.items|length > 0 %}
+  <form hx-post="/ui/actions/delete" hx-target="#sections" hx-swap="outerHTML" class="delete-selected-form">
+    <input type="hidden" name="util" value="{{section.utility}}">
+    <input type="hidden" name="section" value="{{section.section}}">
+    <div class="table-actions">
+      <button type="submit" class="btn danger small">Delete Selected</button>
+    </div>
+    <table class="file-table">
+      <thead>
+        <tr>
+          <th style="width:32px;"></th>
+          <th>Name</th>
+          <th style="width:120px;">Size</th>
+          <th style="width:180px;">Modified</th>
+          <th style="width:120px;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in section.items %}
+        <tr>
+          <td><input type="checkbox" name="rels" value="{{ item.rel }}"></td>
+          <td>
+            {% if item.is_dir %}
+              <span class="pill subtle">Folder</span>
+            {% endif %}
+            <span title="{{ item.name }}">{{ item.name }}</span>
+          </td>
+          <td>{{ human_size(item.size) }}</td>
+          <td>{{ fmt_mtime(item.mtime) }}</td>
+          <td>
+            {% if not item.is_dir %}
+            <a class="btn ghost small" href="/ui/download?utility={{section.utility}}&section={{section.section}}&rel={{ item.rel|urlencode }}">Download</a>
+            {% else %}
+            <span class="muted">-</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </form>
+  {% else %}
+    <div class="muted">No items</div>
+  {% endif %}
+</div>

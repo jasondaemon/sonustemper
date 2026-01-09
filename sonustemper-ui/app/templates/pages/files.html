@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block page_title %}File Manager | SonusTemper{% endblock %}
+{% block title %}File Manager{% endblock %}
+{% block subtitle %}Browse and manage audio and presets.{% endblock %}
+{% block content %}
+  <div class="sections-wrap" hx-target="this">
+    <div id="sections" hx-get="/ui/partials/files_sections?util={{ util }}" hx-trigger="load"></div>
+  </div>
+{% endblock %}

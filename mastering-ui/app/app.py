@@ -18,6 +18,10 @@ from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, Streamin
 from tagger import TaggerService
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
+try:
+    from ui import router as new_ui_router
+except Exception:
+    new_ui_router = None
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 MASTER_IN_DIR = Path(os.getenv("IN_DIR", os.getenv("MASTER_IN_DIR", str(DATA_DIR / "mastering" / "in"))))
 MASTER_OUT_DIR = Path(os.getenv("OUT_DIR", os.getenv("MASTER_OUT_DIR", str(DATA_DIR / "mastering" / "out"))))
@@ -33,6 +37,10 @@ ANALYSIS_TMP_DIR = Path(os.getenv("ANALYSIS_TMP_DIR", str(DATA_DIR / "analysis" 
 IN_DIR = MASTER_IN_DIR
 OUT_DIR = MASTER_OUT_DIR
 APP_DIR = Path(__file__).resolve().parent
+# New UI (sonustemper-ui) support
+UI_APP_DIR = APP_DIR.parent.parent / "sonustemper-ui" / "app"
+if UI_APP_DIR.exists():
+    sys.path.append(str(UI_APP_DIR))
 # Security: API key protection (for CLI/scripts); set API_AUTH_DISABLED=1 to bypass explicitly.
 API_KEY = os.getenv("API_KEY")
 API_AUTH_DISABLED = os.getenv("API_AUTH_DISABLED") == "1"
@@ -75,6 +83,10 @@ for p in [
 ]:
     p.mkdir(parents=True, exist_ok=True)
 app.mount("/out", StaticFiles(directory=str(MASTER_OUT_DIR), html=True), name="out")
+# Mount new UI static assets if present
+UI_STATIC_DIR = UI_APP_DIR / "static" if UI_APP_DIR.exists() else None
+if UI_STATIC_DIR and UI_STATIC_DIR.exists():
+    app.mount("/ui/static", StaticFiles(directory=str(UI_STATIC_DIR)), name="ui-static")
 MAIN_LOOP = None
 TAGGER_MAX_UPLOAD = int(os.getenv("TAGGER_MAX_UPLOAD_BYTES", str(250 * 1024 * 1024)))
 TAGGER_MAX_ARTWORK = int(os.getenv("TAGGER_MAX_ARTWORK_BYTES", str(30 * 1024 * 1024)))
@@ -5530,3 +5542,7 @@ def _validate_input_file(name: str) -> Path:
     except Exception:
         raise HTTPException(status_code=400, detail="invalid_input_path")
     return candidate
+
+# Mount the new /ui routes if available
+if new_ui_router:
+    app.include_router(new_ui_router, prefix="/ui")

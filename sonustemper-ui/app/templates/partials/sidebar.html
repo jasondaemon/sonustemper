@@ -1,0 +1,22 @@
+<div class="sidebar">
+  <div class="sidebar-title">Utilities</div>
+  {% set active = util or "mastering" %}
+  <button class="sideItem {% if active=='mastering' %}active{% endif %}" 
+          hx-get="/ui/partials/files_sections?util=mastering"
+          hx-target="#sections" hx-swap="outerHTML" hx-push-url="/ui/files?util=mastering">
+    Mastering
+  </button>
+  <button class="sideItem {% if active=='tagging' %}active{% endif %}" 
+          hx-get="/ui/partials/files_sections?util=tagging"
+          hx-target="#sections" hx-swap="outerHTML" hx-push-url="/ui/files?util=tagging">
+    Tagging
+  </button>
+  <button class="sideItem {% if active=='presets' %}active{% endif %}" 
+          hx-get="/ui/partials/files_sections?util=presets"
+          hx-target="#sections" hx-swap="outerHTML" hx-push-url="/ui/files?util=presets">
+    Presets
+  </button>
+  <button class="sideItem disabled">
+    Analysis (coming soon)
+  </button>
+</div>

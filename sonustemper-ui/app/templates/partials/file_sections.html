@@ -1,0 +1,16 @@
+<div id="sections" hx-target="this">
+  {% if util == "analysis" %}
+    <div class="card disabled">
+      <div class="card-head">
+        <div>
+          <div class="card-title">Analysis</div>
+          <div class="muted">Coming soon.</div>
+        </div>
+      </div>
+    </div>
+  {% else %}
+    {% for section in sections %}
+      {% include "partials/file_section.html" %}
+    {% endfor %}
+  {% endif %}
+</div>
