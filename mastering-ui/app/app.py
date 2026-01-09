@@ -3400,7 +3400,7 @@ MANAGE_PRESETS_HTML = r"""
       display:flex; flex-direction:column; padding:16px;
     }
     .utilMenu{ position:relative; }
-    .utilMenuTop{ position:absolute; top:0; right:0; }
+    .utilMenuTop{ position:absolute; top:12px; right:18px; z-index:20; }
     .utilToggle{ padding:8px 12px; border-radius:10px; border:1px solid var(--line); background:#0f151d; color:#d7e6f5; cursor:pointer; }
     .utilToggle:hover{ border-color:var(--accent); color:var(--text); }
     .utilDropdown{
