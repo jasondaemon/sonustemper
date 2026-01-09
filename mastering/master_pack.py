@@ -264,6 +264,10 @@ def run_ffmpeg(cmd: list[str], *, stage: str = "ffmpeg", capture: bool = True):
         log_error(stage, "returncode", returncode=res.returncode, stderr=stderr_tail)
     return res
 
+# Compatibility shim for older callers that used run_cmd
+def run_cmd(cmd: list[str], stage: str = "ffmpeg"):
+    return run_ffmpeg(cmd, stage=stage, capture=True)
+
 def extract_json_from_stderr(stderr: str) -> dict:
     """Extract first JSON blob from stderr/stdout combined."""
     if not stderr:
