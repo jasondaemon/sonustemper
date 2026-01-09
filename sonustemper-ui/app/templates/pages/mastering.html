@@ -3,65 +3,7 @@
 {% block title %}Mastering{% endblock %}
 {% block subtitle %}Run mastering jobs in the new UI.{% endblock %}
 {% block content %}
-  <div class="card">
-    <div class="card-head">
-      <div>
-        <div class="card-title">Job</div>
-        <div class="muted">Pick a source, choose voicing, loudness, and outputs.</div>
-      </div>
-      <div class="muted hx-indicator" id="jobIndicator">Working…</div>
-    </div>
-    <form id="masterForm">
-      <div class="form-grid">
-        <div class="form-row">
-          <label>Input file</label>
-          <select name="infile" id="infileSelect" required>
-            <option value="">Loading…</option>
-          </select>
-        </div>
-        <div class="form-row">
-          <label>Voicing</label>
-          <select name="voicing_name" id="voicingSelect">
-            <option value="universal">Universal</option>
-            <option value="airlift">Airlift</option>
-            <option value="ember">Ember</option>
-            <option value="detail">Detail</option>
-            <option value="glue">Glue</option>
-            <option value="wide">Wide</option>
-            <option value="cinematic">Cinematic</option>
-            <option value="punch">Punch</option>
-          </select>
-          <input type="hidden" name="voicing_mode" value="voicing">
-        </div>
-        <div class="form-row">
-          <label>Strength</label>
-          <input type="range" name="strength" id="strength" min="0" max="100" value="80" oninput="document.getElementById('strengthVal').textContent=this.value;">
-          <div class="muted">S=<span id="strengthVal">80</span></div>
-        </div>
-        <div class="form-row">
-          <label>Loudness</label>
-          <div class="pill">Apple Music</div>
-          <input type="hidden" name="lufs" value="-16.0">
-          <input type="hidden" name="tp" value="-1.0">
-        </div>
-        <div class="form-row outputs">
-          <label>Outputs</label>
-          <div class="output-grid">
-            <label><input type="checkbox" name="out_wav" value="1" checked> WAV</label>
-            <label><input type="checkbox" name="out_mp3" value="1" checked> MP3</label>
-            <label><input type="checkbox" name="out_aac" value="1"> AAC/M4A</label>
-            <label><input type="checkbox" name="out_ogg" value="1"> OGG</label>
-            <label><input type="checkbox" name="out_flac" value="1"> FLAC</label>
-          </div>
-        </div>
-      </div>
-      <div class="actions">
-        <button type="submit" class="btn">Run Job</button>
-        <a class="btn ghost" href="/">Legacy UI</a>
-      </div>
-    </form>
-  </div>
-  <div class="grid-2">
+  <div class="master-grid">
     <div class="card">
       <div class="card-head">
         <div>
@@ -71,6 +13,76 @@
       </div>
       <div class="muted">Status stream placeholder.</div>
     </div>
+
+    <div class="card job-card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">Job</div>
+          <div class="muted">Pick a source, choose voicing, loudness, and outputs.</div>
+        </div>
+        <div class="muted hx-indicator" id="jobIndicator">Working…</div>
+      </div>
+      <form id="masterForm">
+        <div class="form-grid">
+          <div class="form-row">
+            <label>Input file</label>
+            <select name="infile" id="infileSelect" required>
+              <option value="">Loading…</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>Voicing</label>
+            <select name="voicing_name" id="voicingSelect">
+              <option value="universal">Universal</option>
+              <option value="airlift">Airlift</option>
+              <option value="ember">Ember</option>
+              <option value="detail">Detail</option>
+              <option value="glue">Glue</option>
+              <option value="wide">Wide</option>
+              <option value="cinematic">Cinematic</option>
+              <option value="punch">Punch</option>
+            </select>
+            <input type="hidden" name="voicing_mode" value="voicing">
+          </div>
+          <div class="form-row">
+            <label>Strength</label>
+            <input type="range" name="strength" id="strength" min="0" max="100" value="80" oninput="document.getElementById('strengthVal').textContent=this.value;">
+            <div class="muted">S=<span id="strengthVal">80</span></div>
+          </div>
+          <div class="form-row">
+            <label>Loudness</label>
+            <div class="pill">Apple Music</div>
+            <input type="hidden" name="lufs" value="-16.0">
+            <input type="hidden" name="tp" value="-1.0">
+          </div>
+          <div class="form-row outputs">
+            <label>Outputs</label>
+            <div class="output-grid">
+              <label><input type="checkbox" name="out_wav" value="1" checked> WAV</label>
+              <label><input type="checkbox" name="out_mp3" value="1" checked> MP3</label>
+              <label><input type="checkbox" name="out_aac" value="1"> AAC/M4A</label>
+              <label><input type="checkbox" name="out_ogg" value="1"> OGG</label>
+              <label><input type="checkbox" name="out_flac" value="1"> FLAC</label>
+            </div>
+          </div>
+        </div>
+        <div class="actions">
+          <button type="submit" class="btn">Run Job</button>
+          <a class="btn ghost" href="/">Legacy UI</a>
+        </div>
+      </form>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">Previous Runs</div>
+          <div class="muted">Recent runs will appear here.</div>
+        </div>
+      </div>
+      <div class="muted">Previous runs placeholder.</div>
+    </div>
+
     <div class="card">
       <div class="card-head">
         <div>
