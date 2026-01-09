@@ -40,6 +40,12 @@ PROXY_SHARED_SECRET = (os.getenv("PROXY_SHARED_SECRET", "") or "").strip()
 # Basic logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger("mastering-ui")
+# Surface configured log level on startup to aid debugging
+logger.info(
+    "[startup] LOG_LEVEL=%s EVENT_LOG_LEVEL=%s",
+    os.getenv("LOG_LEVEL", "error"),
+    os.getenv("EVENT_LOG_LEVEL", os.getenv("LOG_LEVEL", "error")),
+)
 # Trusted proxy check via shared secret (raw)
 def is_trusted_proxy(mark: str) -> bool:
     return bool(mark) and bool(PROXY_SHARED_SECRET) and (mark == PROXY_SHARED_SECRET)
