@@ -34,7 +34,11 @@
     </div>
   </div>
   <script>
-    setupUtilMenu('utilToggleGlobal','utilDropdownGlobal');
+    document.addEventListener('DOMContentLoaded', function(){
+      if (typeof setupUtilMenu === 'function') {
+        setupUtilMenu('utilToggleGlobal','utilDropdownGlobal');
+      }
+    });
   </script>
   {% block extra_js %}{% endblock %}
 </body>

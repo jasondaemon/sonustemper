@@ -44,7 +44,7 @@
           <td>{{ fmt_mtime(item.mtime) }}</td>
           <td>
             {% if not item.is_dir %}
-            <a class="btn ghost small" href="/ui/download?utility={{section.utility}}&section={{section.section}}&rel={{ item.rel|urlencode }}">Download</a>
+            <a class="btn ghost small" href="/ui/download?utility={{section.utility}}&section={{section.section}}&rel={{ item.rel }}">Download</a>
             {% else %}
             <span class="muted">-</span>
             {% endif %}
