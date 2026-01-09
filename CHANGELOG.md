@@ -27,6 +27,6 @@
 - UI/UX improvements: voicing default, centered preset note, drawer-based info on main and manage presets page.
 - Licensing added: project under Apache-2.0; FFmpeg notices clarified.
 
-[v1.0.0]: https://github.com/jasondaemon/sonustemper/releases/tag/v1.0.0
 [v1.1.0]: https://github.com/jasondaemon/sonustemper/releases/tag/v1.1.0
 [v1.2.0]: https://github.com/jasondaemon/sonustemper/releases/tag/v1.2.0
+[v1.3.0]: https://github.com/jasondaemon/sonustemper/releases/tag/v1.3.0
