@@ -73,9 +73,9 @@ SonusTemper is a one-page mastering workstation: drop in a song, choose a voicin
 ![taggin ui](images/tagging.png)
 
 ## Data paths
-- Inputs: `./data/in`
-- Outputs: `./data/out`
-- Presets: `./presets/*.json` (starter examples in `./example-presets/`)
+- Mastering inputs: `./data/mastering/in`
+- Mastering outputs: `./data/mastering/out`
+- Presets: `./data/presets/user/*.json` (starter examples in `./example-presets/`)
 
 ## Install & run
 ### Docker (recommended)
@@ -88,8 +88,7 @@ docker compose up -d
 # open http://localhost:${PORT:-8383}
 ```
 Mounts (defaults):
-- `./data` -> `/data` (I/O)
-- `./presets` -> `/presets` (writable for generated presets)
+- `./data` -> `/data` (all app data: mastering, tagging, presets, analysis)
 
 ### Docker (dev build)
 ```bash
@@ -99,7 +98,7 @@ docker compose -f docker-compose.dev.yml up --build
 
 ### Local (no Docker)
 - Requires Python 3.11+ and ffmpeg/ffprobe on PATH.
-- Env defaults: `DATA_DIR=/data`, `IN_DIR=/data/in`, `OUT_DIR=/data/out`, `PRESET_DIR=/presets`
+- Env defaults: `DATA_DIR=/data` with mastering under `/data/mastering/{in,out,tmp}`, tagging under `/data/tagging/{in,tmp}`, presets under `/data/presets/{user,generated}`
 ```bash
 cd mastering-ui/app
 uvicorn app:app --reload --port 8383

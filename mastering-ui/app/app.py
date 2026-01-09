@@ -19,12 +19,19 @@ from tagger import TaggerService
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
-IN_DIR = Path(os.getenv("IN_DIR", str(DATA_DIR / "in")))
-OUT_DIR = Path(os.getenv("OUT_DIR", str(DATA_DIR / "out")))
-PRESET_DIR = Path(os.getenv("PRESET_DIR", "/presets"))
-GEN_PRESET_DIR = Path(os.getenv("GEN_PRESET_DIR", str(DATA_DIR / "generated_presets")))
-TAG_IN_DIR = Path(os.getenv("TAG_IN_DIR", str(DATA_DIR / "tag" / "in")))
-TAG_TMP_DIR = Path(os.getenv("TAG_TMP_DIR", str(DATA_DIR / "tag" / "tmp")))
+MASTER_IN_DIR = Path(os.getenv("IN_DIR", os.getenv("MASTER_IN_DIR", str(DATA_DIR / "mastering" / "in"))))
+MASTER_OUT_DIR = Path(os.getenv("OUT_DIR", os.getenv("MASTER_OUT_DIR", str(DATA_DIR / "mastering" / "out"))))
+MASTER_TMP_DIR = Path(os.getenv("MASTER_TMP_DIR", str(DATA_DIR / "mastering" / "tmp")))
+PRESET_DIR = Path(os.getenv("PRESET_DIR", os.getenv("PRESET_USER_DIR", str(DATA_DIR / "presets" / "user"))))
+GEN_PRESET_DIR = Path(os.getenv("GEN_PRESET_DIR", str(DATA_DIR / "presets" / "generated")))
+TAG_IN_DIR = Path(os.getenv("TAG_IN_DIR", str(DATA_DIR / "tagging" / "in")))
+TAG_TMP_DIR = Path(os.getenv("TAG_TMP_DIR", str(DATA_DIR / "tagging" / "tmp")))
+ANALYSIS_IN_DIR = Path(os.getenv("ANALYSIS_IN_DIR", str(DATA_DIR / "analysis" / "in")))
+ANALYSIS_OUT_DIR = Path(os.getenv("ANALYSIS_OUT_DIR", str(DATA_DIR / "analysis" / "out")))
+ANALYSIS_TMP_DIR = Path(os.getenv("ANALYSIS_TMP_DIR", str(DATA_DIR / "analysis" / "tmp")))
+# Alias older variable names to new mastering locations for internal use
+IN_DIR = MASTER_IN_DIR
+OUT_DIR = MASTER_OUT_DIR
 APP_DIR = Path(__file__).resolve().parent
 # Security: API key protection (for CLI/scripts); set API_AUTH_DISABLED=1 to bypass explicitly.
 API_KEY = os.getenv("API_KEY")
@@ -48,16 +55,25 @@ if not _default_pack.exists():
 # Use master_pack.py as the unified mastering script (handles single or multiple presets/files)
 MASTER_SCRIPT = Path(os.getenv("MASTER_SCRIPT", str(_default_pack)))
 app = FastAPI()
-OUT_DIR.mkdir(parents=True, exist_ok=True)
-IN_DIR.mkdir(parents=True, exist_ok=True)
-TAG_IN_DIR.mkdir(parents=True, exist_ok=True)
-TAG_TMP_DIR.mkdir(parents=True, exist_ok=True)
-app.mount("/out", StaticFiles(directory=str(OUT_DIR), html=True), name="out")
+for p in [
+    MASTER_IN_DIR,
+    MASTER_OUT_DIR,
+    MASTER_TMP_DIR,
+    TAG_IN_DIR,
+    TAG_TMP_DIR,
+    PRESET_DIR,
+    GEN_PRESET_DIR,
+    ANALYSIS_IN_DIR,
+    ANALYSIS_OUT_DIR,
+    ANALYSIS_TMP_DIR,
+]:
+    p.mkdir(parents=True, exist_ok=True)
+app.mount("/out", StaticFiles(directory=str(MASTER_OUT_DIR), html=True), name="out")
 MAIN_LOOP = None
 TAGGER_MAX_UPLOAD = int(os.getenv("TAGGER_MAX_UPLOAD_BYTES", str(250 * 1024 * 1024)))
 TAGGER_MAX_ARTWORK = int(os.getenv("TAGGER_MAX_ARTWORK_BYTES", str(30 * 1024 * 1024)))
 TAGGER = TaggerService(
-    OUT_DIR,
+    MASTER_OUT_DIR,
     TAG_IN_DIR,
     TAG_TMP_DIR,
     max_upload_bytes=TAGGER_MAX_UPLOAD,

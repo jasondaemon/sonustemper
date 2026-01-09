@@ -16,9 +16,6 @@ services:
           - sonustemper-app
     environment:
       DATA_DIR: "/data"
-      IN_DIR: "/data/in"
-      OUT_DIR: "/data/out"
-      PRESET_DIR: "/presets"
       MASTERING_BUILD: "dev"
       API_KEY: "${API_KEY:-}"
       API_AUTH_DISABLED: "${API_AUTH_DISABLED:-0}"
@@ -26,7 +23,6 @@ services:
       APP_VERSION: "${SONUSTEMPER_TAG:-dev}"
     volumes:
       - ./data:/data
-      - ./presets:/presets
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8383/health').read()"]
       interval: 30s

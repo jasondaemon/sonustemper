@@ -195,11 +195,11 @@ def _parse_astats_overall(text: str) -> dict:
         "crest_factor": cf,
     }
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
-IN_DIR = Path(os.getenv("IN_DIR", str(DATA_DIR / "in")))
-OUT_DIR = Path(os.getenv("OUT_DIR", str(DATA_DIR / "out")))
-PRESET_DIR = Path(os.getenv("PRESET_DIR", "/presets"))
-ANALYSIS_TMP = DATA_DIR / "tmp_analysis"
-GEN_PRESET_DIR = Path(os.getenv("GEN_PRESET_DIR", str(DATA_DIR / "generated_presets")))
+IN_DIR = Path(os.getenv("IN_DIR", os.getenv("MASTER_IN_DIR", str(DATA_DIR / "mastering" / "in"))))
+OUT_DIR = Path(os.getenv("OUT_DIR", os.getenv("MASTER_OUT_DIR", str(DATA_DIR / "mastering" / "out"))))
+PRESET_DIR = Path(os.getenv("PRESET_DIR", os.getenv("PRESET_USER_DIR", str(DATA_DIR / "presets" / "user"))))
+ANALYSIS_TMP = Path(os.getenv("ANALYSIS_TMP_DIR", str(DATA_DIR / "analysis" / "tmp")))
+GEN_PRESET_DIR = Path(os.getenv("GEN_PRESET_DIR", str(DATA_DIR / "presets" / "generated")))
 
 DEFAULT_PRESETS = [
     "clean","warm","rock","loud","acoustic","modern",
