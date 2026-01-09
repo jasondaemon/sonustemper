@@ -221,6 +221,8 @@ _evt_raw = os.getenv("EVENT_LOG_LEVEL")
 if _evt_raw is None:
     _evt_raw = os.getenv("LOG_LEVEL", "error")
 EVENT_LOG_LEVEL = _EVENT_LEVELS.get(str(_evt_raw).lower(), 2)
+# Emit a one-time startup line so log level is clear in docker logs
+print(f"[startup] LOG_LEVEL={os.getenv('LOG_LEVEL', 'error')} EVENT_LOG_LEVEL={_evt_raw}", file=sys.stderr, flush=True)
 
 def _should_log(level: str) -> bool:
     return _EVENT_LEVELS.get(level, 1) >= EVENT_LOG_LEVEL
@@ -1127,6 +1129,13 @@ def main():
         (song_dir / ".status.json").unlink(missing_ok=True)
     except Exception:
         pass
+    stages = {
+        "master": do_master,
+        "loudness": do_loudness,
+        "stereo": do_stereo,
+        "output": do_output,
+        "analyze": do_analyze,
+    }
     job_cfg = {
         "infile": infile.name,
         "voicing_mode": voicing_mode,
@@ -1162,13 +1171,6 @@ def main():
 
     job_completed = False
     try:
-        stages = {
-            "master": do_master,
-            "loudness": do_loudness,
-            "stereo": do_stereo,
-            "output": do_output,
-            "analyze": do_analyze,
-        }
         if do_master and voicing_mode == "presets":
             for p in presets:
                 preset_path = PRESET_DIR / f"{p}.json"
