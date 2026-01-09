@@ -4132,6 +4132,7 @@ const tagState = {
   working: [],
   selectedIds: new Set(),
   fileDetails: {},
+  artInfoCache: {},
   albumArt: { mode:'keep', uploadId:null, mime:null, size:0, preview:null },
   loading: false,
   dirty: false,
@@ -4638,6 +4639,7 @@ function renderAlbumForm(){
 }
 
 async function fetchArtInfo(ids){
+  if(!ids || !ids.length) return;
   const missing = ids.filter(id => !tagState.artInfoCache[id]);
   await Promise.all(missing.map(async (id)=>{
     try{
@@ -4694,8 +4696,8 @@ function updateArtworkStatus(sel){
   // multi: fetch infos and compute state
   fetchArtInfo(sel).then(()=>{
     const infos = sel.map(id => tagState.artInfoCache[id]);
-    const allNone = infos.every(i => i && i.present === False || i.present === False);
-    const allPresent = infos.every(i => i && i.present);
+    const allNone = infos.length && infos.every(i => i && i.present === false);
+    const allPresent = infos.length && infos.every(i => i && i.present);
     const sameHash = allPresent && infos.every(i => i.sha256 === infos[0].sha256);
     if(artThumb) artThumb.style.display = 'none';
     if(allNone){
