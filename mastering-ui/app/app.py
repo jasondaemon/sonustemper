@@ -172,7 +172,7 @@ def _start_master_jobs(files, presets, strength, lufs, tp, width, mono_bass, gua
             print(f"[master-bulk] start file={f} presets={presets}", file=sys.stderr)
             _emit(rid, "queued", f)
             _emit(rid, "start", f"Processing {Path(f).name}")
-            check_output_cmd(cmd)
+            run_cmd_passthrough(cmd)
             print(f"[master-bulk] done file={f}", file=sys.stderr)
             _emit(rid, "complete", f"Finished {Path(f).name}")
         except subprocess.CalledProcessError as e:
@@ -453,6 +453,14 @@ def run_cmd(cmd: list[str]) -> subprocess.CompletedProcess:
     _assert_safe_cmd(cmd)
     # CodeQL [py/command-line-injection]: argv is validated, shell=False, fixed binaries; user input does not control executed program
     return subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+
+def run_cmd_passthrough(cmd: list[str]) -> None:
+    """Run a command streaming stdout/stderr to the container logs."""
+    _assert_safe_cmd(cmd)
+    # CodeQL [py/command-line-injection]: argv is validated, shell=False, fixed binaries; user input does not control executed program
+    res = subprocess.run(cmd, text=True)
+    if res.returncode != 0:
+        raise subprocess.CalledProcessError(res.returncode, cmd)
 
 def check_output_cmd(cmd: list[str]) -> str:
     _assert_safe_cmd(cmd)
