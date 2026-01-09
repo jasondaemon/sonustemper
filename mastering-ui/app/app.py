@@ -1326,7 +1326,7 @@ input[type="range"]{
           <!-- Analyze -->
           <div class="pipeSection">
             <label class="pipeHeader">
-              <input type="checkbox" id="stage_analyze">
+              <input type="checkbox" id="stage_analyze" checked>
               <span>Analyze</span>
             </label>
             <div class="pipeBody" data-stage="stage_analyze">
@@ -1339,7 +1339,7 @@ input[type="range"]{
           <!-- Master: presets + strength -->
           <div class="pipeSection">
             <label class="pipeHeader">
-              <input type="checkbox" id="stage_master">
+              <input type="checkbox" id="stage_master" checked>
               <span>Voicings and User Presets</span>
             </label>
             <div class="pipeBody" data-stage="stage_master">
@@ -1381,7 +1381,7 @@ input[type="range"]{
           <!-- Loudness / Normalize -->
           <div class="pipeSection">
             <label class="pipeHeader">
-              <input type="checkbox" id="stage_loudness">
+              <input type="checkbox" id="stage_loudness" checked>
               <span>Loudness & Normalize</span>
             </label>
             <div class="pipeBody" data-stage="stage_loudness">
@@ -1410,7 +1410,7 @@ input[type="range"]{
           <!-- Stereo / Tone -->
           <div class="pipeSection">
             <label class="pipeHeader">
-              <input type="checkbox" id="stage_stereo">
+              <input type="checkbox" id="stage_stereo" checked>
               <span>Stereo & Tone</span>
             </label>
             <div class="pipeBody" data-stage="stage_stereo">
