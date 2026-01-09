@@ -1,0 +1,32 @@
+<div class="card full-width" id="outputPane">
+  <div class="card-head">
+    <div>
+      <div class="card-title">Job Output{% if song %}: {{ song }}{% endif %}</div>
+      <div class="muted">{% if song %}Rendered files for this run.{% else %}Select a run to view outputs.{% endif %}</div>
+    </div>
+  </div>
+  {% if items|length == 0 %}
+    <div class="muted">No outputs.</div>
+  {% else %}
+    <table class="file-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th style="width:120px;">Size</th>
+          <th style="width:180px;">Modified</th>
+          <th style="width:120px;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+        <tr>
+          <td>{{ item.name }}</td>
+          <td>{{ human_size(item.size) }}</td>
+          <td>{{ fmt_mtime(item.mtime) }}</td>
+          <td><a class="btn ghost small" href="/ui/download?utility=mastering&section=output&rel={{ item.rel }}">Download</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</div>

@@ -1,0 +1,16 @@
+<div id="prevRuns">
+  {% if runs|length == 0 %}
+    <div class="muted">No previous runs.</div>
+  {% else %}
+    <div class="run-list">
+      {% for r in runs %}
+        <button class="btn ghost run-item"
+                hx-get="/ui/partials/master_output?song={{ r.name }}"
+                hx-target="#outputPane"
+                hx-swap="outerHTML">
+          {{ r.name }}
+        </button>
+      {% endfor %}
+    </div>
+  {% endif %}
+</div>

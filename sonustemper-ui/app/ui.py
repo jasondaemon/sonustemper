@@ -3,6 +3,7 @@ import mimetypes
 import re
 from pathlib import Path
 from datetime import datetime
+from typing import List
 from fastapi import APIRouter, Request, HTTPException, Form
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.templating import Jinja2Templates
@@ -208,6 +209,68 @@ def _render_sections(request: Request, util: str) -> HTMLResponse:
 @router.get("/partials/files_sections", response_class=HTMLResponse)
 async def files_sections(request: Request, util: str = "mastering"):
     return _render_sections(request, util)
+
+
+def _recent_runs(limit: int = 12) -> List[dict]:
+    if not MASTER_OUT_DIR.exists():
+        return []
+    items = []
+    for d in MASTER_OUT_DIR.iterdir():
+        if not d.is_dir():
+            continue
+        try:
+            st = d.stat()
+            items.append({"name": d.name, "mtime": st.st_mtime})
+        except Exception:
+            continue
+    items.sort(key=lambda x: x["mtime"], reverse=True)
+    return items[:limit]
+
+
+@router.get("/partials/master_prev", response_class=HTMLResponse)
+async def master_prev(request: Request):
+    runs = _recent_runs()
+    return TEMPLATES.TemplateResponse(
+        "partials/master_prev.html",
+        {"request": request, "runs": runs},
+    )
+
+
+@router.get("/partials/master_output", response_class=HTMLResponse)
+async def master_output(request: Request, song: str = ""):
+    song = song.strip()
+    if not song:
+        return TEMPLATES.TemplateResponse(
+            "partials/master_output.html",
+            {"request": request, "song": None, "items": []},
+        )
+    root = _util_root("mastering", "output")
+    base = _safe_rel(root, song)
+    items = []
+    if base.exists() and base.is_dir():
+        for f in base.iterdir():
+            try:
+                if f.is_dir():
+                    continue
+                ext = f.suffix.lower()
+                if ext not in AUDIO_EXTS:
+                    continue
+                st = f.stat()
+                items.append(
+                    {
+                        "name": f.name,
+                        "rel": str(f.relative_to(root)),
+                        "size": st.st_size,
+                        "mtime": st.st_mtime,
+                    }
+                )
+            except Exception:
+                continue
+    items.sort(key=lambda x: x["name"].lower())
+    return TEMPLATES.TemplateResponse(
+        "partials/master_output.html",
+        {"request": request, "song": song, "items": items, "human_size": _human_size, "fmt_mtime": _fmt_mtime},
+    )
 
 
 @router.post("/actions/delete", response_class=HTMLResponse)

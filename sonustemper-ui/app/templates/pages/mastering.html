@@ -19,7 +19,7 @@
         <div class="muted">Recent runs will appear here.</div>
       </div>
     </div>
-    <div class="muted">Previous runs placeholder.</div>
+    <div id="prevRunsWrap" hx-get="/ui/partials/master_prev" hx-trigger="load"></div>
   </div>
 {% endblock %}
 
@@ -85,13 +85,15 @@
     </div>
 
     <div class="card full-width">
-      <div class="card-head">
-        <div>
-          <div class="card-title">Job Output</div>
-          <div class="muted">Recent renders will appear here.</div>
+      <div id="outputPane">
+        <div class="card-head">
+          <div>
+            <div class="card-title">Job Output</div>
+            <div class="muted">Select a run to view outputs.</div>
+          </div>
         </div>
+        <div class="muted">Output list placeholder.</div>
       </div>
-      <div class="muted">Output list placeholder.</div>
     </div>
   </div>
 {% endblock %}
