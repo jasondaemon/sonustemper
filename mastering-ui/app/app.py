@@ -92,6 +92,7 @@ UTILITY_ROOTS = {
     ("mastering", "output"): MASTER_OUT_DIR,
     ("tagging", "library"): TAG_IN_DIR,
     ("presets", "user"): PRESET_DIR,
+    ("presets", "generated"): GEN_PRESET_DIR,
 }
 UTILITY_AUDIO_EXTS = {".wav", ".flac", ".aiff", ".aif", ".mp3", ".m4a", ".aac", ".ogg"}
 # Small in-memory cache for outlist to reduce disk scans
@@ -3782,6 +3783,7 @@ const panels = {
   ],
   presets: [
     { title:"User Presets", section:"user", utility:"presets" },
+    { title:"Generated Presets", section:"generated", utility:"presets" },
   ],
 };
 const state = {
