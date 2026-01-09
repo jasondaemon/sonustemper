@@ -33,6 +33,7 @@ h1{margin:0;font-size:24px;}
 }
 .run-list{display:flex;flex-direction:column;gap:8px;}
 .run-item{width:100%;text-align:left;}
+.file-table.compact td,.file-table.compact th{padding:6px 6px;}
 .sidebar-title{font-weight:600;margin-bottom:4px;}
 .sideItem{
   width:100%;text-align:left;padding:10px 12px;
