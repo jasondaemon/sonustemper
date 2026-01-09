@@ -2,9 +2,9 @@
   <div class="card-head">
     <div>
       <div class="card-title">{{ section.title }}</div>
-      <div class="muted">{{ section.items|length }} item(s)</div>
+      <div class="muted">{{ section["items"]|length }} item(s)</div>
     </div>
-    {% if section.items|length > 0 %}
+    {% if section["items"]|length > 0 %}
     <form hx-post="/ui/actions/delete" hx-target="#sections" hx-swap="outerHTML">
       <input type="hidden" name="util" value="{{section.utility}}">
       <input type="hidden" name="section" value="{{section.section}}">
@@ -13,7 +13,7 @@
     </form>
     {% endif %}
   </div>
-  {% if section.items|length > 0 %}
+  {% if section["items"]|length > 0 %}
   <form hx-post="/ui/actions/delete" hx-target="#sections" hx-swap="outerHTML" class="delete-selected-form">
     <input type="hidden" name="util" value="{{section.utility}}">
     <input type="hidden" name="section" value="{{section.section}}">
@@ -31,7 +31,7 @@
         </tr>
       </thead>
       <tbody>
-        {% for item in section.items %}
+        {% for item in section["items"] %}
         <tr>
           <td><input type="checkbox" name="rels" value="{{ item.rel }}"></td>
           <td>
