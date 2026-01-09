@@ -153,6 +153,7 @@ async def mastering_page(request: Request):
         "pages/mastering.html",
         {
             "request": request,
+            "show_sidebar": False,
         },
     )
 

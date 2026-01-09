@@ -31,8 +31,11 @@
         </div>
       </div>
     </div>
-    <div class="layout">
-      {% include "partials/sidebar.html" %}
+    {% set sidebar = show_sidebar if show_sidebar is defined else True %}
+    <div class="{% if sidebar %}layout{% else %}content-full{% endif %}">
+      {% if sidebar %}
+        {% include "partials/sidebar.html" %}
+      {% endif %}
       <div class="content">
         {% block content %}{% endblock %}
       </div>
