@@ -986,7 +986,7 @@ HTML_TEMPLATE = r"""
     }
     body{ margin:0; background:linear-gradient(180deg,#0b0f14,#070a0e); color:var(--text);
       font-family:-apple-system,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
-    .wrap{ max-width:1200px; margin:0 auto; padding:26px 18px 40px; }
+    .wrap{ max-width:1200px; margin:0 auto; padding:26px 18px 40px; position:relative; }
     .top{ display:flex; gap:14px; align-items:flex-end; justify-content:space-between; flex-wrap:wrap; }
     h1{ font-size:20px; margin:0; letter-spacing:.2px; }
     .sub{ color:var(--muted); font-size:13px; margin-top:6px; }
@@ -3400,6 +3400,7 @@ MANAGE_PRESETS_HTML = r"""
       display:flex; flex-direction:column; padding:16px;
     }
     .utilMenu{ position:relative; }
+    .utilMenuTop{ position:absolute; top:0; right:0; }
     .utilToggle{ padding:8px 12px; border-radius:10px; border:1px solid var(--line); background:#0f151d; color:#d7e6f5; cursor:pointer; }
     .utilToggle:hover{ border-color:var(--accent); color:var(--text); }
     .utilDropdown{
@@ -3730,20 +3731,20 @@ MANAGE_FILES_HTML = r"""
 </head>
 <body>
   <div class="wrap">
-    <div class="row" style="justify-content:space-between; align-items:flex-start;">
+    <div class="utilMenu utilMenuTop">
+      <button class="utilToggle" id="utilToggleFiles" aria-haspopup="true" aria-expanded="false">☰ Utilities</button>
+      <div class="utilDropdown hidden" id="utilDropdownFiles">
+        <a href="/">Mastering</a>
+        <a href="/tagger">Tagging</a>
+        <a href="/manage-presets">Presets</a>
+        <div style="height:1px; background:var(--line); margin:4px 0;"></div>
+        <a href="#" style="opacity:.4; pointer-events:none;">Analysis (coming soon)</a>
+      </div>
+    </div>
+    <div class="row" style="justify-content:space-between; align-items:flex-start; padding-right:120px;">
       <div>
         <h1>Utilities File Manager</h1>
         <div class="small">Browse and manage audio and presets. Metrics/sidecars are hidden but removed with outputs.</div>
-      </div>
-      <div class="utilMenu" style="margin-left:auto;">
-        <button class="utilToggle" id="utilToggleFiles" aria-haspopup="true" aria-expanded="false">☰ Utilities</button>
-        <div class="utilDropdown hidden" id="utilDropdownFiles">
-          <a href="/">Mastering</a>
-          <a href="/tagger">Tagging</a>
-          <a href="/manage-presets">Presets</a>
-          <div style="height:1px; background:var(--line); margin:4px 0;"></div>
-          <a href="#" style="opacity:.4; pointer-events:none;">Analysis (coming soon)</a>
-        </div>
       </div>
     </div>
 
