@@ -3699,6 +3699,7 @@ MANAGE_FILES_HTML = r"""
       font-family:-apple-system,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
     .wrap{ max-width:1200px; margin:0 auto; padding:26px 18px 40px; }
     h1{ font-size:20px; margin:0 0 6px 0; letter-spacing:.2px; }
+    .top{ display:flex; justify-content:space-between; align-items:flex-start; gap:16px; }
     .card{ background:rgba(18,26,35,.9); border:1px solid var(--line); border-radius:16px; padding:16px; }
     .grid{ display:grid; grid-template-columns: 240px 1fr; gap:16px; align-items:start; margin-top:16px; }
     @media (max-width: 960px){ .grid{ grid-template-columns: 1fr; } }
@@ -3713,7 +3714,7 @@ MANAGE_FILES_HTML = r"""
     .utilDropdown{
       position:absolute; right:0; top:calc(100% + 6px);
       background:#0f151d; border:1px solid var(--line); border-radius:10px;
-      min-width:160px; z-index:50; box-shadow:0 8px 22px rgba(0,0,0,0.35);
+      min-width:180px; z-index:50; box-shadow:0 8px 22px rgba(0,0,0,0.35);
       display:flex; flex-direction:column; overflow:hidden;
     }
     .utilDropdown a{ padding:10px 12px; color:#d7e6f5; text-decoration:none; font-size:13px; }
@@ -3730,21 +3731,21 @@ MANAGE_FILES_HTML = r"""
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="utilMenu utilMenuTop">
-      <button class="utilToggle" id="utilToggleFiles" aria-haspopup="true" aria-expanded="false">☰ Utilities</button>
-      <div class="utilDropdown hidden" id="utilDropdownFiles">
-        <a href="/">Mastering</a>
-        <a href="/tagger">Tagging</a>
-        <a href="/manage-presets">Presets</a>
-        <div style="height:1px; background:var(--line); margin:4px 0;"></div>
-        <a href="#" style="opacity:.4; pointer-events:none;">Analysis (coming soon)</a>
-      </div>
-    </div>
-    <div class="row" style="justify-content:space-between; align-items:flex-start; padding-right:120px;">
+    <div class="wrap">
+    <div class="top">
       <div>
         <h1>Utilities File Manager</h1>
         <div class="small">Browse and manage audio and presets. Metrics/sidecars are hidden but removed with outputs.</div>
+      </div>
+      <div class="utilMenu">
+        <button class="utilToggle" id="utilToggleFiles" aria-haspopup="true" aria-expanded="false">☰ Utilities</button>
+        <div class="utilDropdown hidden" id="utilDropdownFiles">
+          <a href="/">Mastering</a>
+          <div style="height:1px; background:var(--line); margin:4px 0;"></div>
+          <a href="/manage-files" style="opacity:.6; pointer-events:none;">File Manager</a>
+          <a href="/manage-presets">Preset Manager</a>
+          <a href="/tagger">Tag Editor</a>
+        </div>
       </div>
     </div>
 
