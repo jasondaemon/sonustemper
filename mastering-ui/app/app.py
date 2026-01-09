@@ -1808,14 +1808,14 @@ function applyLoudnessMode(modeKey, { fromInit=false } = {}){
   const sel = document.getElementById('loudnessMode');
   if (sel && sel.value !== modeKey) sel.value = modeKey;
   try { localStorage.setItem(LOUDNESS_MODE_KEY, modeKey); } catch {}
-  const lock = modeKey !== 'manual';
-  const lufsInput = document.getElementById('lufs');
-  const tpInput = document.getElementById('tp');
-  const useLufs = document.getElementById('useLufs');
-  const useTp = document.getElementById('useTp');
+    const lock = modeKey !== 'manual';
+    const lufsInput = document.getElementById('target_I');
+    const tpInput = document.getElementById('target_TP');
+    const useLufs = document.getElementById('ov_target_I');
+    const useTp = document.getElementById('ov_target_TP');
   if (lock) {
-    if (lufsInput) { lufsInput.disabled = true; setSliderValue('lufs', cfg.lufs); }
-    if (tpInput) { tpInput.disabled = true; setSliderValue('tp', cfg.tp); }
+    if (lufsInput) { lufsInput.disabled = true; setSliderValue('target_I', cfg.lufs); }
+    if (tpInput) { tpInput.disabled = true; setSliderValue('target_TP', cfg.tp); }
     if (useLufs) { useLufs.checked = true; useLufs.disabled = true; }
     if (useTp) { useTp.checked = true; useTp.disabled = true; }
   } else {
@@ -1825,8 +1825,8 @@ function applyLoudnessMode(modeKey, { fromInit=false } = {}){
     if (useTp) useTp.disabled = false;
     const manual = loadManualLoudness();
     if (manual) {
-      if (manual.lufs !== undefined && manual.lufs !== null) setSliderValue('lufs', manual.lufs);
-      if (manual.tp !== undefined && manual.tp !== null) setSliderValue('tp', manual.tp);
+      if (manual.lufs !== undefined && manual.lufs !== null) setSliderValue('target_I', manual.lufs);
+      if (manual.tp !== undefined && manual.tp !== null) setSliderValue('target_TP', manual.tp);
       if (useLufs && typeof manual.useLufs === 'boolean') useLufs.checked = manual.useLufs;
       if (useTp && typeof manual.useTp === 'boolean') useTp.checked = manual.useTp;
     }
@@ -2675,8 +2675,8 @@ function appendOverrides(fd){
     const input = document.getElementById(inputId);
     if (chk && input && chk.checked) fd.append(key, input.value);
   };
-  addIfChecked('useLufs', 'lufs', 'lufs');
-  addIfChecked('useTp', 'tp', 'tp');
+  addIfChecked('ov_target_I', 'target_I', 'lufs');
+  addIfChecked('ov_target_TP', 'target_TP', 'tp');
   addIfChecked('ov_width', 'width', 'width');
   addIfChecked('ov_mono_bass', 'mono_bass', 'mono_bass');
   const guardrails = document.getElementById('guardrails');

@@ -386,7 +386,7 @@ def render_with_static_loudness(source: Path, tone_filters: str, final_wav: Path
         af = ln_apply
 
     r = run_ffmpeg([
-        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "info",
         "-i", str(source),
         "-af", af,
         "-ar", str(sample_rate), "-ac", "2", "-c:a", _pcm_codec_for_depth(bit_depth),
@@ -1197,11 +1197,11 @@ def main():
                 if args.guardrails:
                     guard_max = float(args.guard_max_width or 1.1)
                     if width_applied > guard_max:
-                        width_applied = guard_max
+                width_applied = guard_max
 
+                strength_pct = int(strength * 100)
                 af = build_filters(preset, strength, args.lufs, args.tp, width_applied)
                 log_summary("preset", "filter_chain", preset=p, strength=strength_pct, width=width_applied, lufs=target_lufs, tp=ceiling_db, af=af)
-                strength_pct = int(strength * 100)
                 descriptor = {
                     "preset": p,
                     "strength": strength_pct,
