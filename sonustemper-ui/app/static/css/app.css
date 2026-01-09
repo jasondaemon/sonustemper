@@ -73,6 +73,9 @@ h1{margin:0;font-size:24px;}
   transform: translateY(0);
   box-shadow:inset 0 0 0 1px #1aa0ff55;
 }
+.hx-indicator{display:none;}
+.htmx-request .hx-indicator,
+.htmx-request.hx-indicator{display:inline-block;}
 .file-table{width:100%;border-collapse:collapse;font-size:14px;}
 .file-table th,.file-table td{padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:middle;}
 .file-table th{text-align:left;color:var(--muted);font-weight:600;}
