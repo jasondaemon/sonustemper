@@ -4625,25 +4625,7 @@ function renderAlbumForm(){
     if(artPresent === null) artPresent = present;
     else if(artPresent !== present) artPresent = 'mixed';
   });
-  const artStatus = document.getElementById('albArtStatus');
-  const artNone = document.getElementById('albArtNone');
-  const artThumb = document.getElementById('albArtThumb');
-  const artImg = document.getElementById('albArtImg');
-  if(artStatus){
-    if(artPresent === 'mixed') artStatus.textContent = 'Mixed';
-    else if(artPresent) artStatus.textContent = 'Present';
-    else artStatus.textContent = 'None';
-  }
-  if(artNone) artNone.style.display = artPresent ? 'none' : 'block';
-  if(artThumb && artImg){
-    if(artPresent === true && sel[0]){
-      artImg.src = `/api/tagger/file/${encodeURIComponent(sel[0])}/artwork?cb=${Date.now()}`;
-      artThumb.style.display = 'inline-block';
-    }else{
-      if(!tagState.albumArt.preview) artImg.src = '';
-      artThumb.style.display = tagState.albumArt.preview ? 'inline-block' : 'none';
-    }
-  }
+  updateArtworkStatus(sel);
   document.querySelectorAll('.trackDlBtn').forEach(btn=>{
     btn.disabled = tagState.dirty;
     btn.onclick = ()=> downloadSingle(btn.dataset.id);
@@ -4652,6 +4634,84 @@ function renderAlbumForm(){
   // mark dirty on field edits
   document.querySelectorAll('#tagAlbumForm input').forEach(inp=>{
     inp.oninput = markDirty;
+  });
+}
+
+async function fetchArtInfo(ids){
+  const missing = ids.filter(id => !tagState.artInfoCache[id]);
+  await Promise.all(missing.map(async (id)=>{
+    try{
+      const res = await fetch(`/api/tagger/file/${encodeURIComponent(id)}/artwork-info`, { cache:'no-store' });
+      if(!res.ok) throw new Error();
+      const data = await res.json();
+      tagState.artInfoCache[id] = data;
+    }catch(_){
+      tagState.artInfoCache[id] = { present:false, sha256:null, mime:null };
+    }
+  }));
+}
+function updateArtworkStatus(sel){
+  const artStatus = document.getElementById('albArtStatus');
+  const artNone = document.getElementById('albArtNone');
+  const artThumb = document.getElementById('albArtThumb');
+  const artImg = document.getElementById('albArtImg');
+  const info = document.getElementById('albArtInfo');
+  // If user uploaded new art, show preview and skip mixed check
+  if(tagState.albumArt.preview){
+    if(info) info.textContent = 'Uploaded (pending apply)';
+    if(artImg && artThumb){
+      artImg.src = URL.createObjectURL(tagState.albumArt.preview);
+      artThumb.style.display = 'inline-block';
+    }
+    if(artStatus) artStatus.textContent = 'Uploaded (pending apply)';
+    if(artNone) artNone.style.display = 'none';
+    return;
+  }
+  if(!sel.length){
+    if(artStatus) artStatus.textContent = 'No artwork';
+    if(artNone) artNone.style.display = 'block';
+    if(artThumb) artThumb.style.display = 'none';
+    return;
+  }
+  if(sel.length === 1){
+    const fid = sel[0];
+    const detail = tagState.fileDetails[fid];
+    const present = !!(detail?.tags?.artwork && detail.tags.artwork.present);
+    if(present){
+      if(artImg && artThumb){
+        artImg.src = `/api/tagger/file/${encodeURIComponent(fid)}/artwork?cb=${Date.now()}`;
+        artThumb.style.display = 'inline-block';
+      }
+      if(artStatus) artStatus.textContent = 'Present';
+      if(artNone) artNone.style.display = 'none';
+    }else{
+      if(artStatus) artStatus.textContent = 'No artwork';
+      if(artNone) artNone.style.display = 'block';
+      if(artThumb) artThumb.style.display = 'none';
+    }
+    return;
+  }
+  // multi: fetch infos and compute state
+  fetchArtInfo(sel).then(()=>{
+    const infos = sel.map(id => tagState.artInfoCache[id]);
+    const allNone = infos.every(i => i && i.present === False || i.present === False);
+    const allPresent = infos.every(i => i && i.present);
+    const sameHash = allPresent && infos.every(i => i.sha256 === infos[0].sha256);
+    if(artThumb) artThumb.style.display = 'none';
+    if(allNone){
+      if(artStatus) artStatus.textContent = 'No artwork in current working set.';
+      if(artNone) artNone.style.display = 'block';
+    }else if(allPresent && sameHash){
+      if(artStatus) artStatus.textContent = 'Artwork is consistent across working set.';
+      if(artNone) artNone.style.display = 'none';
+      if(artImg && artThumb && sel[0]){
+        artImg.src = `/api/tagger/file/${encodeURIComponent(sel[0])}/artwork?cb=${Date.now()}`;
+        artThumb.style.display = 'inline-block';
+      }
+    }else{
+      if(artStatus) artStatus.textContent = 'Current working set artwork varies.';
+      if(artNone) artNone.style.display = 'none';
+    }
   });
 }
 
@@ -4823,6 +4883,11 @@ def tagger_download(file_id: str):
 def tagger_artwork(file_id: str):
     data, mime = TAGGER.get_artwork(file_id)
     return Response(content=data, media_type=mime)
+
+@app.get("/api/tagger/file/{file_id}/artwork-info")
+def tagger_artwork_info(file_id: str):
+    info = TAGGER.get_artwork_info(file_id)
+    return info
 
 @app.post("/api/tagger/artwork")
 async def tagger_artwork_upload(file: UploadFile = File(...)):

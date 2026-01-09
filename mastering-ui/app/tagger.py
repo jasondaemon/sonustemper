@@ -303,8 +303,12 @@ class TaggerService:
 
     def read_artwork_info(self, file_id: str) -> Dict:
         _, path = self.resolve_id(file_id)
-        present, _, mime = self._read_artwork_bytes(path)
-        return {"present": bool(present), "mime": mime}
+        present, data, mime = self._read_artwork_bytes(path)
+        return {
+            "present": bool(present),
+            "mime": mime,
+            "sha256": hashlib.sha256(data or b"").hexdigest() if present and data else None,
+        }
 
     def get_artwork(self, file_id: str) -> Tuple[bytes, str]:
         _, path = self.resolve_id(file_id)
@@ -313,6 +317,9 @@ class TaggerService:
             raise HTTPException(status_code=404, detail="artwork_not_found")
         mime = mime or self._infer_mime(data)
         return data, mime
+
+    def get_artwork_info(self, file_id: str) -> Dict:
+        return self.read_artwork_info(file_id)
 
     def set_artwork(self, file_id: str, data: bytes, mime: Optional[str]) -> Dict:
         if not data:
