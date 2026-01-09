@@ -2254,13 +2254,11 @@ function updateRunButtonsState(){
   const runPackBtn = document.getElementById('runPackBtn');
   const runBulkBtn = document.getElementById('runBulkBtn');
   const runOneBtn = document.getElementById('runOneBtn');
-  const mode = getVoicingMode();
-  const needsPreset = (mode === 'presets') ? (getSelectedPresets().length === 0) : false;
-  const needsVoicing = (mode === 'voicing') ? (!getSelectedVoicing()) : false;
-  const blocked = needsPreset || needsVoicing;
-  if (runPackBtn) runPackBtn.disabled = (!hasFiles || blocked);
-  if (runBulkBtn) runBulkBtn.disabled = (!hasFiles || blocked);
-  if (runOneBtn) runOneBtn.disabled = (!hasFiles || blocked);
+  // Only block when no files; runPack() will surface validation for presets/voicing
+  const blocked = !hasFiles;
+  if (runPackBtn) runPackBtn.disabled = blocked;
+  if (runBulkBtn) runBulkBtn.disabled = blocked;
+  if (runOneBtn) runOneBtn.disabled = blocked;
 }
 async function renderManage(){
   const uploadsDiv = document.getElementById('manageUploads');
