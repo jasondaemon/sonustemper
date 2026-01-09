@@ -13,6 +13,7 @@ from collections import deque
 from pathlib import Path
 from datetime import datetime
 import os
+import importlib.util
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request, Body, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, StreamingResponse, Response
 from tagger import TaggerService
@@ -58,14 +59,22 @@ logger.info(
     os.getenv("LOG_LEVEL", "error"),
     os.getenv("EVENT_LOG_LEVEL", os.getenv("LOG_LEVEL", "error")),
 )
-# New UI import (after sys.path update)
+# New UI import (after sys.path update) using explicit file import to avoid module name collisions
 new_ui_router = None
 logger.info("[startup] UI_APP_DIR=%s exists=%s", UI_APP_DIR, bool(UI_APP_DIR and UI_APP_DIR.exists()))
-try:
-    from ui import router as new_ui_router  # type: ignore
-    logger.info("[startup] new UI router import success")
-except Exception as exc:
-    logger.warning("[startup] new UI router import failed: %s", exc)
+if UI_APP_DIR:
+    module_path = (UI_APP_DIR / "ui.py")
+    logger.info("[startup] UI module path=%s exists=%s", module_path, module_path.exists())
+    if module_path.exists():
+        try:
+            spec = importlib.util.spec_from_file_location("sonustemper_tandem_ui", str(module_path))
+            mod = importlib.util.module_from_spec(spec)
+            assert spec and spec.loader
+            spec.loader.exec_module(mod)
+            new_ui_router = getattr(mod, "router", None)
+            logger.info("[startup] new UI loaded from %s router=%s", getattr(mod, "__file__", "?"), bool(new_ui_router))
+        except Exception as exc:
+            logger.exception("[startup] new UI import failed: %s", exc)
 # Trusted proxy check via shared secret (raw)
 def is_trusted_proxy(mark: str) -> bool:
     return bool(mark) and bool(PROXY_SHARED_SECRET) and (mark == PROXY_SHARED_SECRET)
