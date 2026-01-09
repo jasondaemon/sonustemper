@@ -4,21 +4,18 @@
       <div class="card-title">{{ section.title }}</div>
       <div class="muted">{{ section["items"]|length }} item(s)</div>
     </div>
-    {% if section["items"]|length > 0 %}
     <form hx-post="/ui/actions/delete" hx-target="#sections" hx-swap="outerHTML">
       <input type="hidden" name="util" value="{{section.utility}}">
       <input type="hidden" name="section" value="{{section.section}}">
       <input type="hidden" name="delete_all" value="1">
-      <button type="submit" class="btn danger small">Delete All</button>
+      <button type="submit" class="btn danger small" {% if section["items"]|length == 0 %}disabled{% endif %}>Delete All</button>
     </form>
-    {% endif %}
   </div>
-  {% if section["items"]|length > 0 %}
   <form hx-post="/ui/actions/delete" hx-target="#sections" hx-swap="outerHTML" class="delete-selected-form">
     <input type="hidden" name="util" value="{{section.utility}}">
     <input type="hidden" name="section" value="{{section.section}}">
     <div class="table-actions">
-      <button type="submit" class="btn danger small">Delete Selected</button>
+      <button type="submit" class="btn danger small" {% if section["items"]|length == 0 %}disabled{% endif %}>Delete Selected</button>
     </div>
     <table class="file-table">
       <thead>
@@ -51,10 +48,10 @@
           </td>
         </tr>
         {% endfor %}
+        {% if section["items"]|length == 0 %}
+        <tr><td colspan="5" class="muted">No items</td></tr>
+        {% endif %}
       </tbody>
     </table>
   </form>
-  {% else %}
-    <div class="muted">No items</div>
-  {% endif %}
 </div>
