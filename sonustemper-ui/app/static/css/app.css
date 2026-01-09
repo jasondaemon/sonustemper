@@ -58,11 +58,20 @@ h1{margin:0;font-size:24px;}
   padding:8px 14px;
   cursor:pointer;
   box-shadow:inset 0 0 0 1px #0d131c;
+  transition: all 120ms ease;
 }
 .btn.small{padding:6px 10px;font-size:13px;}
 .btn.ghost{background:transparent;}
 .btn.danger{background:#4a2629;border-color:#6b3438;color:#ffeef0;box-shadow:inset 0 0 0 1px #351a1e;}
 .btn:disabled{opacity:0.5;cursor:not-allowed;}
+.btn:not(:disabled):hover{
+  box-shadow:0 0 0 1px #1aa0ff33, 0 0 12px #1aa0ff33, inset 0 0 0 1px #1aa0ff33;
+  transform: translateY(-1px);
+}
+.btn:not(:disabled):active{
+  transform: translateY(0);
+  box-shadow:inset 0 0 0 1px #1aa0ff55;
+}
 .file-table{width:100%;border-collapse:collapse;font-size:14px;}
 .file-table th,.file-table td{padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:middle;}
 .file-table th{text-align:left;color:var(--muted);font-weight:600;}
