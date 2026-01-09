@@ -40,6 +40,7 @@ h1{margin:0;font-size:24px;}
 .sideItem.active{border-color:var(--accent);box-shadow:0 0 0 1px #1aa0ff33;}
 .sideItem.disabled{opacity:0.4;cursor:not-allowed;}
 .content{display:flex;flex-direction:column;gap:12px;}
+.grid-2{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;}
 .form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;}
 .form-row{display:flex;flex-direction:column;gap:6px;}
 .form-row label{font-weight:600;}
