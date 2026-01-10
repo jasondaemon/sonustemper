@@ -186,6 +186,26 @@ h1{margin:0;font-size:24px;}
   overflow:hidden;
   text-overflow:ellipsis;
 }
+.badge-row{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  margin-top:8px;
+}
+.badge{
+  display:inline-flex;
+  align-items:center;
+  padding:4px 8px;
+  border-radius:999px;
+  border:1px solid var(--line);
+  background:#0f151d;
+  color:#d7e6f5;
+  font-size:11px;
+}
+.badge-voicing{background:rgba(255,138,61,0.2);border-color:rgba(255,138,61,0.6);color:#ffb07a;}
+.badge-param{background:rgba(43,212,189,0.15);border-color:rgba(43,212,189,0.45);color:#9df1e5;}
+.badge-format{background:rgba(255,255,255,0.04);border-color:rgba(255,255,255,0.15);color:#cfe0f1;}
+.badge-container{background:rgba(255,255,255,0.02);border-color:rgba(255,255,255,0.12);color:#9fb0c0;}
 .status-list{
   background:#0f151d;
   border:1px dashed var(--line);

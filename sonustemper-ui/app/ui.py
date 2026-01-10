@@ -299,6 +299,11 @@ def _run_outputs(song: str) -> list[dict]:
                 primary = url
         m = _load_metrics(base / f"{stem}.metrics.json") or _load_metrics(base / "metrics.json")
         display_title = _base_title(stem)
+        try:
+            from tagger import TaggerService
+            badge_title, badges = TaggerService._parse_badges(stem, "out")
+        except Exception:
+            badges = []
         items.append({
             "name": stem,
             "display_title": display_title,
@@ -306,6 +311,7 @@ def _run_outputs(song: str) -> list[dict]:
             "downloads": downloads,
             "metrics": m,
             "metric_pills": _metric_pills(m),
+            "badges": badges,
         })
     return items
 

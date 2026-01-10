@@ -25,6 +25,13 @@
             {% endfor %}
           </div>
         </div>
+        {% if item.badges and item.badges|length %}
+        <div class="badge-row">
+          {% for b in item.badges %}
+            <span class="badge badge-{{ b.type|default('format') }}" title="{{ b.title|default('') }}">{{ b.label }}</span>
+          {% endfor %}
+        </div>
+        {% endif %}
         {% if item.primary %}
         <audio controls style="width:100%;">
           <source src="{{ item.primary }}">
