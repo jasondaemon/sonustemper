@@ -224,6 +224,17 @@ async def presets_page(request: Request):
     )
 
 
+@router.get("/docs", response_class=HTMLResponse)
+async def docs_page(request: Request):
+    return TEMPLATES.TemplateResponse(
+        "pages/docs.html",
+        {
+            "request": request,
+            "current_page": "docs",
+        },
+    )
+
+
 def _render_sections(request: Request, util: str) -> HTMLResponse:
     util = util if util in ("mastering", "tagging", "presets", "analysis") else "mastering"
     sections_meta = _sections_for(util)

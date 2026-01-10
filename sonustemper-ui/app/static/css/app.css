@@ -765,6 +765,12 @@ h1{margin:0;font-size:24px;}
 .preset-detail-body{display:flex;flex-direction:column;gap:8px;margin-top:10px;}
 .preset-detail-title{font-weight:700;}
 .preset-detail-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px;font-size:12px;}
+.doc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;}
+.doc-section{margin-top:10px;display:flex;flex-direction:column;gap:6px;}
+.doc-subtitle{font-weight:700;font-size:13px;}
+.doc-list{margin:0;padding-left:18px;color:var(--text);font-size:13px;}
+.doc-list li{margin-bottom:6px;color:var(--text);}
+.doc-list a{color:var(--accent);}
 .tag-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto;}
 .tag-editor-body{margin-top:10px;display:flex;flex-direction:column;gap:14px;}
 .tag-album{display:flex;flex-direction:column;gap:12px;}
