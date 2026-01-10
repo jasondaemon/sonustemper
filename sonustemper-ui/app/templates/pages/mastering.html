@@ -19,7 +19,8 @@
         <div class="muted">Recent runs will appear here.</div>
       </div>
     </div>
-    <div id="prevRunsWrap" hx-get="/ui/partials/master_prev" hx-trigger="load"></div>
+    <!-- Runs list is populated by JS (so we can auto-select + avoid double-fetch with HTMX). -->
+    <div id="prevRunsWrap"></div>
   </div>
 {% endblock %}
 
@@ -249,10 +250,15 @@
     });
   }
 
-  function setCurrentRun(song){
-    currentRun = song || null;
-    startStatusStream();
+function setCurrentRun(song){
+  const next = song || null;
+  // Avoid restarting the stream (and clearing the log) if the same run is selected again.
+  if(next === currentRun && statusSource){
+    return;
   }
+  currentRun = next;
+  startStatusStream();
+}
 
   function closeStatusStream(){
     if(statusSource){
@@ -486,9 +492,21 @@
         showToast('Run failed: '+ (err.detail || res.status));
       }else{
         showToast('Job started');
-        const runId = infile;
-        setCurrentRun(runId);
-        refreshPrevRuns(true, runId);
+        showToast('Job started');
+// IMPORTANT: backend run_id is folder name (usually infile without extension).
+// Prefer explicit run_ids from the API, then fall back to stripping extension.
+        let runId = null;
+          try{
+            const j = await res.json();
+            if(j && Array.isArray(j.run_ids) && j.run_ids.length){
+              runId = j.run_ids[0];
+            }
+          }catch(_){ /* ignore */ }
+          if(!runId){
+            runId = (infile || '').replace(/\.[^.]+$/, '') || infile;
+          }
+          setCurrentRun(runId);
+          refreshPrevRuns(true, runId);
       }
     }catch(err){
       showToast('Network error');
