@@ -31,6 +31,21 @@ UTILITY_ROOTS = {
 
 AUDIO_EXTS = {".wav", ".flac", ".aif", ".aiff", ".mp3", ".m4a", ".aac", ".ogg"}
 PRESET_EXTS = {".json"}
+VOICING_TITLE_MAP = {
+    "universal": "Voicing: Universal",
+    "airlift": "Voicing: Airlift",
+    "ember": "Voicing: Ember",
+    "detail": "Voicing: Detail",
+    "glue": "Voicing: Glue",
+    "wide": "Voicing: Wide",
+    "cinematic": "Voicing: Cinematic",
+    "punch": "Voicing: Punch",
+    "warm": "Voicing: Warm",
+    "modern": "Voicing: Modern",
+    "clean": "Voicing: Clean",
+    "rock": "Voicing: Rock",
+    "acoustic": "Voicing: Acoustic",
+}
 
 router = APIRouter()
 
@@ -255,6 +270,99 @@ def _base_title(stem: str) -> str:
     return stem.split("__", 1)[0] if "__" in stem else stem
 
 
+def _parse_badges(stem: str) -> list[dict]:
+    if "__" not in stem:
+        return []
+    _, suffix = stem.split("__", 1)
+    tokens = [t for t in suffix.split("_") if t]
+    badges: list[dict] = []
+    i = 0
+    while i < len(tokens):
+        t = tokens[i]
+        if t == "V" and (i + 1) < len(tokens):
+            vname = tokens[i + 1]
+            lbl = f"V_{vname}"
+            slug = vname.lower()
+            title = VOICING_TITLE_MAP.get(slug, f"Voicing: {vname.replace('_',' ').title()}")
+            badges.append({"type": "voicing", "label": lbl, "title": title})
+            i += 2
+            continue
+        if t.startswith("V_") or t == "source":
+            lbl = t
+            if t == "source":
+                title = "Source"
+            else:
+                slug = t[2:].lower()
+                title = VOICING_TITLE_MAP.get(slug, f"Voicing: {slug.replace('_',' ').title()}")
+            badges.append({"type": "voicing", "label": lbl, "title": title})
+            i += 1
+            continue
+        if t.startswith("S") and t[1:].isdigit():
+            badges.append({"type": "param", "label": t, "title": f"Strength: {t[1:]}"})
+            i += 1
+            continue
+        if t == "LMCustom":
+            badges.append({"type": "preset", "label": t, "title": f"Preset: {t}"})
+            i += 1
+            continue
+        if t.startswith("TI-"):
+            val = t[3:]
+            badges.append({"type": "param", "label": t, "title": f"LUFS: {val}"})
+            i += 1
+            continue
+        if t.startswith("TTP-"):
+            badges.append({"type": "param", "label": t, "title": f"True Peak: {t.replace('TTP-','-')} dBTP"})
+            i += 1
+            continue
+        if t.startswith("W") and t[1:]:
+            probe = t[1:].replace(".", "", 1).replace("-", "", 1)
+            if probe.isdigit():
+                badges.append({"type": "param", "label": t, "title": f"Width: {t[1:]}"})
+                i += 1
+                continue
+        if t.startswith("GR") and t[2:]:
+            badges.append({"type": "param", "label": t, "title": f"Gain Reduction: {t[2:]}"})
+            i += 1
+            continue
+        if t.upper().startswith("WAV") and t[3:-1].isdigit():
+            rate = t[3:].rstrip("kK")
+            bit = None
+            if (i + 1) < len(tokens) and tokens[i + 1].isdigit():
+                bit = tokens[i + 1]
+                i += 1
+            lbl = f"{rate}k/{bit}" if bit else f"{rate}k"
+            title = f"Source Format: {rate} kHz" + (f" / {bit}-bit" if bit else "")
+            badges.append({"type": "format", "label": lbl, "title": title})
+            i += 1
+            continue
+        if t == "MP3":
+            lbl = "MP3"
+            if (i + 1) < len(tokens) and tokens[i + 1].upper().startswith("CBR"):
+                br = tokens[i + 1].upper().replace("CBR", "")
+                lbl = f"MP3 {br}"
+                i += 1
+            title = f"Output Format: {lbl} kbps (CBR)" if " " in lbl else f"Output Format: {lbl}"
+            badges.append({"type": "format", "label": lbl, "title": title})
+            i += 1
+            continue
+        if t.upper().startswith("AAC"):
+            lbl = "AAC"
+            nxt = tokens[i + 1] if (i + 1) < len(tokens) else ""
+            if "_" in t:
+                parts = t.split("_", 1)
+                if len(parts) == 2 and parts[1].isdigit():
+                    lbl = f"AAC {parts[1]}"
+            elif nxt.isdigit():
+                lbl = f"AAC {nxt}"
+                i += 1
+            title = f"Output Format: {lbl}"
+            badges.append({"type": "format", "label": lbl, "title": title})
+            i += 1
+            continue
+        i += 1
+    return badges
+
+
 def _metric_pills(metrics: dict | None) -> list[dict]:
     if not metrics:
         return []
@@ -299,11 +407,7 @@ def _run_outputs(song: str) -> list[dict]:
                 primary = url
         m = _load_metrics(base / f"{stem}.metrics.json") or _load_metrics(base / "metrics.json")
         display_title = _base_title(stem)
-        try:
-            from tagger import TaggerService
-            badge_title, badges = TaggerService._parse_badges(stem, "out")
-        except Exception:
-            badges = []
+        badges = _parse_badges(stem)
         items.append({
             "name": stem,
             "display_title": display_title,
