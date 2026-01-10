@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block page_title %}Mastering | SonusTemper{% endblock %}
 {% block title %}Mastering{% endblock %}
-{% block subtitle %}Run mastering jobs in the new UI.{% endblock %}
+{% block subtitle %}Run mastering jobs with voicings/presets, loudness, stereo/tone, and output options.{% endblock %}
 {% block sidebar %}
   <div class="card">
     <div class="card-head">
@@ -29,57 +29,176 @@
       <div class="card-head">
         <div>
           <div class="card-title">Master</div>
-          <div class="muted">Pick a source, choose voicing, loudness, and outputs.</div>
+          <div class="muted">Pick a source, choose voicing or preset, tune loudness/stereo, and outputs.</div>
         </div>
         <div class="muted hx-indicator" id="jobIndicator">Working…</div>
       </div>
       <form id="masterForm">
-        <div class="form-grid">
-          <div class="form-row">
-            <label>Input file</label>
-            <select name="infile" id="infileSelect" required>
-              <option value="">Loading…</option>
-            </select>
+        <div class="section-grid">
+          <div class="form-section">
+            <div class="form-row">
+              <label>Input file</label>
+              <select id="infileSelect" required>
+                <option value="">Loading…</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <label>Analyze</label>
+              <label class="inline"><input type="checkbox" id="stage_analyze" checked> Enable analysis (metrics)</label>
+            </div>
           </div>
-          <div class="form-row">
-            <label>Voicing</label>
-            <select name="voicing_name" id="voicingSelect">
-              <option value="universal">Universal</option>
-              <option value="airlift">Airlift</option>
-              <option value="ember">Ember</option>
-              <option value="detail">Detail</option>
-              <option value="glue">Glue</option>
-              <option value="wide">Wide</option>
-              <option value="cinematic">Cinematic</option>
-              <option value="punch">Punch</option>
-            </select>
-            <input type="hidden" name="voicing_mode" value="voicing">
+          <div class="form-section">
+            <div class="form-row">
+              <label>Voicing / Preset</label>
+              <div class="pill-row">
+                <label><input type="radio" name="voicing_mode" value="voicing" id="mode_voicing" checked> Voicing</label>
+                <label><input type="radio" name="voicing_mode" value="presets" id="mode_presets"> Preset</label>
+              </div>
+            </div>
+            <div class="form-row" id="voicingRow">
+              <label>Voicing</label>
+              <select id="voicingSelect">
+                <option value="universal">Universal</option>
+                <option value="airlift">Airlift</option>
+                <option value="ember">Ember</option>
+                <option value="detail">Detail</option>
+                <option value="glue">Glue</option>
+                <option value="wide">Wide</option>
+                <option value="cinematic">Cinematic</option>
+                <option value="punch">Punch</option>
+              </select>
+            </div>
+            <div class="form-row hidden" id="presetRow">
+              <label>Preset</label>
+              <select id="presetSelect">
+                <option value="">Loading presets…</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <label>Strength</label>
+              <input type="range" id="strength" min="0" max="100" value="80" oninput="document.getElementById('strengthVal').textContent=this.value;">
+              <div class="muted">S=<span id="strengthVal">80</span></div>
+            </div>
           </div>
-          <div class="form-row">
-            <label>Strength</label>
-            <input type="range" name="strength" id="strength" min="0" max="100" value="80" oninput="document.getElementById('strengthVal').textContent=this.value;">
-            <div class="muted">S=<span id="strengthVal">80</span></div>
+          <div class="form-section">
+            <div class="form-row">
+              <label>Loudness Mode</label>
+              <select id="loudnessMode">
+                <option value="apple" selected>Apple Music (-16, -1)</option>
+                <option value="spotify">Spotify (-14, -1)</option>
+                <option value="loud">Loud (-11, -1)</option>
+                <option value="manual">Manual</option>
+              </select>
+            </div>
+            <div class="form-row inline">
+              <label><input type="checkbox" id="ov_target_I" checked disabled> Target LUFS</label>
+              <input type="number" step="0.1" id="target_I" value="-16.0">
+            </div>
+            <div class="form-row inline">
+              <label><input type="checkbox" id="ov_target_TP" checked disabled> True Peak</label>
+              <input type="number" step="0.1" id="target_TP" value="-1.0">
+            </div>
           </div>
-          <div class="form-row">
-            <label>Loudness</label>
-            <div class="pill">Apple Music</div>
-            <input type="hidden" name="lufs" value="-16.0">
-            <input type="hidden" name="tp" value="-1.0">
+          <div class="form-section">
+            <div class="form-row">
+              <label>Stereo &amp; Tone</label>
+              <label class="inline"><input type="checkbox" id="ov_width"> Override Stereo Width</label>
+              <input type="range" id="width" min="0.5" max="1.5" step="0.01" value="1.0" oninput="document.getElementById('widthVal').textContent=this.value;">
+              <div class="muted">Width=<span id="widthVal">1.0</span></div>
+            </div>
+            <div class="form-row inline">
+              <label><input type="checkbox" id="ov_mono_bass"> Mono Bass Below (Hz)</label>
+              <input type="number" id="mono_bass" min="60" max="200" step="1" value="120">
+            </div>
+            <div class="form-row inline">
+              <label><input type="checkbox" id="guardrails" checked> Enable guardrails</label>
+            </div>
           </div>
-          <div class="form-row outputs">
-            <label>Outputs</label>
-            <div class="output-grid">
-              <label><input type="checkbox" name="out_wav" value="1" checked> WAV</label>
-              <label><input type="checkbox" name="out_mp3" value="1" checked> MP3</label>
-              <label><input type="checkbox" name="out_aac" value="1"> AAC/M4A</label>
-              <label><input type="checkbox" name="out_ogg" value="1"> OGG</label>
-              <label><input type="checkbox" name="out_flac" value="1"> FLAC</label>
+          <div class="form-section">
+            <div class="form-row">
+              <label>Outputs</label>
+              <div class="output-grid">
+                <label><input type="checkbox" id="out_wav" checked> WAV</label>
+                <label><input type="checkbox" id="out_mp3" checked> MP3</label>
+                <label><input type="checkbox" id="out_aac"> AAC/M4A</label>
+                <label><input type="checkbox" id="out_ogg"> OGG</label>
+                <label><input type="checkbox" id="out_flac"> FLAC</label>
+              </div>
+            </div>
+            <div class="form-row output-options">
+              <div>
+                <div class="muted">WAV</div>
+                <select id="wav_bit_depth">
+                  <option value="24">24-bit</option>
+                  <option value="16">16-bit</option>
+                </select>
+                <select id="wav_sample_rate">
+                  <option value="48000">48 kHz</option>
+                  <option value="44100">44.1 kHz</option>
+                </select>
+              </div>
+              <div>
+                <div class="muted">MP3</div>
+                <select id="mp3_bitrate">
+                  <option value="320">320 kbps</option>
+                  <option value="256">256 kbps</option>
+                  <option value="192">192 kbps</option>
+                  <option value="128">128 kbps</option>
+                </select>
+                <select id="mp3_vbr">
+                  <option value="none">None (CBR)</option>
+                  <option value="V0">V0</option>
+                  <option value="V2">V2</option>
+                </select>
+              </div>
+              <div>
+                <div class="muted">AAC/M4A</div>
+                <select id="aac_codec">
+                  <option value="aac">AAC (native)</option>
+                  <option value="aac">AAC (faac)</option>
+                </select>
+                <select id="aac_container">
+                  <option value="m4a">M4A</option>
+                  <option value="aac">AAC</option>
+                </select>
+                <select id="aac_bitrate">
+                  <option value="256">256 kbps</option>
+                  <option value="192">192 kbps</option>
+                  <option value="128">128 kbps</option>
+                </select>
+              </div>
+              <div>
+                <div class="muted">OGG</div>
+                <select id="ogg_quality">
+                  <option value="5">Q5 (~160 kbps)</option>
+                  <option value="4">Q4</option>
+                  <option value="6">Q6</option>
+                </select>
+              </div>
+              <div>
+                <div class="muted">FLAC</div>
+                <select id="flac_level">
+                  <option value="5">Level 5</option>
+                  <option value="8">Level 8</option>
+                  <option value="1">Level 1</option>
+                </select>
+                <select id="flac_bit_depth">
+                  <option value="">Auto bit depth</option>
+                  <option value="24">24-bit</option>
+                  <option value="16">16-bit</option>
+                </select>
+                <select id="flac_sample_rate">
+                  <option value="">Auto rate</option>
+                  <option value="48000">48 kHz</option>
+                  <option value="44100">44.1 kHz</option>
+                </select>
+              </div>
             </div>
           </div>
         </div>
         <div class="actions">
-          <button type="submit" class="btn">Run Job</button>
-          <a class="btn ghost" href="/">Legacy UI</a>
+          <button type="submit" class="btn" id="runBtn" disabled>Run Job</button>
+          <a class="btn ghost" href="/legacy">Legacy UI</a>
         </div>
       </form>
     </div>
@@ -186,6 +305,7 @@
       const res = await fetch('/api/files',{cache:'no-store'});
       const data = await res.json();
       const sel = document.getElementById('infileSelect');
+      const presetSel = document.getElementById('presetSelect');
       sel.innerHTML = '';
       (data.files || []).forEach(f=>{
         const opt = document.createElement('option');
@@ -199,6 +319,20 @@
         opt.textContent='No source files found';
         sel.appendChild(opt);
       }
+      presetSel.innerHTML = '';
+      (data.presets || []).forEach(p=>{
+        const opt = document.createElement('option');
+        opt.value = p;
+        opt.textContent = p;
+        presetSel.appendChild(opt);
+      });
+      if(presetSel.options.length===0){
+        const opt = document.createElement('option');
+        opt.value='';
+        opt.textContent='No presets found';
+        presetSel.appendChild(opt);
+      }
+      validateForm();
     }catch(e){
       showToast('Failed to load files');
     }
@@ -231,12 +365,119 @@
   refreshPrevRuns(true);
 
   const form = document.getElementById('masterForm');
+  const runBtn = document.getElementById('runBtn');
+
+  const loudProfiles = {
+    apple: { lufs: -16.0, tp: -1.0 },
+    spotify: { lufs: -14.0, tp: -1.0 },
+    loud: { lufs: -11.0, tp: -1.0 },
+  };
+  function applyLoudnessMode(){
+    const mode = document.getElementById('loudnessMode').value;
+    const ovI = document.getElementById('ov_target_I');
+    const ovTP = document.getElementById('ov_target_TP');
+    const tI = document.getElementById('target_I');
+    const tTP = document.getElementById('target_TP');
+    if(mode === 'manual'){
+      ovI.disabled = false; ovTP.disabled = false;
+      ovI.checked = false; ovTP.checked = false;
+      return;
+    }
+    const prof = loudProfiles[mode] || loudProfiles.apple;
+    tI.value = prof.lufs;
+    tTP.value = prof.tp;
+    ovI.checked = true; ovTP.checked = true;
+    ovI.disabled = true; ovTP.disabled = true;
+  }
+  document.getElementById('loudnessMode').addEventListener('change', applyLoudnessMode);
+  applyLoudnessMode();
+
+  function setModeUI(){
+    const mode = document.querySelector('input[name="voicing_mode"]:checked')?.value || 'voicing';
+    const voRow = document.getElementById('voicingRow');
+    const prRow = document.getElementById('presetRow');
+    if(mode === 'voicing'){
+      voRow.classList.remove('hidden');
+      prRow.classList.add('hidden');
+    }else{
+      voRow.classList.add('hidden');
+      prRow.classList.remove('hidden');
+    }
+    validateForm();
+  }
+  document.getElementById('mode_voicing').addEventListener('change', setModeUI);
+  document.getElementById('mode_presets').addEventListener('change', setModeUI);
+  setModeUI();
+
+  function validateForm(){
+    const infile = document.getElementById('infileSelect')?.value || '';
+    const mode = document.querySelector('input[name="voicing_mode"]:checked')?.value || 'voicing';
+    const vo = document.getElementById('voicingSelect')?.value || '';
+    const pr = document.getElementById('presetSelect')?.value || '';
+    const ok = infile && ((mode==='voicing' && vo) || (mode==='presets' && pr));
+    if(runBtn) runBtn.disabled = !ok;
+  }
+  document.getElementById('infileSelect').addEventListener('change', validateForm);
+  document.getElementById('voicingSelect').addEventListener('change', validateForm);
+  document.getElementById('presetSelect').addEventListener('change', validateForm);
+
   form.addEventListener('submit', async (e)=>{
     e.preventDefault();
     setBusy(true);
-    const fd = new FormData(form);
-    // ensure default stages stay enabled; guardrails on by default for stereo
-    fd.append('guardrails','1');
+    const fd = new FormData();
+    const infile = document.getElementById('infileSelect').value;
+    fd.append('infiles', infile);
+    fd.append('strength', document.getElementById('strength').value || '80');
+    // stages
+    fd.append('stage_analyze', document.getElementById('stage_analyze').checked ? '1' : '0');
+    fd.append('stage_master', '1');
+    fd.append('stage_loudness', '1');
+    fd.append('stage_stereo', '1');
+    fd.append('stage_output', '1');
+    // voicing / preset
+    const mode = document.querySelector('input[name="voicing_mode"]:checked')?.value || 'voicing';
+    fd.append('voicing_mode', mode);
+    if(mode === 'voicing'){
+      fd.append('voicing_name', document.getElementById('voicingSelect').value || '');
+    }else{
+      fd.append('presets', document.getElementById('presetSelect').value || '');
+    }
+    // loudness
+    if(document.getElementById('ov_target_I').checked){
+      fd.append('lufs', document.getElementById('target_I').value || '');
+    }
+    if(document.getElementById('ov_target_TP').checked){
+      fd.append('tp', document.getElementById('target_TP').value || '');
+    }
+    // stereo/tone
+    if(document.getElementById('ov_width').checked){
+      fd.append('width', document.getElementById('width').value || '');
+    }
+    if(document.getElementById('ov_mono_bass').checked){
+      fd.append('mono_bass', document.getElementById('mono_bass').value || '');
+    }
+    if(document.getElementById('guardrails').checked){
+      fd.append('guardrails','1');
+    }
+    // outputs
+    const on = id => document.getElementById(id)?.checked;
+    const val = id => document.getElementById(id)?.value || '';
+    fd.append('out_wav', on('out_wav') ? '1' : '0');
+    fd.append('wav_bit_depth', val('wav_bit_depth'));
+    fd.append('wav_sample_rate', val('wav_sample_rate'));
+    fd.append('out_mp3', on('out_mp3') ? '1' : '0');
+    fd.append('mp3_bitrate', val('mp3_bitrate'));
+    fd.append('mp3_vbr', val('mp3_vbr') || 'none');
+    fd.append('out_aac', on('out_aac') ? '1' : '0');
+    fd.append('aac_codec', val('aac_codec'));
+    fd.append('aac_container', val('aac_container'));
+    fd.append('aac_bitrate', val('aac_bitrate'));
+    fd.append('out_ogg', on('out_ogg') ? '1' : '0');
+    fd.append('ogg_quality', val('ogg_quality'));
+    fd.append('out_flac', on('out_flac') ? '1' : '0');
+    fd.append('flac_level', val('flac_level'));
+    fd.append('flac_bit_depth', val('flac_bit_depth'));
+    fd.append('flac_sample_rate', val('flac_sample_rate'));
     try{
       const res = await fetch('/api/run',{method:'POST', body: fd});
       if(!res.ok){
@@ -244,7 +485,7 @@
         showToast('Run failed: '+ (err.detail || res.status));
       }else{
         showToast('Job started');
-        const runId = fd.get('infile');
+        const runId = infile;
         setCurrentRun(runId);
         refreshPrevRuns(true, runId);
       }

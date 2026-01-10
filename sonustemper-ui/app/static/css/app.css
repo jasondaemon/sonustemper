@@ -68,10 +68,16 @@ h1{margin:0;font-size:24px;}
 .form-row{display:flex;flex-direction:column;gap:6px;}
 .form-row label{font-weight:600;}
 .form-row input[type="range"]{width:100%;}
+.form-row.inline{flex-direction:row;align-items:center;gap:8px;}
 .form-row select,.form-row input[type="text"],.form-row input[type="number"]{
   padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:#0f141c;color:var(--text);
 }
 .form-row .output-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;}
+.form-section{border:1px solid var(--line);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px;}
+.section-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;}
+.output-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;}
+.pill-row{display:flex;gap:10px;flex-wrap:wrap;}
+.pill-row label{font-weight:400;}
 .actions{margin-top:12px;display:flex;gap:10px;align-items:center;}
 .card{
   background:var(--card);
