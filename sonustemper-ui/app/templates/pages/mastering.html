@@ -3,15 +3,18 @@
 {% block title %}Mastering{% endblock %}
 {% block subtitle %}Run batch mastering with voicing, loudness profile, tone & space, and output formats.{% endblock %}
 {% block sidebar %}
-  <div class="card">
-    <div class="card-head">
-      <div>
-        <div class="card-title">Processing Status</div>
-        <div class="muted">Live status via event stream.</div>
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">Processing Status</div>
+          <div class="muted">Live status via event stream.</div>
+        </div>
+      </div>
+      <div class="status-list" id="statusList">(waiting)</div>
+      <div class="status-progress" id="statusProgress">
+        <div class="status-progress-bar" id="statusProgressBar"></div>
       </div>
     </div>
-    <div class="status-list" id="statusList">(waiting)</div>
-  </div>
   <div class="card">
     <div class="card-head">
       <div>
@@ -234,12 +237,14 @@
 (function(){
   const indicator = document.getElementById('jobIndicator');
   const statusList = document.getElementById('statusList');
+  const statusProgressBar = document.getElementById('statusProgressBar');
   const outputPaneWrap = document.getElementById('outputPaneWrap');
 
   let currentRun = null;
   let statusSource = null;
   let statusLines = [];
   let statusRenderPending = false;
+  let statusStages = new Set();
   const state = {
     selectedFiles: [],
     voicing: 'universal',
@@ -303,6 +308,54 @@
     scheduleStatusRender();
   }
 
+  function setProgress(fraction){
+    if (!statusProgressBar) return;
+    if (fraction === null || fraction === undefined || Number.isNaN(fraction)) {
+      statusProgressBar.style.width = '0%';
+      statusProgressBar.classList.remove('active');
+      return;
+    }
+    const pct = Math.max(0, Math.min(1, fraction)) * 100;
+    statusProgressBar.style.width = `${pct}%`;
+    if (pct > 0 && pct < 100) {
+      statusProgressBar.classList.add('active');
+    } else {
+      statusProgressBar.classList.remove('active');
+    }
+  }
+
+  function updateProgressFromStages(){
+    if (!currentRun || !statusStages.size) {
+      setProgress(currentRun ? 0.05 : null);
+      return;
+    }
+    if (statusStages.has('complete') || statusStages.has('error')) {
+      setProgress(1);
+      return;
+    }
+    const ordered = [
+      'start',
+      'metrics_source_start',
+      'metrics_source_done',
+      'preset_start',
+      'preset_done',
+      'metrics_start',
+      'metrics_done',
+      'mp3_done',
+      'aac_done',
+      'ogg_done',
+      'flac_done',
+      'playlist',
+    ];
+    const total = ordered.length;
+    let done = 0;
+    ordered.forEach(stage => {
+      if (statusStages.has(stage)) done += 1;
+    });
+    const fraction = total ? done / total : 0;
+    setProgress(fraction);
+  }
+
   function setCurrentRun(song){
     const next = song || null;
     // Avoid restarting the stream (and clearing the log) if the same run is selected again.
@@ -318,12 +371,17 @@
       statusSource.close();
       statusSource = null;
     }
+    if (!currentRun) {
+      setProgress(null);
+    }
   }
 
   function startStatusStream(){
     closeStatusStream();
     statusLines = [];
+    statusStages = new Set();
     scheduleStatusRender();
+    updateProgressFromStages();
     if(!currentRun){
       return;
     }
@@ -347,6 +405,10 @@
       const detail = data.detail || data.message || '';
       const line = [ts, stage, detail].filter(Boolean).join(' ');
       if(line) statusLines.push(line);
+      if (stage) {
+        statusStages.add(stage);
+        updateProgressFromStages();
+      }
       scheduleStatusRender();
       if(data.stage === 'complete' || data.stage === 'error'){
         closeStatusStream();

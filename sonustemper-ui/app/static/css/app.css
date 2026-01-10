@@ -420,6 +420,28 @@ h1{margin:0;font-size:24px;}
   color:#bfcfe8;
   white-space: pre-line;
 }
+.status-progress{
+  margin-top:8px;
+  height:10px;
+  background:rgba(255,255,255,0.08);
+  border:1px solid var(--line);
+  border-radius:999px;
+  overflow:hidden;
+}
+.status-progress-bar{
+  height:100%;
+  width:0%;
+  background:linear-gradient(90deg, #ff8a3d, #ffd29b, #ff8a3d);
+  background-size:200% 100%;
+  transition:width 180ms ease;
+}
+.status-progress-bar.active{
+  animation:progressPulse 1.4s ease-in-out infinite;
+}
+@keyframes progressPulse{
+  0%{background-position:0% 50%;}
+  100%{background-position:100% 50%;}
+}
 .form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;}
 .form-row{display:flex;flex-direction:column;gap:6px;}
 .form-row label{font-weight:600;}
