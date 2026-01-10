@@ -108,6 +108,9 @@ h1{margin:0;font-size:24px;}
   text-align:right;
   font-size:12px;
 }
+.guardrails-row .control-label{
+  font-size:12px;
+}
 .control-label{min-width:140px;font-weight:600;display:flex;align-items:center;gap:6px;}
 .control-row select,.control-row input[type="number"]{min-width:200px;}
 .control-row input[type="range"]{flex:1;min-width:200px;}
