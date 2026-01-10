@@ -231,7 +231,7 @@
   function esc(str){
     if(!str) return '';
     if(window.CSS && CSS.escape) return CSS.escape(str);
-    return String(str).replace(/[^a-zA-Z0-9_-]/g, '\\\\$&');
+    return String(str).replace(/[^a-zA-Z0-9_-]/g, '\\$&');
   }
 
   function setBusy(on){
@@ -250,15 +250,15 @@
     });
   }
 
-  function setCurrentRun(song){
-    const next = song || null;
-    // Avoid restarting the stream (and clearing the log) if the same run is selected again.
-    if(next === currentRun && statusSource){
-      return;
-    }
-    currentRun = next;
-    startStatusStream();
+function setCurrentRun(song){
+  const next = song || null;
+  // Avoid restarting the stream (and clearing the log) if the same run is selected again.
+  if(next === currentRun && statusSource){
+    return;
   }
+  currentRun = next;
+  startStatusStream();
+}
 
   function closeStatusStream(){
     if(statusSource){
@@ -297,8 +297,7 @@
       scheduleStatusRender();
       if(data.stage === 'complete' || data.stage === 'error'){
         closeStatusStream();
-        // Refresh sidebar list ONLY (do not auto-click a run, or you'll restart SSE forever)
-        refreshPrevRuns(false);
+        refreshPrevRuns(false, currentRun, true);
       }
     };
     es.onerror = ()=>{
@@ -347,7 +346,7 @@
   }
   loadFiles();
 
-  async function refreshPrevRuns(selectLatest, preferSong){
+  async function refreshPrevRuns(selectLatest, preferSong, loadOutputOnly){
     try{
       const res = await fetch('/ui/partials/master_prev',{cache:'no-store'});
       const html = await res.text();
@@ -360,14 +359,12 @@
         }else if(selectLatest){
           const firstBtn = wrap.querySelector('.run-item');
           if(firstBtn){ firstBtn.click(); }
-        }
       }
     }catch(err){
       showToast('Failed to refresh runs');
     }
   }
-
-  // initial prev list (no auto-select)
+  // initial prev list and auto-select latest output
   refreshPrevRuns(false);
 
   const form = document.getElementById('masterForm');
@@ -491,20 +488,21 @@
         showToast('Run failed: '+ (err.detail || res.status));
       }else{
         showToast('Job started');
-        // IMPORTANT: backend run_id is folder name (usually infile without extension).
-        // Prefer explicit run_ids from the API, then fall back to stripping extension.
+        showToast('Job started');
+// IMPORTANT: backend run_id is folder name (usually infile without extension).
+// Prefer explicit run_ids from the API, then fall back to stripping extension.
         let runId = null;
-        try{
-          const j = await res.json();
-          if(j && Array.isArray(j.run_ids) && j.run_ids.length){
-            runId = j.run_ids[0];
+          try{
+            const j = await res.json();
+            if(j && Array.isArray(j.run_ids) && j.run_ids.length){
+              runId = j.run_ids[0];
+            }
+          }catch(_){ /* ignore */ }
+          if(!runId){
+            runId = (infile || '').replace(/\.[^.]+$/, '') || infile;
           }
-        }catch(_){ /* ignore */ }
-        if(!runId){
-          runId = (infile || '').replace(/\\.[^.]+$/, '') || infile;
-        }
-        setCurrentRun(runId);
-        refreshPrevRuns(true, runId);
+          setCurrentRun(runId);
+          refreshPrevRuns(true, runId);
       }
     }catch(err){
       showToast('Network error');
