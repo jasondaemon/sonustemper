@@ -701,6 +701,8 @@ h1{margin:0;font-size:24px;}
 .tagging-scope{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;}
 .tagging-scope .btn.active{border-color:var(--accent);box-shadow:0 0 0 1px rgba(255,138,61,0.3);}
 .tagging-browser{display:flex;flex-direction:column;gap:8px;}
+.tagging-working-set{display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--line);padding-top:12px;}
+.tagging-working-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;}
 .tagging-sidebar-footer{display:flex;flex-direction:column;gap:8px;}
 .tagging-actions{display:flex;gap:8px;flex-wrap:wrap;}
 .tag-list{display:flex;flex-direction:column;gap:8px;margin-top:10px;}

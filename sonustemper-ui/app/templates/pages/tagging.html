@@ -24,6 +24,16 @@
       ] %}
       {% include "ui/partials/file_browser.html" %}
     </div>
+    <div class="tagging-working-set">
+      <div class="tagging-working-head">
+        <div>
+          <div class="card-title">Working Set</div>
+          <div class="muted">Order = track order</div>
+        </div>
+        <button class="btn small ghost" type="button" id="tagClearSelBtn">Clear</button>
+      </div>
+      <div id="workingList" class="tag-list"></div>
+    </div>
     <div class="tagging-sidebar-footer">
       <div class="muted" id="tagSelectedCount">0 selected</div>
       <div class="tagging-actions">
@@ -37,18 +47,7 @@
 {% endblock %}
 
 {% block content %}
-  <div id="taggingPage" class="tagging-grid">
-    <div class="card">
-      <div class="card-head">
-        <div>
-          <div class="card-title">Working Set</div>
-          <div class="muted">Order = track order</div>
-        </div>
-        <button class="btn small ghost" type="button" id="tagClearSelBtn">Clear Working Set</button>
-      </div>
-      <div id="workingList" class="tag-list"></div>
-    </div>
-
+  <div id="taggingPage">
     <div class="card tag-editor-card">
       <div class="card-head">
         <div>
