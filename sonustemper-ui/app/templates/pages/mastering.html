@@ -170,11 +170,9 @@
               </div>
               <div class="control-row preview-row">
                 <div class="control-label small-label">Preview</div>
-                <button type="button" class="btn small ghost" id="previewPlay" disabled>Play</button>
-                <button type="button" class="btn small ghost" id="previewStop">Stop</button>
+                <audio id="voicingPreviewAudio" class="preview-audio" controls preload="none"></audio>
                 <span class="muted" id="previewStatus">Select a source file to preview</span>
               </div>
-              <audio id="voicingPreviewAudio" preload="none"></audio>
             </div>
 
             <div class="stage-card" id="loudnessStage">
@@ -568,6 +566,9 @@
     if (first !== previewSong) {
       previewSong = first;
       resetPreview();
+      if (first) {
+        schedulePreview();
+      }
     }
     updateSummary();
     updateRunButton();
@@ -662,8 +663,6 @@
   const width = document.getElementById('width');
   const widthVal = document.getElementById('widthVal');
   const guardrails = document.getElementById('guardrails');
-  const previewPlay = document.getElementById('previewPlay');
-  const previewStop = document.getElementById('previewStop');
   const previewStatus = document.getElementById('previewStatus');
   const previewAudio = document.getElementById('voicingPreviewAudio');
   let previewTimer = null;
@@ -672,13 +671,16 @@
   let previewRequestId = 0;
   let previewReadyUrl = null;
   let previewSong = null;
+  let previewIsBuilding = false;
 
   function setPreviewStatus(text){
     if (previewStatus) previewStatus.textContent = text || '';
   }
 
   function setPreviewPlayable(enabled){
-    if (previewPlay) previewPlay.disabled = !enabled;
+    if (!previewAudio) return;
+    previewAudio.classList.toggle('is-disabled', !enabled);
+    previewAudio.setAttribute('aria-disabled', enabled ? 'false' : 'true');
   }
 
   function closePreviewStream(){
@@ -695,9 +697,11 @@
   }
 
   function resetPreview(){
+    previewIsBuilding = false;
     previewCurrentId = null;
     previewReadyUrl = null;
     closePreviewStream();
+    stopPreview();
     setPreviewPlayable(false);
     if (previewAudio) {
       previewAudio.removeAttribute('src');
@@ -715,6 +719,11 @@
     if (!song) {
       setPreviewStatus('Select a source file to preview');
       resetPreview();
+      return;
+    }
+    if (previewIsBuilding) {
+      setPreviewStatus('Generating...');
+      setPreviewPlayable(false);
       return;
     }
     if (previewReadyUrl) {
@@ -746,6 +755,7 @@
     const strengthVal = parseInt(strength?.value || '0', 10);
     const widthVal = width?.value ? parseFloat(width.value) : null;
     resetPreview();
+    previewIsBuilding = true;
     setPreviewStatus('Generating...');
     const payload = { song, voicing, strength: strengthVal };
     if (!Number.isNaN(widthVal) && widthVal !== null) payload.width = widthVal;
@@ -775,10 +785,12 @@
           if (msg.status === 'ready' && msg.url) {
             previewReadyUrl = `${msg.url}&cb=${Date.now()}`;
             if (previewAudio) previewAudio.src = previewReadyUrl;
+            previewIsBuilding = false;
             setPreviewStatus('Ready');
             setPreviewPlayable(true);
             closePreviewStream();
           } else if (msg.status === 'error') {
+            previewIsBuilding = false;
             setPreviewStatus('Preview failed');
             setPreviewPlayable(false);
             closePreviewStream();
@@ -786,6 +798,7 @@
         };
         es.onerror = () => {
           if (requestId !== previewRequestId) return;
+          previewIsBuilding = false;
           setPreviewStatus('Preview unavailable');
           setPreviewPlayable(false);
           closePreviewStream();
@@ -793,6 +806,7 @@
       })
       .catch(() => {
         if (requestId !== previewRequestId) return;
+        previewIsBuilding = false;
         setPreviewStatus('Preview failed');
         setPreviewPlayable(false);
       });
@@ -954,24 +968,15 @@
   if (targetTp) targetTp.addEventListener('input', () => { targetTpRange.value = targetTp.value; updateSummary(); });
   if (convertOnly) convertOnly.addEventListener('change', () => { applyConvertOnly(); updateSummary(); });
 
-  if (previewPlay && previewAudio) {
-    previewPlay.addEventListener('click', () => {
-      previewAudio.play().then(()=>{
-        setPreviewStatus('Playing');
-      }).catch(() => {
-        setPreviewStatus('Preview unavailable');
-      });
+  if (previewAudio) {
+    previewAudio.addEventListener('play', () => {
+      setPreviewStatus('Playing');
     });
-  }
-  if (previewStop) {
-    previewStop.addEventListener('click', () => {
-      stopPreview();
-      if (previewReadyUrl) {
+    previewAudio.addEventListener('pause', () => {
+      if (previewReadyUrl && !previewIsBuilding) {
         setPreviewStatus('Ready');
       }
     });
-  }
-  if (previewAudio) {
     previewAudio.addEventListener('ended', () => {
       if (previewReadyUrl) setPreviewStatus('Ready');
     });

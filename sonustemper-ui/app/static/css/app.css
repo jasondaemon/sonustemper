@@ -126,9 +126,13 @@ h1{margin:0;font-size:24px;}
   text-align:right;
   font-size:12px;
 }
+.stage-card .control-row + .control-row{
+  margin-top:8px;
+}
 .preview-row{
   align-items:center;
   gap:8px;
+  flex-wrap:wrap;
   font-size:12px;
 }
 .preview-row .control-label{
@@ -136,6 +140,15 @@ h1{margin:0;font-size:24px;}
 }
 .preview-row .muted{
   font-size:12px;
+}
+.preview-audio{
+  width:200px;
+  max-width:100%;
+  height:28px;
+}
+.preview-audio.is-disabled{
+  pointer-events:none;
+  opacity:0.45;
 }
 .guardrails-row .control-label{
   font-size:12px;
