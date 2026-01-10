@@ -15,7 +15,7 @@ from datetime import datetime
 import os
 import importlib.util
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request, Body, BackgroundTasks
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, StreamingResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, StreamingResponse, Response, RedirectResponse
 from tagger import TaggerService
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -3262,7 +3262,12 @@ window.VOICING_META = {{ voicing_meta_json }};
 </body>
 </html>
 """
-@app.get("/", response_class=HTMLResponse)
+@app.get("/", include_in_schema=False)
+def new_ui_root():
+    # Landing goes to new UI starter
+    return RedirectResponse(url="/ui", status_code=302)
+
+@app.get("/legacy", response_class=HTMLResponse)
 def index():
     html = HTML_TEMPLATE
     html = html.replace("{{BUILD_STAMP}}", BUILD_STAMP)
@@ -3273,6 +3278,7 @@ def index():
     html = html.replace("{{IN_DIR}}", str(IN_DIR))
     html = html.replace("{{OUT_DIR}}", str(OUT_DIR))
     return HTMLResponse(html)
+
 @app.get("/manage-presets", response_class=HTMLResponse)
 def manage_presets():
     html = MANAGE_PRESETS_HTML.replace("{{VERSION}}", VERSION)
