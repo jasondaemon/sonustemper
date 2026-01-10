@@ -35,164 +35,199 @@
         <div class="muted hx-indicator" id="jobIndicator">Working…</div>
       </div>
       <form id="masterForm">
-        <div class="section-grid">
-          <div class="form-section">
-            <div class="form-row">
-              <label>Input file</label>
-              <select id="infileSelect" required>
-                <option value="">Loading…</option>
-              </select>
+        <div class="pipeWrap">
+          <div class="pipeSection">
+            <div class="pipeHeader">
+              <span>Inputs</span>
             </div>
-            <div class="form-row">
-              <label>Analyze</label>
-              <label class="inline"><input type="checkbox" id="stage_analyze" checked> Enable analysis (metrics)</label>
+            <div class="pipeBody">
+              <div class="form-row">
+                <label>Input file</label>
+                <select id="infileSelect" required>
+                  <option value="">Loading…</option>
+                </select>
+              </div>
             </div>
           </div>
-          <div class="form-section">
-            <div class="form-row">
-              <label>Voicing / Preset</label>
-              <div class="pill-row">
-                <label><input type="radio" name="voicing_mode" value="voicing" id="mode_voicing" checked> Voicing</label>
-                <label><input type="radio" name="voicing_mode" value="presets" id="mode_presets"> Preset</label>
+
+          <div class="pipeSection">
+            <div class="pipeHeader">
+              <span>Analyze</span>
+            </div>
+            <div class="pipeBody">
+              <div class="form-row">
+                <label class="inline"><input type="checkbox" id="stage_analyze" checked> Enable analysis (metrics)</label>
               </div>
-            </div>
-            <div class="form-row" id="voicingRow">
-              <label>Voicing</label>
-              <select id="voicingSelect">
-                <option value="universal">Universal</option>
-                <option value="airlift">Airlift</option>
-                <option value="ember">Ember</option>
-                <option value="detail">Detail</option>
-                <option value="glue">Glue</option>
-                <option value="wide">Wide</option>
-                <option value="cinematic">Cinematic</option>
-                <option value="punch">Punch</option>
-              </select>
-            </div>
-            <div class="form-row hidden" id="presetRow">
-              <label>Preset</label>
-              <select id="presetSelect">
-                <option value="">Loading presets…</option>
-              </select>
-            </div>
-            <div class="form-row">
-              <label>Strength</label>
-              <input type="range" id="strength" min="0" max="100" value="80" oninput="document.getElementById('strengthVal').textContent=this.value;">
-              <div class="muted">S=<span id="strengthVal">80</span></div>
             </div>
           </div>
-          <div class="form-section">
-            <div class="form-row">
-              <label>Loudness Mode</label>
-              <select id="loudnessMode">
-                <option value="apple" selected>Apple Music (-16, -1)</option>
-                <option value="spotify">Spotify (-14, -1)</option>
-                <option value="loud">Loud (-11, -1)</option>
-                <option value="manual">Manual</option>
-              </select>
+
+          <div class="pipeSection">
+            <div class="pipeHeader">
+              <span>Voicings and User Presets</span>
             </div>
-            <div class="form-row inline">
-              <label><input type="checkbox" id="ov_target_I" checked disabled> Target LUFS</label>
-              <input type="number" step="0.1" id="target_I" value="-16.0">
-            </div>
-            <div class="form-row inline">
-              <label><input type="checkbox" id="ov_target_TP" checked disabled> True Peak</label>
-              <input type="number" step="0.1" id="target_TP" value="-1.0">
+            <div class="pipeBody">
+              <div class="form-row">
+                <label>Voicing / Preset</label>
+                <div class="pill-row">
+                  <label><input type="radio" name="voicing_mode" value="voicing" id="mode_voicing" checked> Voicing</label>
+                  <label><input type="radio" name="voicing_mode" value="presets" id="mode_presets"> Preset</label>
+                </div>
+              </div>
+              <div class="form-row" id="voicingRow">
+                <label>Voicing</label>
+                <select id="voicingSelect">
+                  <option value="universal">Universal</option>
+                  <option value="airlift">Airlift</option>
+                  <option value="ember">Ember</option>
+                  <option value="detail">Detail</option>
+                  <option value="glue">Glue</option>
+                  <option value="wide">Wide</option>
+                  <option value="cinematic">Cinematic</option>
+                  <option value="punch">Punch</option>
+                </select>
+              </div>
+              <div class="form-row hidden" id="presetRow">
+                <label>Preset</label>
+                <select id="presetSelect">
+                  <option value="">Loading presets…</option>
+                </select>
+              </div>
+              <div class="form-row">
+                <label>Strength</label>
+                <input type="range" id="strength" min="0" max="100" value="80" oninput="document.getElementById('strengthVal').textContent=this.value;">
+                <div class="muted">S=<span id="strengthVal">80</span></div>
+              </div>
             </div>
           </div>
-          <div class="form-section">
-            <div class="form-row">
-              <label>Stereo &amp; Tone</label>
-              <label class="inline"><input type="checkbox" id="ov_width"> Override Stereo Width</label>
-              <input type="range" id="width" min="0.5" max="1.5" step="0.01" value="1.0" oninput="document.getElementById('widthVal').textContent=this.value;">
-              <div class="muted">Width=<span id="widthVal">1.0</span></div>
+
+          <div class="pipeSection">
+            <div class="pipeHeader">
+              <span>Loudness</span>
             </div>
-            <div class="form-row inline">
-              <label><input type="checkbox" id="ov_mono_bass"> Mono Bass Below (Hz)</label>
-              <input type="number" id="mono_bass" min="60" max="200" step="1" value="120">
-            </div>
-            <div class="form-row inline">
-              <label><input type="checkbox" id="guardrails" checked> Enable guardrails</label>
+            <div class="pipeBody">
+              <div class="form-row">
+                <label>Loudness Mode</label>
+                <select id="loudnessMode">
+                  <option value="apple" selected>Apple Music (-16, -1)</option>
+                  <option value="spotify">Spotify (-14, -1)</option>
+                  <option value="loud">Loud (-11, -1)</option>
+                  <option value="manual">Manual</option>
+                </select>
+              </div>
+              <div class="form-row inline">
+                <label><input type="checkbox" id="ov_target_I" checked disabled> Target LUFS</label>
+                <input type="number" step="0.1" id="target_I" value="-16.0">
+              </div>
+              <div class="form-row inline">
+                <label><input type="checkbox" id="ov_target_TP" checked disabled> True Peak</label>
+                <input type="number" step="0.1" id="target_TP" value="-1.0">
+              </div>
             </div>
           </div>
-          <div class="form-section">
-            <div class="form-row">
-              <label>Outputs</label>
-              <div class="output-grid">
-                <label><input type="checkbox" id="out_wav" checked> WAV</label>
-                <label><input type="checkbox" id="out_mp3" checked> MP3</label>
-                <label><input type="checkbox" id="out_aac"> AAC/M4A</label>
-                <label><input type="checkbox" id="out_ogg"> OGG</label>
-                <label><input type="checkbox" id="out_flac"> FLAC</label>
+
+          <div class="pipeSection">
+            <div class="pipeHeader">
+              <span>Stereo &amp; Tone</span>
+            </div>
+            <div class="pipeBody">
+              <div class="form-row">
+                <label class="inline"><input type="checkbox" id="ov_width"> Override Stereo Width</label>
+                <input type="range" id="width" min="0.5" max="1.5" step="0.01" value="1.0" oninput="document.getElementById('widthVal').textContent=this.value;">
+                <div class="muted">Width=<span id="widthVal">1.0</span></div>
+              </div>
+              <div class="form-row inline">
+                <label><input type="checkbox" id="ov_mono_bass"> Mono Bass Below (Hz)</label>
+                <input type="number" id="mono_bass" min="60" max="200" step="1" value="120">
+              </div>
+              <div class="form-row inline">
+                <label><input type="checkbox" id="guardrails" checked> Enable guardrails</label>
               </div>
             </div>
-            <div class="form-row output-options">
-              <div>
-                <div class="muted">WAV</div>
-                <select id="wav_bit_depth">
-                  <option value="24">24-bit</option>
-                  <option value="16">16-bit</option>
-                </select>
-                <select id="wav_sample_rate">
-                  <option value="48000">48 kHz</option>
-                  <option value="44100">44.1 kHz</option>
-                </select>
+          </div>
+
+          <div class="pipeSection">
+            <div class="pipeHeader">
+              <span>Output</span>
+            </div>
+            <div class="pipeBody">
+              <div class="form-row">
+                <label>Outputs</label>
+                <div class="output-grid">
+                  <label><input type="checkbox" id="out_wav" checked> WAV</label>
+                  <label><input type="checkbox" id="out_mp3" checked> MP3</label>
+                  <label><input type="checkbox" id="out_aac"> AAC/M4A</label>
+                  <label><input type="checkbox" id="out_ogg"> OGG</label>
+                  <label><input type="checkbox" id="out_flac"> FLAC</label>
+                </div>
               </div>
-              <div>
-                <div class="muted">MP3</div>
-                <select id="mp3_bitrate">
-                  <option value="320">320 kbps</option>
-                  <option value="256">256 kbps</option>
-                  <option value="192">192 kbps</option>
-                  <option value="128">128 kbps</option>
-                </select>
-                <select id="mp3_vbr">
-                  <option value="none">None (CBR)</option>
-                  <option value="V0">V0</option>
-                  <option value="V2">V2</option>
-                </select>
-              </div>
-              <div>
-                <div class="muted">AAC/M4A</div>
-                <select id="aac_codec">
-                  <option value="aac">AAC (native)</option>
-                  <option value="aac">AAC (faac)</option>
-                </select>
-                <select id="aac_container">
-                  <option value="m4a">M4A</option>
-                  <option value="aac">AAC</option>
-                </select>
-                <select id="aac_bitrate">
-                  <option value="256">256 kbps</option>
-                  <option value="192">192 kbps</option>
-                  <option value="128">128 kbps</option>
-                </select>
-              </div>
-              <div>
-                <div class="muted">OGG</div>
-                <select id="ogg_quality">
-                  <option value="5">Q5 (~160 kbps)</option>
-                  <option value="4">Q4</option>
-                  <option value="6">Q6</option>
-                </select>
-              </div>
-              <div>
-                <div class="muted">FLAC</div>
-                <select id="flac_level">
-                  <option value="5">Level 5</option>
-                  <option value="8">Level 8</option>
-                  <option value="1">Level 1</option>
-                </select>
-                <select id="flac_bit_depth">
-                  <option value="">Auto bit depth</option>
-                  <option value="24">24-bit</option>
-                  <option value="16">16-bit</option>
-                </select>
-                <select id="flac_sample_rate">
-                  <option value="">Auto rate</option>
-                  <option value="48000">48 kHz</option>
-                  <option value="44100">44.1 kHz</option>
-                </select>
+              <div class="form-row output-options">
+                <div>
+                  <div class="muted">WAV</div>
+                  <select id="wav_bit_depth">
+                    <option value="24">24-bit</option>
+                    <option value="16">16-bit</option>
+                  </select>
+                  <select id="wav_sample_rate">
+                    <option value="48000">48 kHz</option>
+                    <option value="44100">44.1 kHz</option>
+                  </select>
+                </div>
+                <div>
+                  <div class="muted">MP3</div>
+                  <select id="mp3_bitrate">
+                    <option value="320">320 kbps</option>
+                    <option value="256">256 kbps</option>
+                    <option value="192">192 kbps</option>
+                    <option value="128">128 kbps</option>
+                  </select>
+                  <select id="mp3_vbr">
+                    <option value="none">None (CBR)</option>
+                    <option value="V0">V0</option>
+                    <option value="V2">V2</option>
+                  </select>
+                </div>
+                <div>
+                  <div class="muted">AAC/M4A</div>
+                  <select id="aac_codec">
+                    <option value="aac">AAC (native)</option>
+                    <option value="aac">AAC (faac)</option>
+                  </select>
+                  <select id="aac_container">
+                    <option value="m4a">M4A</option>
+                    <option value="aac">AAC</option>
+                  </select>
+                  <select id="aac_bitrate">
+                    <option value="256">256 kbps</option>
+                    <option value="192">192 kbps</option>
+                    <option value="128">128 kbps</option>
+                  </select>
+                </div>
+                <div>
+                  <div class="muted">OGG</div>
+                  <select id="ogg_quality">
+                    <option value="5">Q5 (~160 kbps)</option>
+                    <option value="4">Q4</option>
+                    <option value="6">Q6</option>
+                  </select>
+                </div>
+                <div>
+                  <div class="muted">FLAC</div>
+                  <select id="flac_level">
+                    <option value="5">Level 5</option>
+                    <option value="8">Level 8</option>
+                    <option value="1">Level 1</option>
+                  </select>
+                  <select id="flac_bit_depth">
+                    <option value="">Auto bit depth</option>
+                    <option value="24">24-bit</option>
+                    <option value="16">16-bit</option>
+                  </select>
+                  <select id="flac_sample_rate">
+                    <option value="">Auto rate</option>
+                    <option value="48000">48 kHz</option>
+                    <option value="44100">44.1 kHz</option>
+                  </select>
+                </div>
               </div>
             </div>
           </div>
