@@ -2,16 +2,32 @@ function setupUtilMenu(toggleId, dropdownId){
   const toggle = document.getElementById(toggleId);
   const dd = document.getElementById(dropdownId);
   if(!toggle || !dd) return;
-  const close = ()=> dd.classList.add('hidden');
+  const wrapper = toggle.parentElement;
+  const open = () => {
+    dd.classList.remove('hidden');
+    toggle.setAttribute('aria-expanded', 'true');
+  };
+  const close = () => {
+    dd.classList.add('hidden');
+    toggle.setAttribute('aria-expanded', 'false');
+  };
   toggle.addEventListener('click', (e)=>{
     e.stopPropagation();
-    dd.classList.toggle('hidden');
+    if (dd.classList.contains('hidden')) {
+      open();
+    } else {
+      close();
+    }
   });
   document.addEventListener('click', (e)=>{
     if(!dd.contains(e.target) && e.target!==toggle){
       close();
     }
   });
+  if (wrapper) {
+    wrapper.addEventListener('mouseenter', open);
+    wrapper.addEventListener('mouseleave', close);
+  }
 }
 
 function showToast(msg){

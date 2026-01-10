@@ -25,7 +25,13 @@
   function updateDownloadState(){
     const zipBtn = document.getElementById('albDownloadBtn');
     if(zipBtn){
-      zipBtn.disabled = tagState.dirty || !tagState.working.length;
+      const active = !tagState.dirty && !!tagState.working.length;
+      zipBtn.disabled = !active;
+      zipBtn.classList.toggle('is-active', active);
+    }
+    const saveBtn = document.getElementById('albApplyBtn');
+    if(saveBtn){
+      saveBtn.disabled = !tagState.dirty || !tagState.working.length;
     }
     document.querySelectorAll('.trackDlBtn').forEach(btn => {
       btn.disabled = tagState.dirty;

@@ -23,6 +23,14 @@
         {"key": "imported", "title": "Imported MP3s", "endpoint": "/ui/partials/library_list?view=tagging_mp3&scope=tag&context=tagging"}
       ] %}
       {% include "ui/partials/file_browser.html" %}
+      <div class="tagging-browser-actions">
+        <div class="tagging-actions">
+          <input type="file" id="tagImportFile" accept=".mp3" style="display:none;">
+          <button class="btn small" type="button" id="tagImportBtn">Import MP3</button>
+          <button class="btn small ghost" type="button" id="tagSelectAllBtn">Add All (filtered)</button>
+        </div>
+        <div class="muted" id="tagImportStatus"></div>
+      </div>
     </div>
     <div class="tagging-working-set">
       <div class="tagging-working-head">
@@ -36,12 +44,6 @@
     </div>
     <div class="tagging-sidebar-footer">
       <div class="muted" id="tagSelectedCount">0 selected</div>
-      <div class="tagging-actions">
-        <input type="file" id="tagImportFile" accept=".mp3" style="display:none;">
-        <button class="btn small" type="button" id="tagImportBtn">Import MP3</button>
-        <button class="btn small ghost" type="button" id="tagSelectAllBtn">Add All (filtered)</button>
-      </div>
-      <div class="muted" id="tagImportStatus"></div>
     </div>
   </div>
 {% endblock %}
