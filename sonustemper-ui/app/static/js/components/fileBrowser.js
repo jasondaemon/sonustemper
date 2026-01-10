@@ -80,6 +80,8 @@ export function createFileBrowser({ mountId, sections, onSelect, getSelected, se
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "file-browser-item";
+      btn.dataset.browserItem = "1";
+      btn.dataset.title = (item.label || "").toLowerCase();
       btn.dataset.itemKey = makeItemKey(item);
 
       const title = document.createElement("div");

@@ -2,6 +2,8 @@ import os
 import mimetypes
 import re
 import shutil
+import json
+from urllib.parse import quote
 from pathlib import Path
 from datetime import datetime
 from typing import List
@@ -257,6 +259,92 @@ async def master_prev(request: Request):
     )
 
 
+def _list_mastering_runs(only_mp3: bool, q: str, limit: int) -> list[dict]:
+    if not MASTER_OUT_DIR.exists():
+        return []
+    items = []
+    for d in MASTER_OUT_DIR.iterdir():
+        if not d.is_dir():
+            continue
+        if only_mp3:
+            has_mp3 = any(p.is_file() and p.suffix.lower() == ".mp3" for p in d.iterdir())
+            if not has_mp3:
+                continue
+        rep = _pick_representation_file(d)
+        title = _base_title(rep.stem) if rep else d.name
+        badges = _parse_variant_tags(rep.name) if rep else []
+        items.append(
+            {
+                "id": d.name,
+                "title": title,
+                "subtitle": "Mastering Run",
+                "kind": "mastering_run",
+                "badges": badges,
+                "action": {
+                    "hx_get": f"/ui/partials/master_output?song={quote(d.name)}",
+                    "hx_target": "#outputPaneWrap",
+                    "hx_swap": "innerHTML",
+                },
+                "mtime": d.stat().st_mtime if d.exists() else 0,
+            }
+        )
+    if q:
+        ql = q.lower()
+        items = [i for i in items if ql in i["title"].lower()]
+    items.sort(key=lambda x: x.get("mtime", 0), reverse=True)
+    return items[:limit]
+
+
+def _list_tagging_mp3(q: str, limit: int) -> list[dict]:
+    if not TAG_IN_DIR.exists():
+        return []
+    items = []
+    for fp in sorted(TAG_IN_DIR.rglob("*.mp3"), key=lambda p: p.name.lower()):
+        if not fp.is_file():
+            continue
+        rel = str(fp.relative_to(TAG_IN_DIR))
+        title = fp.stem
+        items.append(
+            {
+                "id": rel,
+                "title": title,
+                "subtitle": "MP3",
+                "kind": "mp3",
+                "badges": [],
+                "action": None,
+            }
+        )
+    if q:
+        ql = q.lower()
+        items = [i for i in items if ql in i["title"].lower()]
+    return items[:limit]
+
+
+@router.get("/partials/library_list", response_class=HTMLResponse)
+async def library_list(request: Request, view: str, q: str = "", limit: int = 200):
+    view = (view or "").strip().lower()
+    limit = max(1, min(limit, 1000))
+    items: list[dict] = []
+
+    if view == "mastering_runs":
+        items = _list_mastering_runs(False, q, limit)
+    elif view == "mastering_runs_with_mp3":
+        items = _list_mastering_runs(True, q, limit)
+    elif view == "tagging_mp3":
+        items = _list_tagging_mp3(q, limit)
+    elif view == "analysis_combo":
+        runs = _list_mastering_runs(False, q, limit)
+        mp3s = _list_tagging_mp3(q, limit)
+        items = (runs + mp3s)[:limit]
+    else:
+        raise HTTPException(status_code=400, detail="invalid_view")
+
+    return TEMPLATES.TemplateResponse(
+        "ui/partials/library_list.html",
+        {"request": request, "items": items},
+    )
+
+
 def _load_metrics(path: Path) -> dict | None:
     try:
         if path.exists():
@@ -382,6 +470,169 @@ def _metric_pills(metrics: dict | None) -> list[dict]:
             disp = str(val)
         pills.append({"label": key, "value": disp})
     return pills
+
+
+PROFILE_TITLE_MAP = {
+    "apple": "Apple Music",
+    "applemusic": "Apple Music",
+    "apple_music": "Apple Music",
+    "spotify": "Spotify",
+    "loud": "Loud",
+    "manual": "Manual",
+    "custom": "Custom",
+}
+
+
+def _normalize_profile_name(raw: str) -> str | None:
+    if not raw:
+        return None
+    slug = raw.strip().replace("-", "_")
+    key = slug.lower()
+    if key in PROFILE_TITLE_MAP:
+        return PROFILE_TITLE_MAP[key]
+    return slug.replace("_", " ").strip().title()
+
+
+def _parse_float_token(token: str) -> float | None:
+    try:
+        return float(token)
+    except Exception:
+        return None
+
+
+def _parse_variant_tags(filename: str) -> list[dict]:
+    stem = Path(filename).stem
+    if "__" not in stem:
+        return []
+    _, suffix = stem.split("__", 1)
+    tokens = [t for t in suffix.split("_") if t]
+    badges: list[dict] = []
+    voicing = None
+    profile = None
+    strength = None
+    width = None
+    target_i = None
+    target_tp = None
+    format_badges = []
+
+    i = 0
+    while i < len(tokens):
+        t = tokens[i]
+        if t == "V" and (i + 1) < len(tokens):
+            voicing = tokens[i + 1].replace("_", " ").strip()
+            i += 2
+            continue
+        if t.startswith("V_"):
+            voicing = t[2:].replace("_", " ").strip()
+            i += 1
+            continue
+        if t.lower() == "source":
+            i += 1
+            continue
+        if t.startswith("LM"):
+            profile = _normalize_profile_name(t[2:])
+            i += 1
+            continue
+        if t.startswith("S") and t[1:].isdigit():
+            strength = t[1:]
+            i += 1
+            continue
+        if t.startswith("TI"):
+            num = _parse_float_token(t[2:])
+            if num is not None:
+                target_i = num
+                i += 1
+                continue
+        if t.startswith("TTP"):
+            num = _parse_float_token(t[3:])
+            if num is not None:
+                target_tp = num
+                i += 1
+                continue
+        if t.startswith("WAV"):
+            rate = t[3:].lower().replace("k", "")
+            label = f"WAV {rate}k" if rate else "WAV"
+            format_badges.append({"label": label, "title": f"Output Format: {label}"})
+            i += 1
+            continue
+        if t.startswith("MP3"):
+            label = "MP3"
+            if "_" in t:
+                label = f"MP3 {t.split('_', 1)[1]}".replace("_", " ")
+            format_badges.append({"label": label, "title": f"Output Format: {label}"})
+            i += 1
+            continue
+        if t.startswith("AAC"):
+            label = "AAC"
+            if "_" in t:
+                label = f"AAC {t.split('_', 1)[1]}".replace("_", " ")
+            format_badges.append({"label": label, "title": f"Output Format: {label}"})
+            i += 1
+            continue
+        if t.startswith("OGG"):
+            label = "OGG"
+            if "_" in t:
+                label = f"OGG {t.split('_', 1)[1]}".replace("_", " ")
+            format_badges.append({"label": label, "title": f"Output Format: {label}"})
+            i += 1
+            continue
+        if t.startswith("FLAC"):
+            label = "FLAC"
+            if "_" in t:
+                label = f"FLAC {t.split('_', 1)[1]}".replace("_", " ")
+            format_badges.append({"label": label, "title": f"Output Format: {label}"})
+            i += 1
+            continue
+        if t.startswith("W") and not t.startswith("WAV"):
+            w_match = re.match(r"^W(-?\d+(?:\.\d+)?)$", t)
+            if w_match:
+                width = _parse_float_token(w_match.group(1))
+                i += 1
+                continue
+        i += 1
+
+    if voicing:
+        badges.append({"key": "voicing", "label": f"V: {voicing.title()}", "title": f"Voicing: {voicing.title()}"})
+    if profile:
+        badges.append({"key": "profile", "label": f"P: {profile}", "title": f"Normalization Profile: {profile}"})
+    if not profile and (target_i is not None or target_tp is not None):
+        bits = []
+        if target_i is not None:
+            bits.append(f"{target_i:g} LUFS")
+        if target_tp is not None:
+            bits.append(f"{target_tp:g} TP")
+        joined = " / ".join(bits)
+        if joined:
+            badges.append({"key": "profile", "label": f"P: {joined}", "title": f"Normalization Profile: {joined}"})
+    if strength:
+        badges.append({"key": "param", "label": f"S: {strength}", "title": f"Strength: {strength}"})
+    if width is not None:
+        badges.append({"key": "param", "label": f"W: {width:g}", "title": f"Width: {width:g}"})
+    if target_i is not None:
+        badges.append({"key": "param", "label": f"TI: {target_i:g}", "title": f"Target Integrated Loudness: {target_i:g} LUFS"})
+    if target_tp is not None:
+        badges.append({"key": "param", "label": f"TP: {target_tp:g}", "title": f"True Peak Target: {target_tp:g} dBTP"})
+    for fmt in format_badges:
+        badges.append({"key": "format", "label": fmt["label"], "title": fmt["title"]})
+
+    return badges
+
+
+def _pick_representation_file(run_dir: Path) -> Path | None:
+    if not run_dir.exists() or not run_dir.is_dir():
+        return None
+    preferred = [".mp3", ".wav", ".flac"]
+    candidates: list[Path] = []
+    for p in run_dir.iterdir():
+        if p.is_file() and p.suffix.lower() in AUDIO_EXTS:
+            candidates.append(p)
+    if not candidates:
+        return None
+    for ext in preferred:
+        matches = [p for p in candidates if p.suffix.lower() == ext]
+        if matches:
+            return sorted(matches, key=lambda p: p.stat().st_mtime, reverse=True)[0]
+    return sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True)[0]
 
 
 def _run_outputs(song: str) -> list[dict]:

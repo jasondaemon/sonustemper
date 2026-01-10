@@ -11,7 +11,15 @@
         <span class="file-browser-title">{{ section.title }}</span>
         <span class="file-browser-caret" aria-hidden="true">&gt;</span>
       </button>
-      <div class="file-browser-list" id="{{ browser_id }}-list-{{ section.key }}"></div>
+      <div class="file-browser-list"
+           id="{{ browser_id }}-list-{{ section.key }}"
+           {% if section.endpoint %}
+           data-endpoint="{{ section.endpoint }}"
+           hx-get="{{ section.endpoint }}"
+           hx-trigger="load"
+           hx-swap="innerHTML"
+           {% endif %}
+           {% if section.autoselect %}data-autoselect="{{ section.autoselect }}"{% endif %}></div>
     </div>
     {% endfor %}
   </div>

@@ -18,12 +18,15 @@
   <div class="card">
     <div class="card-head">
       <div>
-        <div class="card-title">Previous Runs</div>
-        <div class="muted">Recent runs will appear here.</div>
+        <div class="card-title">Browse</div>
+        <div class="muted">Mastering runs (song-level).</div>
       </div>
     </div>
-    <!-- Runs list is populated by JS (so we can auto-select + avoid double-fetch with HTMX). -->
-    <div id="prevRunsWrap"></div>
+    {% set browser_id = "masteringBrowser" %}
+    {% set sections = [
+      {"key": "mastering_runs", "title": "Mastering Runs", "endpoint": "/ui/partials/library_list?view=mastering_runs", "autoselect": "first"}
+    ] %}
+    {% include "ui/partials/file_browser.html" %}
   </div>
 {% endblock %}
 
@@ -278,12 +281,6 @@
     manual: 'Manual',
   };
 
-  function esc(str){
-    if(!str) return '';
-    if(window.CSS && CSS.escape) return CSS.escape(str);
-    return String(str).replace(/[^a-zA-Z0-9_-]/g, '\$&');
-  }
-
   function setBusy(on){
     if(!indicator) return;
     indicator.style.display = on ? 'inline-block' : 'none';
@@ -412,8 +409,8 @@
       scheduleStatusRender();
       if(data.stage === 'complete' || data.stage === 'error'){
         closeStatusStream();
-        // Refresh sidebar list ONLY (do not auto-click a run, or you'll restart SSE forever)
-        refreshPrevRuns(false);
+        // Refresh browser list ONLY (do not auto-click a run, or you'll restart SSE forever)
+        refreshMasteringRuns();
         if (currentRun) {
           loadOutput(currentRun);
         }
@@ -628,28 +625,14 @@
     }
   }
 
-  async function refreshPrevRuns(selectLatest, preferSong){
-    try{
-      const res = await fetch('/ui/partials/master_prev',{cache:'no-store'});
-      const html = await res.text();
-      const wrap = document.getElementById('prevRunsWrap');
-      if(wrap){
-        wrap.innerHTML = html;
-        const desired = preferSong && wrap.querySelector(`.run-item[data-song="${esc(preferSong)}"]`);
-        if(desired){
-          desired.click();
-        }else if(selectLatest){
-          const firstBtn = wrap.querySelector('.run-item');
-          if(firstBtn){ firstBtn.click(); }
-        }
-      }
-    }catch(err){
-      showToast('Failed to refresh runs');
+  function refreshMasteringRuns(){
+    const list = document.getElementById('masteringBrowser-list-mastering_runs');
+    if (!list) return;
+    const endpoint = list.dataset.endpoint;
+    if (endpoint && window.htmx) {
+      window.htmx.ajax('GET', endpoint, { target: list, swap: 'innerHTML' });
     }
   }
-
-  // initial prev list and no auto-select
-  refreshPrevRuns(false);
 
   const form = document.getElementById('masterForm');
   const runBtn = document.getElementById('runBtn');
@@ -912,7 +895,7 @@
 
         setCurrentRun(runId);
         loadOutput(runId);
-        refreshPrevRuns(true, runId);
+        refreshMasteringRuns();
       }
     }catch(err){
       showToast('Network error');
@@ -927,7 +910,9 @@
     if(btn && btn.dataset && btn.dataset.song){
       const song = btn.dataset.song;
       setCurrentRun(song);
-      loadOutput(song);
+      if(!btn.getAttribute('hx-get')){
+        loadOutput(song);
+      }
     }
     const deleteBtn = evt.target.closest && evt.target.closest('[data-action="delete-run"]');
     if(deleteBtn && deleteBtn.dataset && deleteBtn.dataset.song){
@@ -938,7 +923,7 @@
         .then(res => {
           if(!res.ok) throw new Error('delete failed');
           showToast('Deleted');
-          refreshPrevRuns(false);
+          refreshMasteringRuns();
           if (outputPaneWrap) {
             outputPaneWrap.innerHTML = `
               <div class="card" id="outputPane" style="background:transparent;border:none;padding:0;">
