@@ -193,6 +193,9 @@ h1{margin:0;font-size:24px;}
   font-size:12px;
   padding:6px 10px;
 }
+.format-row[data-format="flac"] .format-options select{
+  min-width:88px;
+}
 .output-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;}
 .pill-row{display:flex;gap:10px;flex-wrap:wrap;}
 .pill-row label{font-weight:400;}
