@@ -285,6 +285,7 @@
       statusRenderPending = false;
       if(!statusList) return;
       statusList.textContent = statusLines.length ? statusLines.join('\n') : '(waiting)';
+      statusList.scrollTop = statusList.scrollHeight;
     });
   }
 
@@ -337,6 +338,9 @@
         closeStatusStream();
         // Refresh sidebar list ONLY (do not auto-click a run, or you'll restart SSE forever)
         refreshPrevRuns(false);
+        if (currentRun) {
+          loadOutput(currentRun);
+        }
       }
     };
     es.onerror = ()=>{
