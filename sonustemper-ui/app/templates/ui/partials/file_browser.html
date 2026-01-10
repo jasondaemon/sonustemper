@@ -1,0 +1,18 @@
+{% set browser_id = browser_id|default('fileBrowser') %}
+{% set sections = sections|default([]) %}
+<div class="file-browser" id="{{ browser_id }}">
+  <div class="file-browser-search">
+    <input type="search" id="{{ browser_id }}-search" placeholder="Search" aria-label="Search files">
+  </div>
+  <div class="file-browser-sections" id="{{ browser_id }}-sections">
+    {% for section in sections %}
+    <div class="file-browser-section" data-section="{{ section.key }}">
+      <button class="file-browser-toggle" type="button" id="{{ browser_id }}-toggle-{{ section.key }}" data-section="{{ section.key }}">
+        <span class="file-browser-title">{{ section.title }}</span>
+        <span class="file-browser-caret" aria-hidden="true">&gt;</span>
+      </button>
+      <div class="file-browser-list" id="{{ browser_id }}-list-{{ section.key }}"></div>
+    </div>
+    {% endfor %}
+  </div>
+</div>

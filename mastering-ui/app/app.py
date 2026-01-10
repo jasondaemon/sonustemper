@@ -685,7 +685,7 @@ def find_input_file(song: str) -> Path | None:
         pass
     candidates = sorted(candidates)
     return candidates[0] if candidates else None
-ANALYZE_AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".aac", ".ogg", ".flac"}
+ANALYZE_AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".aac", ".ogg", ".flac", ".aif", ".aiff"}
 ANALYZE_PREF_ORDER = [".wav", ".flac", ".m4a", ".aac", ".mp3", ".ogg"]
 def _list_audio_files(folder: Path) -> list[Path]:
     if not folder.exists() or not folder.is_dir():
@@ -705,7 +705,7 @@ def _choose_preferred(files: list[Path]) -> Path | None:
                 return p
     return sorted(files, key=lambda p: p.name.lower())[0]
 def _resolve_processed_file(folder: Path, out: str | None) -> tuple[Path | None, list[Path]]:
-    files = _list_audio_files(folder)
+    files = [p for p in _list_audio_files(folder) if not (p.stem == folder.name and "__" not in p.stem)]
     if not files:
         return None, []
     out = (out or "").strip()
@@ -5403,6 +5403,23 @@ def analyze_source(song: str):
         raise HTTPException(status_code=404, detail="source_not_found")
     mime, _ = mimetypes.guess_type(path.name)
     return FileResponse(path, media_type=mime or "application/octet-stream", filename=path.name)
+@app.get("/api/analyze-file")
+def analyze_file(kind: str, name: str):
+    kind = (kind or "").strip().lower()
+    name = (name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="missing_name")
+    if kind == "source":
+        root = IN_DIR
+    elif kind in {"import", "imported"}:
+        root = ANALYSIS_IN_DIR
+    else:
+        raise HTTPException(status_code=400, detail="invalid_kind")
+    path = _safe_rel(root, name)
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail="file_not_found")
+    mime, _ = mimetypes.guess_type(path.name)
+    return FileResponse(path, media_type=mime or "application/octet-stream", filename=path.name)
 @app.get("/api/analyze-resolve")
 def analyze_resolve(song: str, out: str = ""):
     song = (song or "").strip()
@@ -5446,6 +5463,41 @@ def analyze_resolve(song: str, out: str = ""):
         "available_outputs": _available_outputs(song, files, processed.stem),
         "metrics": metrics,
     }
+@app.get("/api/analyze-resolve-file")
+def analyze_resolve_file(src: str = "", imp: str = ""):
+    src = (src or "").strip()
+    imp = (imp or "").strip()
+    if src and imp:
+        raise HTTPException(status_code=400, detail="ambiguous_target")
+    if not src and not imp:
+        raise HTTPException(status_code=400, detail="missing_target")
+    kind = "source" if src else "import"
+    rel = src if src else imp
+    root = IN_DIR if src else ANALYSIS_IN_DIR
+    path = _safe_rel(root, rel)
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail="file_not_found")
+    metrics = None
+    metrics_path = None
+    if kind == "import":
+        metrics_path = ANALYSIS_OUT_DIR / f"{path.stem}.metrics.json"
+    if metrics_path and metrics_path.exists():
+        metrics = read_metrics_file(metrics_path)
+    if metrics is None:
+        try:
+            metrics = basic_metrics(path)
+        except Exception:
+            metrics = None
+    return {
+        "run_id": None,
+        "source_url": f"/api/analyze-file?kind={kind}&name={quote(rel)}",
+        "processed_url": None,
+        "source_name": path.name,
+        "processed_name": "",
+        "processed_label": None,
+        "available_outputs": [],
+        "metrics": {"input": metrics, "output": None} if metrics else None,
+    }
 @app.post("/api/analyze-upload")
 async def analyze_upload(file: UploadFile = File(...)):
     if not file.filename:
@@ -5486,7 +5538,68 @@ async def analyze_upload(file: UploadFile = File(...)):
         "source_url": f"/analysis/{quote(dest.name)}",
         "metrics": metrics,
         "source_name": file.filename,
+        "rel": dest.name,
     }
+@app.get("/api/analyze-sources")
+def analyze_sources():
+    items = []
+    try:
+        for fp in sorted(IN_DIR.iterdir(), key=lambda p: p.name.lower()):
+            if not fp.is_file() or fp.suffix.lower() not in ANALYZE_AUDIO_EXTS:
+                continue
+            items.append({
+                "kind": "source",
+                "label": fp.name,
+                "rel": fp.name,
+                "meta": {"size": fp.stat().st_size},
+            })
+    except Exception:
+        pass
+    return {"items": items}
+@app.get("/api/analyze-imports")
+def analyze_imports():
+    items = []
+    try:
+        for fp in sorted(ANALYSIS_IN_DIR.iterdir(), key=lambda p: p.name.lower()):
+            if not fp.is_file() or fp.suffix.lower() not in ANALYZE_AUDIO_EXTS:
+                continue
+            items.append({
+                "kind": "import",
+                "label": fp.name,
+                "rel": fp.name,
+                "meta": {"size": fp.stat().st_size},
+            })
+    except Exception:
+        pass
+    return {"items": items}
+@app.get("/api/analyze-runs")
+def analyze_runs(limit: int = 30):
+    items = []
+    try:
+        runs = [d for d in OUT_DIR.iterdir() if d.is_dir()]
+        runs.sort(key=lambda d: d.stat().st_mtime, reverse=True)
+        for run in runs[:limit]:
+            files = [p for p in _list_audio_files(run) if not (p.stem == run.name and "__" not in p.stem)]
+            if not files:
+                continue
+            stems = {}
+            for fp in files:
+                stems.setdefault(fp.stem, []).append(fp)
+            for stem, stem_files in stems.items():
+                formats = sorted({p.suffix.lower().lstrip(".") for p in stem_files})
+                base = stem.split("__", 1)[0] if "__" in stem else stem
+                label = f"{base} ({', '.join([f.upper() for f in formats])})" if formats else base
+                items.append({
+                    "kind": "run",
+                    "label": label,
+                    "rel": stem,
+                    "runId": run.name,
+                    "out": stem,
+                    "meta": {"formats": formats, "run": run.name, "detail": run.name},
+                })
+    except Exception:
+        pass
+    return {"items": items}
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(250 * 1024 * 1024)))  # default 250MB
 ALLOWED_UPLOAD_EXT = {".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg"}
 CHUNK_SIZE = 4 * 1024 * 1024

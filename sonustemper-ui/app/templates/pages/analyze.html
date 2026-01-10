@@ -6,11 +6,17 @@
   <div class="card">
     <div class="card-head">
       <div>
-        <div class="card-title">Analyze</div>
-        <div class="muted">Compare source vs processed audio.</div>
+        <div class="card-title">Browse</div>
+        <div class="muted">Pick a source, run output, or import.</div>
       </div>
     </div>
-    <div class="muted">Open from Mastering output or upload a source file.</div>
+    {% set browser_id = "analyzeBrowser" %}
+    {% set sections = [
+      {"key": "sources", "title": "Sources"},
+      {"key": "runs", "title": "Job Runs"},
+      {"key": "imports", "title": "Imported"}
+    ] %}
+    {% include "ui/partials/file_browser.html" %}
   </div>
 {% endblock %}
 {% block content %}
@@ -67,8 +73,10 @@
 
 {% block extra_js %}
 <script src="/ui/static/js/wavesurfer.min.js"></script>
-<script>
-(function(){
+<script type="module">
+import { createFileBrowser } from "/ui/static/js/components/fileBrowser.js";
+
+(() => {
   const uploadBtn = document.getElementById('analyzeUploadBtn');
   const uploadInput = document.getElementById('analyzeUploadInput');
   const emptyState = document.getElementById('analyzeEmpty');
@@ -88,6 +96,13 @@
   let sourceWave = null;
   let processedWave = null;
   let syncing = false;
+  let selectedItem = null;
+  let fileBrowser = null;
+  const sections = [
+    { key: 'sources', title: 'Sources', endpoint: '/api/analyze-sources', kind: 'source' },
+    { key: 'runs', title: 'Job Runs', endpoint: '/api/analyze-runs', kind: 'run' },
+    { key: 'imports', title: 'Imported', endpoint: '/api/analyze-imports', kind: 'import' },
+  ];
 
   const metricLabels = [
     { key: 'I', label: 'LUFS-I', suffix: ' LUFS' },
@@ -216,6 +231,12 @@
     });
   }
 
+  function updateUrl(params){
+    const next = new URL(window.location.href);
+    next.search = params.toString();
+    window.history.pushState({}, '', next.toString());
+  }
+
   function updateControls(){
     const hasSource = sourceWave !== null;
     const hasProcessed = processedWave !== null;
@@ -269,6 +290,50 @@
     return res.json();
   }
 
+  async function resolveFile(kind, rel){
+    const params = new URLSearchParams();
+    if (kind === 'source') {
+      params.set('src', rel);
+    } else if (kind === 'import') {
+      params.set('imp', rel);
+    }
+    const res = await fetch(`/api/analyze-resolve-file?${params.toString()}`);
+    if (!res.ok) {
+      throw new Error('resolve_failed');
+    }
+    return res.json();
+  }
+
+  async function selectAndLoad(item, shouldPush){
+    if (!item) return;
+    if (item.kind === 'run' && !item.rel && item.out) {
+      item.rel = item.out;
+    }
+    selectedItem = item;
+    if (fileBrowser) {
+      fileBrowser.setSelected(item);
+      fileBrowser.highlight();
+    }
+    try {
+      if (item.kind === 'run') {
+        const params = new URLSearchParams();
+        params.set('song', item.runId || '');
+        if (item.out) params.set('out', item.out);
+        if (shouldPush) updateUrl(params);
+        const data = await resolveRun(item.runId, item.out || '');
+        await applyData(data);
+      } else if (item.kind === 'source' || item.kind === 'import') {
+        const params = new URLSearchParams();
+        params.set(item.kind === 'source' ? 'src' : 'imp', item.rel);
+        if (shouldPush) updateUrl(params);
+        const data = await resolveFile(item.kind, item.rel);
+        await applyData(data);
+      }
+    } catch (_err) {
+      if (typeof showToast === 'function') showToast('Analyze data unavailable');
+    }
+  }
+
   async function uploadFile(file){
     const fd = new FormData();
     fd.append('file', file, file.name);
@@ -287,13 +352,27 @@
       try {
         if (typeof showToast === 'function') showToast('Uploading...');
         const data = await uploadFile(file);
-        await applyData({
+        const payload = {
           source_url: data.source_url,
           source_name: data.source_name || file.name,
           processed_url: null,
           processed_name: '',
           metrics: { input: data.metrics, output: null },
-        });
+        };
+        await applyData(payload);
+        if (data.rel) {
+          const item = { kind: 'import', label: data.source_name || data.rel, rel: data.rel };
+          selectedItem = item;
+          if (fileBrowser) {
+            fileBrowser.setSelected(item);
+            fileBrowser.highlight();
+            const impSection = sections.find((section) => section.key === 'imports');
+            if (impSection) fileBrowser.reloadSection(impSection);
+          }
+          const params = new URLSearchParams();
+          params.set('imp', data.rel);
+          updateUrl(params);
+        }
         if (typeof showToast === 'function') showToast('Analysis ready');
       } catch (_err) {
         if (typeof showToast === 'function') showToast('Upload failed');
@@ -329,15 +408,28 @@
     });
   }
 
+  fileBrowser = createFileBrowser({
+    mountId: 'analyzeBrowser',
+    sections,
+    getSelected: () => selectedItem,
+    setSelected: (item) => { selectedItem = item; },
+    onSelect: (item) => selectAndLoad(item, true),
+  });
+
   const params = new URLSearchParams(window.location.search);
   const song = params.get('song');
   const out = params.get('out');
+  const src = params.get('src');
+  const imp = params.get('imp');
   if (song) {
-    resolveRun(song, out)
-      .then(applyData)
-      .catch(() => {
-        if (typeof showToast === 'function') showToast('Analyze data unavailable');
-      });
+    selectedItem = { kind: 'run', runId: song, out: out || '', rel: out || '' };
+    selectAndLoad(selectedItem, false);
+  } else if (src) {
+    selectedItem = { kind: 'source', rel: src };
+    selectAndLoad(selectedItem, false);
+  } else if (imp) {
+    selectedItem = { kind: 'import', rel: imp };
+    selectAndLoad(selectedItem, false);
   }
 })();
 </script>
