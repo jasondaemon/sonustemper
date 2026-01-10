@@ -52,6 +52,9 @@ h1{margin:0;font-size:24px;}
 .master-grid .full-width{
   grid-column:1 / -1;
 }
+.output-list .card{border:1px solid var(--line);background:#0f141c;}
+.metrics-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:8px;}
+.metric{background:#101722;border:1px solid var(--line);border-radius:10px;padding:8px;}
 .status-list{
   background:#0f141c;
   border:1px dashed var(--line);

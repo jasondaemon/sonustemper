@@ -242,6 +242,46 @@ async def master_prev(request: Request):
     )
 
 
+def _load_metrics(path: Path) -> dict | None:
+    try:
+        if path.exists():
+            return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return None
+
+
+def _run_outputs(song: str) -> list[dict]:
+    folder = _util_root("mastering", "output")
+    base = _safe_rel(folder, song)
+    items: list[dict] = []
+    if not base.exists() or not base.is_dir():
+        return items
+    audio_exts = {".wav": "WAV", ".mp3": "MP3", ".m4a": "M4A", ".aac": "AAC", ".ogg": "OGG", ".flac": "FLAC"}
+    files = [p for p in base.iterdir() if p.is_file() and p.suffix.lower() in audio_exts]
+    stems = sorted(set(p.stem for p in files))
+    pref = [".mp3", ".m4a", ".aac", ".ogg", ".flac", ".wav"]
+    for stem in stems:
+        downloads = []
+        primary = None
+        for ext in pref:
+            fp = base / f"{stem}{ext}"
+            if not fp.exists():
+                continue
+            url = f"/out/{song}/{fp.name}"
+            downloads.append({"label": audio_exts[ext], "url": url})
+            if not primary:
+                primary = url
+        m = _load_metrics(base / f"{stem}.metrics.json") or _load_metrics(base / "metrics.json")
+        items.append({
+            "name": stem,
+            "primary": primary,
+            "downloads": downloads,
+            "metrics": m,
+        })
+    return items
+
+
 @router.get("/partials/master_output", response_class=HTMLResponse)
 async def master_output(request: Request, song: str = ""):
     song = song.strip()
@@ -252,32 +292,10 @@ async def master_output(request: Request, song: str = ""):
         )
     root = _util_root("mastering", "output")
     base = _safe_rel(root, song)
-    items = []
-    if base.exists() and base.is_dir():
-        for f in base.iterdir():
-            try:
-                if f.is_dir():
-                    continue
-                ext = f.suffix.lower()
-                if ext not in AUDIO_EXTS:
-                    continue
-                st = f.stat()
-                items.append(
-                    {
-                        "name": f.name,
-                        "rel": str(f.relative_to(root)),
-                        "size": st.st_size,
-                        "mtime": st.st_mtime,
-                    }
-                )
-            except Exception:
-                continue
-    items.sort(key=lambda x: x["name"].lower())
-    # sort so WAV/W64 first, then others
-    items.sort(key=lambda x: (0 if x["name"].lower().endswith((".wav", ".w64")) else 1, x["name"].lower()))
+    items = _run_outputs(song)
     return TEMPLATES.TemplateResponse(
         "partials/master_output.html",
-        {"request": request, "song": song, "items": items, "human_size": _human_size, "fmt_mtime": _fmt_mtime},
+        {"request": request, "song": song, "items": items},
     )
 
 

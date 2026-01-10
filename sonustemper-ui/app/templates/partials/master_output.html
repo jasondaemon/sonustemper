@@ -8,25 +8,37 @@
   {% if items|length == 0 %}
     <div class="muted">No outputs.</div>
   {% else %}
-    <table class="file-table compact">
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th style="width:120px;">Size</th>
-          <th style="width:180px;">Modified</th>
-          <th style="width:120px;">Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for item in items %}
-        <tr>
-          <td>{{ item.name }}</td>
-          <td>{{ human_size(item.size) }}</td>
-          <td>{{ fmt_mtime(item.mtime) }}</td>
-          <td><a class="btn ghost small" href="/ui/download?utility=mastering&section=output&rel={{ item.rel }}">Download</a></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div class="output-list">
+      {% for item in items %}
+      <div class="card" style="margin-bottom:12px;">
+        <div class="card-head">
+          <div>
+            <div class="card-title">{{ item.name }}</div>
+            <div class="muted">Download:</div>
+          </div>
+          <div class="pill-row">
+            {% for d in item.downloads %}
+              <a class="btn ghost small" href="{{ d.url }}" target="_blank">{{ d.label }}</a>
+            {% endfor %}
+          </div>
+        </div>
+        {% if item.primary %}
+        <audio controls style="width:100%;">
+          <source src="{{ item.primary }}">
+        </audio>
+        {% endif %}
+        {% if item.metrics %}
+        <div class="metrics-grid">
+          {% for key,val in item.metrics.items() %}
+            <div class="metric">
+              <div class="muted">{{ key }}</div>
+              <div>{{ val }}</div>
+            </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
   {% endif %}
 </div>
