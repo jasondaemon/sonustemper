@@ -8,8 +8,7 @@
                 data-song="{{ r.name }}"
                 hx-get="/ui/partials/master_output?song={{ r.name|urlencode }}"
                 hx-target="#outputPaneWrap"
-                hx-swap="innerHTML"
-                {% if loop.first %}hx-trigger="load, click"{% endif %}>
+                hx-swap="innerHTML">
           {{ r.name }}
         </button>
       {% endfor %}
