@@ -42,6 +42,9 @@
                 <div>
                   <div class="stage-title" id="inputTitle">Input</div>
                 </div>
+                <div class="stage-search">
+                  <input type="search" id="inputSearch" placeholder="Search files" aria-label="Search files">
+                </div>
                 <div class="stage-actions">
                   <input type="file" id="inputUpload" accept=".wav,.mp3,.flac,.aiff,.aif,.m4a,.ogg,.aac" multiple hidden>
                   <button type="button" class="btn ghost small" id="uploadBtn">Upload</button>
@@ -171,7 +174,7 @@
                   <option value="manual">Manual</option>
                 </select>
               </div>
-              <div class="control-subtitle">Overrides</div>
+              <div class="control-subtitle">Overrides (select Manual profile)</div>
               <div class="override-row">
                 <label class="control-label inline"><input type="checkbox" id="ov_target_I" checked> Loudness (LUFS)</label>
                 <input type="range" id="target_I_range" min="-30" max="-5" step="0.1" value="-16.0">
@@ -380,6 +383,7 @@
         }
       }
       updateSelectionState();
+      applyInputFilter();
     }catch(e){
       showToast('Failed to load files');
     }
@@ -392,6 +396,7 @@
   const inputList = document.getElementById('inputList');
   const inputTitle = document.getElementById('inputTitle');
   const inputFooter = document.getElementById('inputFooter');
+  const inputSearch = document.getElementById('inputSearch');
   const runSummaryText = document.getElementById('runSummaryText');
 
   function triggerUpload(){
@@ -472,6 +477,29 @@
     updateRunButton();
   }
 
+  function applyInputFilter(){
+    if (!inputList || !inputSearch) return;
+    const term = inputSearch.value.trim().toLowerCase();
+    let visibleCount = 0;
+    inputList.querySelectorAll('.input-item').forEach(item => {
+      const name = item.querySelector('.input-name')?.textContent?.toLowerCase() || '';
+      const match = !term || name.includes(term);
+      item.style.display = match ? '' : 'none';
+      if (match) visibleCount += 1;
+    });
+    let empty = inputList.querySelector('.input-empty.filter-empty');
+    if (visibleCount === 0 && inputList.querySelectorAll('.input-item').length) {
+      if (!empty) {
+        empty = document.createElement('div');
+        empty.className = 'input-empty filter-empty muted';
+        empty.textContent = 'No matches';
+        inputList.appendChild(empty);
+      }
+    } else if (empty) {
+      empty.remove();
+    }
+  }
+
   if (inputList) {
     inputList.addEventListener('change', updateSelectionState);
   }
@@ -486,6 +514,9 @@
       document.querySelectorAll('#inputList input[name="infiles"]').forEach(cb => { cb.checked = false; });
       updateSelectionState();
     });
+  }
+  if (inputSearch) {
+    inputSearch.addEventListener('input', applyInputFilter);
   }
 
   async function loadOutput(song){
@@ -571,15 +602,18 @@
   function applyLoudnessMode(){
     const mode = loudnessMode.value;
     if(mode === 'manual'){
-      ovTargetI.disabled = false; ovTargetTp.disabled = false;
+      ovTargetI.disabled = false;
+      ovTargetTp.disabled = false;
     }else{
       const prof = loudProfiles[mode] || loudProfiles.apple;
       targetI.value = prof.lufs;
       targetIRange.value = prof.lufs;
       targetTp.value = prof.tp;
       targetTpRange.value = prof.tp;
-      ovTargetI.checked = true; ovTargetTp.checked = true;
-      ovTargetI.disabled = true; ovTargetTp.disabled = true;
+      ovTargetI.checked = false;
+      ovTargetTp.checked = false;
+      ovTargetI.disabled = true;
+      ovTargetTp.disabled = true;
     }
     syncOverrideInputs();
     updateSummary();
