@@ -202,7 +202,7 @@
             <div class="stage-card" id="convertOnlyStage">
               <div class="stage-title">Convert Only</div>
               <div class="control-row">
-                <label class="control-label inline"><input type="checkbox" id="convertOnly"> Perform only media conversion</label>
+                <label class="control-label inline small-label"><input type="checkbox" id="convertOnly"> Perform only media conversion</label>
               </div>
             </div>
           </div>
@@ -294,6 +294,13 @@
       statusList.textContent = statusLines.length ? statusLines.join('\n') : '(waiting)';
       statusList.scrollTop = statusList.scrollHeight;
     });
+  }
+
+  function addStatusLine(message){
+    if(!message) return;
+    const ts = new Date().toLocaleTimeString();
+    statusLines.push(`${ts} ${message}`);
+    scheduleStatusRender();
   }
 
   function setCurrentRun(song){
@@ -419,6 +426,7 @@
   }
 
   async function uploadFilesSequential(files){
+    addStatusLine('Uploading files...');
     for (let i = 0; i < files.length; i++){
       const f = files[i];
       const fd = new FormData();
@@ -428,7 +436,9 @@
         const msg = await res.text();
         throw new Error(msg || `Upload failed: ${f.name}`);
       }
+      addStatusLine(`${f.name} uploaded...`);
     }
+    addStatusLine('Upload complete');
   }
 
   if (uploadBtn && uploadInput){
