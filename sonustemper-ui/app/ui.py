@@ -62,8 +62,27 @@ VOICING_ORDER = [
     "punch",
 ]
 PREVIEW_SESSION_COOKIE = "st_preview_session"
+APP_VERSION = os.getenv("APP_VERSION", os.getenv("SONUSTEMPER_TAG", "dev"))
 
 router = APIRouter()
+
+
+def _version_label() -> str:
+    ver = (APP_VERSION or "dev").strip()
+    if not ver:
+        ver = "dev"
+    if ver.lower().startswith("v"):
+        return ver
+    return f"v{ver}"
+
+
+def _page_context(request: Request, **extra) -> dict:
+    ctx = {
+        "request": request,
+        "app_version_label": _version_label(),
+    }
+    ctx.update(extra)
+    return ctx
 
 
 def _util_root(util: str, section: str) -> Path:
@@ -163,11 +182,7 @@ async def files(request: Request, util: str = "mastering"):
     util = util if util in ("mastering", "tagging", "presets", "analysis") else "mastering"
     return TEMPLATES.TemplateResponse(
         "pages/files.html",
-        {
-            "request": request,
-            "util": util,
-            "current_page": "files",
-        },
+        _page_context(request, util=util, current_page="files"),
     )
 
 
@@ -175,10 +190,7 @@ async def files(request: Request, util: str = "mastering"):
 async def starter(request: Request):
     return TEMPLATES.TemplateResponse(
         "pages/starter.html",
-        {
-            "request": request,
-            "current_page": "",
-        },
+        _page_context(request, current_page=""),
     )
 
 
@@ -186,11 +198,7 @@ async def starter(request: Request):
 async def mastering_page(request: Request):
     response = TEMPLATES.TemplateResponse(
         "pages/mastering.html",
-        {
-            "request": request,
-            "show_sidebar": False,
-            "current_page": "mastering",
-        },
+        _page_context(request, show_sidebar=False, current_page="mastering"),
     )
     if not request.cookies.get(PREVIEW_SESSION_COOKIE):
         response.set_cookie(
@@ -206,10 +214,7 @@ async def mastering_page(request: Request):
 async def tagging_page(request: Request):
     return TEMPLATES.TemplateResponse(
         "pages/tagging.html",
-        {
-            "request": request,
-            "current_page": "tagging",
-        },
+        _page_context(request, current_page="tagging"),
     )
 
 
@@ -217,10 +222,7 @@ async def tagging_page(request: Request):
 async def presets_page(request: Request):
     return TEMPLATES.TemplateResponse(
         "pages/presets.html",
-        {
-            "request": request,
-            "current_page": "presets",
-        },
+        _page_context(request, current_page="presets"),
     )
 
 
@@ -228,10 +230,7 @@ async def presets_page(request: Request):
 async def docs_page(request: Request):
     return TEMPLATES.TemplateResponse(
         "pages/docs.html",
-        {
-            "request": request,
-            "current_page": "docs",
-        },
+        _page_context(request, current_page="docs"),
     )
 
 
