@@ -52,6 +52,17 @@ h1{margin:0;font-size:24px;}
 .master-grid .full-width{
   grid-column:1 / -1;
 }
+.status-list{
+  background:#0f141c;
+  border:1px dashed var(--line);
+  border-radius:10px;
+  padding:10px;
+  font-family: monospace;
+  font-size: 13px;
+  max-height: 240px;
+  overflow:auto;
+  color:#bfcfe8;
+}
 .form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;}
 .form-row{display:flex;flex-direction:column;gap:6px;}
 .form-row label{font-weight:600;}

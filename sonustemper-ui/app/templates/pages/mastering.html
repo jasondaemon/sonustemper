@@ -10,7 +10,7 @@
         <div class="muted">Live updates coming soon.</div>
       </div>
     </div>
-    <div class="muted">Status stream placeholder.</div>
+    <div class="status-list" id="statusList">(waiting)</div>
   </div>
   <div class="card">
     <div class="card-head">
@@ -130,6 +130,25 @@
     }
   }
   loadFiles();
+  // initial prev list without selecting output to avoid duplicate fetch on auto-load
+  refreshPrevRuns(false);
+
+  async function refreshPrevRuns(selectLatest){
+    try{
+      const res = await fetch('/ui/partials/master_prev',{cache:'no-store'});
+      const html = await res.text();
+      const wrap = document.getElementById('prevRunsWrap');
+      if(wrap){
+        wrap.innerHTML = html;
+        if(selectLatest){
+          const firstBtn = wrap.querySelector('.run-item');
+          if(firstBtn){ firstBtn.click(); }
+        }
+      }
+    }catch(err){
+      showToast('Failed to refresh runs');
+    }
+  }
 
   const form = document.getElementById('masterForm');
   form.addEventListener('submit', async (e)=>{
@@ -145,6 +164,7 @@
         showToast('Run failed: '+ (err.detail || res.status));
       }else{
         showToast('Job started');
+        refreshPrevRuns(true);
       }
     }catch(err){
       showToast('Network error');
