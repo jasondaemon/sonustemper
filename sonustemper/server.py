@@ -91,7 +91,7 @@ def _ui_version_label() -> str:
 _default_pack = REPO_ROOT / "sonustemper" / "master_pack.py"
 # Use master_pack.py as the unified mastering script (handles single or multiple presets/files)
 MASTER_SCRIPT = Path(os.getenv("MASTER_SCRIPT", str(_default_pack)))
-app = FastAPI()
+app = FastAPI(docs_url=None, redoc_url=None)
 for p in [
     MASTER_IN_DIR,
     MASTER_OUT_DIR,
