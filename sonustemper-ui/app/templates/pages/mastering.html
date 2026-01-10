@@ -40,8 +40,7 @@
             <div class="stage-card input-stage">
               <div class="stage-head">
                 <div>
-                  <div class="stage-title" id="inputTitle">Input (0 files selected)</div>
-                  <div class="muted">Same mastering settings will be applied to each file.</div>
+                  <div class="stage-title" id="inputTitle">Input</div>
                 </div>
                 <div class="stage-actions">
                   <input type="file" id="inputUpload" accept=".wav,.mp3,.flac,.aiff,.aif,.m4a,.ogg,.aac" multiple hidden>
@@ -454,7 +453,7 @@
     const count = state.selectedFiles.length;
     const label = count === 1 ? 'file' : 'files';
     if (inputTitle) {
-      inputTitle.textContent = `Input (${count} ${label} selected)`;
+      inputTitle.textContent = 'Input';
     }
     const totalDuration = (() => {
       let total = 0;
