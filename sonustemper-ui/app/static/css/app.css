@@ -63,6 +63,9 @@ h1{margin:0;font-size:24px;}
 }
 .master-left,.master-right{display:flex;flex-direction:column;gap:16px;min-width:0;}
 .stage-card{border:1px solid var(--line);border-radius:16px;padding:16px;background:var(--card);}
+.stage-card.disabled{
+  opacity:0.55;
+}
 .stage-head{display:flex;align-items:center;justify-content:flex-start;gap:12px;margin-bottom:12px;}
 .input-stage .stage-actions{margin-left:auto;}
 .stage-search input{

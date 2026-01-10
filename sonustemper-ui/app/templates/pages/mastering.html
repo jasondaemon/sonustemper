@@ -143,7 +143,7 @@
           </div>
 
           <div class="master-right">
-            <div class="stage-card">
+            <div class="stage-card" id="voicingStage">
               <div class="stage-title">Voicing</div>
               <div class="control-row">
                 <select id="voicingSelect" class="full-width-select">
@@ -164,7 +164,7 @@
               </div>
             </div>
 
-            <div class="stage-card">
+            <div class="stage-card" id="loudnessStage">
               <div class="stage-title">Loudness &amp; Delivery</div>
               <div class="control-row">
                 <select id="loudnessMode" class="full-width-select">
@@ -187,7 +187,7 @@
               </div>
             </div>
 
-            <div class="stage-card">
+            <div class="stage-card" id="stereoStage">
               <div class="stage-title">Stereo Width</div>
               <div class="control-row compact-row">
                 <div class="control-label">Width</div>
@@ -196,6 +196,13 @@
               </div>
               <div class="control-row guardrails-row">
                 <label class="control-label inline"><input type="checkbox" id="guardrails" checked> Guardrails (prevent clipping / over-compression)</label>
+              </div>
+            </div>
+
+            <div class="stage-card" id="convertOnlyStage">
+              <div class="stage-title">Convert Only</div>
+              <div class="control-row">
+                <label class="control-label inline"><input type="checkbox" id="convertOnly"> Perform only media conversion</label>
               </div>
             </div>
           </div>
@@ -402,6 +409,10 @@
   const inputFooter = document.getElementById('inputFooter');
   const inputSearch = document.getElementById('inputSearch');
   const runSummaryText = document.getElementById('runSummaryText');
+  const voicingStage = document.getElementById('voicingStage');
+  const loudnessStage = document.getElementById('loudnessStage');
+  const stereoStage = document.getElementById('stereoStage');
+  const convertOnly = document.getElementById('convertOnly');
 
   function triggerUpload(){
     if (uploadInput) uploadInput.click();
@@ -583,6 +594,21 @@
   const width = document.getElementById('width');
   const widthVal = document.getElementById('widthVal');
   const guardrails = document.getElementById('guardrails');
+  function setStageEnabled(stageEl, enabled){
+    if (!stageEl) return;
+    stageEl.classList.toggle('disabled', !enabled);
+    stageEl.querySelectorAll('input, select, textarea, button').forEach(el => {
+      if (el === convertOnly) return;
+      el.disabled = !enabled;
+    });
+  }
+
+  function applyConvertOnly(){
+    const enabled = !(convertOnly?.checked);
+    setStageEnabled(voicingStage, enabled);
+    setStageEnabled(loudnessStage, enabled);
+    setStageEnabled(stereoStage, enabled);
+  }
 
   const loudProfiles = {
     apple: { lufs: -16.0, tp: -1.0 },
@@ -655,6 +681,7 @@
     state.tpValue = parseFloat(targetTp?.value || '');
     state.widthValue = parseFloat(width?.value || '1.0');
     state.guardrails = guardrails?.checked ?? false;
+    state.convertOnly = convertOnly?.checked ?? false;
     state.outputs.wav.enabled = document.getElementById('out_wav')?.checked ?? false;
     state.outputs.wav.bitDepth = document.getElementById('wav_bit_depth')?.value || '';
     state.outputs.wav.sampleRate = document.getElementById('wav_sample_rate')?.value || '';
@@ -680,16 +707,20 @@
     updateOutputControls();
     const count = state.selectedFiles.length;
     const fileLabel = count === 1 ? 'file' : 'files';
-    const voicingLabel = voicingSelect?.options[voicingSelect.selectedIndex]?.textContent?.trim() || state.voicing;
-    const profileLabel = profileLabels[state.profile] || state.profile;
     const outputs = Object.entries(state.outputs)
       .filter(([_, val]) => val.enabled)
       .map(([key]) => outputLabels[key]);
     const outputText = outputs.length ? outputs.join(', ') : 'none';
     if (runSummaryText) {
-      runSummaryText.textContent =
-        `${count} ${fileLabel} • Voicing: ${voicingLabel} (Strength ${state.strength}) • ` +
-        `Profile: ${profileLabel} • Width: ${state.widthValue.toFixed(2)} • Outputs: ${outputText}`;
+      if (state.convertOnly) {
+        runSummaryText.textContent = `${count} ${fileLabel} • Convert Only • Outputs: ${outputText}`;
+      } else {
+        const voicingLabel = voicingSelect?.options[voicingSelect.selectedIndex]?.textContent?.trim() || state.voicing;
+        const profileLabel = profileLabels[state.profile] || state.profile;
+        runSummaryText.textContent =
+          `${count} ${fileLabel} • Voicing: ${voicingLabel} (Strength ${state.strength}) • ` +
+          `Profile: ${profileLabel} • Width: ${state.widthValue.toFixed(2)} • Outputs: ${outputText}`;
+      }
     }
   }
 
@@ -707,6 +738,7 @@
   if (targetI) targetI.addEventListener('input', () => { targetIRange.value = targetI.value; updateSummary(); });
   if (targetTpRange) targetTpRange.addEventListener('input', () => { targetTp.value = targetTpRange.value; updateSummary(); });
   if (targetTp) targetTp.addEventListener('input', () => { targetTpRange.value = targetTp.value; updateSummary(); });
+  if (convertOnly) convertOnly.addEventListener('change', () => { applyConvertOnly(); updateSummary(); });
 
   [
     'out_wav','out_mp3','out_aac','out_ogg','out_flac',
@@ -719,38 +751,48 @@
   });
 
   updateSummary();
+  applyConvertOnly();
   loadFiles();
 
   form.addEventListener('submit', async (e)=>{
     e.preventDefault();
     setBusy(true);
 
+    const convertOnlyChecked = convertOnly?.checked;
     const fd = new FormData();
     const files = state.selectedFiles;
     fd.append('infiles', files.join(','));
     fd.append('strength', strength?.value || '80');
     // stages
-    fd.append('stage_analyze', '1');
-    fd.append('stage_master', '1');
-    fd.append('stage_loudness', '1');
-    fd.append('stage_stereo', '1');
-    fd.append('stage_output', '1');
-    // voicing
-    fd.append('voicing_mode', 'voicing');
-    fd.append('voicing_name', voicingSelect?.value || '');
-    // loudness
-    if(ovTargetI?.checked){
-      fd.append('lufs', targetI?.value || '');
-    }
-    if(ovTargetTp?.checked){
-      fd.append('tp', targetTp?.value || '');
-    }
-    // stereo/tone
-    if(width?.value){
-      fd.append('width', width.value || '');
-    }
-    if(guardrails?.checked){
-      fd.append('guardrails','1');
+    if (convertOnlyChecked) {
+      fd.append('stage_analyze', '0');
+      fd.append('stage_master', '0');
+      fd.append('stage_loudness', '0');
+      fd.append('stage_stereo', '0');
+      fd.append('stage_output', '1');
+    } else {
+      fd.append('stage_analyze', '1');
+      fd.append('stage_master', '1');
+      fd.append('stage_loudness', '1');
+      fd.append('stage_stereo', '1');
+      fd.append('stage_output', '1');
+      // voicing
+      fd.append('voicing_mode', 'voicing');
+      fd.append('voicing_name', voicingSelect?.value || '');
+      // loudness
+      if(ovTargetI?.checked){
+        fd.append('lufs', targetI?.value || '');
+      }
+      if(ovTargetTp?.checked){
+        fd.append('tp', targetTp?.value || '');
+      }
+      // stereo/tone
+      if(width?.value){
+        fd.append('width', width.value || '');
+      }
+      if(guardrails?.checked){
+        fd.append('guardrails','1');
+      }
     }
     // outputs
     const on = id => document.getElementById(id)?.checked;
