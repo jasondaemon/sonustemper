@@ -668,7 +668,7 @@ h1{margin:0;font-size:24px;}
   color:var(--muted);
 }
 .pill.subtle{background:#111722;}
-.utilMenu{position:relative;}
+.utilMenu{position:relative;padding-bottom:8px;}
 .utilToggle{
   background:#101722;
   color:var(--text);
@@ -680,7 +680,7 @@ h1{margin:0;font-size:24px;}
 .utilDropdown{
   position:absolute;
   right:0;
-  top:40px;
+  top:calc(100% - 2px);
   background:var(--card);
   border:1px solid var(--line);
   border-radius:10px;
