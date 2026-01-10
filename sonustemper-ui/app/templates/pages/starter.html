@@ -20,6 +20,15 @@
     .starter-logo img{max-width:120px;filter:drop-shadow(0 10px 25px rgba(0,0,0,0.35));}
     .starter-title{font-size:32px;font-weight:800;letter-spacing:0.5px;}
     .starter-sub{color:#92a4c0;font-size:15px;}
+    .starter-404{
+      font-size:18px;
+      font-weight:700;
+      color:#ffb4b4;
+      background:#1b1212;
+      border:1px solid #4a1f1f;
+      padding:10px 16px;
+      border-radius:10px;
+    }
     .starter-grid{
       display:grid;
       grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
@@ -64,6 +73,9 @@
     </div>
     <div class="starter-title">SonusTemper</div>
     <div class="starter-sub">Master, tag, and manage your audio. Pick a utility to begin.</div>
+    {% if not_found %}
+    <div class="starter-404">404 - The url you entered is invalid</div>
+    {% endif %}
     <div class="starter-grid">
       <a class="starter-card" href="/mastering">
         <div class="starter-icon">🎛️</div>

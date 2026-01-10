@@ -19,7 +19,8 @@ import os
 import sonustemper.master_pack as mastering_pack
 from urllib.parse import quote
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request, Body, BackgroundTasks
-from fastapi.responses import JSONResponse, FileResponse, StreamingResponse, Response
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse, Response, HTMLResponse
+from fastapi.templating import Jinja2Templates
 from .tagger import TaggerService
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -49,6 +50,7 @@ OUT_DIR = MASTER_OUT_DIR
 APP_DIR = Path(__file__).resolve().parent
 REPO_ROOT = APP_DIR.parent
 UI_APP_DIR = REPO_ROOT / "sonustemper-ui" / "app"
+UI_TEMPLATES = Jinja2Templates(directory=str(UI_APP_DIR / "templates")) if UI_APP_DIR.exists() else None
 # Security: API key protection (for CLI/scripts); set API_AUTH_DISABLED=1 to bypass explicitly.
 API_KEY = os.getenv("API_KEY")
 API_AUTH_DISABLED = os.getenv("API_AUTH_DISABLED") == "1"
@@ -77,6 +79,14 @@ if str(APP_DIR) not in sys.path:
 # Trusted proxy check via shared secret (raw)
 def is_trusted_proxy(mark: str) -> bool:
     return bool(mark) and bool(PROXY_SHARED_SECRET) and (mark == PROXY_SHARED_SECRET)
+
+def _ui_version_label() -> str:
+    ver = (os.getenv("APP_VERSION") or os.getenv("SONUSTEMPER_TAG") or "dev").strip()
+    if not ver:
+        ver = "dev"
+    if ver.lower().startswith("v"):
+        return ver
+    return f"v{ver}"
 # master_pack.py is the unified mastering script (handles single or multiple presets/files).
 _default_pack = REPO_ROOT / "sonustemper" / "master_pack.py"
 # Use master_pack.py as the unified mastering script (handles single or multiple presets/files)
@@ -518,6 +528,24 @@ async def _capture_loop():
         status_bus.loop = MAIN_LOOP
     except Exception:
         MAIN_LOOP = None
+
+@app.exception_handler(404)
+async def not_found_handler(request: Request, exc: HTTPException):
+    if request.url.path.startswith("/api/"):
+        return JSONResponse({"detail": "not found"}, status_code=404)
+    accept = request.headers.get("accept", "")
+    if UI_TEMPLATES and "text/html" in accept:
+        return UI_TEMPLATES.TemplateResponse(
+            "pages/starter.html",
+            {
+                "request": request,
+                "current_page": "",
+                "app_version_label": _ui_version_label(),
+                "not_found": True,
+            },
+            status_code=404,
+        )
+    return JSONResponse({"detail": "not found"}, status_code=404)
 
 @app.get("/api/status-stream")
 async def status_stream(song: str, request: Request):
