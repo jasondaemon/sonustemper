@@ -25,7 +25,7 @@
 - Processing status/previous runs/job output flow refined to update after metrics.
 - Loudness stage reworked to two-pass static gain (no time-varying loudnorm) with TP ceiling; tone chains keep light EQ/comp only.
 - UI/UX improvements: voicing default, centered preset note, drawer-based info on main and manage presets page.
-- Licensing added: project under Apache-2.0; FFmpeg notices clarified.
+- Licensing updated: project under GPL-3.0-only; FFmpeg notices clarified.
 
 [v1.1.0]: https://github.com/jasondaemon/sonustemper/releases/tag/v1.1.0
 [v1.2.0]: https://github.com/jasondaemon/sonustemper/releases/tag/v1.2.0

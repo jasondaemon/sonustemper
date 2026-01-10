@@ -142,7 +142,9 @@ uvicorn sonustemper.server:app --reload --port 8383
 - Error path: intentionally bad preset/voicing to verify terminal `error` event stops the stream and UI doesn’t spin.
 
 ## License
-- Project code: Apache 2.0 (see `LICENSE`).
+- SonusTemper is licensed under the GNU General Public License v3.0 (GPL-3.0).
+- You may use, modify, and redistribute under the terms of the GPL-3.0.
+- SPDX-License-Identifier: GPL-3.0-only
 - FFmpeg is installed from the distro package and remains under its original LGPL/GPL licensing; see `THIRD_PARTY_NOTICES.md` for details.
 
 ## Future Features

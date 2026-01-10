@@ -30,5 +30,5 @@ Docker deployments may use the system ffmpeg inside the container image.
 
 - Mutagen
   - Use: ID3 tag editing
-  - License: GPL-2.0+ (with parts under MIT)
+  - License: GPL-2.0+ (with parts under MIT); compatible with GPL-3.0 distribution
   - Source/Project home: https://mutagen.readthedocs.io/

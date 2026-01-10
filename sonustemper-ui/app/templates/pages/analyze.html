@@ -15,7 +15,7 @@
       {"key": "mastering_runs", "title": "Mastering Runs", "endpoint": "/partials/library_list?view=mastering_runs&context=analyze"},
       {"key": "tagging_mp3", "title": "Tagging MP3 Library", "endpoint": "/partials/library_list?view=tagging_mp3&context=analyze"}
     ] %}
-    {% include "ui/partials/file_browser.html" %}
+    {% include "partials/file_browser.html" %}
   </div>
 {% endblock %}
 {% block content %}
@@ -71,7 +71,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="/static/vendor/wavesurfer.min.js"></script>
+<script src="/ui/static/vendor/wavesurfer.min.js"></script>
 <script>
 (() => {
   const uploadBtn = document.getElementById('analyzeUploadBtn');

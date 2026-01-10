@@ -31,5 +31,5 @@ Thanks for helping improve SonusTemper! A few quick notes to keep changes flowin
 - UI follows the existing theme/components in `sonustemper-ui/app/templates`.
 
 ## Licensing
-- Project code is Apache-2.0 (see `LICENSE`).
+- Project code is GPL-3.0-only (see `LICENSE`).
 - FFmpeg remains under its own LGPL/GPL terms (see `THIRD_PARTY_NOTICES.md`); don’t vendor GPL-only builds unless intended.

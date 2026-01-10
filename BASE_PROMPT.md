@@ -41,7 +41,7 @@ Use this as the starting prompt when opening a new session so the assistant has 
 - `/docs` documentation/how-tos (links to third-party tools).
 
 ## Browser sidebar + library list
-- File browser component lives in `templates/ui/partials/file_browser.html` and `static/js/components/fileBrowser.js`.
+- File browser component lives in `templates/partials/file_browser.html` and `static/js/components/fileBrowser.js`.
 - Unified listing endpoint: `/partials/library_list?view=...` with badge pills + overflow.
 - Views include mastering runs, tagging mp3s, runs with mp3 outputs, combined lists.
 

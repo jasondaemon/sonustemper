@@ -430,7 +430,7 @@ async def library_list(request: Request, view: str, q: str = "", limit: int = 20
         raise HTTPException(status_code=400, detail="invalid_view")
 
     return TEMPLATES.TemplateResponse(
-        "ui/partials/library_list.html",
+        "partials/library_list.html",
         {"request": request, "items": items},
     )
 

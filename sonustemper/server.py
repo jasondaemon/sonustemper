@@ -112,6 +112,7 @@ app.mount("/analysis", StaticFiles(directory=str(ANALYSIS_IN_DIR), html=False), 
 UI_STATIC_DIR = UI_APP_DIR / "static"
 if UI_STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(UI_STATIC_DIR)), name="ui-static")
+    app.mount("/ui/static", StaticFiles(directory=str(UI_STATIC_DIR)), name="ui-static-alias")
 if ui_router:
     app.include_router(ui_router)
 MAIN_LOOP = None
