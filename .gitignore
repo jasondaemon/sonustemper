@@ -13,6 +13,9 @@ __pycache__/
 # OS/editor
 .DS_Store
 .vscode/
+__MACOSX/
+.git/
+**/.git/
 
 # --- Synology / DSM metadata ---
 @eaDir/

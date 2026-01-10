@@ -16,7 +16,7 @@ from collections import deque
 from pathlib import Path
 from datetime import datetime
 import os
-import importlib.util
+import sonustemper.master_pack as mastering_pack
 from urllib.parse import quote
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request, Body, BackgroundTasks
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse, Response, RedirectResponse
@@ -71,7 +71,7 @@ if UI_APP_DIR.exists():
         logger.info("[startup] new UI router loaded")
     except Exception as exc:
         logger.exception("[startup] new UI import failed: %s", exc)
-# Ensure local modules are importable when loading master_pack by path.
+# Ensure local modules are importable for master_pack usage.
 if str(APP_DIR) not in sys.path:
     sys.path.insert(0, str(APP_DIR))
 # Trusted proxy check via shared secret (raw)
@@ -119,28 +119,6 @@ TAGGER = TaggerService(
 PREVIEW_REGISTRY: dict[str, dict] = {}
 PREVIEW_SESSION_INDEX: dict[str, deque] = {}
 PREVIEW_LOCK = threading.Lock()
-MASTER_PACK_MODULE = None
-MASTER_PACK_LOCK = threading.Lock()
-
-def _get_master_pack_module():
-    global MASTER_PACK_MODULE
-    if MASTER_PACK_MODULE is not None:
-        return MASTER_PACK_MODULE
-    if not MASTER_SCRIPT or not Path(MASTER_SCRIPT).exists():
-        return None
-    with MASTER_PACK_LOCK:
-        if MASTER_PACK_MODULE is not None:
-            return MASTER_PACK_MODULE
-        try:
-            spec = importlib.util.spec_from_file_location("master_pack_preview", str(MASTER_SCRIPT))
-            mod = importlib.util.module_from_spec(spec)
-            assert spec and spec.loader
-            spec.loader.exec_module(mod)
-            MASTER_PACK_MODULE = mod
-        except Exception as exc:
-            logger.exception("[preview] failed to load master_pack: %s", exc)
-            MASTER_PACK_MODULE = None
-    return MASTER_PACK_MODULE
 
 def _preview_session_key(request: Request) -> str:
     cookie = request.cookies.get(PREVIEW_SESSION_COOKIE)
@@ -201,11 +179,10 @@ def _preview_update(preview_id: str, status: str, **kwargs) -> None:
             done_event.set()
 
 def _build_preview_filter(voicing: str, strength: int, width: float | None) -> str | None:
-    mod = _get_master_pack_module()
-    if not mod or not hasattr(mod, "_voicing_filters"):
+    if not hasattr(mastering_pack, "_voicing_filters"):
         return None
     try:
-        return mod._voicing_filters(voicing, strength, width, True, False, None, None)
+        return mastering_pack._voicing_filters(voicing, strength, width, True, False, None, None)
     except Exception as exc:
         logger.warning("[preview] voicing filter build failed: %s", exc)
         return None
@@ -242,7 +219,7 @@ def _render_preview(preview_id: str) -> None:
     ]
     try:
         logger.debug("[preview] start id=%s voicing=%s strength=%s", preview_id, voicing, strength)
-        proc = subprocess.run(cmd, capture_output=True, text=True)
+        proc = run_cmd(cmd)
         if proc.returncode != 0:
             err = (proc.stderr or proc.stdout or "").strip()
             raise RuntimeError(err or "ffmpeg_failed")
@@ -276,6 +253,8 @@ OUTLIST_CACHE_TTL = int(os.getenv("OUTLIST_CACHE_TTL", "30"))
 OUTLIST_CACHE: dict = {}
 # Startup debug for security context
 logger.info(f"[startup] API_KEY set? {bool(API_KEY)} API_AUTH_DISABLED={API_AUTH_DISABLED} PROXY_SHARED_SECRET set? {bool(PROXY_SHARED_SECRET)}")
+if not API_AUTH_DISABLED and not API_KEY and not PROXY_SHARED_SECRET:
+    logger.warning("WARNING [auth] No API_KEY or PROXY_SHARED_SECRET set; /api endpoints are unauthenticated on this interface.")
 MAX_CONCURRENT_RUNS = int(os.getenv("MAX_CONCURRENT_RUNS", "2"))
 RUNS_IN_FLIGHT = 0
 
@@ -511,19 +490,22 @@ async def api_key_guard(request: Request, call_next):
     if request.url.path.startswith("/api/"):
         if API_AUTH_DISABLED:
             return await call_next(request)
-        # Allow only when traffic came through trusted proxy marker
-        proxy_mark = request.headers.get("X-SonusTemper-Proxy")
-        if proxy_mark and is_trusted_proxy(proxy_mark):
-            return await call_next(request)
-        if proxy_mark and not is_trusted_proxy(proxy_mark):
-            logger.warning(f"[auth] proxy mark mismatch len={len(proxy_mark)} path={request.url.path} mark={repr(proxy_mark)} expected={repr(PROXY_SHARED_SECRET)}")
-        key = request.headers.get("X-API-Key")
-        if not API_KEY:
-            # No API key set; allow (proxy/basic auth provides guard)
-            return await call_next(request)
-        if key != API_KEY:
+        proxy_mark = request.headers.get("X-SonusTemper-Proxy") or ""
+        key = request.headers.get("X-API-Key") or ""
+        if PROXY_SHARED_SECRET:
+            if proxy_mark and is_trusted_proxy(proxy_mark):
+                return await call_next(request)
+            if proxy_mark and not is_trusted_proxy(proxy_mark):
+                logger.warning(f"[auth] proxy mark mismatch len={len(proxy_mark)} path={request.url.path} mark={repr(proxy_mark)} expected={repr(PROXY_SHARED_SECRET)}")
+            if API_KEY and key == API_KEY:
+                return await call_next(request)
+            return JSONResponse({"detail": "unauthorized"}, status_code=401)
+        if API_KEY:
+            if key == API_KEY:
+                return await call_next(request)
             print(f"[auth] reject: bad api key from {request.client.host if request.client else 'unknown'} path={request.url.path}", file=sys.stderr)
             return JSONResponse({"detail": "unauthorized"}, status_code=401)
+        return await call_next(request)
     return await call_next(request)
 
 app.add_middleware(BaseHTTPMiddleware, dispatch=api_key_guard)

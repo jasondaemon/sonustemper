@@ -1,2 +1,7 @@
 # Keep helper/meta files out of the build context
 BASE_PROMPT.md
+__MACOSX/
+.DS_Store
+**/.DS_Store
+.git/
+**/.git/
