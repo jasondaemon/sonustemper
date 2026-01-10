@@ -604,6 +604,8 @@
     if(mode === 'manual'){
       ovTargetI.disabled = false;
       ovTargetTp.disabled = false;
+      ovTargetI.checked = true;
+      ovTargetTp.checked = true;
     }else{
       const prof = loudProfiles[mode] || loudProfiles.apple;
       targetI.value = prof.lufs;
