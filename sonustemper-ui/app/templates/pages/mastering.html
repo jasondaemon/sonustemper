@@ -128,81 +128,83 @@
 
           <div class="stage-card">
             <div class="stage-title">Output</div>
-            <div class="format-row">
-              <label class="format-label"><input type="checkbox" id="out_wav" checked> WAV</label>
-              <div class="format-options">
-                <select id="wav_bit_depth">
-                  <option value="24">24-bit</option>
-                  <option value="16">16-bit</option>
-                </select>
-                <select id="wav_sample_rate">
-                  <option value="48000">48 kHz</option>
-                  <option value="44100">44.1 kHz</option>
-                </select>
+            <div class="format-box">
+              <div class="format-row">
+                <label class="format-label"><input type="checkbox" id="out_wav" checked> WAV</label>
+                <div class="format-options">
+                  <select id="wav_bit_depth">
+                    <option value="24">24-bit</option>
+                    <option value="16">16-bit</option>
+                  </select>
+                  <select id="wav_sample_rate">
+                    <option value="48000">48 kHz</option>
+                    <option value="44100">44.1 kHz</option>
+                  </select>
+                </div>
               </div>
-            </div>
-            <div class="format-row">
-              <label class="format-label"><input type="checkbox" id="out_mp3" checked> MP3</label>
-              <div class="format-options">
-                <select id="mp3_bitrate">
-                  <option value="320">320 kbps</option>
-                  <option value="256">256 kbps</option>
-                  <option value="192">192 kbps</option>
-                  <option value="128">128 kbps</option>
-                </select>
-                <select id="mp3_vbr">
-                  <option value="none">None (CBR)</option>
-                  <option value="V0">V0</option>
-                  <option value="V2">V2</option>
-                </select>
+              <div class="format-row">
+                <label class="format-label"><input type="checkbox" id="out_mp3" checked> MP3</label>
+                <div class="format-options">
+                  <select id="mp3_bitrate">
+                    <option value="320">320 kbps</option>
+                    <option value="256">256 kbps</option>
+                    <option value="192">192 kbps</option>
+                    <option value="128">128 kbps</option>
+                  </select>
+                  <select id="mp3_vbr">
+                    <option value="none">None (CBR)</option>
+                    <option value="V0">V0</option>
+                    <option value="V2">V2</option>
+                  </select>
+                </div>
               </div>
-            </div>
-            <div class="format-row">
-              <label class="format-label"><input type="checkbox" id="out_aac"> AAC/M4A</label>
-              <div class="format-options">
-                <select id="aac_codec">
-                  <option value="aac">AAC (native)</option>
-                  <option value="aac">AAC (faac)</option>
-                </select>
-                <select id="aac_container">
-                  <option value="m4a">M4A</option>
-                  <option value="aac">AAC</option>
-                </select>
-                <select id="aac_bitrate">
-                  <option value="256">256 kbps</option>
-                  <option value="192">192 kbps</option>
-                  <option value="128">128 kbps</option>
-                </select>
+              <div class="format-row">
+                <label class="format-label"><input type="checkbox" id="out_aac"> AAC/M4A</label>
+                <div class="format-options">
+                  <select id="aac_codec">
+                    <option value="aac">AAC (native)</option>
+                    <option value="aac">AAC (faac)</option>
+                  </select>
+                  <select id="aac_container">
+                    <option value="m4a">M4A</option>
+                    <option value="aac">AAC</option>
+                  </select>
+                  <select id="aac_bitrate">
+                    <option value="256">256 kbps</option>
+                    <option value="192">192 kbps</option>
+                    <option value="128">128 kbps</option>
+                  </select>
+                </div>
               </div>
-            </div>
-            <div class="format-row">
-              <label class="format-label"><input type="checkbox" id="out_ogg"> OGG</label>
-              <div class="format-options">
-                <select id="ogg_quality">
-                  <option value="5">Q5 (~160 kbps)</option>
-                  <option value="4">Q4</option>
-                  <option value="6">Q6</option>
-                </select>
+              <div class="format-row">
+                <label class="format-label"><input type="checkbox" id="out_ogg"> OGG</label>
+                <div class="format-options">
+                  <select id="ogg_quality">
+                    <option value="5">Q5 (~160 kbps)</option>
+                    <option value="4">Q4</option>
+                    <option value="6">Q6</option>
+                  </select>
+                </div>
               </div>
-            </div>
-            <div class="format-row">
-              <label class="format-label"><input type="checkbox" id="out_flac"> FLAC</label>
-              <div class="format-options">
-                <select id="flac_level">
-                  <option value="5">Level 5</option>
-                  <option value="8">Level 8</option>
-                  <option value="1">Level 1</option>
-                </select>
-                <select id="flac_bit_depth">
-                  <option value="">Auto bit depth</option>
-                  <option value="24">24-bit</option>
-                  <option value="16">16-bit</option>
-                </select>
-                <select id="flac_sample_rate">
-                  <option value="">Auto rate</option>
-                  <option value="48000">48 kHz</option>
-                  <option value="44100">44.1 kHz</option>
-                </select>
+              <div class="format-row">
+                <label class="format-label"><input type="checkbox" id="out_flac"> FLAC</label>
+                <div class="format-options">
+                  <select id="flac_level">
+                    <option value="5">Level 5</option>
+                    <option value="8">Level 8</option>
+                    <option value="1">Level 1</option>
+                  </select>
+                  <select id="flac_bit_depth">
+                    <option value="">Auto bit depth</option>
+                    <option value="24">24-bit</option>
+                    <option value="16">16-bit</option>
+                  </select>
+                  <select id="flac_sample_rate">
+                    <option value="">Auto rate</option>
+                    <option value="48000">48 kHz</option>
+                    <option value="44100">44.1 kHz</option>
+                  </select>
+                </div>
               </div>
             </div>
           </div>
