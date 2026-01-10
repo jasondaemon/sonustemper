@@ -23,12 +23,6 @@
             {% endfor %}
           </div>
           {% endif %}
-          <div class="pill-row">
-            {% for d in item.downloads %}
-              <a class="btn ghost small" href="{{ d.url }}" target="_blank">{{ d.label }}</a>
-            {% endfor %}
-            <button class="btn danger small" data-action="delete-output" data-song="{{ song }}" data-stem="{{ item.name }}">Delete</button>
-          </div>
         </div>
         {% if item.primary %}
         <audio controls style="width:100%;">
@@ -37,6 +31,12 @@
         {% endif %}
         <div class="output-toolbar">
           <button class="btn ghost small" data-action="analyze-output" data-song="{{ song }}" data-stem="{{ item.name }}">Analyze</button>
+          <div class="pill-row">
+            {% for d in item.downloads %}
+              <a class="btn ghost small" href="{{ d.url }}" target="_blank">{{ d.label }}</a>
+            {% endfor %}
+            <button class="btn danger small" data-action="delete-output" data-song="{{ song }}" data-stem="{{ item.name }}">Delete</button>
+          </div>
         </div>
         {% if item.metric_pills and item.metric_pills|length %}
         <div class="metric-pills">
