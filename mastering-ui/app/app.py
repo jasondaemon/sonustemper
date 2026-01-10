@@ -2751,6 +2751,16 @@ function appendVoicing(fd){
   }
 }
 let runPollFiles = [];
+let statusRenderPending = false;
+function scheduleStatusRender(){
+  if (statusRenderPending) return;
+  statusRenderPending = true;
+  requestAnimationFrame(()=>{
+    statusRenderPending = false;
+    setResultHTML(renderStatusEntries(statusEntries));
+    updateProgressFromEntries(statusEntries);
+  });
+}
 function stopRunPolling() {
   if (statusStream) {
     statusStream.close();
@@ -2792,17 +2802,21 @@ function startRunPolling(files) {
   // Start SSE stream for status updates
   if (runPollPrimary) {
     statusEntries = [];
+    statusRenderPending = false;
+    let terminalSeen = false;
     let url = `/api/status-stream?song=${encodeURIComponent(runPollPrimary)}`;
     statusStream = new EventSource(url);
     statusStream.onmessage = (ev) => {
       try {
         const entry = JSON.parse(ev.data);
         statusEntries.push(entry);
-        const html = renderStatusEntries(statusEntries);
-        setResultHTML(html);
-        updateProgressFromEntries(statusEntries);
-        if (entry.stage === 'complete') {
-          // On complete, load outputs once and refresh recent, then stop stream
+        scheduleStatusRender();
+        if (entry.stage === 'complete' || entry.stage === 'error') {
+          terminalSeen = true;
+          if (statusStream) {
+            try { statusStream.close(); } catch(_) {}
+            statusStream = null;
+          }
           (async () => {
             setStatus("Loading outputs...");
             try {
@@ -2818,15 +2832,14 @@ function startRunPolling(files) {
       }
     };
     statusStream.onerror = async () => {
+      if (!runPollActive || !runPollPrimary || (typeof terminalSeen !== 'undefined' && terminalSeen)) return;
       // On error, try a snapshot once to repaint, then stop the stream
       try {
         if (runPollPrimary) {
           const snap = await fetch(`/api/run/${encodeURIComponent(runPollPrimary)}`, { cache:'no-store' }).then(r=>r.ok?r.json():null);
           if (snap && Array.isArray(snap.events)) {
             statusEntries = snap.events;
-            const html = renderStatusEntries(statusEntries);
-            setResultHTML(html);
-            updateProgressFromEntries(statusEntries);
+            scheduleStatusRender();
             if (snap.terminal) {
               await Promise.allSettled([
                 refreshRecent(true),
