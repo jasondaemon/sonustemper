@@ -1,10 +1,115 @@
 {% extends "base.html" %}
-{% block page_title %}Presets | SonusTemper{% endblock %}
-{% block title %}Presets{% endblock %}
-{% block subtitle %}Manage user and generated presets (new UI coming soon).{% endblock %}
-{% block content %}
-  <div class="card">
-    <div class="card-title">Presets</div>
-    <div class="muted">Preset management will be available here.</div>
+{% block page_title %}Voicing Profiles | SonusTemper{% endblock %}
+{% block title %}Voicing Profiles{% endblock %}
+{% block subtitle %}Create, upload, and manage voicings + delivery profiles.{% endblock %}
+
+{% block sidebar %}
+  <div class="card preset-sidebar">
+    <div class="card-head">
+      <div>
+        <div class="card-title">Library</div>
+        <div class="muted">User and generated profiles.</div>
+      </div>
+    </div>
+    <div class="preset-browser">
+      {% set browser_id = "presetBrowser" %}
+      {% set sections = [
+        {"key": "user", "title": "User Profiles", "endpoint": "/ui/partials/library_list?view=presets_user&context=presets", "autoselect": "first"},
+        {"key": "generated", "title": "Generated Profiles", "endpoint": "/ui/partials/library_list?view=presets_generated&context=presets"}
+      ] %}
+      {% include "ui/partials/file_browser.html" %}
+    </div>
+    <div class="muted" id="presetSelectedHint">Select a profile to view details.</div>
   </div>
+{% endblock %}
+
+{% block content %}
+  <div id="presetPage" class="preset-grid">
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">Create From Reference Audio</div>
+          <div class="muted">Analyze an existing song to seed a voicing or delivery profile.</div>
+        </div>
+      </div>
+      <form id="presetGenerateForm" class="preset-form">
+        <div class="preset-field">
+          <label for="referenceFile">Audio file</label>
+          <input type="file" id="referenceFile" accept=".wav,.mp3,.flac,.aiff,.aif" required>
+        </div>
+        <div class="preset-field">
+          <label for="referenceType">Create as</label>
+          <select id="referenceType">
+            <option value="voicing">Voicing</option>
+            <option value="profile">Delivery Profile</option>
+          </select>
+        </div>
+        <div class="preset-field">
+          <label for="referenceName">Output name (optional)</label>
+          <input type="text" id="referenceName" placeholder="e.g. Airlift Stream">
+        </div>
+        <div class="preset-actions">
+          <button class="btn btn-primary" type="submit">Analyze & Create</button>
+          <span class="muted" id="referenceStatus"></span>
+        </div>
+      </form>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">Upload Profile JSON</div>
+          <div class="muted">Upload a JSON voicing/profile you edited or created elsewhere.</div>
+        </div>
+      </div>
+      <div class="preset-form">
+        <div class="preset-field">
+          <label for="presetJsonFile">Profile JSON</label>
+          <input type="file" id="presetJsonFile" accept=".json">
+        </div>
+        <div class="preset-field">
+          <label for="presetJsonType">Type</label>
+          <select id="presetJsonType">
+            <option value="voicing">Voicing</option>
+            <option value="profile">Delivery Profile</option>
+          </select>
+        </div>
+        <div class="preset-field">
+          <label for="presetJsonName">Name override (optional)</label>
+          <input type="text" id="presetJsonName" placeholder="e.g. Broadcast -12 LUFS">
+        </div>
+        <div class="preset-actions">
+          <button class="btn small ghost" type="button" id="uploadPresetJsonBtn">Upload JSON</button>
+          <span class="muted" id="uploadPresetJsonStatus"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card preset-detail-card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">Selected Profile</div>
+          <div class="muted" id="presetDetailSubtitle">Choose a profile from the library.</div>
+        </div>
+        <div class="preset-detail-actions">
+          <button class="btn small ghost" type="button" id="presetDownloadBtn" disabled>Download</button>
+          <button class="btn small ghost" type="button" id="presetDuplicateBtn" disabled>Duplicate</button>
+          <button class="btn danger small" type="button" id="presetDeleteBtn" disabled>Delete</button>
+        </div>
+      </div>
+      <div class="preset-detail-body">
+        <div class="preset-detail-title" id="presetDetailTitle">No profile selected</div>
+        <div class="preset-detail-meta" id="presetDetailMeta">
+          <div><span class="muted">Source:</span> -</div>
+          <div><span class="muted">Created:</span> -</div>
+          <div><span class="muted">Type:</span> -</div>
+        </div>
+        <div class="muted" id="presetDetailHint">Duplicate to copy, download to edit, then upload the updated JSON.</div>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block extra_js %}
+  <script defer src="/ui/static/js/presets.js"></script>
 {% endblock %}

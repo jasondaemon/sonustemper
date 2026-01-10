@@ -382,6 +382,12 @@ async def library_list(request: Request, view: str, q: str = "", limit: int = 20
         items = _list_mastering_runs(True, q, limit, context)
     elif view == "tagging_mp3":
         items = _list_tagging_mp3(q, limit, context, scope)
+    elif view == "presets_user":
+        items = _list_presets("user", q, limit, context)
+    elif view == "presets_generated":
+        items = _list_presets("generated", q, limit, context)
+    elif view == "presets_all":
+        items = _list_presets("all", q, limit, context)
     elif view == "analysis_combo":
         runs = _list_mastering_runs(False, q, limit, context)
         mp3s = _list_tagging_mp3(q, limit, context, "all")
@@ -683,6 +689,78 @@ def _pick_representation_file(run_dir: Path) -> Path | None:
         if matches:
             return sorted(matches, key=lambda p: p.stat().st_mtime, reverse=True)[0]
     return sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True)[0]
+
+
+def _preset_meta_from_file(fp: Path) -> dict:
+    try:
+        data = json.loads(fp.read_text(encoding="utf-8"))
+        meta = data.get("meta", {}) if isinstance(data, dict) else {}
+        title = meta.get("title") or data.get("name") or fp.stem
+        kind = meta.get("kind")
+        return {
+            "title": title,
+            "source_file": meta.get("source_file"),
+            "created_at": meta.get("created_at"),
+            "kind": kind,
+        }
+    except Exception:
+        return {"title": fp.stem}
+
+
+def _list_presets(kind: str, q: str, limit: int, context: str = "") -> list[dict]:
+    kind = (kind or "user").lower()
+    roots = []
+    if kind in {"user", "all"}:
+        roots.append(("user", PRESET_DIR))
+    if kind in {"generated", "gen", "all"}:
+        roots.append(("generated", GEN_PRESET_DIR))
+    items = []
+    for label, root in roots:
+        if not root.exists():
+            continue
+        for fp in sorted(root.glob("*.json"), key=lambda p: p.name.lower()):
+            if not fp.is_file():
+                continue
+            meta = _preset_meta_from_file(fp)
+            title = (meta.get("title") or fp.stem).replace("_", " ").strip() or fp.stem
+            subtitle = "User Profile" if label == "user" else "Generated Profile"
+            badges = [
+                {
+                    "key": "format",
+                    "label": "User" if label == "user" else "Generated",
+                    "title": subtitle,
+                }
+            ]
+            if meta.get("kind"):
+                badges.append({
+                    "key": "profile",
+                    "label": f"Type: {meta['kind']}",
+                    "title": f"Profile type: {meta['kind']}",
+                })
+            items.append(
+                {
+                    "id": fp.stem,
+                    "title": title,
+                    "subtitle": subtitle,
+                    "kind": "preset",
+                    "badges": badges,
+                    "action": None,
+                    "clickable": context == "presets",
+                    "meta": {
+                        "name": fp.stem,
+                        "filename": fp.name,
+                        "title": meta.get("title") or fp.stem,
+                        "source_file": meta.get("source_file"),
+                        "created_at": meta.get("created_at"),
+                        "kind": meta.get("kind"),
+                        "origin": label,
+                    },
+                }
+            )
+    if q:
+        ql = q.lower()
+        items = [i for i in items if ql in i["title"].lower()]
+    return items[:limit]
 
 
 def _run_outputs(song: str) -> list[dict]:
