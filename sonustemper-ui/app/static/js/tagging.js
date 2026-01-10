@@ -131,7 +131,7 @@
       actions.className = 'tag-actions';
       const rem = document.createElement('button');
       rem.className = 'btn small ghost';
-      rem.textContent = 'Remove';
+      rem.textContent = 'X';
       rem.addEventListener('click', (e)=>{
         e.stopPropagation();
         removeFromWorking(it.id);
