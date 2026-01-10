@@ -5,6 +5,7 @@
     <div class="run-list">
       {% for r in runs %}
         <button class="btn ghost run-item"
+                data-song="{{ r.name }}"
                 hx-get="/ui/partials/master_output?song={{ r.name }}"
                 hx-target="#outputPane"
                 hx-swap="outerHTML"

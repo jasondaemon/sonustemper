@@ -102,11 +102,47 @@
 <script>
 (function(){
   const indicator = document.getElementById('jobIndicator');
+  const statusList = document.getElementById('statusList');
+  let currentRun = null;
+  let statusTimer = null;
+
   function setBusy(on){
     if(!indicator) return;
     indicator.style.display = on ? 'inline-block' : 'none';
   }
   setBusy(false);
+
+  async function updateStatus(){
+    if(!currentRun){
+      if(statusList) statusList.textContent = '(waiting)';
+      return;
+    }
+    try{
+      const res = await fetch(`/api/status?song=${encodeURIComponent(currentRun)}`, {cache:'no-store'});
+      if(!res.ok){
+        if(statusList) statusList.textContent = 'No status';
+        return;
+      }
+      const data = await res.json();
+      const entries = data.entries || data || [];
+      const lines = (entries || []).map(e=>`${e.ts ? new Date(e.ts*1000).toLocaleTimeString() : ''} ${e.stage||''} ${e.detail||''}`.trim());
+      if(statusList) statusList.textContent = lines.length ? lines.join('\\n') : 'No status';
+    }catch(err){
+      if(statusList) statusList.textContent = 'Status unavailable';
+    }
+  }
+
+  function setCurrentRun(song){
+    currentRun = song || null;
+    updateStatus();
+  }
+
+  function startStatusPolling(){
+    if(statusTimer) clearInterval(statusTimer);
+    statusTimer = setInterval(updateStatus, 8000);
+  }
+  startStatusPolling();
+
   async function loadFiles(){
     try{
       const res = await fetch('/api/files',{cache:'no-store'});
@@ -130,8 +166,6 @@
     }
   }
   loadFiles();
-  // initial prev list without selecting output to avoid duplicate fetch on auto-load
-  refreshPrevRuns(false);
 
   async function refreshPrevRuns(selectLatest){
     try{
@@ -149,6 +183,8 @@
       showToast('Failed to refresh runs');
     }
   }
+  // initial prev list and auto-select latest output
+  refreshPrevRuns(true);
 
   const form = document.getElementById('masterForm');
   form.addEventListener('submit', async (e)=>{
@@ -165,11 +201,20 @@
       }else{
         showToast('Job started');
         refreshPrevRuns(true);
+        startStatusPolling();
       }
     }catch(err){
       showToast('Network error');
     }finally{
       setBusy(false);
+    }
+  });
+
+  // track run selection clicks to update status polling target
+  document.addEventListener('click', function(evt){
+    const btn = evt.target.closest && evt.target.closest('.run-item');
+    if(btn && btn.dataset && btn.dataset.song){
+      setCurrentRun(btn.dataset.song);
     }
   });
 })();
