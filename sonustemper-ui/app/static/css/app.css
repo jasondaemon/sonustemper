@@ -104,17 +104,18 @@ h1{margin:0;font-size:24px;}
 .control-subtitle{margin:8px 0 4px;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.4px;}
 .override-row{
   display:grid;
-  grid-template-columns:minmax(160px, 1.1fr) minmax(140px, 1fr) 80px;
+  grid-template-columns:minmax(140px, 1.1fr) minmax(130px, 1fr) 64px;
   align-items:center;
-  gap:10px;
-  margin-top:8px;
+  gap:8px;
+  margin-top:6px;
+  font-size:12px;
 }
 .override-row input[type="range"]{
   width:100%;
-  max-width:240px;
+  max-width:200px;
 }
 .override-row input[type="number"]{
-  width:80px;
+  width:64px;
   text-align:right;
 }
 .stage-card select,
