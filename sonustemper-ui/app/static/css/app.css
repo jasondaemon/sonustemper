@@ -64,7 +64,12 @@ h1{margin:0;font-size:24px;}
 .master-left,.master-right{display:flex;flex-direction:column;gap:16px;min-width:0;}
 .stage-card{border:1px solid var(--line);border-radius:16px;padding:16px;background:var(--card);}
 .stage-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;}
-.stage-title{font-weight:700;font-size:14px;letter-spacing:0.2px;}
+.stage-title{font-weight:700;font-size:14px;letter-spacing:0.2px;display:block;}
+.stage-card > .stage-title + .control-row,
+.stage-card > .stage-title + .format-box,
+.stage-card > .stage-title + .control-subtitle{
+  margin-top:8px;
+}
 .stage-actions{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;}
 .stage-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;}
 .input-list{
