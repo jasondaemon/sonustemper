@@ -102,9 +102,21 @@ h1{margin:0;font-size:24px;}
 .control-row input[type="range"]{flex:1;min-width:200px;}
 .value-pill{min-width:80px;text-align:right;color:var(--muted);font-size:12px;}
 .control-subtitle{margin:8px 0 4px;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.4px;}
-.override-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;}
-.override-row input[type="range"]{flex:1;min-width:200px;}
-.override-row input[type="number"]{min-width:120px;}
+.override-row{
+  display:grid;
+  grid-template-columns:minmax(160px, 1.1fr) minmax(140px, 1fr) 80px;
+  align-items:center;
+  gap:10px;
+  margin-top:8px;
+}
+.override-row input[type="range"]{
+  width:100%;
+  max-width:240px;
+}
+.override-row input[type="number"]{
+  width:80px;
+  text-align:right;
+}
 .stage-card select,
 .format-row select{
   border-radius:999px;
@@ -337,6 +349,16 @@ h1{margin:0;font-size:24px;}
     min-width:100%;
   }
   .value-pill{min-width:0;text-align:left;}
+  .override-row{
+    grid-template-columns:1fr;
+  }
+  .override-row input[type="range"]{
+    max-width:none;
+  }
+  .override-row input[type="number"]{
+    width:100%;
+    text-align:left;
+  }
   .run-summary{position:static;flex-direction:column;align-items:flex-start;}
   .run-summary-text{white-space:normal;}
 }
