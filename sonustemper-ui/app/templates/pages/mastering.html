@@ -223,6 +223,8 @@
 (function(){
   const indicator = document.getElementById('jobIndicator');
   const statusList = document.getElementById('statusList');
+  const outputPaneWrap = document.getElementById('outputPaneWrap');
+
   let currentRun = null;
   let statusSource = null;
   let statusLines = [];
@@ -231,7 +233,7 @@
   function esc(str){
     if(!str) return '';
     if(window.CSS && CSS.escape) return CSS.escape(str);
-    return String(str).replace(/[^a-zA-Z0-9_-]/g, '\\$&');
+    return String(str).replace(/[^a-zA-Z0-9_-]/g, '\$&');
   }
 
   function setBusy(on){
@@ -246,19 +248,19 @@
     requestAnimationFrame(()=>{
       statusRenderPending = false;
       if(!statusList) return;
-      statusList.textContent = statusLines.length ? statusLines.join('\\n') : '(waiting)';
+      statusList.textContent = statusLines.length ? statusLines.join('\n') : '(waiting)';
     });
   }
 
-function setCurrentRun(song){
-  const next = song || null;
-  // Avoid restarting the stream (and clearing the log) if the same run is selected again.
-  if(next === currentRun && statusSource){
-    return;
+  function setCurrentRun(song){
+    const next = song || null;
+    // Avoid restarting the stream (and clearing the log) if the same run is selected again.
+    if(next === currentRun && statusSource){
+      return;
+    }
+    currentRun = next;
+    startStatusStream();
   }
-  currentRun = next;
-  startStatusStream();
-}
 
   function closeStatusStream(){
     if(statusSource){
@@ -297,7 +299,8 @@ function setCurrentRun(song){
       scheduleStatusRender();
       if(data.stage === 'complete' || data.stage === 'error'){
         closeStatusStream();
-        refreshPrevRuns(false, currentRun, true);
+        // Refresh sidebar list ONLY (do not auto-click a run, or you'll restart SSE forever)
+        refreshPrevRuns(false);
       }
     };
     es.onerror = ()=>{
@@ -346,7 +349,29 @@ function setCurrentRun(song){
   }
   loadFiles();
 
-  async function refreshPrevRuns(selectLatest, preferSong, loadOutputOnly){
+  async function loadOutput(song){
+    if(!song || !outputPaneWrap) return;
+    try{
+      const res = await fetch(`/ui/partials/master_output?song=${encodeURIComponent(song)}`, {cache:'no-store'});
+      if(!res.ok){
+        outputPaneWrap.innerHTML = `
+          <div class="card" id="outputPane" style="background:transparent;border:none;padding:0;">
+            <div class="card-head">
+              <div>
+                <div class="card-title">Job Output</div>
+                <div class="muted">No output found for <strong>${song}</strong>.</div>
+              </div>
+            </div>
+          </div>`;
+        return;
+      }
+      outputPaneWrap.innerHTML = await res.text();
+    }catch(err){
+      showToast('Failed to load output');
+    }
+  }
+
+  async function refreshPrevRuns(selectLatest, preferSong){
     try{
       const res = await fetch('/ui/partials/master_prev',{cache:'no-store'});
       const html = await res.text();
@@ -359,12 +384,14 @@ function setCurrentRun(song){
         }else if(selectLatest){
           const firstBtn = wrap.querySelector('.run-item');
           if(firstBtn){ firstBtn.click(); }
+        }
       }
     }catch(err){
       showToast('Failed to refresh runs');
     }
   }
-  // initial prev list and auto-select latest output
+
+  // initial prev list and no auto-select
   refreshPrevRuns(false);
 
   const form = document.getElementById('masterForm');
@@ -375,6 +402,7 @@ function setCurrentRun(song){
     spotify: { lufs: -14.0, tp: -1.0 },
     loud: { lufs: -11.0, tp: -1.0 },
   };
+
   function applyLoudnessMode(){
     const mode = document.getElementById('loudnessMode').value;
     const ovI = document.getElementById('ov_target_I');
@@ -427,6 +455,7 @@ function setCurrentRun(song){
   form.addEventListener('submit', async (e)=>{
     e.preventDefault();
     setBusy(true);
+
     const fd = new FormData();
     const infile = document.getElementById('infileSelect').value;
     fd.append('infiles', infile);
@@ -481,6 +510,7 @@ function setCurrentRun(song){
     fd.append('flac_level', val('flac_level'));
     fd.append('flac_bit_depth', val('flac_bit_depth'));
     fd.append('flac_sample_rate', val('flac_sample_rate'));
+
     try{
       const res = await fetch('/api/run',{method:'POST', body: fd});
       if(!res.ok){
@@ -488,21 +518,23 @@ function setCurrentRun(song){
         showToast('Run failed: '+ (err.detail || res.status));
       }else{
         showToast('Job started');
-        showToast('Job started');
-// IMPORTANT: backend run_id is folder name (usually infile without extension).
-// Prefer explicit run_ids from the API, then fall back to stripping extension.
+
+        // IMPORTANT: backend run_id is folder name (usually infile without extension).
+        // Prefer explicit run_ids from the API, then fall back to stripping extension.
         let runId = null;
-          try{
-            const j = await res.json();
-            if(j && Array.isArray(j.run_ids) && j.run_ids.length){
-              runId = j.run_ids[0];
-            }
-          }catch(_){ /* ignore */ }
-          if(!runId){
-            runId = (infile || '').replace(/\.[^.]+$/, '') || infile;
+        try{
+          const j = await res.json();
+          if(j && Array.isArray(j.run_ids) && j.run_ids.length){
+            runId = j.run_ids[0];
           }
-          setCurrentRun(runId);
-          refreshPrevRuns(true, runId);
+        }catch(_){ /* ignore */ }
+        if(!runId){
+          runId = (infile || '').replace(/\.[^.]+$/, '') || infile;
+        }
+
+        setCurrentRun(runId);
+        loadOutput(runId);
+        refreshPrevRuns(true, runId);
       }
     }catch(err){
       showToast('Network error');
@@ -511,13 +543,16 @@ function setCurrentRun(song){
     }
   });
 
-  // track run selection clicks to update status polling target
+  // track run selection clicks to update status polling target + output pane
   document.addEventListener('click', function(evt){
     const btn = evt.target.closest && evt.target.closest('.run-item');
     if(btn && btn.dataset && btn.dataset.song){
-      setCurrentRun(btn.dataset.song);
+      const song = btn.dataset.song;
+      setCurrentRun(song);
+      loadOutput(song);
     }
   });
+
   window.addEventListener('beforeunload', closeStatusStream);
 })();
 </script>
