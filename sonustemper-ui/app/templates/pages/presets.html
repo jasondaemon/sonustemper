@@ -14,7 +14,9 @@
     <div class="preset-browser">
       {% set browser_id = "presetBrowser" %}
       {% set sections = [
-        {"key": "user", "title": "User Profiles", "endpoint": "/ui/partials/library_list?view=presets_user&context=presets", "autoselect": "first"},
+        {"key": "voicings", "title": "Voicings", "endpoint": "/ui/partials/library_list?view=voicings&context=presets"},
+        {"key": "user_voicings", "title": "User Voicings", "endpoint": "/ui/partials/library_list?view=presets_user_voicings&context=presets"},
+        {"key": "user_profiles", "title": "User Profiles", "endpoint": "/ui/partials/library_list?view=presets_user_profiles&context=presets", "autoselect": "first"},
         {"key": "generated", "title": "Generated Profiles", "endpoint": "/ui/partials/library_list?view=presets_generated&context=presets"}
       ] %}
       {% include "ui/partials/file_browser.html" %}
@@ -38,13 +40,6 @@
           <input type="file" id="referenceFile" accept=".wav,.mp3,.flac,.aiff,.aif" required>
         </div>
         <div class="preset-field">
-          <label for="referenceType">Create as</label>
-          <select id="referenceType">
-            <option value="voicing">Voicing</option>
-            <option value="profile">Delivery Profile</option>
-          </select>
-        </div>
-        <div class="preset-field">
           <label for="referenceName">Output name (optional)</label>
           <input type="text" id="referenceName" placeholder="e.g. Airlift Stream">
         </div>
@@ -66,13 +61,6 @@
         <div class="preset-field">
           <label for="presetJsonFile">Profile JSON</label>
           <input type="file" id="presetJsonFile" accept=".json">
-        </div>
-        <div class="preset-field">
-          <label for="presetJsonType">Type</label>
-          <select id="presetJsonType">
-            <option value="voicing">Voicing</option>
-            <option value="profile">Delivery Profile</option>
-          </select>
         </div>
         <div class="preset-field">
           <label for="presetJsonName">Name override (optional)</label>

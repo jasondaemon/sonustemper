@@ -51,6 +51,16 @@ VOICING_TITLE_MAP = {
     "rock": "Voicing: Rock",
     "acoustic": "Voicing: Acoustic",
 }
+VOICING_ORDER = [
+    "universal",
+    "airlift",
+    "ember",
+    "detail",
+    "glue",
+    "wide",
+    "cinematic",
+    "punch",
+]
 PREVIEW_SESSION_COOKIE = "st_preview_session"
 
 router = APIRouter()
@@ -384,10 +394,16 @@ async def library_list(request: Request, view: str, q: str = "", limit: int = 20
         items = _list_tagging_mp3(q, limit, context, scope)
     elif view == "presets_user":
         items = _list_presets("user", q, limit, context)
+    elif view == "presets_user_profiles":
+        items = _list_presets("user", q, limit, context, "profile")
+    elif view == "presets_user_voicings":
+        items = _list_presets("user", q, limit, context, "voicing")
     elif view == "presets_generated":
-        items = _list_presets("generated", q, limit, context)
+        items = _list_presets("generated", q, limit, context, "profile")
     elif view == "presets_all":
         items = _list_presets("all", q, limit, context)
+    elif view == "voicings":
+        items = _list_voicings(q, limit, context)
     elif view == "analysis_combo":
         runs = _list_mastering_runs(False, q, limit, context)
         mp3s = _list_tagging_mp3(q, limit, context, "all")
@@ -707,7 +723,7 @@ def _preset_meta_from_file(fp: Path) -> dict:
         return {"title": fp.stem}
 
 
-def _list_presets(kind: str, q: str, limit: int, context: str = "") -> list[dict]:
+def _list_presets(kind: str, q: str, limit: int, context: str = "", meta_kind: str | None = None) -> list[dict]:
     kind = (kind or "user").lower()
     roots = []
     if kind in {"user", "all"}:
@@ -722,6 +738,9 @@ def _list_presets(kind: str, q: str, limit: int, context: str = "") -> list[dict
             if not fp.is_file():
                 continue
             meta = _preset_meta_from_file(fp)
+            effective_kind = (meta.get("kind") or "profile").lower()
+            if meta_kind and effective_kind != meta_kind:
+                continue
             title = (meta.get("title") or fp.stem).replace("_", " ").strip() or fp.stem
             subtitle = "User Profile" if label == "user" else "Generated Profile"
             badges = [
@@ -731,11 +750,11 @@ def _list_presets(kind: str, q: str, limit: int, context: str = "") -> list[dict
                     "title": subtitle,
                 }
             ]
-            if meta.get("kind"):
+            if effective_kind:
                 badges.append({
                     "key": "profile",
-                    "label": f"Type: {meta['kind']}",
-                    "title": f"Profile type: {meta['kind']}",
+                    "label": f"Type: {effective_kind}",
+                    "title": f"Profile type: {effective_kind}",
                 })
             items.append(
                 {
@@ -752,11 +771,48 @@ def _list_presets(kind: str, q: str, limit: int, context: str = "") -> list[dict
                         "title": meta.get("title") or fp.stem,
                         "source_file": meta.get("source_file"),
                         "created_at": meta.get("created_at"),
-                        "kind": meta.get("kind"),
+                        "kind": effective_kind,
                         "origin": label,
                     },
                 }
             )
+    if q:
+        ql = q.lower()
+        items = [i for i in items if ql in i["title"].lower()]
+    return items[:limit]
+
+
+def _list_voicings(q: str, limit: int, context: str = "") -> list[dict]:
+    items = []
+    ordered = [key for key in VOICING_ORDER if key in VOICING_TITLE_MAP]
+    for key in sorted(VOICING_TITLE_MAP.keys()):
+        if key not in ordered:
+            ordered.append(key)
+    for slug in ordered:
+        title = VOICING_TITLE_MAP.get(slug, f"Voicing: {slug.title()}")
+        display = title.replace("Voicing: ", "").strip()
+        items.append(
+            {
+                "id": slug,
+                "title": display,
+                "subtitle": "Built-in Voicing",
+                "kind": "voicing",
+                "badges": [
+                    {
+                        "key": "voicing",
+                        "label": f"V: {display}",
+                        "title": f"Built-in voicing: {display}",
+                    }
+                ],
+                "action": None,
+                "clickable": context == "presets",
+                "meta": {
+                    "slug": slug,
+                    "title": display,
+                    "kind": "voicing",
+                },
+            }
+        )
     if q:
         ql = q.lower()
         items = [i for i in items if ql in i["title"].lower()]

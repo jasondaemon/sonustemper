@@ -5425,11 +5425,14 @@ def preset_download(name: str):
 @app.delete("/api/preset/{name}")
 def preset_delete(name: str):
     target = None
-    for fp in _preset_paths():
+    # Only allow deleting user presets (PRESET_DIR)
+    for fp in PRESET_DIR.glob("*.json"):
         if fp.stem == name:
             target = fp
             break
     if not target:
+        if any(fp.stem == name for fp in GEN_PRESET_DIR.glob("*.json")):
+            raise HTTPException(status_code=403, detail="preset_forbidden")
         raise HTTPException(status_code=404, detail="preset_not_found")
     target.unlink()
     return {"message": f"Deleted preset {name}"}
@@ -5448,6 +5451,15 @@ async def preset_upload(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="invalid_json")
     if not isinstance(data, dict):
         raise HTTPException(status_code=400, detail="invalid_preset")
+    meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
+    if "kind" not in meta:
+        kind = "profile"
+        if any(k in data for k in ("lufs", "tp", "limiter", "compressor", "loudness", "target_lufs", "target_tp")):
+            kind = "profile"
+        elif any(k in data for k in ("eq", "width", "stereo")):
+            kind = "voicing"
+        meta["kind"] = kind
+        data["meta"] = meta
     # Minimal sanity check
     name = data.get("name") or Path(file.filename).stem
     if not isinstance(name, str) or not name.strip():
@@ -5505,6 +5517,7 @@ async def preset_generate(file: UploadFile = File(...)):
             "meta": {
                 "source_file": file.filename,
                 "created_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
+                "kind": "profile",
             }
         }
         dest.write_text(json.dumps(preset, indent=2), encoding="utf-8")

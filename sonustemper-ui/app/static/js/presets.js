@@ -4,12 +4,10 @@
 
   const referenceForm = document.getElementById('presetGenerateForm');
   const referenceFile = document.getElementById('referenceFile');
-  const referenceType = document.getElementById('referenceType');
   const referenceName = document.getElementById('referenceName');
   const referenceStatus = document.getElementById('referenceStatus');
 
   const presetJsonFile = document.getElementById('presetJsonFile');
-  const presetJsonType = document.getElementById('presetJsonType');
   const presetJsonName = document.getElementById('presetJsonName');
   const uploadPresetJsonBtn = document.getElementById('uploadPresetJsonBtn');
   const uploadPresetJsonStatus = document.getElementById('uploadPresetJsonStatus');
@@ -23,6 +21,7 @@
   const deleteBtn = document.getElementById('presetDeleteBtn');
 
   let selectedPreset = null;
+  let selectedVoicing = null;
 
   function setStatus(el, msg){
     if(el) el.textContent = msg || '';
@@ -41,7 +40,7 @@
 
   function updateDetail(){
     if(!detailTitle || !detailMeta) return;
-    if(!selectedPreset){
+    if(!selectedPreset && !selectedVoicing){
       detailTitle.textContent = 'No profile selected';
       detailSubtitle.textContent = 'Choose a profile from the library.';
       detailMeta.innerHTML = '<div><span class="muted">Source:</span> -</div>' +
@@ -51,6 +50,18 @@
       if(duplicateBtn) duplicateBtn.disabled = true;
       if(deleteBtn) deleteBtn.disabled = true;
       if(selectedHint) selectedHint.textContent = 'Select a profile to view details.';
+      return;
+    }
+    if (selectedVoicing) {
+      detailTitle.textContent = selectedVoicing.title || 'Voicing';
+      detailSubtitle.textContent = 'Built-in Voicing';
+      detailMeta.innerHTML = '<div><span class="muted">Source:</span> Built-in</div>' +
+        '<div><span class="muted">Created:</span> -</div>' +
+        '<div><span class="muted">Type:</span> Voicing</div>';
+      if(downloadBtn) downloadBtn.disabled = true;
+      if(duplicateBtn) duplicateBtn.disabled = true;
+      if(deleteBtn) deleteBtn.disabled = true;
+      if(selectedHint) selectedHint.textContent = `Selected: ${selectedVoicing.title || 'Voicing'}`;
       return;
     }
     detailTitle.textContent = selectedPreset.title || selectedPreset.name || 'Profile';
@@ -63,21 +74,38 @@
     detailMeta.innerHTML = `<div><span class="muted">Source:</span> ${source}</div>` +
       `<div><span class="muted">Created:</span> ${created}</div>` +
       `<div><span class="muted">Type:</span> ${kind}</div>`;
+    const isGenerated = selectedPreset.origin === 'generated';
     if(downloadBtn) downloadBtn.disabled = false;
     if(duplicateBtn) duplicateBtn.disabled = false;
-    if(deleteBtn) deleteBtn.disabled = false;
+    if(deleteBtn) deleteBtn.disabled = isGenerated;
     if(selectedHint) selectedHint.textContent = `Selected: ${selectedPreset.title || selectedPreset.name}`;
+  }
+
+  function syncActiveStates(){
+    const browser = document.getElementById('presetBrowser');
+    if(!browser) return;
+    browser.querySelectorAll('.browser-item').forEach(btn => {
+      const kind = btn.dataset.kind;
+      if (kind === 'preset') {
+        btn.classList.toggle('active', selectedPreset && btn.dataset.id === selectedPreset.name);
+      } else if (kind === 'voicing') {
+        btn.classList.toggle('active', selectedVoicing && btn.dataset.id === selectedVoicing.slug);
+      }
+    });
   }
 
   function setSelectedPreset(preset){
     selectedPreset = preset;
+    selectedVoicing = null;
     updateDetail();
-    const browser = document.getElementById('presetBrowser');
-    if(browser){
-      browser.querySelectorAll('.browser-item[data-kind="preset"]').forEach(btn => {
-        btn.classList.toggle('active', preset && btn.dataset.id === preset.name);
-      });
-    }
+    syncActiveStates();
+  }
+
+  function setSelectedVoicing(voicing){
+    selectedVoicing = voicing;
+    selectedPreset = null;
+    updateDetail();
+    syncActiveStates();
   }
 
   function parsePresetFromButton(btn){
@@ -100,6 +128,20 @@
     };
   }
 
+  function parseVoicingFromButton(btn){
+    if(!btn) return null;
+    let meta = {};
+    if(btn.dataset.meta){
+      try{ meta = JSON.parse(btn.dataset.meta); }catch(_err){ meta = {}; }
+    }
+    const titleEl = btn.querySelector('.browser-item-title');
+    const title = titleEl ? titleEl.textContent.trim() : (meta.title || btn.dataset.id);
+    return {
+      slug: meta.slug || btn.dataset.id,
+      title,
+    };
+  }
+
   function slugifyName(name){
     return (name || '').trim();
   }
@@ -111,10 +153,9 @@
       setStatus(referenceStatus, 'Select an audio file.');
       return;
     }
-    const type = referenceType?.value || 'voicing';
     const override = slugifyName(referenceName?.value || '');
     const ext = file.name.includes('.') ? file.name.slice(file.name.lastIndexOf('.')) : '';
-    const base = override || file.name.replace(ext, '') + '-' + type;
+    const base = override || file.name.replace(ext, '');
     const filename = `${base}${ext}`;
     const sendFile = new File([file], filename, { type: file.type });
     const fd = new FormData();
@@ -150,10 +191,10 @@
       setStatus(uploadPresetJsonStatus, 'Invalid JSON.');
       return;
     }
-    const type = presetJsonType?.value || 'voicing';
     const override = slugifyName(presetJsonName?.value || '');
     data.meta = data.meta || {};
-    data.meta.kind = type;
+    const detectedKind = detectPresetKind(data);
+    data.meta.kind = detectedKind;
     const baseName = override || data.name || file.name.replace(/\.json$/i, '') || 'profile';
     data.name = baseName;
     if(!data.meta.title){
@@ -172,7 +213,7 @@
         throw new Error(t || 'Upload failed');
       }
       const j = await res.json();
-      setStatus(uploadPresetJsonStatus, j.message || 'Uploaded.');
+      setStatus(uploadPresetJsonStatus, j.message || `Uploaded (${detectedKind}).`);
       presetJsonFile.value = '';
       refreshPresetBrowser();
     }catch(err){
@@ -187,6 +228,10 @@
 
   async function deletePreset(){
     if(!selectedPreset) return;
+    if(selectedPreset.origin === 'generated'){
+      setStatus(uploadPresetJsonStatus, 'Generated profiles cannot be deleted.');
+      return;
+    }
     if(!confirm(`Delete profile "${selectedPreset.name}"?`)) return;
     const res = await fetch(`/api/preset/${encodeURIComponent(selectedPreset.name)}`, { method: 'DELETE' });
     if(!res.ok){
@@ -222,11 +267,26 @@
 
   document.addEventListener('click', (evt)=>{
     const btn = evt.target.closest('.file-browser .browser-item');
-    if(!btn || btn.dataset.kind !== 'preset') return;
+    if(!btn) return;
     if(btn.disabled) return;
-    const preset = parsePresetFromButton(btn);
-    setSelectedPreset(preset);
+    if (btn.dataset.kind === 'preset') {
+      const preset = parsePresetFromButton(btn);
+      setSelectedPreset(preset);
+    } else if (btn.dataset.kind === 'voicing') {
+      const voicing = parseVoicingFromButton(btn);
+      setSelectedVoicing(voicing);
+    }
   });
+
+  function detectPresetKind(data){
+    const metaKind = data?.meta?.kind;
+    if (metaKind) return metaKind;
+    const keys = Object.keys(data || {});
+    const profileHints = ['lufs', 'tp', 'limiter', 'compressor', 'loudness', 'target_lufs', 'target_tp'];
+    if (keys.some(k => profileHints.includes(k))) return 'profile';
+    if ('eq' in data || 'width' in data || 'stereo' in data) return 'voicing';
+    return 'profile';
+  }
 
   document.addEventListener('DOMContentLoaded', ()=>{
     if(referenceForm) referenceForm.addEventListener('submit', handleGenerate);
@@ -241,6 +301,10 @@
     const browser = document.getElementById('presetBrowser');
     if(browser && browser.contains(evt.target) && selectedPreset){
       const btn = browser.querySelector(`.browser-item[data-kind="preset"][data-id="${selectedPreset.name}"]`);
+      if(btn) btn.classList.add('active');
+    }
+    if(browser && browser.contains(evt.target) && selectedVoicing){
+      const btn = browser.querySelector(`.browser-item[data-kind="voicing"][data-id="${selectedVoicing.slug}"]`);
       if(btn) btn.classList.add('active');
     }
   });
