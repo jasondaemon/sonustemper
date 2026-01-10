@@ -24,7 +24,7 @@
     </div>
     {% set browser_id = "masteringBrowser" %}
     {% set sections = [
-      {"key": "mastering_runs", "title": "Mastering Runs", "endpoint": "/ui/partials/library_list?view=mastering_runs", "autoselect": "first"}
+      {"key": "mastering_runs", "title": "Mastering Runs", "endpoint": "/partials/library_list?view=mastering_runs", "autoselect": "first"}
     ] %}
     {% include "ui/partials/file_browser.html" %}
   </div>
@@ -620,7 +620,7 @@
   async function loadOutput(song){
     if(!song || !outputPaneWrap) return;
     try{
-      const res = await fetch(`/ui/partials/master_output?song=${encodeURIComponent(song)}`, {cache:'no-store'});
+      const res = await fetch(`/partials/master_output?song=${encodeURIComponent(song)}`, {cache:'no-store'});
       if(!res.ok){
         outputPaneWrap.innerHTML = `
           <div class="card" id="outputPane" style="background:transparent;border:none;padding:0;">

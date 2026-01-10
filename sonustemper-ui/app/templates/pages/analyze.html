@@ -12,8 +12,8 @@
     </div>
     {% set browser_id = "analyzeBrowser" %}
     {% set sections = [
-      {"key": "mastering_runs", "title": "Mastering Runs", "endpoint": "/ui/partials/library_list?view=mastering_runs&context=analyze"},
-      {"key": "tagging_mp3", "title": "Tagging MP3 Library", "endpoint": "/ui/partials/library_list?view=tagging_mp3&context=analyze"}
+      {"key": "mastering_runs", "title": "Mastering Runs", "endpoint": "/partials/library_list?view=mastering_runs&context=analyze"},
+      {"key": "tagging_mp3", "title": "Tagging MP3 Library", "endpoint": "/partials/library_list?view=tagging_mp3&context=analyze"}
     ] %}
     {% include "ui/partials/file_browser.html" %}
   </div>
@@ -71,7 +71,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="/ui/static/js/wavesurfer.min.js"></script>
+<script src="/static/js/wavesurfer.min.js"></script>
 <script>
 (() => {
   const uploadBtn = document.getElementById('analyzeUploadBtn');

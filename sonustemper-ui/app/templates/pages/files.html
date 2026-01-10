@@ -8,6 +8,6 @@
 {% block content %}
   <div class="sections-wrap" hx-target="this">
     <div id="sectionsIndicator" class="muted hx-indicator">Loading…</div>
-    <div id="sections" hx-get="/ui/partials/files_sections?util={{ util }}" hx-trigger="load" hx-indicator="#sectionsIndicator"></div>
+    <div id="sections" hx-get="/partials/files_sections?util={{ util }}" hx-trigger="load" hx-indicator="#sectionsIndicator"></div>
   </div>
 {% endblock %}

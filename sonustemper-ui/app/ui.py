@@ -14,7 +14,7 @@ from fastapi import APIRouter, Request, HTTPException, Form
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 
-# New tandem UI router (mounted under /ui/*)
+# New tandem UI router (mounted at root).
 
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -317,7 +317,7 @@ def _list_mastering_runs(only_mp3: bool, q: str, limit: int, context: str = "") 
         clickable = True
         if context in ("", "mastering"):
             action = {
-                "hx_get": f"/ui/partials/master_output?song={quote(d.name)}",
+                "hx_get": f"/partials/master_output?song={quote(d.name)}",
                 "hx_target": "#outputPaneWrap",
                 "hx_swap": "innerHTML",
             }

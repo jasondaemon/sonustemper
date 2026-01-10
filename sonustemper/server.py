@@ -19,8 +19,7 @@ import os
 import sonustemper.master_pack as mastering_pack
 from urllib.parse import quote
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request, Body, BackgroundTasks
-from fastapi.responses import JSONResponse, FileResponse, StreamingResponse, Response, RedirectResponse
-from fastapi.templating import Jinja2Templates
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse, Response
 from .tagger import TaggerService
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -50,7 +49,6 @@ OUT_DIR = MASTER_OUT_DIR
 APP_DIR = Path(__file__).resolve().parent
 REPO_ROOT = APP_DIR.parent
 UI_APP_DIR = REPO_ROOT / "sonustemper-ui" / "app"
-UI_TEMPLATES = Jinja2Templates(directory=str(UI_APP_DIR / "templates")) if UI_APP_DIR.exists() else None
 # Security: API key protection (for CLI/scripts); set API_AUTH_DISABLED=1 to bypass explicitly.
 API_KEY = os.getenv("API_KEY")
 API_AUTH_DISABLED = os.getenv("API_AUTH_DISABLED") == "1"
@@ -79,12 +77,6 @@ if str(APP_DIR) not in sys.path:
 # Trusted proxy check via shared secret (raw)
 def is_trusted_proxy(mark: str) -> bool:
     return bool(mark) and bool(PROXY_SHARED_SECRET) and (mark == PROXY_SHARED_SECRET)
-# Version label for UI rendering without redirects.
-def _ui_version_label() -> str:
-    ver = (os.getenv("APP_VERSION") or os.getenv("SONUSTEMPER_TAG") or "dev").strip()
-    if ver.lower().startswith("v"):
-        return ver
-    return f"v{ver}" if ver else "vdev"
 # master_pack.py is the unified mastering script (handles single or multiple presets/files).
 _default_pack = REPO_ROOT / "sonustemper" / "master_pack.py"
 # Use master_pack.py as the unified mastering script (handles single or multiple presets/files)
@@ -109,9 +101,9 @@ app.mount("/analysis", StaticFiles(directory=str(ANALYSIS_IN_DIR), html=False), 
 # Mount new UI static assets if present
 UI_STATIC_DIR = UI_APP_DIR / "static"
 if UI_STATIC_DIR.exists():
-    app.mount("/ui/static", StaticFiles(directory=str(UI_STATIC_DIR)), name="ui-static")
+    app.mount("/static", StaticFiles(directory=str(UI_STATIC_DIR)), name="ui-static")
 if ui_router:
-    app.include_router(ui_router, prefix="/ui")
+    app.include_router(ui_router)
 MAIN_LOOP = None
 TAGGER_MAX_UPLOAD = int(os.getenv("TAGGER_MAX_UPLOAD_BYTES", str(250 * 1024 * 1024)))
 TAGGER_MAX_ARTWORK = int(os.getenv("TAGGER_MAX_ARTWORK_BYTES", str(30 * 1024 * 1024)))
@@ -1209,23 +1201,6 @@ else:
             BUILD_STAMP = datetime.fromtimestamp(Path(__file__).stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
         except Exception:
             BUILD_STAMP = "dev"
-@app.get("/", include_in_schema=False)
-def new_ui_root():
-    return RedirectResponse(url="/ui/", status_code=302)
-
-@app.get("/analyze", include_in_schema=False)
-def analyze_root(request: Request):
-    if UI_TEMPLATES:
-        return UI_TEMPLATES.TemplateResponse(
-            "pages/analyze.html",
-            {
-                "request": request,
-                "current_page": "analyze",
-                "app_version_label": _ui_version_label(),
-            },
-        )
-    return RedirectResponse(url="/ui/analyze", status_code=302)
-
 # --- Utility file manager API ---
 def _util_root(utility: str, section: str) -> Path:
     root = UTILITY_ROOTS.get((utility, section))

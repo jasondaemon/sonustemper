@@ -23,26 +23,26 @@ Use this as the starting prompt when opening a new session so the assistant has 
 - Analysis: `/data/analysis/in`, `/data/analysis/out`, `/data/analysis/tmp`
 - Previews (session temp): `/data/previews` (TTL-cleaned, non-persistent)
 
-## New UI pages (routes under /ui)
-- `/ui/` starter page (tiles for key workflows + docs).
-- `/ui/mastering` batch-first mastering UI:
+## New UI pages (routes at root)
+- `/` starter page (tiles for key workflows + docs).
+- `/mastering` batch-first mastering UI:
   - Input list with selection + upload, Output Formats block.
   - Voicing + Strength, Loudness Profile with Manual overrides, Stereo Width + Guardrails.
   - Convert Only option disables voicing/loudness/stereo and runs output conversion only.
   - Run summary bar with Run Job button (disabled if no selection).
   - Job Output shows metric pills + Analyze buttons + downloads + delete.
-- `/ui/analyze` compares source vs processed output (waveforms + metrics).
+- `/analyze` compares source vs processed output (waveforms + metrics).
   - Uses /api/analyze-resolve or /api/analyze-resolve-file; supports standalone upload mode.
-- `/ui/tagging` MP3 tagging workflow with working set, album actions, downloads.
-- `/ui/presets` (Voicing Profiles): manage user/generated voicings and delivery profiles.
+- `/tagging` MP3 tagging workflow with working set, album actions, downloads.
+- `/presets` (Voicing Profiles): manage user/generated voicings and delivery profiles.
   - Upload JSON auto-detects voicing vs profile; delete only for user presets.
   - Create from reference supports separate "Create Voicing" and "Create Profile" flows.
-- `/ui/files` file manager.
-- `/ui/docs` documentation/how-tos (links to third-party tools).
+- `/files` file manager.
+- `/docs` documentation/how-tos (links to third-party tools).
 
 ## Browser sidebar + library list
 - File browser component lives in `templates/ui/partials/file_browser.html` and `static/js/components/fileBrowser.js`.
-- Unified listing endpoint: `/ui/partials/library_list?view=...` with badge pills + overflow.
+- Unified listing endpoint: `/partials/library_list?view=...` with badge pills + overflow.
 - Views include mastering runs, tagging mp3s, runs with mp3 outputs, combined lists.
 
 ## Backend behavior + API highlights
@@ -66,7 +66,7 @@ Use this as the starting prompt when opening a new session so the assistant has 
 ## Security + runtime
 - API key and proxy shared secret guard `/api/*` (unless API_AUTH_DISABLED=1).
 - Server entrypoint: `uvicorn sonustemper.server:app`.
-- Docker runs the same entrypoint; new UI is mounted under `/ui`.
+- Docker runs the same entrypoint; UI routes are mounted at `/`.
 
 ## Regression checklist (when changing core paths)
 - Build: `docker compose -f docker-compose.yml build`

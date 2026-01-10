@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block page_title %}SonusTemper{% endblock %}</title>
-  <link rel="stylesheet" href="/ui/static/css/app.css">
+  <link rel="stylesheet" href="/static/css/app.css">
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
-  <script defer src="/ui/static/js/app.js"></script>
+  <script defer src="/static/js/app.js"></script>
 </head>
 <body>
   <div class="page">
@@ -22,12 +22,12 @@
     <div class="utilDropdown hidden" id="utilDropdownGlobal">
           <a href="/" class="{% if current_page=='' %}active{% endif %}">Start</a>
           <div class="divider"></div>
-          <a href="/ui/files" class="{% if current_page=='files' %}active{% endif %}">File Manager</a>
-          <a href="/ui/mastering" class="{% if current_page=='mastering' %}active{% endif %}">Mastering</a>
+          <a href="/files" class="{% if current_page=='files' %}active{% endif %}">File Manager</a>
+          <a href="/mastering" class="{% if current_page=='mastering' %}active{% endif %}">Mastering</a>
           <a href="/analyze" class="{% if current_page=='analyze' %}active{% endif %}">Analyze</a>
-          <a href="/ui/tagging" class="{% if current_page=='tagging' %}active{% endif %}">Tagging</a>
-          <a href="/ui/presets" class="{% if current_page=='presets' %}active{% endif %}">Voicing Profiles</a>
-          <a href="/ui/docs" class="{% if current_page=='docs' %}active{% endif %}">Documentation</a>
+          <a href="/tagging" class="{% if current_page=='tagging' %}active{% endif %}">Tagging</a>
+          <a href="/presets" class="{% if current_page=='presets' %}active{% endif %}">Voicing Profiles</a>
+          <a href="/docs" class="{% if current_page=='docs' %}active{% endif %}">Documentation</a>
     </div>
   </div>
 </div>

@@ -14,10 +14,10 @@
     <div class="preset-browser">
       {% set browser_id = "presetBrowser" %}
       {% set sections = [
-        {"key": "voicings", "title": "Voicings", "endpoint": "/ui/partials/library_list?view=voicings&context=presets"},
-        {"key": "user_voicings", "title": "User Voicings", "endpoint": "/ui/partials/library_list?view=presets_user_voicings&context=presets"},
-        {"key": "user_profiles", "title": "User Profiles", "endpoint": "/ui/partials/library_list?view=presets_user_profiles&context=presets", "autoselect": "first"},
-        {"key": "generated", "title": "Generated Profiles", "endpoint": "/ui/partials/library_list?view=presets_generated&context=presets"}
+        {"key": "voicings", "title": "Voicings", "endpoint": "/partials/library_list?view=voicings&context=presets"},
+        {"key": "user_voicings", "title": "User Voicings", "endpoint": "/partials/library_list?view=presets_user_voicings&context=presets"},
+        {"key": "user_profiles", "title": "User Profiles", "endpoint": "/partials/library_list?view=presets_user_profiles&context=presets", "autoselect": "first"},
+        {"key": "generated", "title": "Generated Profiles", "endpoint": "/partials/library_list?view=presets_generated&context=presets"}
       ] %}
       {% include "ui/partials/file_browser.html" %}
     </div>
@@ -100,5 +100,5 @@
 {% endblock %}
 
 {% block extra_js %}
-  <script defer src="/ui/static/js/presets.js"></script>
+  <script defer src="/static/js/presets.js"></script>
 {% endblock %}
