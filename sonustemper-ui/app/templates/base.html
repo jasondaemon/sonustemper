@@ -11,26 +11,27 @@
 <body>
   <div class="page">
     <div id="toast" class="toast hidden"></div>
-    <div class="top">
-      <div>
-        <h1>{% block title %}{% endblock %}</h1>
-        <div class="sub">{% block subtitle %}{% endblock %}</div>
-      </div>
-      <div class="utilMenu">
-        <button class="utilToggle" id="utilToggleGlobal" aria-haspopup="true" aria-expanded="false">☰ Utilities</button>
-        <div class="utilDropdown hidden" id="utilDropdownGlobal">
-          <a href="/">Mastering</a>
+{% set current_page = current_page or '' %}
+<div class="top">
+  <div>
+    <h1>{% block title %}{% endblock %}</h1>
+    <div class="sub">{% block subtitle %}{% endblock %}</div>
+  </div>
+  <div class="utilMenu">
+    <button class="utilToggle" id="utilToggleGlobal" aria-haspopup="true" aria-expanded="false">☰ Utilities</button>
+    <div class="utilDropdown hidden" id="utilDropdownGlobal">
+          <a href="/" class="{% if current_page=='legacy-master' %}active{% endif %}">Mastering</a>
           <div class="divider"></div>
-          <a href="/ui/files" class="active">File Manager</a>
-          <a href="/ui/mastering">Mastering (new)</a>
-          <a href="/ui/tagging">Tagging (new)</a>
-          <a href="/ui/presets">Presets (new)</a>
+          <a href="/ui/files" class="{% if current_page=='files' %}active{% endif %}">File Manager</a>
+          <a href="/ui/mastering" class="{% if current_page=='mastering' %}active{% endif %}">Mastering (new)</a>
+          <a href="/ui/tagging" class="{% if current_page=='tagging' %}active{% endif %}">Tagging (new)</a>
+          <a href="/ui/presets" class="{% if current_page=='presets' %}active{% endif %}">Presets (new)</a>
           <div class="divider"></div>
-          <a href="/manage-presets">Preset Manager (legacy)</a>
-          <a href="/tagger">Tag Editor (legacy)</a>
-        </div>
-      </div>
+          <a href="/manage-presets" class="{% if current_page=='legacy-presets' %}active{% endif %}">Preset Manager (legacy)</a>
+          <a href="/tagger" class="{% if current_page=='legacy-tagger' %}active{% endif %}">Tag Editor (legacy)</a>
     </div>
+  </div>
+</div>
     <div class="layout">
       <div class="sidebar-slot">
         {% block sidebar %}{% endblock %}

@@ -7,7 +7,7 @@
     <div class="card-head">
       <div>
         <div class="card-title">Processing Status</div>
-        <div class="muted">Live updates coming soon.</div>
+        <div class="muted">Live status via event stream.</div>
       </div>
     </div>
     <div class="status-list" id="statusList">(waiting)</div>
@@ -104,7 +104,15 @@
   const indicator = document.getElementById('jobIndicator');
   const statusList = document.getElementById('statusList');
   let currentRun = null;
-  let statusTimer = null;
+  let statusSource = null;
+  let statusLines = [];
+  let reconnectDelay = 1000;
+
+  function esc(str){
+    if(!str) return '';
+    if(window.CSS && CSS.escape) return CSS.escape(str);
+    return String(str).replace(/[^a-zA-Z0-9_-]/g, '\\$&');
+  }
 
   function setBusy(on){
     if(!indicator) return;
@@ -112,36 +120,66 @@
   }
   setBusy(false);
 
-  async function updateStatus(){
-    if(!currentRun){
-      if(statusList) statusList.textContent = '(waiting)';
-      return;
-    }
-    try{
-      const res = await fetch(`/api/status?song=${encodeURIComponent(currentRun)}`, {cache:'no-store'});
-      if(!res.ok){
-        if(statusList) statusList.textContent = 'No status';
-        return;
-      }
-      const data = await res.json();
-      const entries = data.entries || data || [];
-      const lines = (entries || []).map(e=>`${e.ts ? new Date(e.ts*1000).toLocaleTimeString() : ''} ${e.stage||''} ${e.detail||''}`.trim());
-      if(statusList) statusList.textContent = lines.length ? lines.join('\\n') : 'No status';
-    }catch(err){
-      if(statusList) statusList.textContent = 'Status unavailable';
-    }
+  function renderStatus(){
+    if(!statusList) return;
+    statusList.textContent = statusLines.length ? statusLines.join('\\n') : '(waiting)';
   }
 
   function setCurrentRun(song){
     currentRun = song || null;
-    updateStatus();
+    startStatusStream();
   }
 
-  function startStatusPolling(){
-    if(statusTimer) clearInterval(statusTimer);
-    statusTimer = setInterval(updateStatus, 8000);
+  function closeStatusStream(){
+    if(statusSource){
+      statusSource.close();
+      statusSource = null;
+    }
   }
-  startStatusPolling();
+
+  function startStatusStream(){
+    closeStatusStream();
+    statusLines = [];
+    renderStatus();
+    if(!currentRun){
+      return;
+    }
+    const url = `/api/status-stream?song=${encodeURIComponent(currentRun)}`;
+    let es;
+    try{
+      es = new EventSource(url);
+      statusSource = es;
+      statusLines.push('(connecting…)');
+      renderStatus();
+    }catch(err){
+      statusLines.push('Event stream unavailable');
+      renderStatus();
+      return;
+    }
+    es.onmessage = (ev)=>{
+      reconnectDelay = 1000;
+      let data;
+      try{ data = JSON.parse(ev.data); }catch(_){ data = { detail: ev.data }; }
+      const ts = data.ts ? new Date(data.ts*1000).toLocaleTimeString() : '';
+      const stage = data.stage || '';
+      const detail = data.detail || data.message || '';
+      const line = [ts, stage, detail].filter(Boolean).join(' ');
+      if(line) statusLines.push(line);
+      renderStatus();
+      if(data.stage === 'complete' || data.stage === 'error'){
+        closeStatusStream();
+        refreshPrevRuns(false, currentRun, true);
+      }
+    };
+    es.onerror = ()=>{
+      closeStatusStream();
+      statusLines.push('(disconnected)');
+      renderStatus();
+      const delay = reconnectDelay;
+      reconnectDelay = Math.min(reconnectDelay * 2, 10000);
+      setTimeout(()=>{ if(currentRun && !statusSource){ startStatusStream(); } }, delay);
+    };
+  }
 
   async function loadFiles(){
     try{
@@ -167,16 +205,22 @@
   }
   loadFiles();
 
-  async function refreshPrevRuns(selectLatest){
+  async function refreshPrevRuns(selectLatest, preferSong, loadOutputOnly){
     try{
       const res = await fetch('/ui/partials/master_prev',{cache:'no-store'});
       const html = await res.text();
       const wrap = document.getElementById('prevRunsWrap');
       if(wrap){
         wrap.innerHTML = html;
-        if(selectLatest){
+        const desired = preferSong && wrap.querySelector(`.run-item[data-song="${esc(preferSong)}"]`);
+        if(desired){
+          desired.click();
+        }else if(selectLatest){
           const firstBtn = wrap.querySelector('.run-item');
           if(firstBtn){ firstBtn.click(); }
+        }else if(loadOutputOnly && preferSong){
+          const anyBtn = wrap.querySelector('.run-item');
+          if(anyBtn){ anyBtn.click(); }
         }
       }
     }catch(err){
@@ -200,8 +244,9 @@
         showToast('Run failed: '+ (err.detail || res.status));
       }else{
         showToast('Job started');
-        refreshPrevRuns(true);
-        startStatusPolling();
+        const runId = fd.get('infile');
+        setCurrentRun(runId);
+        refreshPrevRuns(true, runId);
       }
     }catch(err){
       showToast('Network error');
@@ -217,6 +262,10 @@
       setCurrentRun(btn.dataset.song);
     }
   });
+  window.addEventListener('beforeunload', closeStatusStream);
+
+  // auto-load most recent on page load
+  refreshPrevRuns(true);
 })();
 </script>
 {% endblock %}

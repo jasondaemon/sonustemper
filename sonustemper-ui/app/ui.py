@@ -1,6 +1,7 @@
 import os
 import mimetypes
 import re
+import shutil
 from pathlib import Path
 from datetime import datetime
 from typing import List
@@ -134,6 +135,7 @@ async def files(request: Request, util: str = "mastering"):
         {
             "request": request,
             "util": util,
+            "current_page": "files",
         },
     )
 
@@ -144,6 +146,7 @@ async def starter(request: Request):
         "pages/starter.html",
         {
             "request": request,
+            "current_page": "",
         },
     )
 
@@ -155,6 +158,7 @@ async def mastering_page(request: Request):
         {
             "request": request,
             "show_sidebar": False,
+            "current_page": "mastering",
         },
     )
 
@@ -165,6 +169,7 @@ async def tagging_page(request: Request):
         "pages/tagging.html",
         {
             "request": request,
+            "current_page": "tagging",
         },
     )
 
@@ -175,6 +180,7 @@ async def presets_page(request: Request):
         "pages/presets.html",
         {
             "request": request,
+            "current_page": "presets",
         },
     )
 
@@ -280,11 +286,12 @@ async def delete_items(request: Request, util: str = Form(...), section: str = F
     util = util if util in ("mastering", "tagging", "presets") else "mastering"
     root = _util_root(util, section)
     to_delete = []
+    allow_dirs = util == "mastering" and section == "output"
     if delete_all:
         allow_audio = util in ("mastering", "tagging")
         allow_json = util == "presets"
         items = _list_dir(root, allow_audio=allow_audio, allow_json=allow_json)
-        to_delete = [i["rel"] for i in items if not i["is_dir"]]
+        to_delete = [i["rel"] for i in items if allow_dirs or not i["is_dir"]]
     else:
         to_delete = [r for r in rels if r]
     if not to_delete:
@@ -292,11 +299,15 @@ async def delete_items(request: Request, util: str = Form(...), section: str = F
     for rel in to_delete:
         try:
             target = _safe_rel(root, rel)
-            if not target.exists() or target.is_dir():
+            if not target.exists():
                 continue
-            parent = target.parent
-            stem = target.stem
+            # Mastering outputs: delete entire run folder or file + sidecars
             if util == "mastering" and section == "output":
+                if target.is_dir():
+                    shutil.rmtree(target, ignore_errors=True)
+                    continue
+                parent = target.parent
+                stem = target.stem
                 for f in parent.glob(f"{stem}.*"):
                     try:
                         f.unlink()
@@ -307,7 +318,13 @@ async def delete_items(request: Request, util: str = Form(...), section: str = F
                         parent.rmdir()
                 except Exception:
                     pass
+                    target.unlink()
+                except Exception:
+                    pass
             else:
+                # All other sections: delete files only
+                if target.is_dir():
+                    continue
                 try:
                     target.unlink()
                 except Exception:
