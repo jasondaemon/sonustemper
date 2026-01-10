@@ -3,7 +3,7 @@ import argparse, json, shlex, subprocess, sys, re, os, time, hashlib
 from pathlib import Path
 import shutil
 import json
-from logging_util import log_error, log_summary, log_debug
+from sonustemper.logging_util import log_error, log_summary, log_debug
 
 def _safe_tag(s: str, max_len: int = 80) -> str:
     """Make a filesystem-safe tag chunk."""
