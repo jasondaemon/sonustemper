@@ -1,10 +1,34 @@
 ## Third-Party Notices
 
-This project uses FFmpeg for audio processing.
+End users do not need to install FFmpeg; SonusTemper native builds bundle ffmpeg/ffprobe.
+Docker deployments may use the system ffmpeg inside the container image.
 
-- FFmpeg is licensed under LGPL/GPL; see https://ffmpeg.org/legal.html
-- “FFmpeg” and its logos are trademarks of Fabrice Bellard et al.
+- FFmpeg (ffmpeg/ffprobe)
+  - Use: audio processing and analysis
+  - License: LGPL-2.1+ (or GPL-2.0+ if built with GPL components)
+  - Source/Project home: https://ffmpeg.org/
 
-- FFmpeg binaries in the published Docker image come from the base distribution package (`apt-get install ffmpeg`), which is typically built under the LGPL configuration (no explicit `--enable-gpl` flags). Refer to the distro package for exact licensing terms.
+- FastAPI
+  - Use: API/server routing
+  - License: MIT
+  - Source/Project home: https://fastapi.tiangolo.com/
 
-No FFmpeg binaries are redistributed here beyond those installed via the package manager in the provided Docker image. Refer to the FFmpeg website for full license terms.
+- Jinja2
+  - Use: HTML templates
+  - License: BSD-3-Clause
+  - Source/Project home: https://palletsprojects.com/p/jinja/
+
+- HTMX
+  - Use: partial page updates
+  - License: MIT
+  - Source/Project home: https://htmx.org/
+
+- WaveSurfer.js
+  - Use: waveform rendering in Analyze
+  - License: BSD-3-Clause (see project licensing)
+  - Source/Project home: https://wavesurfer-js.org/
+
+- Mutagen
+  - Use: ID3 tag editing
+  - License: GPL-2.0+ (with parts under MIT)
+  - Source/Project home: https://mutagen.readthedocs.io/
