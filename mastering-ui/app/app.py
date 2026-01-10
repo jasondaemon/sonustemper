@@ -3,6 +3,7 @@ import shutil
 import subprocess
 import shlex
 import re
+import mimetypes
 import threading
 import sys
 import tempfile
@@ -14,7 +15,9 @@ from pathlib import Path
 from datetime import datetime
 import os
 import importlib.util
+from urllib.parse import quote
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request, Body, BackgroundTasks
+from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, StreamingResponse, Response, RedirectResponse
 from tagger import TaggerService
 from fastapi.staticfiles import StaticFiles
@@ -46,6 +49,11 @@ for cand in UI_CANDIDATES:
         UI_APP_DIR = cand
         sys.path.append(str(cand))
         break
+UI_TEMPLATES = None
+if UI_APP_DIR:
+    templates_dir = UI_APP_DIR / "templates"
+    if templates_dir.exists():
+        UI_TEMPLATES = Jinja2Templates(directory=str(templates_dir))
 # Security: API key protection (for CLI/scripts); set API_AUTH_DISABLED=1 to bypass explicitly.
 API_KEY = os.getenv("API_KEY")
 API_AUTH_DISABLED = os.getenv("API_AUTH_DISABLED") == "1"
@@ -104,6 +112,7 @@ for p in [
 ]:
     p.mkdir(parents=True, exist_ok=True)
 app.mount("/out", StaticFiles(directory=str(MASTER_OUT_DIR), html=True), name="out")
+app.mount("/analysis", StaticFiles(directory=str(ANALYSIS_IN_DIR), html=False), name="analysis")
 # Mount new UI static assets if present
 UI_STATIC_DIR = UI_APP_DIR / "static" if UI_APP_DIR and UI_APP_DIR.exists() else None
 if UI_STATIC_DIR and UI_STATIC_DIR.exists():
@@ -676,6 +685,78 @@ def find_input_file(song: str) -> Path | None:
         pass
     candidates = sorted(candidates)
     return candidates[0] if candidates else None
+ANALYZE_AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".aac", ".ogg", ".flac"}
+ANALYZE_PREF_ORDER = [".wav", ".flac", ".m4a", ".aac", ".mp3", ".ogg"]
+def _list_audio_files(folder: Path) -> list[Path]:
+    if not folder.exists() or not folder.is_dir():
+        return []
+    return sorted(
+        [p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in ANALYZE_AUDIO_EXTS],
+        key=lambda p: p.name.lower(),
+    )
+def _choose_preferred(files: list[Path]) -> Path | None:
+    if not files:
+        return None
+    if len(files) == 1:
+        return files[0]
+    for ext in ANALYZE_PREF_ORDER:
+        for p in files:
+            if p.suffix.lower() == ext:
+                return p
+    return sorted(files, key=lambda p: p.name.lower())[0]
+def _resolve_processed_file(folder: Path, out: str | None) -> tuple[Path | None, list[Path]]:
+    files = _list_audio_files(folder)
+    if not files:
+        return None, []
+    out = (out or "").strip()
+    if out:
+        for p in files:
+            if p.name.lower() == out.lower():
+                return p, files
+        out_path = Path(out)
+        if out_path.suffix:
+            candidate = folder / out_path.name
+            if candidate.exists():
+                return candidate, files
+        fmt = out.lower().lstrip(".")
+        if fmt in {"wav", "mp3", "m4a", "aac", "flac", "ogg"}:
+            for p in files:
+                if p.suffix.lower() == f".{fmt}":
+                    return p, files
+        stem_files = [p for p in files if p.stem == out]
+        if stem_files:
+            return _choose_preferred(stem_files), files
+    return _choose_preferred(files), files
+def _available_outputs(song: str, files: list[Path], stem: str) -> list[dict]:
+    outputs = [p for p in files if p.stem == stem]
+    outputs.sort(
+        key=lambda p: ANALYZE_PREF_ORDER.index(p.suffix.lower())
+        if p.suffix.lower() in ANALYZE_PREF_ORDER else 99
+    )
+    items = []
+    for p in outputs:
+        ext = p.suffix.lower().lstrip(".")
+        items.append({
+            "label": ext.upper(),
+            "format": ext,
+            "filename": p.name,
+            "url": f"/out/{song}/{p.name}",
+        })
+    return items
+def _load_output_metrics(folder: Path, processed: Path) -> dict | None:
+    metrics_path = folder / f"{processed.stem}.metrics.json"
+    metrics = read_metrics_file(metrics_path) if metrics_path.exists() else None
+    if metrics is None:
+        try:
+            metrics = basic_metrics(processed)
+        except Exception:
+            metrics = None
+        if metrics:
+            try:
+                metrics_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+            except Exception:
+                pass
+    return metrics
 def fill_input_metrics(song: str, m: dict, folder: Path) -> dict:
     """Ensure input metrics are populated (and deltas) for comparison."""
     if not m:
@@ -3267,6 +3348,18 @@ def new_ui_root():
     # Landing goes to new UI starter
     return RedirectResponse(url="/ui", status_code=302)
 
+@app.get("/analyze", response_class=HTMLResponse)
+def analyze_page(request: Request):
+    if UI_TEMPLATES:
+        return UI_TEMPLATES.TemplateResponse(
+            "pages/analyze.html",
+            {
+                "request": request,
+                "current_page": "analyze",
+            },
+        )
+    return RedirectResponse(url="/ui", status_code=302)
+
 @app.get("/legacy", response_class=HTMLResponse)
 def index():
     html = HTML_TEMPLATE
@@ -5300,6 +5393,100 @@ def run_metrics(song: str):
         raise HTTPException(status_code=404, detail="metrics_not_found")
     m = fill_input_metrics(song, m, folder)
     return m
+@app.get("/api/analyze-source")
+def analyze_source(song: str):
+    song = (song or "").strip()
+    if not song:
+        raise HTTPException(status_code=400, detail="missing_song")
+    path = find_input_file(song)
+    if not path or not path.exists():
+        raise HTTPException(status_code=404, detail="source_not_found")
+    mime, _ = mimetypes.guess_type(path.name)
+    return FileResponse(path, media_type=mime or "application/octet-stream", filename=path.name)
+@app.get("/api/analyze-resolve")
+def analyze_resolve(song: str, out: str = ""):
+    song = (song or "").strip()
+    if not song:
+        raise HTTPException(status_code=400, detail="missing_song")
+    folder = (OUT_DIR / song).resolve()
+    if OUT_DIR.resolve() not in folder.parents:
+        raise HTTPException(status_code=400, detail="invalid_path")
+    if not folder.exists() or not folder.is_dir():
+        raise HTTPException(status_code=404, detail="run_not_found")
+    processed, files = _resolve_processed_file(folder, out)
+    if not processed:
+        raise HTTPException(status_code=404, detail="output_not_found")
+    source_path = find_input_file(song)
+    source_name = source_path.name if source_path else song
+    source_url = f"/api/analyze-source?song={quote(song)}" if source_path else ""
+    processed_url = f"/out/{quote(song)}/{quote(processed.name)}"
+    metrics = None
+    output_metrics = _load_output_metrics(folder, processed)
+    if output_metrics:
+        metrics = wrap_metrics(song, output_metrics)
+        if metrics:
+            metrics = fill_input_metrics(song, metrics, folder)
+    elif source_path:
+        try:
+            metrics = {
+                "version": 1,
+                "run_id": song,
+                "input": basic_metrics(source_path),
+                "output": None,
+            }
+        except Exception:
+            metrics = None
+    return {
+        "run_id": song,
+        "source_url": source_url,
+        "processed_url": processed_url,
+        "source_name": source_name,
+        "processed_name": processed.name,
+        "processed_label": processed.suffix.lower().lstrip("."),
+        "available_outputs": _available_outputs(song, files, processed.stem),
+        "metrics": metrics,
+    }
+@app.post("/api/analyze-upload")
+async def analyze_upload(file: UploadFile = File(...)):
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="missing_filename")
+    suffix = Path(file.filename).suffix.lower()
+    allowed = {".wav", ".mp3", ".flac", ".aiff", ".aif", ".m4a", ".aac", ".ogg"}
+    if suffix not in allowed:
+        raise HTTPException(status_code=400, detail="unsupported_type")
+    safe_stem = _safe_slug(Path(file.filename).stem) or "analysis"
+    stamp = int(time.time())
+    dest = ANALYSIS_IN_DIR / f"{safe_stem}-{stamp}{suffix}"
+    size = 0
+    with dest.open("wb") as fout:
+        while True:
+            chunk = await file.read(CHUNK_SIZE)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > MAX_UPLOAD_BYTES:
+                dest.unlink(missing_ok=True)
+                raise HTTPException(status_code=413, detail="file_too_large")
+            fout.write(chunk)
+    metrics = None
+    try:
+        metrics = basic_metrics(dest)
+    except Exception:
+        metrics = None
+    if metrics:
+        try:
+            ANALYSIS_OUT_DIR.mkdir(parents=True, exist_ok=True)
+            (ANALYSIS_OUT_DIR / f"{dest.stem}.metrics.json").write_text(
+                json.dumps(metrics, indent=2), encoding="utf-8"
+            )
+        except Exception:
+            pass
+    return {
+        "id": dest.stem,
+        "source_url": f"/analysis/{quote(dest.name)}",
+        "metrics": metrics,
+        "source_name": file.filename,
+    }
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(250 * 1024 * 1024)))  # default 250MB
 ALLOWED_UPLOAD_EXT = {".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg"}
 CHUNK_SIZE = 4 * 1024 * 1024

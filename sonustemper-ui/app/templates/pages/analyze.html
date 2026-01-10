@@ -1,0 +1,344 @@
+{% extends "base.html" %}
+{% block page_title %}Analyze | SonusTemper{% endblock %}
+{% block title %}Analyze{% endblock %}
+{% block subtitle %}Compare source vs processed audio (metrics + waveform).{% endblock %}
+{% block sidebar %}
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <div class="card-title">Analyze</div>
+        <div class="muted">Compare source vs processed audio.</div>
+      </div>
+    </div>
+    <div class="muted">Open from Mastering output or upload a source file.</div>
+  </div>
+{% endblock %}
+{% block content %}
+  <div class="card analyze-card">
+    <div class="card-head">
+      <div>
+        <div class="card-title">Compare</div>
+        <div class="muted" id="analyzeSubtitle">Source vs Processed</div>
+      </div>
+      <div class="analyze-actions">
+        <input type="file" id="analyzeUploadInput" accept=".wav,.mp3,.flac,.aiff,.aif,.m4a,.ogg,.aac" hidden>
+        <button class="btn ghost small" id="analyzeUploadBtn">Upload</button>
+      </div>
+    </div>
+
+    <div id="analyzeEmpty" class="analyze-empty">
+      <div class="muted">Upload a source file to analyze or launch Analyze from a mastering output.</div>
+    </div>
+
+    <div id="analyzeLoaded" class="analyze-loaded" hidden>
+      <div class="metric-pills" id="summaryPills"></div>
+
+      <div class="wave-panel" id="sourcePanel">
+        <div class="wave-head">
+          <div class="wave-title">Source</div>
+          <div class="wave-meta" id="sourceName">-</div>
+        </div>
+        <div class="wave-canvas" id="waveSource"></div>
+      </div>
+
+      <div class="wave-panel" id="processedPanel">
+        <div class="wave-head">
+          <div class="wave-title">Processed</div>
+          <div class="wave-meta" id="processedName">-</div>
+        </div>
+        <div class="wave-canvas" id="waveProcessed"></div>
+        <div class="wave-empty muted" id="processedEmpty" hidden>No processed file selected.</div>
+      </div>
+
+      <div class="analyze-controls">
+        <button class="btn ghost small" id="playBtn">Play</button>
+        <button class="btn ghost small" id="pauseBtn">Pause</button>
+        <button class="btn ghost small" id="stopBtn">Stop</button>
+        <div class="zoom-control">
+          <span>Zoom</span>
+          <input type="range" id="zoomRange" min="30" max="200" value="90">
+        </div>
+      </div>
+
+      <div class="compare-grid" id="compareGrid"></div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/ui/static/js/wavesurfer.min.js"></script>
+<script>
+(function(){
+  const uploadBtn = document.getElementById('analyzeUploadBtn');
+  const uploadInput = document.getElementById('analyzeUploadInput');
+  const emptyState = document.getElementById('analyzeEmpty');
+  const loadedState = document.getElementById('analyzeLoaded');
+  const summaryPills = document.getElementById('summaryPills');
+  const compareGrid = document.getElementById('compareGrid');
+  const sourceName = document.getElementById('sourceName');
+  const processedName = document.getElementById('processedName');
+  const processedEmpty = document.getElementById('processedEmpty');
+  const analyzeSubtitle = document.getElementById('analyzeSubtitle');
+
+  const playBtn = document.getElementById('playBtn');
+  const pauseBtn = document.getElementById('pauseBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const zoomRange = document.getElementById('zoomRange');
+
+  let sourceWave = null;
+  let processedWave = null;
+  let syncing = false;
+
+  const metricLabels = [
+    { key: 'I', label: 'LUFS-I', suffix: ' LUFS' },
+    { key: 'TP', label: 'True Peak', suffix: ' dBTP' },
+    { key: 'LRA', label: 'LRA', suffix: ' LU' },
+    { key: 'rms_level', label: 'RMS', suffix: ' dB' },
+    { key: 'crest_factor', label: 'Crest', suffix: ' dB' },
+    { key: 'dynamic_range', label: 'DR', suffix: ' dB' },
+  ];
+
+  function fmt(num, decimals){
+    if (num === null || num === undefined || Number.isNaN(num)) return '-';
+    const fixed = (typeof decimals === 'number') ? num.toFixed(decimals) : num.toFixed(1);
+    return fixed.replace(/\.0$/, '');
+  }
+
+  function formatDelta(outVal, inVal){
+    if (typeof outVal !== 'number' || typeof inVal !== 'number') return '';
+    const delta = outVal - inVal;
+    const sign = delta > 0 ? '+' : '';
+    return ` (${sign}${fmt(delta, 1)})`;
+  }
+
+  function displayMetric(value, suffix){
+    if (value === null || value === undefined || Number.isNaN(value)) return '-';
+    return `${fmt(value, 1)}${suffix}`;
+  }
+
+  function clearWaves(){
+    if (sourceWave) {
+      sourceWave.destroy();
+      sourceWave = null;
+    }
+    if (processedWave) {
+      processedWave.destroy();
+      processedWave = null;
+    }
+  }
+
+  function initWave(containerId){
+    const el = document.getElementById(containerId);
+    if (!el || !window.WaveSurfer) return null;
+    return WaveSurfer.create({
+      container: el,
+      waveColor: '#2a3a4f',
+      progressColor: '#ff8a3d',
+      cursorColor: '#ffc38a',
+      height: 86,
+      barWidth: 2,
+      barGap: 1,
+      normalize: true,
+      backend: 'MediaElement',
+    });
+  }
+
+  function bindSync(a, b){
+    if (!a || !b) return;
+    a.on('seek', (progress)=>{
+      if (syncing) return;
+      syncing = true;
+      b.seekTo(progress);
+      syncing = false;
+    });
+    b.on('seek', (progress)=>{
+      if (syncing) return;
+      syncing = true;
+      a.seekTo(progress);
+      syncing = false;
+    });
+  }
+
+  async function loadWave(wave, url){
+    if (!wave || !url) return;
+    return new Promise((resolve) => {
+      const done = () => resolve();
+      wave.once('ready', done);
+      wave.once('error', () => {
+        done();
+        if (typeof showToast === 'function') {
+          showToast('Waveform failed to load');
+        }
+      });
+      wave.load(url);
+    });
+  }
+
+  function renderPills(input, output){
+    if (!summaryPills) return;
+    summaryPills.innerHTML = '';
+    metricLabels.forEach(meta => {
+      const outVal = output ? output[meta.key] : null;
+      if (outVal === null || outVal === undefined) return;
+      const pill = document.createElement('span');
+      pill.className = 'metric-pill';
+      const delta = formatDelta(outVal, input ? input[meta.key] : null);
+      pill.textContent = `${meta.label}: ${fmt(outVal, 1)}${meta.suffix}${delta}`;
+      summaryPills.appendChild(pill);
+    });
+  }
+
+  function renderCompare(input, output){
+    if (!compareGrid) return;
+    compareGrid.innerHTML = '';
+    const headers = ['Metric', 'Source', 'Processed', 'Delta'];
+    headers.forEach(label => {
+      const cell = document.createElement('div');
+      cell.className = 'compare-cell compare-head';
+      cell.textContent = label;
+      compareGrid.appendChild(cell);
+    });
+    metricLabels.forEach(meta => {
+      const inVal = input ? input[meta.key] : null;
+      const outVal = output ? output[meta.key] : null;
+      const row = [
+        meta.label,
+        displayMetric(inVal, meta.suffix),
+        displayMetric(outVal, meta.suffix),
+        formatDelta(outVal, inVal).replace(/[()]/g, '') || '-',
+      ];
+      row.forEach((value, idx) => {
+        const cell = document.createElement('div');
+        cell.className = idx === 0 ? 'compare-cell compare-metric' : 'compare-cell';
+        cell.textContent = value;
+        compareGrid.appendChild(cell);
+      });
+    });
+  }
+
+  function updateControls(){
+    const hasSource = sourceWave !== null;
+    const hasProcessed = processedWave !== null;
+    const processedCanvas = document.getElementById('waveProcessed');
+    if (processedCanvas) processedCanvas.style.display = hasProcessed ? '' : 'none';
+    if (playBtn) playBtn.disabled = !hasSource;
+    if (pauseBtn) pauseBtn.disabled = !hasSource;
+    if (stopBtn) stopBtn.disabled = !hasSource;
+    if (zoomRange) zoomRange.disabled = !hasSource;
+    if (processedEmpty) processedEmpty.hidden = hasProcessed;
+  }
+
+  async function applyData(payload){
+    if (!payload) return;
+    const input = payload.metrics?.input || null;
+    const output = payload.metrics?.output || null;
+
+    if (analyzeSubtitle) {
+      const name = payload.run_id ? `Run ${payload.run_id}` : 'Standalone analysis';
+      analyzeSubtitle.textContent = name;
+    }
+    if (sourceName) sourceName.textContent = payload.source_name || 'Source';
+    if (processedName) processedName.textContent = payload.processed_name || '-';
+
+    if (emptyState) emptyState.hidden = true;
+    if (loadedState) loadedState.hidden = false;
+
+    renderPills(input, output);
+    renderCompare(input, output);
+
+    clearWaves();
+    sourceWave = initWave('waveSource');
+    processedWave = payload.processed_url ? initWave('waveProcessed') : null;
+    bindSync(sourceWave, processedWave);
+
+    await loadWave(sourceWave, payload.source_url);
+    if (processedWave) {
+      await loadWave(processedWave, payload.processed_url);
+    }
+    updateControls();
+  }
+
+  async function resolveRun(song, out){
+    const params = new URLSearchParams();
+    params.set('song', song);
+    if (out) params.set('out', out);
+    const res = await fetch(`/api/analyze-resolve?${params.toString()}`);
+    if (!res.ok) {
+      throw new Error('resolve_failed');
+    }
+    return res.json();
+  }
+
+  async function uploadFile(file){
+    const fd = new FormData();
+    fd.append('file', file, file.name);
+    const res = await fetch('/api/analyze-upload', { method: 'POST', body: fd });
+    if (!res.ok) {
+      throw new Error('upload_failed');
+    }
+    return res.json();
+  }
+
+  if (uploadBtn && uploadInput) {
+    uploadBtn.addEventListener('click', () => uploadInput.click());
+    uploadInput.addEventListener('change', async () => {
+      const file = (uploadInput.files || [])[0];
+      if (!file) return;
+      try {
+        if (typeof showToast === 'function') showToast('Uploading...');
+        const data = await uploadFile(file);
+        await applyData({
+          source_url: data.source_url,
+          source_name: data.source_name || file.name,
+          processed_url: null,
+          processed_name: '',
+          metrics: { input: data.metrics, output: null },
+        });
+        if (typeof showToast === 'function') showToast('Analysis ready');
+      } catch (_err) {
+        if (typeof showToast === 'function') showToast('Upload failed');
+      } finally {
+        uploadInput.value = '';
+      }
+    });
+  }
+
+  if (playBtn) {
+    playBtn.addEventListener('click', () => {
+      if (sourceWave) sourceWave.play();
+      if (processedWave) processedWave.play();
+    });
+  }
+  if (pauseBtn) {
+    pauseBtn.addEventListener('click', () => {
+      if (sourceWave) sourceWave.pause();
+      if (processedWave) processedWave.pause();
+    });
+  }
+  if (stopBtn) {
+    stopBtn.addEventListener('click', () => {
+      if (sourceWave) sourceWave.stop();
+      if (processedWave) processedWave.stop();
+    });
+  }
+  if (zoomRange) {
+    zoomRange.addEventListener('input', () => {
+      const val = parseInt(zoomRange.value || '90', 10);
+      if (sourceWave) sourceWave.zoom(val);
+      if (processedWave) processedWave.zoom(val);
+    });
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const song = params.get('song');
+  const out = params.get('out');
+  if (song) {
+    resolveRun(song, out)
+      .then(applyData)
+      .catch(() => {
+        if (typeof showToast === 'function') showToast('Analyze data unavailable');
+      });
+  }
+})();
+</script>
+{% endblock %}
