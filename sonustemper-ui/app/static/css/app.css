@@ -166,6 +166,26 @@ h1{margin:0;font-size:24px;}
 .output-list .card{border:1px solid var(--line);background:#0f151d;}
 .metrics-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:8px;}
 .metric{background:#101722;border:1px solid var(--line);border-radius:10px;padding:8px;}
+.metric-pills{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  margin-top:10px;
+}
+.metric-pill{
+  display:inline-flex;
+  align-items:center;
+  padding:4px 8px;
+  border-radius:999px;
+  border:1px solid var(--line);
+  background:#0f151d;
+  color:var(--muted);
+  font-size:11px;
+  max-width:100%;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
 .status-list{
   background:#0f151d;
   border:1px dashed var(--line);

@@ -251,6 +251,31 @@ def _load_metrics(path: Path) -> dict | None:
     return None
 
 
+def _base_title(stem: str) -> str:
+    return stem.split("__", 1)[0] if "__" in stem else stem
+
+
+def _metric_pills(metrics: dict | None) -> list[dict]:
+    if not metrics:
+        return []
+    data = metrics
+    if isinstance(metrics, dict) and "output" in metrics and isinstance(metrics.get("output"), dict):
+        data = metrics["output"]
+    if not isinstance(data, dict):
+        return []
+    pills = []
+    for key in sorted(data.keys()):
+        val = data.get(key)
+        if isinstance(val, (dict, list)):
+            continue
+        if isinstance(val, float):
+            disp = f"{val:.2f}".rstrip("0").rstrip(".")
+        else:
+            disp = str(val)
+        pills.append({"label": key, "value": disp})
+    return pills
+
+
 def _run_outputs(song: str) -> list[dict]:
     folder = _util_root("mastering", "output")
     base = _safe_rel(folder, song)
@@ -273,11 +298,14 @@ def _run_outputs(song: str) -> list[dict]:
             if not primary:
                 primary = url
         m = _load_metrics(base / f"{stem}.metrics.json") or _load_metrics(base / "metrics.json")
+        display_title = _base_title(stem)
         items.append({
             "name": stem,
+            "display_title": display_title,
             "primary": primary,
             "downloads": downloads,
             "metrics": m,
+            "metric_pills": _metric_pills(m),
         })
     return items
 

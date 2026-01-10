@@ -4,6 +4,9 @@
       <div class="card-title">Job Output{% if song %}: {{ song }}{% endif %}</div>
       <div class="muted">{% if song %}Rendered files for this run.{% else %}Select a run to view outputs.{% endif %}</div>
     </div>
+    {% if song %}
+    <button class="btn danger small" data-action="delete-run" data-song="{{ song }}">Delete Song</button>
+    {% endif %}
   </div>
   {% if items|length == 0 %}
     <div class="muted">No outputs.</div>
@@ -13,7 +16,7 @@
       <div class="card" style="margin-bottom:12px;">
         <div class="card-head">
           <div>
-            <div class="card-title">{{ item.name }}</div>
+            <div class="card-title">{{ item.display_title or item.name }}</div>
             <div class="muted">Download:</div>
           </div>
           <div class="pill-row">
@@ -27,13 +30,10 @@
           <source src="{{ item.primary }}">
         </audio>
         {% endif %}
-        {% if item.metrics %}
-        <div class="metrics-grid">
-          {% for key,val in item.metrics.items() %}
-            <div class="metric">
-              <div class="muted">{{ key }}</div>
-              <div>{{ val }}</div>
-            </div>
+        {% if item.metric_pills and item.metric_pills|length %}
+        <div class="metric-pills">
+          {% for metric in item.metric_pills %}
+          <span class="metric-pill">{{ metric.label }}: {{ metric.value }}</span>
           {% endfor %}
         </div>
         {% endif %}

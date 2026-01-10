@@ -815,6 +815,30 @@
       setCurrentRun(song);
       loadOutput(song);
     }
+    const deleteBtn = evt.target.closest && evt.target.closest('[data-action="delete-run"]');
+    if(deleteBtn && deleteBtn.dataset && deleteBtn.dataset.song){
+      const song = deleteBtn.dataset.song;
+      if(!song) return;
+      if(!confirm(`Delete outputs for ${song}?`)) return;
+      fetch(`/api/song/${encodeURIComponent(song)}`, { method:'DELETE' })
+        .then(res => {
+          if(!res.ok) throw new Error('delete failed');
+          showToast('Deleted');
+          refreshPrevRuns(false);
+          if (outputPaneWrap) {
+            outputPaneWrap.innerHTML = `
+              <div class="card" id="outputPane" style="background:transparent;border:none;padding:0;">
+                <div class="card-head">
+                  <div>
+                    <div class="card-title">Job Output</div>
+                    <div class="muted">Select a run to view outputs.</div>
+                  </div>
+                </div>
+              </div>`;
+          }
+        })
+        .catch(() => showToast('Delete failed'));
+    }
   });
 
   window.addEventListener('beforeunload', closeStatusStream);
