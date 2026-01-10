@@ -3,6 +3,8 @@ import mimetypes
 import re
 import shutil
 import json
+import base64
+import hashlib
 from urllib.parse import quote
 from pathlib import Path
 from datetime import datetime
@@ -259,7 +261,7 @@ async def master_prev(request: Request):
     )
 
 
-def _list_mastering_runs(only_mp3: bool, q: str, limit: int) -> list[dict]:
+def _list_mastering_runs(only_mp3: bool, q: str, limit: int, context: str = "") -> list[dict]:
     if not MASTER_OUT_DIR.exists():
         return []
     items = []
@@ -273,6 +275,14 @@ def _list_mastering_runs(only_mp3: bool, q: str, limit: int) -> list[dict]:
         rep = _pick_representation_file(d)
         title = _base_title(rep.stem) if rep else d.name
         badges = _parse_variant_tags(rep.name) if rep else []
+        action = None
+        clickable = True
+        if context in ("", "mastering"):
+            action = {
+                "hx_get": f"/ui/partials/master_output?song={quote(d.name)}",
+                "hx_target": "#outputPaneWrap",
+                "hx_swap": "innerHTML",
+            }
         items.append(
             {
                 "id": d.name,
@@ -280,11 +290,8 @@ def _list_mastering_runs(only_mp3: bool, q: str, limit: int) -> list[dict]:
                 "subtitle": "Mastering Run",
                 "kind": "mastering_run",
                 "badges": badges,
-                "action": {
-                    "hx_get": f"/ui/partials/master_output?song={quote(d.name)}",
-                    "hx_target": "#outputPaneWrap",
-                    "hx_swap": "innerHTML",
-                },
+                "action": action,
+                "clickable": clickable,
                 "mtime": d.stat().st_mtime if d.exists() else 0,
             }
         )
@@ -295,25 +302,56 @@ def _list_mastering_runs(only_mp3: bool, q: str, limit: int) -> list[dict]:
     return items[:limit]
 
 
-def _list_tagging_mp3(q: str, limit: int) -> list[dict]:
-    if not TAG_IN_DIR.exists():
-        return []
+def _make_tagger_id(root_key: str, relpath: str, size: int, mtime: float) -> str:
+    raw = f"{root_key}:{relpath}:{size}:{mtime}".encode("utf-8")
+    digest = hashlib.sha256(raw).digest()
+    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+
+
+def _list_tagging_mp3(q: str, limit: int, context: str = "", scope: str = "tag") -> list[dict]:
+    scope = (scope or "tag").lower()
+    if scope not in {"tag", "out", "all"}:
+        scope = "tag"
+    roots: list[tuple[str, Path]] = []
+    if scope in {"tag", "all"}:
+        roots.append(("tag", TAG_IN_DIR))
+    if scope in {"out", "all"}:
+        roots.append(("out", MASTER_OUT_DIR))
     items = []
-    for fp in sorted(TAG_IN_DIR.rglob("*.mp3"), key=lambda p: p.name.lower()):
-        if not fp.is_file():
+    for root_key, root_dir in roots:
+        if not root_dir.exists():
             continue
-        rel = str(fp.relative_to(TAG_IN_DIR))
-        title = fp.stem
-        items.append(
-            {
-                "id": rel,
-                "title": title,
-                "subtitle": "MP3",
-                "kind": "mp3",
-                "badges": [],
-                "action": None,
-            }
-        )
+        for fp in sorted(root_dir.rglob("*.mp3"), key=lambda p: p.name.lower()):
+            if not fp.is_file():
+                continue
+            rel = str(fp.relative_to(root_dir))
+            stat = fp.stat()
+            tagger_id = _make_tagger_id(root_key, rel, stat.st_size, stat.st_mtime)
+            title = _base_title(fp.stem)
+            if title:
+                title = title.replace("_", " ").strip() or title
+            badges = _parse_variant_tags(fp.name)
+            if not badges:
+                label = "Mastered" if root_key == "out" else "Imported"
+                badges = [{"key": "format", "label": label, "title": label}]
+            subtitle = "Mastered MP3" if root_key == "out" else "Imported MP3"
+            items.append(
+                {
+                    "id": tagger_id,
+                    "title": title,
+                    "subtitle": subtitle,
+                    "kind": "mp3",
+                    "badges": badges,
+                    "action": None,
+                    "clickable": context == "tagging",
+                    "meta": {
+                        "root": root_key,
+                        "basename": fp.name,
+                        "relpath": rel,
+                        "full_name": rel,
+                    },
+                }
+            )
     if q:
         ql = q.lower()
         items = [i for i in items if ql in i["title"].lower()]
@@ -323,18 +361,20 @@ def _list_tagging_mp3(q: str, limit: int) -> list[dict]:
 @router.get("/partials/library_list", response_class=HTMLResponse)
 async def library_list(request: Request, view: str, q: str = "", limit: int = 200):
     view = (view or "").strip().lower()
+    context = (request.query_params.get("context") or "").strip().lower()
+    scope = (request.query_params.get("scope") or "").strip().lower()
     limit = max(1, min(limit, 1000))
     items: list[dict] = []
 
     if view == "mastering_runs":
-        items = _list_mastering_runs(False, q, limit)
+        items = _list_mastering_runs(False, q, limit, context)
     elif view == "mastering_runs_with_mp3":
-        items = _list_mastering_runs(True, q, limit)
+        items = _list_mastering_runs(True, q, limit, context)
     elif view == "tagging_mp3":
-        items = _list_tagging_mp3(q, limit)
+        items = _list_tagging_mp3(q, limit, context, scope)
     elif view == "analysis_combo":
-        runs = _list_mastering_runs(False, q, limit)
-        mp3s = _list_tagging_mp3(q, limit)
+        runs = _list_mastering_runs(False, q, limit, context)
+        mp3s = _list_tagging_mp3(q, limit, context, "all")
         items = (runs + mp3s)[:limit]
     else:
         raise HTTPException(status_code=400, detail="invalid_view")

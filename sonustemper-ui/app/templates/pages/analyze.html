@@ -12,9 +12,8 @@
     </div>
     {% set browser_id = "analyzeBrowser" %}
     {% set sections = [
-      {"key": "sources", "title": "Sources"},
-      {"key": "runs", "title": "Job Runs"},
-      {"key": "imports", "title": "Imported"}
+      {"key": "mastering_runs", "title": "Mastering Runs", "endpoint": "/ui/partials/library_list?view=mastering_runs&context=analyze"},
+      {"key": "tagging_mp3", "title": "Tagging MP3 Library", "endpoint": "/ui/partials/library_list?view=tagging_mp3&context=analyze"}
     ] %}
     {% include "ui/partials/file_browser.html" %}
   </div>
@@ -73,9 +72,7 @@
 
 {% block extra_js %}
 <script src="/ui/static/js/wavesurfer.min.js"></script>
-<script type="module">
-import { createFileBrowser } from "/ui/static/js/components/fileBrowser.js";
-
+<script>
 (() => {
   const uploadBtn = document.getElementById('analyzeUploadBtn');
   const uploadInput = document.getElementById('analyzeUploadInput');
@@ -97,12 +94,7 @@ import { createFileBrowser } from "/ui/static/js/components/fileBrowser.js";
   let processedWave = null;
   let syncing = false;
   let selectedItem = null;
-  let fileBrowser = null;
-  const sections = [
-    { key: 'sources', title: 'Sources', endpoint: '/api/analyze-sources', kind: 'source' },
-    { key: 'runs', title: 'Job Runs', endpoint: '/api/analyze-runs', kind: 'run' },
-    { key: 'imports', title: 'Imported', endpoint: '/api/analyze-imports', kind: 'import' },
-  ];
+  const analyzeBrowser = document.getElementById('analyzeBrowser');
 
   const metricLabels = [
     { key: 'I', label: 'LUFS-I', suffix: ' LUFS' },
@@ -304,23 +296,22 @@ import { createFileBrowser } from "/ui/static/js/components/fileBrowser.js";
     return res.json();
   }
 
-  async function selectAndLoad(item, shouldPush){
+  function setActiveItem(node){
+    if (!analyzeBrowser) return;
+    analyzeBrowser.querySelectorAll('.browser-item.active').forEach(el => el.classList.remove('active'));
+    if (node) node.classList.add('active');
+  }
+
+  async function selectAndLoad(item, node, shouldPush){
     if (!item) return;
-    if (item.kind === 'run' && !item.rel && item.out) {
-      item.rel = item.out;
-    }
     selectedItem = item;
-    if (fileBrowser) {
-      fileBrowser.setSelected(item);
-      fileBrowser.highlight();
-    }
+    setActiveItem(node);
     try {
-      if (item.kind === 'run') {
+      if (item.kind === 'mastering_run') {
         const params = new URLSearchParams();
-        params.set('song', item.runId || '');
-        if (item.out) params.set('out', item.out);
+        params.set('song', item.song || item.id || '');
         if (shouldPush) updateUrl(params);
-        const data = await resolveRun(item.runId, item.out || '');
+        const data = await resolveRun(item.song || item.id, '');
         await applyData(data);
       } else if (item.kind === 'source' || item.kind === 'import') {
         const params = new URLSearchParams();
@@ -361,14 +352,8 @@ import { createFileBrowser } from "/ui/static/js/components/fileBrowser.js";
         };
         await applyData(payload);
         if (data.rel) {
-          const item = { kind: 'import', label: data.source_name || data.rel, rel: data.rel };
+          const item = { kind: 'import', rel: data.rel };
           selectedItem = item;
-          if (fileBrowser) {
-            fileBrowser.setSelected(item);
-            fileBrowser.highlight();
-            const impSection = sections.find((section) => section.key === 'imports');
-            if (impSection) fileBrowser.reloadSection(impSection);
-          }
           const params = new URLSearchParams();
           params.set('imp', data.rel);
           updateUrl(params);
@@ -408,28 +393,40 @@ import { createFileBrowser } from "/ui/static/js/components/fileBrowser.js";
     });
   }
 
-  fileBrowser = createFileBrowser({
-    mountId: 'analyzeBrowser',
-    sections,
-    getSelected: () => selectedItem,
-    setSelected: (item) => { selectedItem = item; },
-    onSelect: (item) => selectAndLoad(item, true),
-  });
-
   const params = new URLSearchParams(window.location.search);
   const song = params.get('song');
-  const out = params.get('out');
   const src = params.get('src');
   const imp = params.get('imp');
   if (song) {
-    selectedItem = { kind: 'run', runId: song, out: out || '', rel: out || '' };
-    selectAndLoad(selectedItem, false);
+    selectedItem = { kind: 'mastering_run', id: song, song };
+    selectAndLoad(selectedItem, null, false);
   } else if (src) {
     selectedItem = { kind: 'source', rel: src };
-    selectAndLoad(selectedItem, false);
+    selectAndLoad(selectedItem, null, false);
   } else if (imp) {
     selectedItem = { kind: 'import', rel: imp };
-    selectAndLoad(selectedItem, false);
+    selectAndLoad(selectedItem, null, false);
+  }
+
+  if (analyzeBrowser) {
+    analyzeBrowser.addEventListener('click', (evt) => {
+      const itemNode = evt.target.closest('.browser-item');
+      if (!itemNode || itemNode.disabled) return;
+      const kind = itemNode.dataset.kind || '';
+      const id = itemNode.dataset.id || '';
+      if (kind !== 'mastering_run') return;
+      evt.preventDefault();
+      evt.stopPropagation();
+      const item = { kind, id, song: id };
+      selectAndLoad(item, itemNode, true);
+    });
+    document.addEventListener('htmx:afterSwap', (evt) => {
+      if (!analyzeBrowser.contains(evt.target)) return;
+      const current = new URLSearchParams(window.location.search).get('song');
+      if (!current) return;
+      const node = analyzeBrowser.querySelector(`.browser-item[data-song="${current}"]`);
+      if (node) setActiveItem(node);
+    });
   }
 })();
 </script>

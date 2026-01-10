@@ -9,6 +9,8 @@
                 data-browser-item
                 data-title="{{ item.title|lower }}"
                 data-kind="{{ item.kind }}"
+                data-id="{{ item.id }}"
+                {% if item.meta %}data-meta='{{ item.meta|tojson }}'{% endif %}
                 {% if is_run %}data-song="{{ item.id }}"{% endif %}
                 hx-get="{{ item.action.hx_get }}"
                 hx-target="{{ item.action.hx_target }}"
@@ -18,11 +20,13 @@
           <div class="badge-row" data-badges='{{ item.badges|tojson }}'></div>
         </button>
       {% else %}
-        <button class="btn ghost browser-item disabled"
+        <button class="btn ghost browser-item{% if not item.clickable %} disabled{% endif %}"
                 data-browser-item
                 data-title="{{ item.title|lower }}"
                 data-kind="{{ item.kind }}"
-                disabled>
+                data-id="{{ item.id }}"
+                {% if item.meta %}data-meta='{{ item.meta|tojson }}'{% endif %}
+                {% if not item.clickable %}disabled{% endif %}>
           <div class="browser-item-title">{{ item.title }}</div>
           {% if item.subtitle %}<div class="browser-item-subtitle">{{ item.subtitle }}</div>{% endif %}
           <div class="badge-row" data-badges='{{ item.badges|tojson }}'></div>

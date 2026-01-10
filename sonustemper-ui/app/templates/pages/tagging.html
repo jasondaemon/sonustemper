@@ -1,10 +1,143 @@
 {% extends "base.html" %}
 {% block page_title %}Tagging | SonusTemper{% endblock %}
 {% block title %}Tagging{% endblock %}
-{% block subtitle %}Edit tags and artwork (new UI coming soon).{% endblock %}
-{% block content %}
-  <div class="card">
-    <div class="card-title">Tagging</div>
-    <div class="muted">Tag editor will be available here. For now, continue using the legacy Tag Editor at <a href="/tagger">/tagger</a>.</div>
+{% block subtitle %}Edit ID3 tags for mastered and imported MP3s.{% endblock %}
+
+{% block sidebar %}
+  <div class="card tagging-sidebar">
+    <div class="card-head">
+      <div>
+        <div class="card-title">Library</div>
+        <div class="muted">Browse mastered and imported MP3s.</div>
+      </div>
+    </div>
+    <div class="tagging-scope" id="tagScopeBtns">
+      <button class="btn small ghost active" type="button" data-scope="out">Mastered</button>
+      <button class="btn small ghost" type="button" data-scope="tag">Imported</button>
+      <button class="btn small ghost" type="button" data-scope="all">All</button>
+    </div>
+    <div class="tagging-browser">
+      {% set browser_id = "taggingBrowser" %}
+      {% set sections = [
+        {"key": "mastered", "title": "Mastered MP3s", "endpoint": "/ui/partials/library_list?view=tagging_mp3&scope=out&context=tagging"},
+        {"key": "imported", "title": "Imported MP3s", "endpoint": "/ui/partials/library_list?view=tagging_mp3&scope=tag&context=tagging"}
+      ] %}
+      {% include "ui/partials/file_browser.html" %}
+    </div>
+    <div class="tagging-sidebar-footer">
+      <div class="muted" id="tagSelectedCount">0 selected</div>
+      <div class="tagging-actions">
+        <input type="file" id="tagImportFile" accept=".mp3" style="display:none;">
+        <button class="btn small" type="button" id="tagImportBtn">Import MP3</button>
+        <button class="btn small ghost" type="button" id="tagSelectAllBtn">Add All (filtered)</button>
+      </div>
+      <div class="muted" id="tagImportStatus"></div>
+    </div>
   </div>
+{% endblock %}
+
+{% block content %}
+  <div id="taggingPage" class="tagging-grid">
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">Working Set</div>
+          <div class="muted">Order = track order</div>
+        </div>
+        <button class="btn small ghost" type="button" id="tagClearSelBtn">Clear Working Set</button>
+      </div>
+      <div id="workingList" class="tag-list"></div>
+    </div>
+
+    <div class="card tag-editor-card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">Editor</div>
+          <div class="muted">Album metadata + per-track tags.</div>
+        </div>
+        <div class="muted" id="tagSaveStatus"></div>
+      </div>
+      <div class="tag-editor-body">
+        <div id="tagAlbumEmpty" class="muted">Add files to edit tags.</div>
+        <div id="tagAlbumForm" class="tag-album" style="display:none;">
+          <div class="tag-section-title">Album Details</div>
+          <div class="tag-field-grid">
+            <div>
+              <label>Album</label>
+              <input type="text" id="albAlbum">
+            </div>
+            <div>
+              <label>Album Artist</label>
+              <input type="text" id="albAlbumArtist">
+            </div>
+            <div>
+              <label>Default Artist</label>
+              <input type="text" id="albArtist">
+            </div>
+            <div>
+              <label>Year</label>
+              <input type="text" id="albYear">
+            </div>
+            <div>
+              <label>Genre</label>
+              <input type="text" id="albGenre">
+            </div>
+            <div>
+              <label>Disc</label>
+              <input type="text" id="albDisc" placeholder="e.g., 1/1">
+            </div>
+          </div>
+          <div>
+            <label>Comment</label>
+            <input type="text" id="albComment">
+          </div>
+
+          <div class="tag-art-box">
+            <div class="tag-art-info">
+              <div class="tag-art-meta">
+                <div>Artwork: <span id="albArtStatus">Unknown</span></div>
+                <input type="file" id="albArtFile" accept=".png,.jpg,.jpeg" style="display:none;">
+                <button class="btn small ghost" type="button" id="albArtUploadBtn">Upload Artwork...</button>
+                <div class="muted" id="albArtInfo"></div>
+                <div class="muted" id="albArtNone">No artwork</div>
+              </div>
+              <div class="tag-art-thumb" id="albArtThumb" style="display:none;">
+                <img id="albArtImg" alt="Artwork preview">
+                <button class="tag-art-clear" type="button" id="albArtClearBtn">X</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="tag-section-row">
+            <div class="tag-section-title">Tracks</div>
+            <button class="btn small ghost" type="button" id="albAutoNumberBtn">Auto-number</button>
+          </div>
+          <div id="albTableWrap" class="tag-table-wrap">
+            <table class="tag-table">
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>Track</th>
+                  <th>Title</th>
+                  <th>Artist</th>
+                  <th>Filename</th>
+                </tr>
+              </thead>
+              <tbody id="albTableBody"></tbody>
+            </table>
+          </div>
+
+          <div class="tag-actions-row">
+            <button class="btn btn-primary" type="button" id="albApplyBtn">Save</button>
+            <button class="btn small ghost" type="button" id="albDownloadBtn">Download Zip</button>
+          </div>
+          <div class="muted" id="albStatus"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block extra_js %}
+  <script defer src="/ui/static/js/tagging.js"></script>
 {% endblock %}
