@@ -35,46 +35,32 @@
         <div class="muted hx-indicator" id="jobIndicator">Working…</div>
       </div>
       <form id="masterForm">
-        <div class="pipeWrap">
-          <div class="pipeSection">
-            <div class="pipeHeader">
-              <span>Inputs</span>
-            </div>
-            <div class="pipeBody">
-              <div class="form-row">
-                <label>Input file</label>
-                <select id="infileSelect" required>
-                  <option value="">Loading…</option>
-                </select>
+        <div class="master-stages">
+          <div class="stage-card input-stage">
+            <div class="stage-head">
+              <div class="stage-title">Input</div>
+              <div class="stage-actions">
+                <input type="file" id="inputUpload" accept=".wav,.mp3,.flac,.aiff,.aif,.m4a,.ogg,.aac" multiple hidden>
+                <button type="button" class="btn ghost small" id="uploadBtn">Upload</button>
               </div>
+            </div>
+            <div class="input-list" id="inputList">
+              <div class="input-empty muted">Loading…</div>
             </div>
           </div>
 
-          <div class="pipeSection">
-            <div class="pipeHeader">
-              <span>Analyze</span>
-            </div>
-            <div class="pipeBody">
-              <div class="form-row">
-                <label class="inline"><input type="checkbox" id="stage_analyze" checked> Enable analysis (metrics)</label>
-              </div>
-            </div>
-          </div>
-
-          <div class="pipeSection">
-            <div class="pipeHeader">
-              <span>Voicings and User Presets</span>
-            </div>
-            <div class="pipeBody">
-              <div class="form-row">
-                <label>Voicing / Preset</label>
+          <div class="stage-row">
+            <div class="stage-card">
+              <div class="stage-title">Voicing</div>
+              <div class="control-row">
+                <div class="control-label">Mode</div>
                 <div class="pill-row">
                   <label><input type="radio" name="voicing_mode" value="voicing" id="mode_voicing" checked> Voicing</label>
                   <label><input type="radio" name="voicing_mode" value="presets" id="mode_presets"> Preset</label>
                 </div>
               </div>
-              <div class="form-row" id="voicingRow">
-                <label>Voicing</label>
+              <div class="control-row" id="voicingRow">
+                <div class="control-label">Voicing</div>
                 <select id="voicingSelect">
                   <option value="universal">Universal</option>
                   <option value="airlift">Airlift</option>
@@ -86,27 +72,36 @@
                   <option value="punch">Punch</option>
                 </select>
               </div>
-              <div class="form-row hidden" id="presetRow">
-                <label>Preset</label>
+              <div class="control-row hidden" id="presetRow">
+                <div class="control-label">Preset</div>
                 <select id="presetSelect">
                   <option value="">Loading presets…</option>
                 </select>
               </div>
-              <div class="form-row">
-                <label>Strength</label>
+              <div class="control-row">
+                <div class="control-label">Strength</div>
                 <input type="range" id="strength" min="0" max="100" value="80" oninput="document.getElementById('strengthVal').textContent=this.value;">
-                <div class="muted">S=<span id="strengthVal">80</span></div>
+                <div class="value-pill">S=<span id="strengthVal">80</span></div>
+              </div>
+              <div class="control-row">
+                <label class="control-label inline"><input type="checkbox" id="ov_width"> Override Stereo Width</label>
+                <input type="range" id="width" min="0.5" max="1.5" step="0.01" value="1.0" oninput="document.getElementById('widthVal').textContent=this.value;">
+                <div class="value-pill">Width=<span id="widthVal">1.0</span></div>
+              </div>
+              <div class="control-row">
+                <label class="control-label inline"><input type="checkbox" id="ov_mono_bass"> Mono Bass Below (Hz)</label>
+                <input type="range" id="mono_bass" min="60" max="200" step="1" value="120" oninput="document.getElementById('monoBassVal').textContent=this.value;">
+                <div class="value-pill">Hz=<span id="monoBassVal">120</span></div>
+              </div>
+              <div class="control-row">
+                <label class="control-label inline"><input type="checkbox" id="guardrails" checked> Enable guardrails</label>
               </div>
             </div>
-          </div>
 
-          <div class="pipeSection">
-            <div class="pipeHeader">
-              <span>Loudness</span>
-            </div>
-            <div class="pipeBody">
-              <div class="form-row">
-                <label>Loudness Mode</label>
+            <div class="stage-card">
+              <div class="stage-title">Profile</div>
+              <div class="control-row">
+                <div class="control-label">Profile</div>
                 <select id="loudnessMode">
                   <option value="apple" selected>Apple Music (-16, -1)</option>
                   <option value="spotify">Spotify (-14, -1)</option>
@@ -114,120 +109,100 @@
                   <option value="manual">Manual</option>
                 </select>
               </div>
-              <div class="form-row inline">
-                <label><input type="checkbox" id="ov_target_I" checked disabled> Target LUFS</label>
+              <div class="control-subtitle">Overrides</div>
+              <div class="control-row">
+                <label class="control-label inline"><input type="checkbox" id="ov_target_I" checked disabled> Loudness</label>
                 <input type="number" step="0.1" id="target_I" value="-16.0">
+                <div class="value-pill">LUFS</div>
               </div>
-              <div class="form-row inline">
-                <label><input type="checkbox" id="ov_target_TP" checked disabled> True Peak</label>
+              <div class="control-row">
+                <label class="control-label inline"><input type="checkbox" id="ov_target_TP" checked disabled> True Peak</label>
                 <input type="number" step="0.1" id="target_TP" value="-1.0">
+                <div class="value-pill">dBTP</div>
+              </div>
+              <div class="control-row">
+                <label class="control-label inline"><input type="checkbox" id="stage_analyze" checked> Enable analysis (metrics)</label>
               </div>
             </div>
           </div>
 
-          <div class="pipeSection">
-            <div class="pipeHeader">
-              <span>Stereo &amp; Tone</span>
-            </div>
-            <div class="pipeBody">
-              <div class="form-row">
-                <label class="inline"><input type="checkbox" id="ov_width"> Override Stereo Width</label>
-                <input type="range" id="width" min="0.5" max="1.5" step="0.01" value="1.0" oninput="document.getElementById('widthVal').textContent=this.value;">
-                <div class="muted">Width=<span id="widthVal">1.0</span></div>
-              </div>
-              <div class="form-row inline">
-                <label><input type="checkbox" id="ov_mono_bass"> Mono Bass Below (Hz)</label>
-                <input type="number" id="mono_bass" min="60" max="200" step="1" value="120">
-              </div>
-              <div class="form-row inline">
-                <label><input type="checkbox" id="guardrails" checked> Enable guardrails</label>
+          <div class="stage-card">
+            <div class="stage-title">Output</div>
+            <div class="format-row">
+              <label class="format-label"><input type="checkbox" id="out_wav" checked> WAV</label>
+              <div class="format-options">
+                <select id="wav_bit_depth">
+                  <option value="24">24-bit</option>
+                  <option value="16">16-bit</option>
+                </select>
+                <select id="wav_sample_rate">
+                  <option value="48000">48 kHz</option>
+                  <option value="44100">44.1 kHz</option>
+                </select>
               </div>
             </div>
-          </div>
-
-          <div class="pipeSection">
-            <div class="pipeHeader">
-              <span>Output</span>
-            </div>
-            <div class="pipeBody">
-              <div class="form-row">
-                <label>Outputs</label>
-                <div class="output-grid">
-                  <label><input type="checkbox" id="out_wav" checked> WAV</label>
-                  <label><input type="checkbox" id="out_mp3" checked> MP3</label>
-                  <label><input type="checkbox" id="out_aac"> AAC/M4A</label>
-                  <label><input type="checkbox" id="out_ogg"> OGG</label>
-                  <label><input type="checkbox" id="out_flac"> FLAC</label>
-                </div>
+            <div class="format-row">
+              <label class="format-label"><input type="checkbox" id="out_mp3" checked> MP3</label>
+              <div class="format-options">
+                <select id="mp3_bitrate">
+                  <option value="320">320 kbps</option>
+                  <option value="256">256 kbps</option>
+                  <option value="192">192 kbps</option>
+                  <option value="128">128 kbps</option>
+                </select>
+                <select id="mp3_vbr">
+                  <option value="none">None (CBR)</option>
+                  <option value="V0">V0</option>
+                  <option value="V2">V2</option>
+                </select>
               </div>
-              <div class="form-row output-options">
-                <div>
-                  <div class="muted">WAV</div>
-                  <select id="wav_bit_depth">
-                    <option value="24">24-bit</option>
-                    <option value="16">16-bit</option>
-                  </select>
-                  <select id="wav_sample_rate">
-                    <option value="48000">48 kHz</option>
-                    <option value="44100">44.1 kHz</option>
-                  </select>
-                </div>
-                <div>
-                  <div class="muted">MP3</div>
-                  <select id="mp3_bitrate">
-                    <option value="320">320 kbps</option>
-                    <option value="256">256 kbps</option>
-                    <option value="192">192 kbps</option>
-                    <option value="128">128 kbps</option>
-                  </select>
-                  <select id="mp3_vbr">
-                    <option value="none">None (CBR)</option>
-                    <option value="V0">V0</option>
-                    <option value="V2">V2</option>
-                  </select>
-                </div>
-                <div>
-                  <div class="muted">AAC/M4A</div>
-                  <select id="aac_codec">
-                    <option value="aac">AAC (native)</option>
-                    <option value="aac">AAC (faac)</option>
-                  </select>
-                  <select id="aac_container">
-                    <option value="m4a">M4A</option>
-                    <option value="aac">AAC</option>
-                  </select>
-                  <select id="aac_bitrate">
-                    <option value="256">256 kbps</option>
-                    <option value="192">192 kbps</option>
-                    <option value="128">128 kbps</option>
-                  </select>
-                </div>
-                <div>
-                  <div class="muted">OGG</div>
-                  <select id="ogg_quality">
-                    <option value="5">Q5 (~160 kbps)</option>
-                    <option value="4">Q4</option>
-                    <option value="6">Q6</option>
-                  </select>
-                </div>
-                <div>
-                  <div class="muted">FLAC</div>
-                  <select id="flac_level">
-                    <option value="5">Level 5</option>
-                    <option value="8">Level 8</option>
-                    <option value="1">Level 1</option>
-                  </select>
-                  <select id="flac_bit_depth">
-                    <option value="">Auto bit depth</option>
-                    <option value="24">24-bit</option>
-                    <option value="16">16-bit</option>
-                  </select>
-                  <select id="flac_sample_rate">
-                    <option value="">Auto rate</option>
-                    <option value="48000">48 kHz</option>
-                    <option value="44100">44.1 kHz</option>
-                  </select>
-                </div>
+            </div>
+            <div class="format-row">
+              <label class="format-label"><input type="checkbox" id="out_aac"> AAC/M4A</label>
+              <div class="format-options">
+                <select id="aac_codec">
+                  <option value="aac">AAC (native)</option>
+                  <option value="aac">AAC (faac)</option>
+                </select>
+                <select id="aac_container">
+                  <option value="m4a">M4A</option>
+                  <option value="aac">AAC</option>
+                </select>
+                <select id="aac_bitrate">
+                  <option value="256">256 kbps</option>
+                  <option value="192">192 kbps</option>
+                  <option value="128">128 kbps</option>
+                </select>
+              </div>
+            </div>
+            <div class="format-row">
+              <label class="format-label"><input type="checkbox" id="out_ogg"> OGG</label>
+              <div class="format-options">
+                <select id="ogg_quality">
+                  <option value="5">Q5 (~160 kbps)</option>
+                  <option value="4">Q4</option>
+                  <option value="6">Q6</option>
+                </select>
+              </div>
+            </div>
+            <div class="format-row">
+              <label class="format-label"><input type="checkbox" id="out_flac"> FLAC</label>
+              <div class="format-options">
+                <select id="flac_level">
+                  <option value="5">Level 5</option>
+                  <option value="8">Level 8</option>
+                  <option value="1">Level 1</option>
+                </select>
+                <select id="flac_bit_depth">
+                  <option value="">Auto bit depth</option>
+                  <option value="24">24-bit</option>
+                  <option value="16">16-bit</option>
+                </select>
+                <select id="flac_sample_rate">
+                  <option value="">Auto rate</option>
+                  <option value="48000">48 kHz</option>
+                  <option value="44100">44.1 kHz</option>
+                </select>
               </div>
             </div>
           </div>
@@ -349,20 +324,35 @@
     try{
       const res = await fetch('/api/files',{cache:'no-store'});
       const data = await res.json();
-      const sel = document.getElementById('infileSelect');
+      const list = document.getElementById('inputList');
       const presetSel = document.getElementById('presetSelect');
-      sel.innerHTML = '';
-      (data.files || []).forEach(f=>{
-        const opt = document.createElement('option');
-        opt.value = f;
-        opt.textContent = f;
-        sel.appendChild(opt);
-      });
-      if(sel.options.length===0){
-        const opt = document.createElement('option');
-        opt.value='';
-        opt.textContent='No source files found';
-        sel.appendChild(opt);
+      const prevSelected = new Set(
+        [...(list ? list.querySelectorAll('input[name="infiles"]:checked') : [])].map(cb => cb.value)
+      );
+      if (list) {
+        list.innerHTML = '';
+        const files = data.files || [];
+        if (!files.length) {
+          const empty = document.createElement('div');
+          empty.className = 'input-empty muted';
+          empty.textContent = 'No source files found';
+          list.appendChild(empty);
+        } else {
+          files.forEach((f, idx) => {
+            const item = document.createElement('label');
+            item.className = 'input-item';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.name = 'infiles';
+            cb.value = f;
+            cb.checked = prevSelected.has(f) || (!prevSelected.size && idx === 0);
+            const text = document.createElement('span');
+            text.textContent = f;
+            item.appendChild(cb);
+            item.appendChild(text);
+            list.appendChild(item);
+          });
+        }
       }
       presetSel.innerHTML = '';
       (data.presets || []).forEach(p=>{
@@ -383,6 +373,53 @@
     }
   }
   loadFiles();
+
+  const uploadBtn = document.getElementById('uploadBtn');
+  const uploadInput = document.getElementById('inputUpload');
+
+  function triggerUpload(){
+    if (uploadInput) uploadInput.click();
+  }
+
+  async function uploadFilesSequential(files){
+    for (let i = 0; i < files.length; i++){
+      const f = files[i];
+      const fd = new FormData();
+      fd.append('files', f, f.name);
+      const res = await fetch('/api/upload', { method: 'POST', body: fd });
+      if (!res.ok){
+        const msg = await res.text();
+        throw new Error(msg || `Upload failed: ${f.name}`);
+      }
+    }
+  }
+
+  if (uploadBtn && uploadInput){
+    uploadBtn.addEventListener('click', triggerUpload);
+    uploadBtn.addEventListener('keydown', (e)=>{
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        triggerUpload();
+      }
+    });
+  }
+
+  if (uploadInput){
+    uploadInput.addEventListener('change', async ()=>{
+      const files = [...(uploadInput.files || [])];
+      if (!files.length) return;
+      try{
+        showToast('Uploading…');
+        await uploadFilesSequential(files);
+        await loadFiles();
+        showToast('Upload complete');
+      }catch(err){
+        showToast('Upload failed');
+      }finally{
+        uploadInput.value = '';
+      }
+    });
+  }
 
   async function loadOutput(song){
     if(!song || !outputPaneWrap) return;
@@ -475,15 +512,20 @@
   document.getElementById('mode_presets').addEventListener('change', setModeUI);
   setModeUI();
 
+  function selectedInfiles(){
+    return [...document.querySelectorAll('#inputList input[name="infiles"]:checked')].map(cb => cb.value);
+  }
+
   function validateForm(){
-    const infile = document.getElementById('infileSelect')?.value || '';
+    const files = selectedInfiles();
     const mode = document.querySelector('input[name="voicing_mode"]:checked')?.value || 'voicing';
     const vo = document.getElementById('voicingSelect')?.value || '';
     const pr = document.getElementById('presetSelect')?.value || '';
-    const ok = infile && ((mode==='voicing' && vo) || (mode==='presets' && pr));
+    const ok = files.length && ((mode==='voicing' && vo) || (mode==='presets' && pr));
     if(runBtn) runBtn.disabled = !ok;
   }
-  document.getElementById('infileSelect').addEventListener('change', validateForm);
+  const inputList = document.getElementById('inputList');
+  if (inputList) inputList.addEventListener('change', validateForm);
   document.getElementById('voicingSelect').addEventListener('change', validateForm);
   document.getElementById('presetSelect').addEventListener('change', validateForm);
 
@@ -492,8 +534,8 @@
     setBusy(true);
 
     const fd = new FormData();
-    const infile = document.getElementById('infileSelect').value;
-    fd.append('infiles', infile);
+    const files = selectedInfiles();
+    fd.append('infiles', files.join(','));
     fd.append('strength', document.getElementById('strength').value || '80');
     // stages
     fd.append('stage_analyze', document.getElementById('stage_analyze').checked ? '1' : '0');
@@ -559,12 +601,15 @@
         let runId = null;
         try{
           const j = await res.json();
-          if(j && Array.isArray(j.run_ids) && j.run_ids.length){
+          if(j && j.primary_run_id){
+            runId = j.primary_run_id;
+          }else if(j && Array.isArray(j.run_ids) && j.run_ids.length){
             runId = j.run_ids[0];
           }
         }catch(_){ /* ignore */ }
         if(!runId){
-          runId = (infile || '').replace(/\.[^.]+$/, '') || infile;
+          const first = files[0] || '';
+          runId = first.replace(/\.[^.]+$/, '') || first;
         }
 
         setCurrentRun(runId);
