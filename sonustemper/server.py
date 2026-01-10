@@ -71,12 +71,14 @@ if UI_APP_DIR.exists():
         logger.info("[startup] new UI router loaded")
     except Exception as exc:
         logger.exception("[startup] new UI import failed: %s", exc)
+# Ensure local modules are importable when loading master_pack by path.
+if str(APP_DIR) not in sys.path:
+    sys.path.insert(0, str(APP_DIR))
 # Trusted proxy check via shared secret (raw)
 def is_trusted_proxy(mark: str) -> bool:
     return bool(mark) and bool(PROXY_SHARED_SECRET) and (mark == PROXY_SHARED_SECRET)
-# Deprecated: master.py retained only as a fallback reference; master_pack.py is the unified runner.
-_default_master = REPO_ROOT / "mastering" / "master.py"
-_default_pack = REPO_ROOT / "mastering" / "master_pack.py"
+# master_pack.py is the unified mastering script (handles single or multiple presets/files).
+_default_pack = REPO_ROOT / "sonustemper" / "master_pack.py"
 # Use master_pack.py as the unified mastering script (handles single or multiple presets/files)
 MASTER_SCRIPT = Path(os.getenv("MASTER_SCRIPT", str(_default_pack)))
 app = FastAPI()

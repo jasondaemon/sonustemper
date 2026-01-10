@@ -5,7 +5,7 @@ Use this as the starting prompt when opening a new session so the assistant has 
 ## What this project is
 - SonusTemper: single-page FastAPI UI + FFmpeg mastering pipeline. Users pick a voicing or user preset, configure loudness/stereo/tone, export multiple formats, and view metrics/provenance.
 - Key files:
-  - `mastering/master_pack.py` – processing, variant naming, metrics/provenance, output encoding, presets/voicings, loudness pipeline.
+  - `sonustemper/master_pack.py` – processing, variant naming, metrics/provenance, output encoding, presets/voicings, loudness pipeline.
   - `sonustemper/server.py` – FastAPI app entrypoint (API routes, SSE, auth).
   - `sonustemper-ui/app/ui.py` – new Jinja2/HTMX UI router.
   - `README.md` – end-user how-to and capabilities.

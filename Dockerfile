@@ -21,7 +21,6 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY sonustemper/ /app/sonustemper/
 COPY sonustemper-ui/app/ /app/sonustemper-ui/app/
-COPY mastering /app/mastering
 
 ENV DATA_DIR=/data \
     MASTER_IN_DIR=/data/mastering/in \
