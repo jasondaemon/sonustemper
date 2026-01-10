@@ -5,7 +5,7 @@
       <div class="muted">{% if song %}Rendered files for this run.{% else %}Select a run to view outputs.{% endif %}</div>
     </div>
     {% if song %}
-    <button class="btn danger small" data-action="delete-run" data-song="{{ song }}">Delete Song</button>
+    <button class="btn danger small" data-action="delete-run" data-song="{{ song }}">Remove Job</button>
     {% endif %}
   </div>
   {% if items|length == 0 %}
@@ -14,29 +14,30 @@
     <div class="output-list">
       {% for item in items %}
       <div class="card" style="margin-bottom:12px;">
-        <div class="card-head">
-          <div>
-            <div class="card-title">{{ item.display_title or item.name }}</div>
-            <div class="muted">Download:</div>
+        <div class="output-head">
+          <div class="output-title">{{ item.display_title or item.name }}</div>
+          {% if item.badges and item.badges|length %}
+          <div class="badge-row">
+            {% for b in item.badges %}
+              <span class="badge badge-{{ b.type|default('format') }}" title="{{ b.title|default('') }}">{{ b.label }}</span>
+            {% endfor %}
           </div>
+          {% endif %}
           <div class="pill-row">
             {% for d in item.downloads %}
               <a class="btn ghost small" href="{{ d.url }}" target="_blank">{{ d.label }}</a>
             {% endfor %}
+            <button class="btn danger small" data-action="delete-output" data-song="{{ song }}" data-stem="{{ item.name }}">Delete</button>
           </div>
         </div>
-        {% if item.badges and item.badges|length %}
-        <div class="badge-row">
-          {% for b in item.badges %}
-            <span class="badge badge-{{ b.type|default('format') }}" title="{{ b.title|default('') }}">{{ b.label }}</span>
-          {% endfor %}
-        </div>
-        {% endif %}
         {% if item.primary %}
         <audio controls style="width:100%;">
           <source src="{{ item.primary }}">
         </audio>
         {% endif %}
+        <div class="output-toolbar">
+          <button class="btn ghost small" data-action="analyze-output" data-song="{{ song }}" data-stem="{{ item.name }}">Analyze</button>
+        </div>
         {% if item.metric_pills and item.metric_pills|length %}
         <div class="metric-pills">
           {% for metric in item.metric_pills %}

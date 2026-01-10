@@ -839,6 +839,20 @@
         })
         .catch(() => showToast('Delete failed'));
     }
+    const deleteOutput = evt.target.closest && evt.target.closest('[data-action="delete-output"]');
+    if(deleteOutput && deleteOutput.dataset){
+      const song = deleteOutput.dataset.song;
+      const stem = deleteOutput.dataset.stem;
+      if(!song || !stem) return;
+      if(!confirm(`Delete ${stem}?`)) return;
+      fetch(`/api/output/${encodeURIComponent(song)}/${encodeURIComponent(stem)}`, { method:'DELETE' })
+        .then(res => {
+          if(!res.ok) throw new Error('delete failed');
+          showToast('Deleted');
+          loadOutput(song);
+        })
+        .catch(() => showToast('Delete failed'));
+    }
   });
 
   window.addEventListener('beforeunload', closeStatusStream);

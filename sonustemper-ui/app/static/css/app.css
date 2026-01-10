@@ -172,6 +172,23 @@ h1{margin:0;font-size:24px;}
   gap:6px;
   margin-top:10px;
 }
+.output-head{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex-wrap:wrap;
+  margin-bottom:8px;
+}
+.output-title{
+  font-weight:700;
+  min-width:0;
+}
+.output-head .badge-row{
+  margin-top:0;
+}
+.output-toolbar{
+  margin-top:8px;
+}
 .metric-pill{
   display:inline-flex;
   align-items:center;
