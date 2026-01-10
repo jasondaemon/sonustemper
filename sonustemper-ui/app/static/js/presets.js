@@ -6,6 +6,8 @@
   const referenceFile = document.getElementById('referenceFile');
   const referenceName = document.getElementById('referenceName');
   const referenceStatus = document.getElementById('referenceStatus');
+  const referenceCreateVoicing = document.getElementById('referenceCreateVoicing');
+  const referenceCreateProfile = document.getElementById('referenceCreateProfile');
 
   const presetJsonFile = document.getElementById('presetJsonFile');
   const presetJsonName = document.getElementById('presetJsonName');
@@ -146,20 +148,21 @@
     return (name || '').trim();
   }
 
-  async function handleGenerate(e){
-    e.preventDefault();
+  async function handleGenerate(kind){
     const file = referenceFile?.files?.[0];
     if(!file){
       setStatus(referenceStatus, 'Select an audio file.');
       return;
     }
+    const targetKind = kind === 'voicing' ? 'voicing' : 'profile';
     const override = slugifyName(referenceName?.value || '');
     const ext = file.name.includes('.') ? file.name.slice(file.name.lastIndexOf('.')) : '';
-    const base = override || file.name.replace(ext, '');
+    const base = override || `${file.name.replace(ext, '')}-${targetKind}`;
     const filename = `${base}${ext}`;
     const sendFile = new File([file], filename, { type: file.type });
     const fd = new FormData();
     fd.append('file', sendFile, sendFile.name);
+    fd.append('kind', targetKind);
     setStatus(referenceStatus, 'Uploading...');
     try{
       const res = await fetch('/api/preset/generate', { method: 'POST', body: fd });
@@ -289,7 +292,9 @@
   }
 
   document.addEventListener('DOMContentLoaded', ()=>{
-    if(referenceForm) referenceForm.addEventListener('submit', handleGenerate);
+    if(referenceForm) referenceForm.addEventListener('submit', (e)=>{ e.preventDefault(); });
+    if(referenceCreateVoicing) referenceCreateVoicing.addEventListener('click', ()=> handleGenerate('voicing'));
+    if(referenceCreateProfile) referenceCreateProfile.addEventListener('click', ()=> handleGenerate('profile'));
     if(uploadPresetJsonBtn) uploadPresetJsonBtn.addEventListener('click', handleUploadJson);
     if(downloadBtn) downloadBtn.addEventListener('click', downloadPreset);
     if(duplicateBtn) duplicateBtn.addEventListener('click', duplicatePreset);

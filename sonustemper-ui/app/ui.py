@@ -742,7 +742,8 @@ def _list_presets(kind: str, q: str, limit: int, context: str = "", meta_kind: s
             if meta_kind and effective_kind != meta_kind:
                 continue
             title = (meta.get("title") or fp.stem).replace("_", " ").strip() or fp.stem
-            subtitle = "User Profile" if label == "user" else "Generated Profile"
+            kind_label = "Voicing" if effective_kind == "voicing" else "Profile"
+            subtitle = ("User " if label == "user" else "Generated ") + kind_label
             badges = [
                 {
                     "key": "format",

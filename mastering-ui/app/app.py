@@ -5474,7 +5474,7 @@ async def preset_upload(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail="write_failed") from exc
     return {"message": f"Preset uploaded as {dest.name}", "filename": dest.name}
 @app.post("/api/preset/generate")
-async def preset_generate(file: UploadFile = File(...)):
+async def preset_generate(file: UploadFile = File(...), kind: str = Form("profile")):
     # Limit to audio extensions already supported
     allowed_ext = {".wav",".mp3",".flac",".aiff",".aif"}
     suffix = Path(file.filename).suffix.lower()
@@ -5501,6 +5501,9 @@ async def preset_generate(file: UploadFile = File(...)):
         if cf is not None and cf < 10:
             eq.append({"freq": 250, "gain": -1.5, "q": 1.0})
         eq.append({"freq": 9500, "gain": 1.0, "q": 0.8})
+        kind = (kind or "profile").strip().lower()
+        if kind not in {"profile", "voicing"}:
+            kind = "profile"
         preset = {
             "name": name_slug,
             "lufs": target_lufs,
@@ -5517,7 +5520,7 @@ async def preset_generate(file: UploadFile = File(...)):
             "meta": {
                 "source_file": file.filename,
                 "created_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
-                "kind": "profile",
+                "kind": kind,
             }
         }
         dest.write_text(json.dumps(preset, indent=2), encoding="utf-8")
