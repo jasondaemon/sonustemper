@@ -7,4 +7,4 @@ This folder contains the audio processing pipeline.
 - Outputs include WAV/MP3/AAC-M4A/OGG/FLAC plus sibling `.metrics.json` and `.run.json` for traceability.
 - Delete endpoints are expected to remove audio + metrics/provenance companions.
 
-For UI/front-end context, see `../mastering-ui/README.md`. For project overview, see the root `README.md`, `CHANGELOG.md`, and `CONTRIBUTING.md`.
+For UI/front-end context, see `../sonustemper-ui/app`. For project overview, see the root `README.md`, `CHANGELOG.md`, and `CONTRIBUTING.md`.

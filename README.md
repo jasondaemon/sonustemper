@@ -50,12 +50,11 @@ SonusTemper is a one-page mastering workstation: drop in a song, choose a voicin
 - The UI reconnects once via `/api/run/<run_id>` if the stream drops, so there’s no `.processing` file polling.
 - A tiny in-memory registry keeps the last N events per run for fast replay; terminal events include outlist/metrics payloads so the UI can render immediately.
 
-## Presets and the Manage Presets page
+## Presets and Voicing Profiles
 - User presets live in `./presets/*.json` (and an internal writable dir for generated presets). Info text reminds that presets are user-customizable.
-- Manage Presets (full-page modal):
+- Voicing Profiles page:
   - Download/Delete existing presets (delete requires confirmation).
   - Create preset from reference: upload audio (≤100 MB); FFmpeg analyzes loudness/tonal balance and seeds a preset JSON using the source filename. The reference file is purged after analysis; metadata records source name and creation time.
-  - “Return to SonusTemper” returns you to the main mastering UI.
 
 ## Naming, metrics, provenance
 - Outputs share a deterministic variant tag built from the effective config (preset/voicing, strength, loudness target/TP, stereo width/guardrails, and encoding options). A length guard adds a short hash if needed.
@@ -101,8 +100,7 @@ docker compose -f docker-compose.dev.yml up --build
 - Requires Python 3.11+ and ffmpeg/ffprobe on PATH.
 - Env defaults: `DATA_DIR=/data` with mastering under `/data/mastering/{in,out,tmp}`, tagging under `/data/tagging/{in,tmp}`, presets under `/data/presets/{user,generated}`
 ```bash
-cd mastering-ui/app
-uvicorn app:app --reload --port 8383
+uvicorn sonustemper.server:app --reload --port 8383
 ```
 
 ### Logging

@@ -16,10 +16,10 @@ RUN groupadd -g ${APP_GID} app && \
 
 WORKDIR /app
 
-COPY mastering-ui/app/requirements.txt /app/requirements.txt
+COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
-COPY mastering-ui/app/ /app/
+COPY sonustemper/ /app/sonustemper/
 COPY sonustemper-ui/app/ /app/sonustemper-ui/app/
 COPY mastering /app/mastering
 
@@ -40,11 +40,12 @@ RUN mkdir -p \
     /data/mastering/in /data/mastering/out /data/mastering/tmp \
     /data/tagging/in /data/tagging/tmp \
     /data/presets/user /data/presets/generated \
-    /data/analysis/in /data/analysis/out /data/analysis/tmp && \
+    /data/analysis/in /data/analysis/out /data/analysis/tmp \
+    /data/previews && \
     chown -R app:app /data /app
 
 USER app
 
 EXPOSE 8383
 
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8383", "--access-log", "--log-level", "info"]
+CMD ["uvicorn", "sonustemper.server:app", "--host", "0.0.0.0", "--port", "8383", "--access-log", "--log-level", "info"]

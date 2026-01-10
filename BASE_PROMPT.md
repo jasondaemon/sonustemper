@@ -6,7 +6,8 @@ Use this as the starting prompt when opening a new session so the assistant has 
 - SonusTemper: single-page FastAPI UI + FFmpeg mastering pipeline. Users pick a voicing or user preset, configure loudness/stereo/tone, export multiple formats, and view metrics/provenance.
 - Key files:
   - `mastering/master_pack.py` – processing, variant naming, metrics/provenance, output encoding, presets/voicings, loudness pipeline.
-  - `mastering-ui/app/app.py` – UI/UX, routes (manage presets, job status, etc.).
+  - `sonustemper/server.py` – FastAPI app entrypoint (API routes, SSE, auth).
+  - `sonustemper-ui/app/ui.py` – new Jinja2/HTMX UI router.
   - `README.md` – end-user how-to and capabilities.
   - `CHANGELOG.md` – release notes; keep current.
   - `CONTRIBUTING.md` – branch/tag flow, regression checks, coding notes.
@@ -18,7 +19,7 @@ Use this as the starting prompt when opening a new session so the assistant has 
 - Loudness stage is two-pass static: render tone first, measure LUFS/TP, apply fixed gain only if outside ±1 LU; enforce TP ceiling; no time-varying loudnorm in tone chains.
 - Tone chains: EQ + light comp only (no embedded loudnorm/limiters).
 - Variant tags are deterministic from effective config (preset/voicing, strength, loudness targets, stereo width/guardrails, encoding opts) with length hashing safeguard; used for all outputs + metrics. Each output has `.metrics.json` and `.run.json`.
-- Manage Presets page: list/download/delete; create-from-reference (≤100 MB) analyzes audio and seeds a preset JSON; reference is discarded.
+- Voicing Profiles page: list/download/delete; create-from-reference (≤100 MB) analyzes audio and seeds a preset JSON; reference is discarded.
 - Delete links/API must remove audio plus metrics/provenance.
 - Previous Runs update only after full job (including metrics); loading a run should populate Job Output.
 

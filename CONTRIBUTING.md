@@ -19,7 +19,7 @@ Thanks for helping improve SonusTemper! A few quick notes to keep changes flowin
   - Run a voicing job and a preset job to confirm variant naming and outputs land with distinct tags.
   - Check metrics load without page refresh (Previous Runs -> Job Output).
   - Confirm delete links remove audio + metrics/provenance for a run.
-  - Verify Manage Presets: list/download/delete, and create-from-reference (≤100 MB) produces a new preset JSON.
+  - Verify Voicing Profiles: list/download/delete, and create-from-reference (≤100 MB) produces a new preset JSON.
 
 ## Tests / checks
 - Run a local build before tagging: `docker compose -f docker-compose.yml build`.
@@ -28,7 +28,7 @@ Thanks for helping improve SonusTemper! A few quick notes to keep changes flowin
 ## Coding notes
 - Python 3.11+, FFmpeg on PATH.
 - Keep filenames ASCII; avoid destructive git commands.
-- UI follows the existing theme/components in `mastering-ui/app/app.py`.
+- UI follows the existing theme/components in `sonustemper-ui/app/templates`.
 
 ## Licensing
 - Project code is Apache-2.0 (see `LICENSE`).
