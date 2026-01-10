@@ -70,11 +70,11 @@ h1{margin:0;font-size:24px;}
 .input-list{
   border:1px solid var(--line);
   border-radius:12px;
-  padding:12px;
+  padding:6px;
   background:#0f151d;
-  display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
-  gap:8px 12px;
+  display:flex;
+  flex-direction:column;
+  gap:0;
   min-height:64px;
   max-height:220px;
   overflow:auto;
@@ -85,7 +85,12 @@ h1{margin:0;font-size:24px;}
   align-items:center;
   gap:8px;
   font-size:14px;
+  padding:6px 8px;
 }
+.input-item:not(:last-child){
+  border-bottom:1px solid var(--line);
+}
+.input-item:hover{background:#111a25;}
 .input-item span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .input-duration{color:var(--muted);font-size:12px;text-align:right;}
 .input-item input{transform:scale(1.05);}
