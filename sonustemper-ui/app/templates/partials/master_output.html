@@ -30,7 +30,7 @@
         </audio>
         {% endif %}
         <div class="output-toolbar">
-          <button class="btn ghost small" data-action="analyze-output" data-song="{{ song }}" data-stem="{{ item.name }}">Analyze</button>
+          <button class="btn warn small" data-action="analyze-output" data-song="{{ song }}" data-stem="{{ item.name }}">Analyze</button>
           <div class="pill-row">
             {% for d in item.downloads %}
               <a class="btn ghost small" href="{{ d.url }}" target="_blank">{{ d.label }}</a>
