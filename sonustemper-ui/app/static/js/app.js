@@ -85,15 +85,17 @@ function measureBadgeWidth(badge){
 function computeVisibleBadges(badges, containerWidth){
   if(!badges.length || !containerWidth) return { visible: badges, hidden: [] };
   const ordered = [...badges];
-  const reserve = measureBadgeWidth(makeBadgeNode({ key: 'format', label: '+9' })) + 6;
+  const gap = 6;
+  const reserve = measureBadgeWidth(makeBadgeNode({ key: 'format', label: '+9' })) + gap;
   let used = 0;
   const visible = [];
   const hidden = [];
   ordered.forEach(badge => {
     const w = measureBadgeWidth(makeBadgeNode(badge));
-    if (used + w + reserve <= containerWidth || visible.length === 0) {
+    const next = w + (visible.length ? gap : 0);
+    if (used + next + reserve <= containerWidth || visible.length === 0) {
       visible.push(badge);
-      used += w;
+      used += next;
     } else {
       hidden.push(badge);
     }
@@ -112,7 +114,7 @@ function renderBadgeRow(container){
   }
   container.innerHTML = '';
   if(!badges.length) return;
-  const width = container.clientWidth || 0;
+  const width = container.clientWidth || container.parentElement?.clientWidth || 0;
   const { visible, hidden } = computeVisibleBadges(badges, width);
   visible.forEach(b => container.appendChild(makeBadgeNode(b)));
   if (hidden.length) {

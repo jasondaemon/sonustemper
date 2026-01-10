@@ -5,6 +5,7 @@ import shutil
 import json
 import base64
 import hashlib
+import uuid
 from urllib.parse import quote
 from pathlib import Path
 from datetime import datetime
@@ -50,6 +51,7 @@ VOICING_TITLE_MAP = {
     "rock": "Voicing: Rock",
     "acoustic": "Voicing: Acoustic",
 }
+PREVIEW_SESSION_COOKIE = "st_preview_session"
 
 router = APIRouter()
 
@@ -172,7 +174,7 @@ async def starter(request: Request):
 
 @router.get("/mastering", response_class=HTMLResponse)
 async def mastering_page(request: Request):
-    return TEMPLATES.TemplateResponse(
+    response = TEMPLATES.TemplateResponse(
         "pages/mastering.html",
         {
             "request": request,
@@ -180,6 +182,14 @@ async def mastering_page(request: Request):
             "current_page": "mastering",
         },
     )
+    if not request.cookies.get(PREVIEW_SESSION_COOKIE):
+        response.set_cookie(
+            PREVIEW_SESSION_COOKIE,
+            uuid.uuid4().hex,
+            httponly=True,
+            samesite="lax",
+        )
+    return response
 
 
 @router.get("/tagging", response_class=HTMLResponse)

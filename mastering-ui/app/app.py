@@ -10,6 +10,8 @@ import tempfile
 import asyncio
 import logging
 import time
+import hashlib
+import uuid
 from collections import deque
 from pathlib import Path
 from datetime import datetime
@@ -26,6 +28,15 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 MASTER_IN_DIR = Path(os.getenv("IN_DIR", os.getenv("MASTER_IN_DIR", str(DATA_DIR / "mastering" / "in"))))
 MASTER_OUT_DIR = Path(os.getenv("OUT_DIR", os.getenv("MASTER_OUT_DIR", str(DATA_DIR / "mastering" / "out"))))
 MASTER_TMP_DIR = Path(os.getenv("MASTER_TMP_DIR", str(DATA_DIR / "mastering" / "tmp")))
+PREVIEW_DIR = Path(os.getenv("PREVIEW_DIR", str(DATA_DIR / "previews")))
+PREVIEW_TTL_SEC = int(os.getenv("PREVIEW_TTL_SEC", "600"))
+PREVIEW_SESSION_CAP = int(os.getenv("PREVIEW_SESSION_CAP", "5"))
+PREVIEW_SEGMENT_START = int(os.getenv("PREVIEW_SEGMENT_START", "30"))
+PREVIEW_SEGMENT_DURATION = int(os.getenv("PREVIEW_SEGMENT_DURATION", "12"))
+PREVIEW_NORMALIZE_MODE = os.getenv("PREVIEW_NORMALIZE_MODE", "limiter").lower()
+PREVIEW_SESSION_COOKIE = "st_preview_session"
+PREVIEW_BITRATE_KBPS = int(os.getenv("PREVIEW_BITRATE_KBPS", "128"))
+PREVIEW_SAMPLE_RATE = int(os.getenv("PREVIEW_SAMPLE_RATE", "44100"))
 PRESET_DIR = Path(os.getenv("PRESET_DIR", os.getenv("PRESET_USER_DIR", str(DATA_DIR / "presets" / "user"))))
 GEN_PRESET_DIR = Path(os.getenv("GEN_PRESET_DIR", str(DATA_DIR / "presets" / "generated")))
 TAG_IN_DIR = Path(os.getenv("TAG_IN_DIR", str(DATA_DIR / "tagging" / "in")))
@@ -102,6 +113,7 @@ for p in [
     MASTER_IN_DIR,
     MASTER_OUT_DIR,
     MASTER_TMP_DIR,
+    PREVIEW_DIR,
     TAG_IN_DIR,
     TAG_TMP_DIR,
     PRESET_DIR,
@@ -127,6 +139,153 @@ TAGGER = TaggerService(
     max_upload_bytes=TAGGER_MAX_UPLOAD,
     max_artwork_bytes=TAGGER_MAX_ARTWORK,
 )
+
+# Preview registry (session-scoped, temp audio)
+PREVIEW_REGISTRY: dict[str, dict] = {}
+PREVIEW_SESSION_INDEX: dict[str, deque] = {}
+PREVIEW_LOCK = threading.Lock()
+MASTER_PACK_MODULE = None
+MASTER_PACK_LOCK = threading.Lock()
+
+def _get_master_pack_module():
+    global MASTER_PACK_MODULE
+    if MASTER_PACK_MODULE is not None:
+        return MASTER_PACK_MODULE
+    if not MASTER_SCRIPT or not Path(MASTER_SCRIPT).exists():
+        return None
+    with MASTER_PACK_LOCK:
+        if MASTER_PACK_MODULE is not None:
+            return MASTER_PACK_MODULE
+        try:
+            spec = importlib.util.spec_from_file_location("master_pack_preview", str(MASTER_SCRIPT))
+            mod = importlib.util.module_from_spec(spec)
+            assert spec and spec.loader
+            spec.loader.exec_module(mod)
+            MASTER_PACK_MODULE = mod
+        except Exception as exc:
+            logger.exception("[preview] failed to load master_pack: %s", exc)
+            MASTER_PACK_MODULE = None
+    return MASTER_PACK_MODULE
+
+def _preview_session_key(request: Request) -> str:
+    cookie = request.cookies.get(PREVIEW_SESSION_COOKIE)
+    if cookie:
+        return cookie
+    ua = request.headers.get("user-agent", "")
+    ip = request.client.host if request.client else ""
+    raw = f"{ip}|{ua}".encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()[:32]
+
+def _preview_remove(preview_id: str, entry: dict) -> None:
+    path = entry.get("file_path")
+    try:
+        if path:
+            fp = Path(path)
+            if PREVIEW_DIR.resolve() in fp.resolve().parents and fp.exists():
+                fp.unlink()
+    except Exception:
+        pass
+
+def _preview_cleanup(session_key: str | None = None) -> None:
+    now = time.time()
+    expired: list[str] = []
+    with PREVIEW_LOCK:
+        for pid, entry in list(PREVIEW_REGISTRY.items()):
+            created = entry.get("created_at", 0)
+            if created and now - created > PREVIEW_TTL_SEC:
+                expired.append(pid)
+        for pid in expired:
+            entry = PREVIEW_REGISTRY.pop(pid, None)
+            if not entry:
+                continue
+            sid = entry.get("session_key")
+            if sid and sid in PREVIEW_SESSION_INDEX:
+                try:
+                    PREVIEW_SESSION_INDEX[sid].remove(pid)
+                except ValueError:
+                    pass
+            _preview_remove(pid, entry)
+        if session_key and session_key in PREVIEW_SESSION_INDEX:
+            queue = PREVIEW_SESSION_INDEX[session_key]
+            while len(queue) > PREVIEW_SESSION_CAP:
+                old = queue.popleft()
+                entry = PREVIEW_REGISTRY.pop(old, None)
+                if entry:
+                    _preview_remove(old, entry)
+
+def _preview_update(preview_id: str, status: str, **kwargs) -> None:
+    with PREVIEW_LOCK:
+        entry = PREVIEW_REGISTRY.get(preview_id)
+        if not entry:
+            return
+        entry["status"] = status
+        for key, val in kwargs.items():
+            entry[key] = val
+        done_event = entry.get("event")
+        if status in ("ready", "error") and isinstance(done_event, threading.Event):
+            done_event.set()
+
+def _build_preview_filter(voicing: str, strength: int, width: float | None) -> str | None:
+    mod = _get_master_pack_module()
+    if not mod or not hasattr(mod, "_voicing_filters"):
+        return None
+    try:
+        return mod._voicing_filters(voicing, strength, width, True, False, None, None)
+    except Exception as exc:
+        logger.warning("[preview] voicing filter build failed: %s", exc)
+        return None
+
+def _render_preview(preview_id: str) -> None:
+    with PREVIEW_LOCK:
+        entry = PREVIEW_REGISTRY.get(preview_id)
+        if not entry:
+            return
+        input_path = entry.get("input_path")
+        voicing = entry.get("voicing") or "universal"
+        strength = int(entry.get("strength") or 0)
+        width = entry.get("width")
+    if not input_path:
+        _preview_update(preview_id, "error", error_msg="missing_input")
+        return
+
+    PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = PREVIEW_DIR / f"{preview_id}.mp3"
+    limiter = "alimiter=limit=-1.0dB"
+    if PREVIEW_NORMALIZE_MODE == "loudnorm":
+        limiter = "loudnorm=I=-16:TP=-1:LRA=11"
+    chain = _build_preview_filter(voicing, strength, width)
+    af = f"{chain},{limiter}" if chain else limiter
+    cmd = [
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-ss", str(PREVIEW_SEGMENT_START),
+        "-t", str(PREVIEW_SEGMENT_DURATION),
+        "-i", str(input_path),
+        "-af", af,
+        "-vn", "-ac", "2", "-ar", str(PREVIEW_SAMPLE_RATE),
+        "-codec:a", "libmp3lame", "-b:a", f"{PREVIEW_BITRATE_KBPS}k",
+        str(out_path),
+    ]
+    try:
+        logger.debug("[preview] start id=%s voicing=%s strength=%s", preview_id, voicing, strength)
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode != 0:
+            err = (proc.stderr or proc.stdout or "").strip()
+            raise RuntimeError(err or "ffmpeg_failed")
+        _preview_update(
+            preview_id,
+            "ready",
+            file_path=str(out_path),
+            mime="audio/mpeg",
+        )
+        logger.debug("[preview] ready id=%s", preview_id)
+    except Exception as exc:
+        try:
+            if out_path.exists():
+                out_path.unlink()
+        except Exception:
+            pass
+        _preview_update(preview_id, "error", error_msg=str(exc))
+        logger.debug("[preview] error id=%s err=%s", preview_id, exc)
 
 # Utility roots for file manager
 UTILITY_ROOTS = {
@@ -5882,6 +6041,122 @@ def _validate_input_file(name: str) -> Path:
     except Exception:
         raise HTTPException(status_code=400, detail="invalid_input_path")
     return candidate
+
+@app.post("/api/preview/start")
+def preview_start(request: Request, body: dict = Body(...), background_tasks: BackgroundTasks = None):
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="invalid_payload")
+    song = (body.get("song") or "").strip()
+    voicing = (body.get("voicing") or "universal").strip().lower()
+    strength = body.get("strength", 0)
+    width = body.get("width", None)
+    try:
+        strength_val = int(strength)
+    except Exception:
+        strength_val = 0
+    strength_val = max(0, min(100, strength_val))
+    if width is not None:
+        try:
+            width = float(width)
+        except Exception:
+            width = None
+
+    if voicing not in {"universal", "airlift", "ember", "detail", "glue", "wide", "cinematic", "punch"}:
+        raise HTTPException(status_code=400, detail="invalid_voicing")
+    safe_in = _validate_input_file(song)
+    session_key = _preview_session_key(request)
+    preview_id = uuid.uuid4().hex
+    params_raw = f"{song}|{voicing}|{strength_val}|{width}"
+    params_hash = hashlib.sha256(params_raw.encode("utf-8")).hexdigest()
+    event = threading.Event()
+
+    _preview_cleanup(session_key)
+    with PREVIEW_LOCK:
+        PREVIEW_REGISTRY[preview_id] = {
+            "session_key": session_key,
+            "created_at": time.time(),
+            "status": "building",
+            "file_path": None,
+            "mime": "audio/mpeg",
+            "params_hash": params_hash,
+            "error_msg": None,
+            "input_path": str(safe_in),
+            "voicing": voicing,
+            "strength": strength_val,
+            "width": width,
+            "event": event,
+        }
+        queue = PREVIEW_SESSION_INDEX.setdefault(session_key, deque())
+        queue.append(preview_id)
+    _preview_cleanup(session_key)
+
+    if background_tasks is None:
+        background_tasks = BackgroundTasks()
+    background_tasks.add_task(_render_preview, preview_id)
+    logger.debug("[preview] start id=%s song=%s", preview_id, safe_in.name)
+    return JSONResponse({"preview_id": preview_id, "status": "building"})
+
+@app.get("/api/preview/stream")
+def preview_stream(request: Request, preview_id: str):
+    session_key = _preview_session_key(request)
+    with PREVIEW_LOCK:
+        entry = PREVIEW_REGISTRY.get(preview_id)
+        if not entry or entry.get("session_key") != session_key:
+            raise HTTPException(status_code=404, detail="preview_not_found")
+
+    def event_stream():
+        with PREVIEW_LOCK:
+            current = PREVIEW_REGISTRY.get(preview_id, {})
+            status = current.get("status") or "error"
+            url = f"/api/preview/file?preview_id={quote(preview_id)}" if status == "ready" else None
+        yield f"data: {json.dumps({'status': status, 'url': url})}\n\n"
+        if status in ("ready", "error"):
+            return
+        done_event = current.get("event")
+        if isinstance(done_event, threading.Event):
+            done_event.wait(timeout=PREVIEW_TTL_SEC)
+        with PREVIEW_LOCK:
+            current = PREVIEW_REGISTRY.get(preview_id, {})
+            status = current.get("status") or "error"
+            if status not in ("ready", "error"):
+                status = "error"
+                current["status"] = "error"
+                current["error_msg"] = current.get("error_msg") or "preview_timeout"
+                done_event = current.get("event")
+                if isinstance(done_event, threading.Event):
+                    done_event.set()
+            payload = {"status": status}
+            if status == "ready":
+                payload["url"] = f"/api/preview/file?preview_id={quote(preview_id)}"
+            if status == "error":
+                payload["message"] = current.get("error_msg") or "preview_failed"
+        yield f"data: {json.dumps(payload)}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )
+
+@app.get("/api/preview/file")
+def preview_file(request: Request, preview_id: str):
+    session_key = _preview_session_key(request)
+    with PREVIEW_LOCK:
+        entry = PREVIEW_REGISTRY.get(preview_id)
+        if not entry or entry.get("session_key") != session_key:
+            raise HTTPException(status_code=404, detail="preview_not_found")
+        if entry.get("status") != "ready":
+            raise HTTPException(status_code=404, detail="preview_not_ready")
+        path = entry.get("file_path")
+        mime = entry.get("mime") or "audio/mpeg"
+    if not path:
+        raise HTTPException(status_code=404, detail="preview_missing")
+    fp = Path(path)
+    if PREVIEW_DIR.resolve() not in fp.resolve().parents or not fp.exists():
+        raise HTTPException(status_code=404, detail="preview_missing")
+    resp = FileResponse(fp, media_type=mime, filename=f"preview-{preview_id}.mp3")
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 # Mount the new /ui routes if available
 if new_ui_router:

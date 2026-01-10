@@ -168,6 +168,13 @@
                 <input type="range" id="strength" min="0" max="100" value="80">
                 <div class="value-pill" id="strengthVal">80</div>
               </div>
+              <div class="control-row preview-row">
+                <div class="control-label small-label">Preview</div>
+                <button type="button" class="btn small ghost" id="previewPlay" disabled>Play</button>
+                <button type="button" class="btn small ghost" id="previewStop">Stop</button>
+                <span class="muted" id="previewStatus">Select a source file to preview</span>
+              </div>
+              <audio id="voicingPreviewAudio" preload="none"></audio>
             </div>
 
             <div class="stage-card" id="loudnessStage">
@@ -557,8 +564,14 @@
     if (inputFooter) {
       inputFooter.textContent = `Selected: ${count} ${label}, Total duration: ${formatDuration(totalDuration)}`;
     }
+    const first = state.selectedFiles[0] || null;
+    if (first !== previewSong) {
+      previewSong = first;
+      resetPreview();
+    }
     updateSummary();
     updateRunButton();
+    updatePreviewAvailability();
   }
 
   function applyInputFilter(){
@@ -649,6 +662,141 @@
   const width = document.getElementById('width');
   const widthVal = document.getElementById('widthVal');
   const guardrails = document.getElementById('guardrails');
+  const previewPlay = document.getElementById('previewPlay');
+  const previewStop = document.getElementById('previewStop');
+  const previewStatus = document.getElementById('previewStatus');
+  const previewAudio = document.getElementById('voicingPreviewAudio');
+  let previewTimer = null;
+  let previewEventSource = null;
+  let previewCurrentId = null;
+  let previewRequestId = 0;
+  let previewReadyUrl = null;
+  let previewSong = null;
+
+  function setPreviewStatus(text){
+    if (previewStatus) previewStatus.textContent = text || '';
+  }
+
+  function setPreviewPlayable(enabled){
+    if (previewPlay) previewPlay.disabled = !enabled;
+  }
+
+  function closePreviewStream(){
+    if (previewEventSource) {
+      previewEventSource.close();
+      previewEventSource = null;
+    }
+  }
+
+  function stopPreview(){
+    if (!previewAudio) return;
+    previewAudio.pause();
+    previewAudio.currentTime = 0;
+  }
+
+  function resetPreview(){
+    previewCurrentId = null;
+    previewReadyUrl = null;
+    closePreviewStream();
+    setPreviewPlayable(false);
+    if (previewAudio) {
+      previewAudio.removeAttribute('src');
+      previewAudio.load();
+    }
+  }
+
+  function updatePreviewAvailability(){
+    const song = state.selectedFiles[0] || null;
+    if (convertOnly?.checked) {
+      setPreviewStatus('Preview disabled in Convert Only');
+      resetPreview();
+      return;
+    }
+    if (!song) {
+      setPreviewStatus('Select a source file to preview');
+      resetPreview();
+      return;
+    }
+    if (previewReadyUrl) {
+      setPreviewStatus('Ready');
+      setPreviewPlayable(true);
+    } else {
+      setPreviewStatus('Preview idle');
+      setPreviewPlayable(false);
+    }
+  }
+
+  function schedulePreview(){
+    if (previewTimer) clearTimeout(previewTimer);
+    previewTimer = setTimeout(startPreview, 400);
+  }
+
+  function startPreview(){
+    const song = state.selectedFiles[0] || null;
+    if (convertOnly?.checked) {
+      updatePreviewAvailability();
+      return;
+    }
+    if (!song) {
+      updatePreviewAvailability();
+      return;
+    }
+    const requestId = ++previewRequestId;
+    const voicing = voicingSelect?.value || 'universal';
+    const strengthVal = parseInt(strength?.value || '0', 10);
+    const widthVal = width?.value ? parseFloat(width.value) : null;
+    resetPreview();
+    setPreviewStatus('Generating...');
+    const payload = { song, voicing, strength: strengthVal };
+    if (!Number.isNaN(widthVal) && widthVal !== null) payload.width = widthVal;
+    fetch('/api/preview/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const err = await res.json().catch(()=>({detail:'error'}));
+          throw new Error(err.detail || 'preview_failed');
+        }
+        return res.json();
+      })
+      .then((data) => {
+        if (requestId !== previewRequestId) return;
+        const id = data.preview_id;
+        previewCurrentId = id;
+        previewSong = song;
+        const es = new EventSource(`/api/preview/stream?preview_id=${encodeURIComponent(id)}`);
+        previewEventSource = es;
+        es.onmessage = (ev) => {
+          if (requestId !== previewRequestId) return;
+          let msg = {};
+          try{ msg = JSON.parse(ev.data || '{}'); }catch(_){ msg = {}; }
+          if (msg.status === 'ready' && msg.url) {
+            previewReadyUrl = `${msg.url}&cb=${Date.now()}`;
+            if (previewAudio) previewAudio.src = previewReadyUrl;
+            setPreviewStatus('Ready');
+            setPreviewPlayable(true);
+            closePreviewStream();
+          } else if (msg.status === 'error') {
+            setPreviewStatus('Preview failed');
+            setPreviewPlayable(false);
+            closePreviewStream();
+          }
+        };
+        es.onerror = () => {
+          if (requestId !== previewRequestId) return;
+          setPreviewStatus('Preview unavailable');
+          setPreviewPlayable(false);
+          closePreviewStream();
+        };
+      })
+      .catch(() => {
+        if (requestId !== previewRequestId) return;
+        setPreviewStatus('Preview failed');
+        setPreviewPlayable(false);
+      });
+  }
   function setStageEnabled(stageEl, enabled){
     if (!stageEl) return;
     stageEl.classList.toggle('disabled', !enabled);
@@ -663,6 +811,11 @@
     setStageEnabled(voicingStage, enabled);
     setStageEnabled(loudnessStage, enabled);
     setStageEnabled(stereoStage, enabled);
+    if (!enabled) {
+      stopPreview();
+      resetPreview();
+    }
+    updatePreviewAvailability();
   }
 
   const loudProfiles = {
@@ -783,8 +936,14 @@
     if (runBtn) runBtn.disabled = state.selectedFiles.length === 0;
   }
 
-  if (strength) strength.addEventListener('input', updateSummary);
-  if (voicingSelect) voicingSelect.addEventListener('change', updateSummary);
+  if (strength) {
+    strength.addEventListener('input', updateSummary);
+    strength.addEventListener('input', schedulePreview);
+  }
+  if (voicingSelect) {
+    voicingSelect.addEventListener('change', updateSummary);
+    voicingSelect.addEventListener('change', schedulePreview);
+  }
   if (width) width.addEventListener('input', updateSummary);
   if (guardrails) guardrails.addEventListener('change', updateSummary);
   if (ovTargetI) ovTargetI.addEventListener('change', () => { syncOverrideInputs(); updateSummary(); });
@@ -794,6 +953,29 @@
   if (targetTpRange) targetTpRange.addEventListener('input', () => { targetTp.value = targetTpRange.value; updateSummary(); });
   if (targetTp) targetTp.addEventListener('input', () => { targetTpRange.value = targetTp.value; updateSummary(); });
   if (convertOnly) convertOnly.addEventListener('change', () => { applyConvertOnly(); updateSummary(); });
+
+  if (previewPlay && previewAudio) {
+    previewPlay.addEventListener('click', () => {
+      previewAudio.play().then(()=>{
+        setPreviewStatus('Playing');
+      }).catch(() => {
+        setPreviewStatus('Preview unavailable');
+      });
+    });
+  }
+  if (previewStop) {
+    previewStop.addEventListener('click', () => {
+      stopPreview();
+      if (previewReadyUrl) {
+        setPreviewStatus('Ready');
+      }
+    });
+  }
+  if (previewAudio) {
+    previewAudio.addEventListener('ended', () => {
+      if (previewReadyUrl) setPreviewStatus('Ready');
+    });
+  }
 
   [
     'out_wav','out_mp3','out_aac','out_ogg','out_flac',

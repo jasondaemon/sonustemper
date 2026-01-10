@@ -126,6 +126,17 @@ h1{margin:0;font-size:24px;}
   text-align:right;
   font-size:12px;
 }
+.preview-row{
+  align-items:center;
+  gap:8px;
+  font-size:12px;
+}
+.preview-row .control-label{
+  min-width:60px;
+}
+.preview-row .muted{
+  font-size:12px;
+}
 .guardrails-row .control-label{
   font-size:12px;
 }
