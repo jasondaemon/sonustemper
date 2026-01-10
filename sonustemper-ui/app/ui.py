@@ -234,6 +234,14 @@ async def docs_page(request: Request):
     )
 
 
+@router.get("/analyze", response_class=HTMLResponse)
+async def analyze_page(request: Request):
+    return TEMPLATES.TemplateResponse(
+        "pages/analyze.html",
+        _page_context(request, current_page="analyze"),
+    )
+
+
 def _render_sections(request: Request, util: str) -> HTMLResponse:
     util = util if util in ("mastering", "tagging", "presets", "analysis") else "mastering"
     sections_meta = _sections_for(util)
