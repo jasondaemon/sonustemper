@@ -737,7 +737,7 @@ def _duration_seconds(path: Path) -> float | None:
 
 def _run_ebur128_framelog(path: Path) -> str | None:
     r = run_cmd([
-        FFMPEG_BIN, "-hide_banner", "-nostats", "-i", str(path),
+        FFMPEG_BIN, "-hide_banner", "-nostats", "-loglevel", "verbose", "-i", str(path),
         "-filter_complex", "ebur128=peak=true:framelog=verbose", "-f", "null", "-"
     ])
     if r.returncode != 0:
@@ -874,6 +874,47 @@ def _analysis_overlay_data(source_path: Path | None, processed_path: Path | None
     if markers["true_peak"]["source"] or markers["true_peak"]["processed"]:
         payload["markers"] = markers
     return payload
+
+DEMO_SEED_MARKER = DATA_DIR / ".demo_seeded"
+
+def _demo_asset_dir() -> Path:
+    if is_frozen():
+        return bundle_root() / "assets" / "demo"
+    return REPO_ROOT / "assets" / "demo"
+
+def _seed_demo_inputs() -> None:
+    if os.getenv("DEMO_SEED_DISABLED") == "1":
+        return
+    if DEMO_SEED_MARKER.exists():
+        return
+    try:
+        MASTER_IN_DIR.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        return
+    demo_dir = _demo_asset_dir()
+    if not demo_dir.exists():
+        return
+    copied = 0
+    found_existing = False
+    for fp in demo_dir.iterdir():
+        if not fp.is_file() or fp.suffix.lower() not in ANALYZE_AUDIO_EXTS:
+            continue
+        dest = MASTER_IN_DIR / fp.name
+        if dest.exists():
+            found_existing = True
+            continue
+        try:
+            shutil.copy2(fp, dest)
+            copied += 1
+        except Exception:
+            continue
+    if copied or found_existing:
+        try:
+            DEMO_SEED_MARKER.write_text("seeded", encoding="utf-8")
+        except Exception:
+            pass
+
+app.add_event_handler("startup", _seed_demo_inputs)
 def measure_loudness(path: Path) -> dict:
     r = run_cmd([
         FFMPEG_BIN, "-hide_banner", "-nostats", "-i", str(path),
