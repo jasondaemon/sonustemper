@@ -8,6 +8,9 @@
   --danger:#ff4d4d;
 }
 *{box-sizing:border-box;}
+html, body{
+  overflow-x:hidden;
+}
 body{
   margin:0;
   background:var(--bg);
@@ -55,6 +58,14 @@ h1{margin:0;font-size:24px;}
 }
 .sideItem.disabled{opacity:0.4;cursor:not-allowed;}
 .content{display:flex;flex-direction:column;gap:12px;}
+.page,
+.content,
+.card,
+.wave-panel,
+.wave-canvas{
+  min-width:0;
+  max-width:100%;
+}
 .master-grid{
   display:grid;
   grid-template-columns:repeat(auto-fit,minmax(360px,1fr));

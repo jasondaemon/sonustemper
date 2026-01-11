@@ -212,6 +212,31 @@
     setZoomLevel(currentZoomIndex());
   }
 
+  function debugOverflow(label) {
+    const doc = document.documentElement;
+    const body = document.body;
+    const overflow = Math.max(doc.scrollWidth, body.scrollWidth) - doc.clientWidth;
+    if (overflow <= 1) return;
+    console.warn(`[overflow] ${label}: +${overflow}px`);
+
+    let worst = null;
+    let worstRight = 0;
+    const vw = doc.clientWidth;
+
+    for (const el of document.querySelectorAll("*")) {
+      const r = el.getBoundingClientRect();
+      if (r.right > worstRight + 1) {
+        worstRight = r.right;
+        worst = el;
+      }
+    }
+
+    if (worst) {
+      console.warn("[overflow] culprit:", worst, worstRight, "vw:", vw);
+      worst.style.outline = "3px solid red";
+    }
+  }
+
   function cleanupTransport(){
     transportCleanup.forEach((fn) => {
       try {
@@ -912,6 +937,7 @@
         zoomRaf = null;
         if (pendingZoom === null) return;
         setZoomLevel(pendingZoom);
+        debugOverflow("zoom");
         pendingZoom = null;
       });
     });
