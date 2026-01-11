@@ -406,6 +406,12 @@ h1{margin:0;font-size:24px;}
   gap:8px;
   margin-bottom:8px;
 }
+.wave-head-actions{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-width:0;
+}
 .wave-title{
   font-weight:600;
   font-size:13px;
@@ -419,7 +425,12 @@ h1{margin:0;font-size:24px;}
 }
 .wave-canvas{
   width:100%;
-  min-height:80px;
+  min-height:140px;
+  position:relative;
+  overflow:hidden;
+}
+.wave-canvas > div{
+  width:100%;
 }
 .wave-empty{
   margin-top:8px;
@@ -431,6 +442,24 @@ h1{margin:0;font-size:24px;}
   gap:8px;
   flex-wrap:wrap;
 }
+.playback-modes{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  flex-wrap:wrap;
+}
+.link-indicator{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  font-size:11px;
+  color:rgba(43,212,189,0.9);
+  border:1px solid rgba(43,212,189,0.35);
+  border-radius:999px;
+  padding:4px 8px;
+  background:rgba(43,212,189,0.12);
+}
+.link-indicator.hidden{display:none;}
 .analyze-toggles{
   display:flex;
   flex-wrap:wrap;
@@ -463,6 +492,15 @@ h1{margin:0;font-size:24px;}
   gap:6px;
   font-size:12px;
   color:var(--muted);
+}
+.zoom-label{
+  min-width:24px;
+  text-align:right;
+  color:var(--text);
+}
+.btn.tiny{
+  padding:4px 8px;
+  font-size:11px;
 }
 .compare-grid{
   display:grid;

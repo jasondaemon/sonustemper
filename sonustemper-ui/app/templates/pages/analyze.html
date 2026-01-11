@@ -41,7 +41,10 @@
       <div class="wave-panel" id="sourcePanel">
         <div class="wave-head">
           <div class="wave-title">Source</div>
-          <div class="wave-meta" id="sourceName">-</div>
+          <div class="wave-head-actions">
+            <button class="btn ghost tiny" id="soloSourceBtn" type="button">Solo</button>
+            <div class="wave-meta" id="sourceName">-</div>
+          </div>
         </div>
         <div class="wave-canvas" id="waveSource"></div>
       </div>
@@ -49,7 +52,10 @@
       <div class="wave-panel" id="processedPanel">
         <div class="wave-head">
           <div class="wave-title">Processed</div>
-          <div class="wave-meta" id="processedName">-</div>
+          <div class="wave-head-actions">
+            <button class="btn ghost tiny" id="soloProcessedBtn" type="button">Solo</button>
+            <div class="wave-meta" id="processedName">-</div>
+          </div>
         </div>
         <div class="wave-canvas" id="waveProcessed"></div>
         <div class="wave-empty muted" id="processedEmpty" hidden>No processed file selected.</div>
@@ -59,9 +65,16 @@
         <button class="btn ghost small" id="playBtn">Play</button>
         <button class="btn ghost small" id="pauseBtn">Pause</button>
         <button class="btn ghost small" id="stopBtn">Stop</button>
+        <div class="playback-modes">
+          <button class="btn ghost small is-active" data-playback-mode="compare" id="modeCompareBtn" type="button">Compare</button>
+          <button class="btn ghost small" data-playback-mode="source" id="modeSourceBtn" type="button">Source</button>
+          <button class="btn ghost small" data-playback-mode="processed" id="modeProcessedBtn" type="button">Processed</button>
+          <span class="link-indicator" id="linkIndicator">Linked</span>
+        </div>
         <div class="zoom-control">
           <span>Zoom</span>
-          <input type="range" id="zoomRange" min="30" max="200" value="90">
+          <span class="zoom-label" id="zoomLabel">1x</span>
+          <input type="range" id="zoomRange" min="0" max="3" value="0" step="1">
         </div>
         <div class="analyze-toggles">
           <label class="analyze-toggle is-active">
@@ -103,17 +116,27 @@
   const pauseBtn = document.getElementById('pauseBtn');
   const stopBtn = document.getElementById('stopBtn');
   const zoomRange = document.getElementById('zoomRange');
+  const zoomLabel = document.getElementById('zoomLabel');
+  const linkIndicator = document.getElementById('linkIndicator');
+  const soloSourceBtn = document.getElementById('soloSourceBtn');
+  const soloProcessedBtn = document.getElementById('soloProcessedBtn');
+  const modeButtons = Array.from(document.querySelectorAll('[data-playback-mode]'));
   const togglePeakRisk = document.getElementById('togglePeakRisk');
   const toggleHeatmap = document.getElementById('toggleHeatmap');
   const toggleDelta = document.getElementById('toggleDelta');
 
   let sourceWave = null;
   let processedWave = null;
-  let syncing = false;
   let selectedItem = null;
   let analysisData = null;
   let overlayCleanup = [];
+  let transportCleanup = [];
+  let playbackMode = 'compare';
+  let transportLock = false;
   const analyzeBrowser = document.getElementById('analyzeBrowser');
+
+  const zoomSteps = [1, 2, 4, 8];
+  const baseMinPxPerSec = 60;
 
   const metricLabels = [
     { key: 'I', label: 'LUFS-I', suffix: ' LUFS' },
@@ -140,6 +163,145 @@
   function displayMetric(value, suffix){
     if (value === null || value === undefined || Number.isNaN(value)) return '-';
     return `${fmt(value, 1)}${suffix}`;
+  }
+
+  function currentZoomIndex(){
+    if (!zoomRange) return 0;
+    const raw = parseInt(zoomRange.value || '0', 10);
+    if (Number.isNaN(raw)) return 0;
+    return Math.max(0, Math.min(zoomSteps.length - 1, raw));
+  }
+
+  function setZoomLevel(level){
+    const idx = Math.max(0, Math.min(zoomSteps.length - 1, level));
+    const factor = zoomSteps[idx];
+    if (zoomLabel) zoomLabel.textContent = `${factor}x`;
+    const minPxPerSec = baseMinPxPerSec * factor;
+    if (sourceWave) sourceWave.zoom(minPxPerSec);
+    if (processedWave) processedWave.zoom(minPxPerSec);
+  }
+
+  function cleanupTransport(){
+    transportCleanup.forEach((fn) => {
+      try {
+        fn();
+      } catch (_err) {
+        // ignore cleanup errors
+      }
+    });
+    transportCleanup = [];
+  }
+
+  function isAnyPlaying(){
+    const srcPlaying = sourceWave && sourceWave.isPlaying && sourceWave.isPlaying();
+    const procPlaying = processedWave && processedWave.isPlaying && processedWave.isPlaying();
+    return Boolean(srcPlaying || procPlaying);
+  }
+
+  function getMasterWave(){
+    if (playbackMode === 'processed') return processedWave || sourceWave;
+    return sourceWave || processedWave;
+  }
+
+  function getSlaveWave(){
+    if (playbackMode !== 'compare') return null;
+    const master = getMasterWave();
+    if (!master || !sourceWave || !processedWave) return null;
+    return master === sourceWave ? processedWave : sourceWave;
+  }
+
+  function seekBoth(time){
+    if (transportLock) return;
+    transportLock = true;
+    if (sourceWave) sourceWave.setTime(time);
+    if (processedWave) processedWave.setTime(time);
+    transportLock = false;
+  }
+
+  function syncSlave(time){
+    const slave = getSlaveWave();
+    if (!slave) return;
+    const drift = Math.abs(slave.getCurrentTime() - time);
+    if (drift > 0.015) {
+      slave.setTime(time);
+    }
+  }
+
+  function playTransport(){
+    const master = getMasterWave();
+    if (!master) return;
+    const time = master.getCurrentTime();
+    seekBoth(time);
+    if (playbackMode === 'compare') {
+      if (sourceWave) sourceWave.play();
+      if (processedWave) processedWave.play();
+    } else {
+      master.play();
+      const other = master === sourceWave ? processedWave : sourceWave;
+      if (other) other.pause();
+    }
+  }
+
+  function pauseTransport(){
+    if (sourceWave) sourceWave.pause();
+    if (processedWave) processedWave.pause();
+  }
+
+  function stopTransport(){
+    if (sourceWave) sourceWave.stop();
+    if (processedWave) processedWave.stop();
+  }
+
+  function updatePlaybackModeUI(){
+    modeButtons.forEach((btn) => {
+      const mode = btn.dataset.playbackMode;
+      const disabled = (mode === 'processed' && !processedWave) || (mode === 'compare' && !processedWave);
+      btn.disabled = disabled;
+      btn.classList.toggle('is-active', mode === playbackMode);
+    });
+    if (linkIndicator) {
+      linkIndicator.classList.toggle('hidden', playbackMode !== 'compare' || !processedWave);
+    }
+    if (soloSourceBtn) soloSourceBtn.classList.toggle('is-active', playbackMode === 'source');
+    if (soloProcessedBtn) {
+      soloProcessedBtn.disabled = !processedWave;
+      soloProcessedBtn.classList.toggle('is-active', playbackMode === 'processed');
+    }
+  }
+
+  function setPlaybackMode(nextMode){
+    if (nextMode === 'processed' && !processedWave) nextMode = 'source';
+    if (nextMode === 'compare' && !processedWave) nextMode = 'source';
+    if (nextMode === playbackMode) return;
+    const wasPlaying = isAnyPlaying();
+    playbackMode = nextMode;
+    updatePlaybackModeUI();
+    pauseTransport();
+    if (wasPlaying) playTransport();
+  }
+
+  function bindTransportEvents(wave){
+    if (!wave) return;
+    transportCleanup.push(
+      wave.on('interaction', (time) => {
+        if (transportLock) return;
+        seekBoth(time);
+      })
+    );
+    transportCleanup.push(
+      wave.on('audioprocess', (time) => {
+        const master = getMasterWave();
+        if (wave !== master) return;
+        if (playbackMode === 'compare') {
+          syncSlave(time);
+        }
+      })
+    );
+    transportCleanup.push(
+      wave.on('finish', () => {
+        pauseTransport();
+      })
+    );
   }
 
   function syncToggleStyles(){
@@ -432,6 +594,7 @@
 
   function clearWaves(){
     cleanupOverlays();
+    cleanupTransport();
     if (sourceWave) {
       sourceWave.destroy();
       sourceWave = null;
@@ -445,32 +608,21 @@
   function initWave(containerId){
     const el = document.getElementById(containerId);
     if (!el || !window.WaveSurfer) return null;
+    const zoomIdx = currentZoomIndex();
     return WaveSurfer.create({
       container: el,
       waveColor: '#2a3a4f',
       progressColor: '#ff8a3d',
       cursorColor: '#ffc38a',
-      height: 86,
+      height: 140,
       barWidth: 2,
       barGap: 1,
       normalize: true,
       backend: 'MediaElement',
-    });
-  }
-
-  function bindSync(a, b){
-    if (!a || !b) return;
-    a.on('seek', (progress)=>{
-      if (syncing) return;
-      syncing = true;
-      b.seekTo(progress);
-      syncing = false;
-    });
-    b.on('seek', (progress)=>{
-      if (syncing) return;
-      syncing = true;
-      a.seekTo(progress);
-      syncing = false;
+      minPxPerSec: baseMinPxPerSec * zoomSteps[zoomIdx],
+      fillParent: true,
+      autoScroll: true,
+      autoCenter: true,
     });
   }
 
@@ -576,12 +728,17 @@
     clearWaves();
     sourceWave = initWave('waveSource');
     processedWave = payload.processed_url ? initWave('waveProcessed') : null;
-    bindSync(sourceWave, processedWave);
 
     await loadWave(sourceWave, payload.source_url);
     if (processedWave) {
       await loadWave(processedWave, payload.processed_url);
     }
+    playbackMode = processedWave ? 'compare' : 'source';
+    updatePlaybackModeUI();
+    cleanupTransport();
+    bindTransportEvents(sourceWave);
+    bindTransportEvents(processedWave);
+    setZoomLevel(currentZoomIndex());
     updateControls();
     setupOverlays();
   }
@@ -687,27 +844,51 @@
 
   if (playBtn) {
     playBtn.addEventListener('click', () => {
-      if (sourceWave) sourceWave.play();
-      if (processedWave) processedWave.play();
+      playTransport();
     });
   }
   if (pauseBtn) {
     pauseBtn.addEventListener('click', () => {
-      if (sourceWave) sourceWave.pause();
-      if (processedWave) processedWave.pause();
+      pauseTransport();
     });
   }
   if (stopBtn) {
     stopBtn.addEventListener('click', () => {
-      if (sourceWave) sourceWave.stop();
-      if (processedWave) processedWave.stop();
+      stopTransport();
     });
   }
   if (zoomRange) {
     zoomRange.addEventListener('input', () => {
-      const val = parseInt(zoomRange.value || '90', 10);
-      if (sourceWave) sourceWave.zoom(val);
-      if (processedWave) processedWave.zoom(val);
+      const val = parseInt(zoomRange.value || '0', 10);
+      setZoomLevel(Number.isNaN(val) ? 0 : val);
+    });
+  }
+
+  modeButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const mode = btn.dataset.playbackMode;
+      if (mode) setPlaybackMode(mode);
+    });
+  });
+
+  if (soloSourceBtn) {
+    soloSourceBtn.addEventListener('click', () => {
+      if (playbackMode === 'source' && processedWave) {
+        setPlaybackMode('compare');
+      } else {
+        setPlaybackMode('source');
+      }
+    });
+  }
+
+  if (soloProcessedBtn) {
+    soloProcessedBtn.addEventListener('click', () => {
+      if (!processedWave) return;
+      if (playbackMode === 'processed') {
+        setPlaybackMode('compare');
+      } else {
+        setPlaybackMode('processed');
+      }
     });
   }
 
@@ -719,6 +900,8 @@
     });
   });
   syncToggleStyles();
+  setZoomLevel(currentZoomIndex());
+  updatePlaybackModeUI();
 
   const params = new URLSearchParams(window.location.search);
   const song = params.get('song');
