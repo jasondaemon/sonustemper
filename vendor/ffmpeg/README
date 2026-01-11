@@ -1,6 +1,3 @@
-This directory contains vendored FFmpeg binaries used for native builds.
-
-- macos/: ffmpeg, ffprobe (macOS builds)
-- windows/: ffmpeg.exe, ffprobe.exe (Windows builds)
-
-These binaries are bundled into native applications via PyInstaller.
+version https://git-lfs.github.com/spec/v1
+oid sha256:16129ad8faa91238de9cd44a9a11c148ba73359c6e4ce52e14456e30550cc598
+size 238
