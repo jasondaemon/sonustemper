@@ -393,11 +393,16 @@ h1{margin:0;font-size:24px;}
   flex-direction:column;
   gap:12px;
 }
+.analyze-loaded > *{
+  min-width:0;
+}
 .wave-panel{
   border:1px solid var(--line);
   border-radius:12px;
   padding:12px;
   background:#0f151d;
+  min-width:0;
+  max-width:100%;
 }
 .wave-head{
   display:flex;
@@ -429,6 +434,8 @@ h1{margin:0;font-size:24px;}
   position:relative;
   overflow-x:auto;
   overflow-y:hidden;
+  min-width:0;
+  max-width:100%;
 }
 .wave-empty{
   margin-top:8px;
