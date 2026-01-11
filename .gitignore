@@ -1,4 +1,6 @@
-# Generated output/audio
+# ================================
+# Generated output / audio
+# ================================
 mastering/out/
 mastering/in/*.wav
 mastering/in/*.mp3
@@ -6,31 +8,73 @@ mastering/in/*.flac
 mastering/in/*.aiff
 mastering/in/*.aif
 
+# Catch-all audio (generated or test artifacts)
+*.wav
+*.mp3
+*.flac
+*.aiff
+*.aif
+
+
+# ================================
+# Runtime data (never commit)
+# ================================
+data/
+.env
+.env.*
+*.log
+
+
+# ================================
 # Python
+# ================================
 __pycache__/
+**/__pycache__/
 *.pyc
+*.pyo
+*.pyd
 
-# OS/editor
-.DS_Store
-.vscode/
-__MACOSX/
-.git/
-**/.git/
+# Virtual environments
+.venv/
+.venv-native/
+venv/
+ENV/
 
-# --- Synology / DSM metadata ---
-@eaDir/
-**/@eaDir/
+
+# ================================
+# PyInstaller / native builds
+# ================================
+build/
+dist/
+release/
+*.spec.bak
+
+
+# ================================
+# OS / editor noise
+# ================================
 .DS_Store
 **/.DS_Store
+__MACOSX/
 Thumbs.db
 **/Thumbs.db
 
-# --- General noise ---
+.vscode/
+.idea/
 *.swp
 *.swo
-*.tmp
 *~
-.env
-data/
-*.wav
-*.mp3
+
+
+# ================================
+# Synology / DSM metadata
+# ================================
+@eaDir/
+**/@eaDir/
+
+
+# ================================
+# Git internals (paranoia-safe)
+# ================================
+.git/
+**/.git/

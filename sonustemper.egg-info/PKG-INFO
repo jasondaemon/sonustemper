@@ -1,3 +1,19 @@
+Metadata-Version: 2.4
+Name: sonustemper
+Version: 0.0.0
+Summary: SonusTemper backend
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: fastapi==0.115.6
+Requires-Dist: uvicorn==0.34.0
+Requires-Dist: python-multipart==0.0.20
+Requires-Dist: mutagen==1.47.0
+Requires-Dist: jinja2==3.1.4
+Provides-Extra: dev
+Requires-Dist: pyinstaller; extra == "dev"
+Dynamic: license-file
+
 # ![SonusTemper](images/SonusTemper-128.png) SonusTemper
 
 SonusTemper is a one-page mastering workstation: drop in a song, choose a voicing or user preset, dial loudness/stereo/tone, and export multiple formats side-by-side for A/B comparison. Everything runs locally (FastAPI + FFmpeg), with deterministic naming, metrics, and provenance files for traceable results.
@@ -155,6 +171,7 @@ uvicorn sonustemper.server:app --reload --port 8383
   - Streaming platform complaince
   - Potential cliping
 - Frequency Filtering
+- Wabeform visual integration
 - Drag and Drop file handling
 - Enhanced file management
 - Preset Manager enhancement

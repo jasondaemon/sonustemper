@@ -1,0 +1,16 @@
+LICENSE
+README.md
+pyproject.toml
+sonustemper/__init__.py
+sonustemper/desktop_main.py
+sonustemper/logging_util.py
+sonustemper/master_pack.py
+sonustemper/server.py
+sonustemper/smoke_test.py
+sonustemper/tagger.py
+sonustemper/tools.py
+sonustemper.egg-info/PKG-INFO
+sonustemper.egg-info/SOURCES.txt
+sonustemper.egg-info/dependency_links.txt
+sonustemper.egg-info/requires.txt
+sonustemper.egg-info/top_level.txt

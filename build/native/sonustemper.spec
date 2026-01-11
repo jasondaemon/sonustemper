@@ -1,13 +1,23 @@
 from pathlib import Path
 import sys
+from PyInstaller.utils.hooks import collect_submodules
 
-project_root = Path(__file__).resolve().parents[2]
+spec_dir = Path(SPECPATH).resolve()
+
+def find_repo_root(start: Path) -> Path:
+    for p in [start] + list(start.parents):
+        if (p / "sonustemper").is_dir() and (p / "sonustemper-ui").is_dir() and (p / "vendor").is_dir():
+            return p
+    raise FileNotFoundError(f"Could not locate repo root from {start}")
+
+project_root = find_repo_root(spec_dir)
 entry = project_root / "sonustemper" / "desktop_main.py"
 
 datas = [
     (str(project_root / "sonustemper-ui" / "app" / "ui.py"), "sonustemper-ui/app"),
     (str(project_root / "sonustemper-ui" / "app" / "templates"), "sonustemper-ui/app/templates"),
     (str(project_root / "sonustemper-ui" / "app" / "static"), "sonustemper-ui/app/static"),
+    (str(project_root / "images" / "sonustemper-menubar.png"), "images"),
     (str(project_root / "LICENSE"), "."),
     (str(project_root / "THIRD_PARTY_NOTICES.md"), "."),
     (str(project_root / "LICENSES"), "LICENSES"),
@@ -25,16 +35,25 @@ elif sys.platform.startswith("win"):
         (str(project_root / "vendor" / "ffmpeg" / "windows" / "ffprobe.exe"), "vendor/ffmpeg/windows"),
     ]
 
+hiddenimports = collect_submodules("sonustemper")
+hiddenimports += collect_submodules("rumps")
+hiddenimports += collect_submodules("objc")
+hiddenimports += collect_submodules("Foundation")
+hiddenimports += collect_submodules("AppKit")
+
 a = Analysis(
     [str(entry)],
-    pathex=[str(project_root)],
+    pathex=[
+        str(project_root),
+        str(project_root / "sonustemper"),
+    ],
     binaries=binaries,
     datas=datas,
-    hiddenimports=[],
+    hiddenimports=hiddenimports,
     hookspath=[],
     runtime_hooks=[],
     excludes=[],
-    noarchive=False,
+    noarchive=True,
 )
 
 pyz = PYZ(a.pure)
@@ -49,7 +68,8 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=True,
+    console=False,
+    icon=str(project_root / "images" / "sonustemper.icns"),
 )
 
 coll = COLLECT(
@@ -60,3 +80,13 @@ coll = COLLECT(
     upx=True,
     name="SonusTemper",
 )
+
+# macOS app bundle
+if sys.platform == "darwin":
+    app = BUNDLE(
+        coll,
+        name="SonusTemper.app",
+        icon=str(project_root / "images" / "sonustemper.icns"),
+        bundle_identifier="net.jasondaemon.sonustemper",
+    )
+
