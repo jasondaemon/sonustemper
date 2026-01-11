@@ -425,12 +425,10 @@ h1{margin:0;font-size:24px;}
 }
 .wave-canvas{
   width:100%;
-  min-height:140px;
+  min-height:180px;
   position:relative;
-  overflow:hidden;
-}
-.wave-canvas > div{
-  width:100%;
+  overflow-x:auto;
+  overflow-y:hidden;
 }
 .wave-empty{
   margin-top:8px;
