@@ -181,10 +181,83 @@
     const minPxPerSec = Math.max(1, fitMinPxPerSec) * factor;
     if (sourceWave) sourceWave.zoom(minPxPerSec);
     if (processedWave) processedWave.zoom(minPxPerSec);
+    updateZoomClasses(factor);
+    requestAnimationFrame(updateScrollHints);
   }
 
   function clamp(val, minVal, maxVal){
     return Math.max(minVal, Math.min(maxVal, val));
+  }
+
+  function waveHost(wave){
+    if (!wave || typeof wave.getWrapper !== 'function') return null;
+    const wrapper = wave.getWrapper();
+    if (!wrapper || !wrapper.getRootNode) return null;
+    const root = wrapper.getRootNode();
+    return root && root.host ? root.host : null;
+  }
+
+  function updateZoomClasses(factor){
+    const isZoomed = factor > 1;
+    const hosts = [waveHost(sourceWave), waveHost(processedWave)].filter(Boolean);
+    hosts.forEach((host) => {
+      host.classList.toggle('is-zoomed', isZoomed);
+    });
+  }
+
+  function ensureScrollHintEls(scrollEl){
+    if (!scrollEl) return null;
+    scrollEl.style.position = 'relative';
+    let left = scrollEl.querySelector('.scroll-hint-left');
+    if (!left) {
+      left = document.createElement('div');
+      left.className = 'scroll-hint-left';
+      left.style.position = 'absolute';
+      left.style.top = '0';
+      left.style.left = '0';
+      left.style.height = '100%';
+      left.style.width = '28px';
+      left.style.pointerEvents = 'none';
+      left.style.zIndex = '6';
+      left.style.background = 'linear-gradient(90deg, rgba(11,15,20,0.9), rgba(11,15,20,0))';
+      scrollEl.appendChild(left);
+    }
+    let right = scrollEl.querySelector('.scroll-hint-right');
+    if (!right) {
+      right = document.createElement('div');
+      right.className = 'scroll-hint-right';
+      right.style.position = 'absolute';
+      right.style.top = '0';
+      right.style.right = '0';
+      right.style.height = '100%';
+      right.style.width = '28px';
+      right.style.pointerEvents = 'none';
+      right.style.zIndex = '6';
+      right.style.background = 'linear-gradient(270deg, rgba(11,15,20,0.9), rgba(11,15,20,0))';
+      scrollEl.appendChild(right);
+    }
+    return { left, right };
+  }
+
+  function updateScrollHints(){
+    const zoomed = zoomSteps[currentZoomIndex()] > 1;
+    [sourceWave, processedWave].forEach((wave) => {
+      if (!wave || typeof wave.getWrapper !== 'function') return;
+      const wrapper = wave.getWrapper();
+      const scrollEl = wrapper ? wrapper.parentElement : null;
+      const host = waveHost(wave);
+      if (!wrapper || !scrollEl || !host) return;
+      const scrollable = wrapper.scrollWidth > scrollEl.clientWidth + 1;
+      host.classList.toggle('is-scrollable', scrollable);
+      const hints = ensureScrollHintEls(scrollEl);
+      if (!hints) return;
+      const maxScroll = Math.max(0, wrapper.scrollWidth - scrollEl.clientWidth);
+      const show = zoomed && scrollable && maxScroll > 1;
+      const atStart = scrollEl.scrollLeft <= 1;
+      const atEnd = scrollEl.scrollLeft >= maxScroll - 1;
+      hints.left.style.display = show && !atStart ? 'block' : 'none';
+      hints.right.style.display = show && !atEnd ? 'block' : 'none';
+    });
   }
 
   function fitPxPerSecFor(wave){
@@ -210,31 +283,6 @@
     if (Math.abs(next - fitMinPxPerSec) < 0.01) return;
     fitMinPxPerSec = next;
     setZoomLevel(currentZoomIndex());
-  }
-
-  function debugOverflow(label) {
-    const doc = document.documentElement;
-    const body = document.body;
-    const overflow = Math.max(doc.scrollWidth, body.scrollWidth) - doc.clientWidth;
-    if (overflow <= 1) return;
-    console.warn(`[overflow] ${label}: +${overflow}px`);
-
-    let worst = null;
-    let worstRight = 0;
-    const vw = doc.clientWidth;
-
-    for (const el of document.querySelectorAll("*")) {
-      const r = el.getBoundingClientRect();
-      if (r.right > worstRight + 1) {
-        worstRight = r.right;
-        worst = el;
-      }
-    }
-
-    if (worst) {
-      console.warn("[overflow] culprit:", worst, worstRight, "vw:", vw);
-      worst.style.outline = "3px solid red";
-    }
   }
 
   function cleanupTransport(){
@@ -398,8 +446,7 @@
     if (!wave || typeof wave.getWrapper !== 'function') return null;
     const wrapper = wave.getWrapper();
     if (!wrapper) return null;
-    const scrollEl = wrapper.parentElement || wrapper;
-    let canvas = scrollEl.querySelector(`canvas.analysis-overlay-${kind}`);
+    let canvas = wrapper.querySelector(`canvas.analysis-overlay-${kind}`);
     if (!canvas) {
       canvas = document.createElement('canvas');
       canvas.className = `analysis-overlay analysis-overlay-${kind}`;
@@ -408,12 +455,11 @@
       canvas.style.left = '0';
       canvas.style.pointerEvents = 'none';
       canvas.style.zIndex = '3';
-      scrollEl.appendChild(canvas);
+      wrapper.style.position = 'relative';
+      wrapper.appendChild(canvas);
     }
-    const width = Math.max(scrollEl.clientWidth || 0, 1);
-    const height = Math.max(scrollEl.clientHeight || wrapper.clientHeight || 1, 1);
-    const fullWidth = Math.max(wrapper.scrollWidth || wrapper.clientWidth || width, width);
-    const scrollLeft = scrollEl.scrollLeft || 0;
+    const width = Math.max(wrapper.scrollWidth || wrapper.clientWidth || 0, 1);
+    const height = Math.max(wrapper.clientHeight || 1, 1);
     const ratio = window.devicePixelRatio || 1;
     canvas.width = Math.max(1, Math.round(width * ratio));
     canvas.height = Math.max(1, Math.round(height * ratio));
@@ -422,11 +468,11 @@
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-    return { canvas, ctx, wrapper, scrollEl, width, height, fullWidth, scrollLeft };
+    return { canvas, ctx, wrapper, width, height };
   }
 
-  function drawHeatmap(ctx, width, height, t, values, duration, fullWidth, scrollLeft){
-    if (!t.length || !values.length || !duration || !fullWidth) return;
+  function drawHeatmap(ctx, width, height, t, values, duration){
+    if (!t.length || !values.length || !duration) return;
     const clean = values.filter((v) => typeof v === 'number' && !Number.isNaN(v));
     if (clean.length < 2) return;
     const minVal = percentile(clean, 0.1);
@@ -434,7 +480,7 @@
     if (minVal === null || maxVal === null || maxVal <= minVal) return;
     const low = [24, 48, 76];
     const high = [255, 138, 61];
-    const step = fullWidth / values.length;
+    const step = width / values.length;
     for (let i = 0; i < values.length; i += 1) {
       const val = values[i];
       if (typeof val !== 'number' || Number.isNaN(val)) continue;
@@ -443,15 +489,14 @@
       const g = Math.round(low[1] + (high[1] - low[1]) * norm);
       const b = Math.round(low[2] + (high[2] - low[2]) * norm);
       const alpha = 0.08 + norm * 0.32;
-      const x = (t[i] / duration) * fullWidth - scrollLeft;
-      if (x < -step || x > width + step) continue;
+      const x = (t[i] / duration) * width;
       ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
       ctx.fillRect(x - step * 0.5, 0, step, height);
     }
   }
 
-  function drawDelta(ctx, width, height, t, values, duration, fullWidth, scrollLeft){
-    if (!t.length || !values.length || !duration || !fullWidth) return;
+  function drawDelta(ctx, width, height, t, values, duration){
+    if (!t.length || !values.length || !duration) return;
     const clean = values.filter((v) => typeof v === 'number' && !Number.isNaN(v));
     if (!clean.length) return;
     const absVals = clean.map((v) => Math.abs(v));
@@ -476,11 +521,7 @@
           started = false;
           continue;
         }
-        const x = (t[i] / duration) * fullWidth - scrollLeft;
-        if (x < -2 || x > width + 2) {
-          started = false;
-          continue;
-        }
+        const x = (t[i] / duration) * width;
         const y = mid - (val * scale);
         if (!started) {
           ctx.moveTo(x, y);
@@ -496,13 +537,12 @@
     ctx.restore();
   }
 
-  function drawMarkers(ctx, width, height, duration, markers, fullWidth, scrollLeft){
-    if (!duration || !markers || !markers.length || !fullWidth) return;
+  function drawMarkers(ctx, width, height, duration, markers){
+    if (!duration || !markers || !markers.length) return;
     ctx.save();
     markers.forEach((marker) => {
       if (!marker || typeof marker.t !== 'number') return;
-      const x = (marker.t / duration) * fullWidth - scrollLeft;
-      if (x < 0 || x > width) return;
+      const x = (marker.t / duration) * width;
       const isClip = marker.severity === 'clip';
       ctx.strokeStyle = isClip ? 'rgba(255, 88, 88, 0.85)' : 'rgba(255, 184, 77, 0.45)';
       ctx.lineWidth = isClip ? 1.4 : 1.0;
@@ -596,7 +636,7 @@
     if (!wave) return;
     const overlay = ensureOverlayCanvas(wave, kind);
     if (!overlay) return;
-    const { ctx, width, height, fullWidth, scrollLeft } = overlay;
+    const { ctx, width, height } = overlay;
     ctx.clearRect(0, 0, width, height);
     if (!analysisData || !analysisData.series) return;
     const duration = analysisData.duration_s || wave.getDuration() || 0;
@@ -609,14 +649,14 @@
     const deltaVals = analysisData.series.lufs_st_delta || [];
     if (state.heatmap) {
       const values = (kind === 'processed' && processedVals.length) ? processedVals : sourceVals;
-      drawHeatmap(ctx, width, height, t, values, duration, fullWidth, scrollLeft);
+      drawHeatmap(ctx, width, height, t, values, duration);
     }
     if (state.delta && kind === 'processed' && deltaVals.length) {
-      drawDelta(ctx, width, height, t, deltaVals, duration, fullWidth, scrollLeft);
+      drawDelta(ctx, width, height, t, deltaVals, duration);
     }
     if (state.peak) {
       const markerList = analysisData.markers?.true_peak?.[kind === 'processed' ? 'processed' : 'source'] || [];
-      drawMarkers(ctx, width, height, duration, markerList, fullWidth, scrollLeft);
+      drawMarkers(ctx, width, height, duration, markerList);
     }
   }
 
@@ -625,14 +665,72 @@
     drawOverlay(processedWave, 'processed');
   }
 
+  function bindDragScroll(wave){
+    if (!wave || typeof wave.getWrapper !== 'function') return () => {};
+    const wrapper = wave.getWrapper();
+    const scrollEl = wrapper ? wrapper.parentElement : null;
+    const host = waveHost(wave);
+    if (!scrollEl || !host) return () => {};
+    let dragging = false;
+    let dragged = false;
+    let startX = 0;
+    let startScroll = 0;
+    scrollEl.style.cursor = 'grab';
+
+    const onDown = (evt) => {
+      if (evt.button !== 0) return;
+      dragging = false;
+      dragged = false;
+      startX = evt.clientX;
+      startScroll = scrollEl.scrollLeft;
+      host.classList.add('is-dragging');
+      scrollEl.style.cursor = 'grabbing';
+    };
+    const onMove = (evt) => {
+      if (!host.classList.contains('is-dragging')) return;
+      const dx = evt.clientX - startX;
+      if (!dragging && Math.abs(dx) < 4) return;
+      dragging = true;
+      dragged = true;
+      scrollEl.scrollLeft = startScroll - dx;
+      evt.preventDefault();
+    };
+    const onUp = () => {
+      if (host.classList.contains('is-dragging')) {
+        host.classList.remove('is-dragging');
+        scrollEl.style.cursor = 'grab';
+      }
+      dragging = false;
+    };
+    const onClick = (evt) => {
+      if (!dragged) return;
+      evt.preventDefault();
+      evt.stopPropagation();
+      dragged = false;
+    };
+
+    host.addEventListener('pointerdown', onDown);
+    host.addEventListener('click', onClick, true);
+    window.addEventListener('pointermove', onMove, { passive: false });
+    window.addEventListener('pointerup', onUp);
+    return () => {
+      host.removeEventListener('pointerdown', onDown);
+      host.removeEventListener('click', onClick, true);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+  }
+
   function bindOverlayEvents(wave, kind){
     if (!wave) return () => {};
     const cleanup = [];
-    const draw = () => drawOverlay(wave, kind);
+    const draw = () => {
+      drawOverlay(wave, kind);
+      updateScrollHints();
+    };
     cleanup.push(wave.on('ready', draw));
     cleanup.push(wave.on('redraw', draw));
     cleanup.push(wave.on('zoom', draw));
-    cleanup.push(wave.on('scroll', draw));
     cleanup.push(wave.on('resize', draw));
     const onResize = () => drawOverlay(wave, kind);
     window.addEventListener('resize', onResize);
@@ -644,14 +742,15 @@
       const onLeave = () => { scrollEl.title = ''; };
       scrollEl.addEventListener('mousemove', onMove);
       scrollEl.addEventListener('mouseleave', onLeave);
+      const onScroll = () => updateScrollHints();
+      scrollEl.addEventListener('scroll', onScroll, { passive: true });
       cleanup.push(() => {
         scrollEl.removeEventListener('mousemove', onMove);
         scrollEl.removeEventListener('mouseleave', onLeave);
+        scrollEl.removeEventListener('scroll', onScroll);
       });
-      const onScroll = () => drawOverlay(wave, kind);
-      scrollEl.addEventListener('scroll', onScroll, { passive: true });
-      cleanup.push(() => scrollEl.removeEventListener('scroll', onScroll));
     }
+    cleanup.push(bindDragScroll(wave));
     return () => cleanup.forEach((fn) => fn && fn());
   }
 
@@ -937,7 +1036,6 @@
         zoomRaf = null;
         if (pendingZoom === null) return;
         setZoomLevel(pendingZoom);
-        debugOverflow("zoom");
         pendingZoom = null;
       });
     });
