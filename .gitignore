@@ -15,6 +15,9 @@ mastering/in/*.aif
 *.aiff
 *.aif
 
+# --- But DO ship the bundled demo track ---
+!assets/demo/
+!assets/demo/*
 
 # ================================
 # Runtime data (never commit)

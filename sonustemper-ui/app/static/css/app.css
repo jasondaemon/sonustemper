@@ -8,9 +8,6 @@
   --danger:#ff4d4d;
 }
 *{box-sizing:border-box;}
-html, body{
-  overflow-x:hidden;
-}
 body{
   margin:0;
   background:var(--bg);
@@ -58,14 +55,6 @@ h1{margin:0;font-size:24px;}
 }
 .sideItem.disabled{opacity:0.4;cursor:not-allowed;}
 .content{display:flex;flex-direction:column;gap:12px;}
-.page,
-.content,
-.card,
-.wave-panel,
-.wave-canvas{
-  min-width:0;
-  max-width:100%;
-}
 .master-grid{
   display:grid;
   grid-template-columns:repeat(auto-fit,minmax(360px,1fr));
@@ -404,16 +393,23 @@ h1{margin:0;font-size:24px;}
   flex-direction:column;
   gap:12px;
 }
+.page-analyze{
+  overflow-x:hidden;
+}
 .analyze-loaded > *{
   min-width:0;
+}
+.page-analyze .content,
+.page-analyze .wave-panel,
+.page-analyze .wave-canvas{
+  min-width:0;
+  max-width:100%;
 }
 .wave-panel{
   border:1px solid var(--line);
   border-radius:12px;
   padding:12px;
   background:#0f151d;
-  min-width:0;
-  max-width:100%;
 }
 .wave-head{
   display:flex;
@@ -445,8 +441,6 @@ h1{margin:0;font-size:24px;}
   position:relative;
   overflow-x:auto;
   overflow-y:hidden;
-  min-width:0;
-  max-width:100%;
   cursor:grab;
 }
 .wave-canvas.is-dragging{

@@ -9,10 +9,10 @@
   <!-- <script src="https://unpkg.com/htmx.org@1.9.12"></script> -->
   <script defer src="/static/js/app.js"></script>
 </head>
-<body>
+{% set current_page = current_page or '' %}
+<body class="page-{{ current_page if current_page else 'start' }}">
   <div class="page">
     <div id="toast" class="toast hidden"></div>
-{% set current_page = current_page or '' %}
 <div class="top">
   <div>
     <h1>{% block title %}{% endblock %}</h1>
