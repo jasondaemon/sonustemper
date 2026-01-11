@@ -20,6 +20,7 @@ import sonustemper.master_pack as mastering_pack
 from urllib.parse import quote
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request, Body, BackgroundTasks
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse, Response, HTMLResponse
+from sonustemper.tools import bundle_root, is_frozen, resolve_tool
 from fastapi.templating import Jinja2Templates
 from .tagger import TaggerService
 from fastapi.staticfiles import StaticFiles
@@ -49,8 +50,10 @@ IN_DIR = MASTER_IN_DIR
 OUT_DIR = MASTER_OUT_DIR
 APP_DIR = Path(__file__).resolve().parent
 REPO_ROOT = APP_DIR.parent
-UI_APP_DIR = REPO_ROOT / "sonustemper-ui" / "app"
+UI_APP_DIR = (bundle_root() / "sonustemper-ui" / "app") if is_frozen() else (REPO_ROOT / "sonustemper-ui" / "app")
 UI_TEMPLATES = Jinja2Templates(directory=str(UI_APP_DIR / "templates")) if UI_APP_DIR.exists() else None
+if UI_TEMPLATES:
+    UI_TEMPLATES.env.globals["static_url"] = lambda path: f"/static/{(path or '').lstrip('/')}"
 # Security: API key protection (for CLI/scripts); set API_AUTH_DISABLED=1 to bypass explicitly.
 API_KEY = os.getenv("API_KEY")
 API_AUTH_DISABLED = os.getenv("API_AUTH_DISABLED") == "1"
@@ -219,7 +222,7 @@ def _render_preview(preview_id: str) -> None:
     chain = _build_preview_filter(voicing, strength, width)
     af = f"{chain},{limiter}" if chain else limiter
     cmd = [
-        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        FFMPEG_BIN, "-y", "-hide_banner", "-loglevel", "error",
         "-ss", str(PREVIEW_SEGMENT_START),
         "-t", str(PREVIEW_SEGMENT_DURATION),
         "-i", str(input_path),
@@ -266,6 +269,9 @@ OUTLIST_CACHE: dict = {}
 logger.info(f"[startup] API_KEY set? {bool(API_KEY)} API_AUTH_DISABLED={API_AUTH_DISABLED} PROXY_SHARED_SECRET set? {bool(PROXY_SHARED_SECRET)}")
 if not API_AUTH_DISABLED and not API_KEY and not PROXY_SHARED_SECRET:
     logger.warning("WARNING [auth] No API_KEY or PROXY_SHARED_SECRET set; /api endpoints are unauthenticated on this interface.")
+FFMPEG_BIN = resolve_tool("ffmpeg")
+FFPROBE_BIN = resolve_tool("ffprobe")
+logger.debug("[startup] ffmpeg=%s ffprobe=%s", FFMPEG_BIN, FFPROBE_BIN)
 MAX_CONCURRENT_RUNS = int(os.getenv("MAX_CONCURRENT_RUNS", "2"))
 RUNS_IN_FLIGHT = 0
 
@@ -280,7 +286,6 @@ def _start_master_jobs(files, presets, strength, lufs, tp, width, mono_bass, gua
     """Kick off mastering jobs and immediately seed the SSE bus so the UI reacts without polling."""
     global RUNS_IN_FLIGHT
     RUNS_IN_FLIGHT = max(0, RUNS_IN_FLIGHT) + 1
-    base_cmd = ["python3", str(MASTER_SCRIPT), "--strength", str(strength)]
     target_loop = getattr(status_bus, "loop", None) or MAIN_LOOP
     run_ids = [Path(f).stem or f for f in files]
     def _is_enabled(val):
@@ -290,14 +295,29 @@ def _start_master_jobs(files, presets, strength, lufs, tp, width, mono_bass, gua
             return bool(val)
         txt = str(val).strip().lower()
         return txt not in ("0","false","off","no","")
-    def _emit(run_id: str, stage: str, detail: str = ""):
+    def _emit(run_id: str, stage: str, detail: str = "", preset: str | None = None):
         ev = {"stage": stage, "detail": detail, "ts": datetime.utcnow().timestamp()}
+        if preset:
+            ev["preset"] = preset
         loop_obj = getattr(status_bus, "loop", None) or MAIN_LOOP
         if loop_obj and loop_obj.is_running():
             try:
                 asyncio.run_coroutine_threadsafe(status_bus.append_events(run_id, [ev]), loop_obj)
             except Exception:
                 pass
+    def _mark_direct(run_id: str):
+        loop_obj = getattr(status_bus, "loop", None) or MAIN_LOOP
+        if loop_obj and loop_obj.is_running():
+            try:
+                asyncio.run_coroutine_threadsafe(status_bus.mark_direct(run_id), loop_obj)
+            except Exception:
+                pass
+    def _make_event_cb(run_id: str):
+        def _cb(event: dict):
+            if not isinstance(event, dict):
+                return
+            _emit(run_id, event.get("stage", ""), event.get("detail", ""), event.get("preset"))
+        return _cb
     def run_all():
         for f, rid in zip(files, run_ids):
             do_analyze  = _is_enabled(stage_analyze)
@@ -305,56 +325,47 @@ def _start_master_jobs(files, presets, strength, lufs, tp, width, mono_bass, gua
             do_loudness = _is_enabled(stage_loudness)
             do_stereo   = _is_enabled(stage_stereo)
             do_output   = _is_enabled(stage_output)
-            cmd = base_cmd + ["--infile", f]
-            if not do_analyze: cmd += ["--no_analyze"]
-            if not do_master: cmd += ["--no_master"]
-            if not do_loudness: cmd += ["--no_loudness"]
-            if not do_stereo: cmd += ["--no_stereo"]
-            if not do_output: cmd += ["--no_output"]
-            if presets:
-                cmd += ["--presets", presets]
-            if do_loudness and lufs is not None:
-                cmd += ["--lufs", str(lufs)]
-            if do_loudness and tp is not None:
-                cmd += ["--tp", str(tp)]
-            if do_stereo and width is not None:
-                cmd += ["--width", str(width)]
-            if do_stereo and mono_bass is not None:
-                cmd += ["--mono_bass", str(mono_bass)]
-            if do_stereo and guardrails:
-                cmd += ["--guardrails"]
-            if voicing_mode:
-                cmd += ["--voicing_mode", str(voicing_mode)]
-            if voicing_name:
-                cmd += ["--voicing_name", str(voicing_name)]
-            if do_output:
-                cmd += ["--out_wav", "1" if out_wav else "0"]
-                cmd += ["--out_mp3", "1" if out_mp3 else "0"]
-                cmd += ["--out_aac", "1" if out_aac else "0"]
-                cmd += ["--out_ogg", "1" if out_ogg else "0"]
-                cmd += ["--out_flac", "1" if out_flac else "0"]
-                if wav_bit_depth: cmd += ["--wav_bit_depth", str(wav_bit_depth)]
-                if wav_sample_rate: cmd += ["--wav_sample_rate", str(wav_sample_rate)]
-                if mp3_bitrate: cmd += ["--mp3_bitrate", str(mp3_bitrate)]
-                if mp3_vbr: cmd += ["--mp3_vbr", str(mp3_vbr)]
-                if aac_bitrate: cmd += ["--aac_bitrate", str(aac_bitrate)]
-                if aac_codec: cmd += ["--aac_codec", str(aac_codec)]
-                if aac_container: cmd += ["--aac_container", str(aac_container)]
-                if ogg_quality: cmd += ["--ogg_quality", str(ogg_quality)]
-                if flac_level: cmd += ["--flac_level", str(flac_level)]
-            if flac_bit_depth: cmd += ["--flac_bit_depth", str(flac_bit_depth)]
-            if flac_sample_rate: cmd += ["--flac_sample_rate", str(flac_sample_rate)]
         try:
             print(f"[master-bulk] start file={f} presets={presets}", file=sys.stderr)
             _emit(rid, "queued", f)
-            _emit(rid, "start", f"Processing {Path(f).name}")
-            run_cmd_passthrough(cmd)
+            _mark_direct(rid)
+            mastering_pack.run_master_job(
+                f,
+                strength=strength,
+                presets=presets,
+                lufs=lufs if do_loudness else None,
+                tp=tp if do_loudness else None,
+                width=width if do_stereo else None,
+                mono_bass=mono_bass if do_stereo else None,
+                guardrails=bool(guardrails) if do_stereo else False,
+                no_analyze=not do_analyze,
+                no_master=not do_master,
+                no_loudness=not do_loudness,
+                no_stereo=not do_stereo,
+                no_output=not do_output,
+                out_wav=out_wav,
+                out_mp3=out_mp3,
+                mp3_bitrate=mp3_bitrate if mp3_bitrate is not None else 320,
+                mp3_vbr=mp3_vbr if mp3_vbr is not None else "none",
+                out_aac=out_aac,
+                aac_bitrate=aac_bitrate if aac_bitrate is not None else 256,
+                aac_codec=aac_codec if aac_codec is not None else "aac",
+                aac_container=aac_container if aac_container is not None else "m4a",
+                out_ogg=out_ogg,
+                ogg_quality=ogg_quality if ogg_quality is not None else 5.0,
+                out_flac=out_flac,
+                flac_level=flac_level if flac_level is not None else 5,
+                flac_bit_depth=flac_bit_depth,
+                flac_sample_rate=flac_sample_rate,
+                wav_bit_depth=wav_bit_depth if wav_bit_depth is not None else 24,
+                wav_sample_rate=wav_sample_rate if wav_sample_rate is not None else 48000,
+                voicing_mode=voicing_mode or "presets",
+                voicing_name=voicing_name,
+                event_cb=_make_event_cb(rid),
+            )
             print(f"[master-bulk] done file={f}", file=sys.stderr)
-            _emit(rid, "complete", f"Finished {Path(f).name}")
-        except subprocess.CalledProcessError as e:
-            msg = (e.output or str(e)).strip().splitlines()[0] if (e.output or str(e)) else ""
-            _emit(rid, "error", msg)
-            print(f"[master-bulk] failed file={f}: {e.output or e}", file=sys.stderr)
+        except Exception as e:
+            print(f"[master-bulk] failed file={f}: {e}", file=sys.stderr)
     def _run_wrapper():
         global RUNS_IN_FLIGHT
         try:
@@ -384,6 +395,7 @@ class StatusBus:
             "cleanup": None,
             "last_id": 0,
             "terminal": False,
+            "direct": False,
         }
         return self.state[run_id]
 
@@ -453,9 +465,19 @@ class StatusBus:
 
     async def ensure_watcher(self, run_id: str):
         st = await self._ensure_state(run_id)
+        if st.get("direct"):
+            return
         if st["task"]:
             return
         st["task"] = asyncio.create_task(self._watch_file(run_id))
+
+    async def mark_direct(self, run_id: str):
+        async with self.lock:
+            st = await self._ensure_state(run_id)
+            st["direct"] = True
+            if st["task"]:
+                st["task"].cancel()
+                st["task"] = None
 
     async def _watch_file(self, run_id: str):
         path = OUT_DIR / run_id / ".status.json"
@@ -643,8 +665,12 @@ def _assert_safe_cmd(cmd: list[str]) -> None:
         raise ValueError("invalid command")
     if any("\x00" in c for c in cmd):
         raise ValueError("invalid null in command")
-    if cmd[0] not in {"python3", "python", "ffprobe", "ffmpeg"}:
+    exe_name = Path(cmd[0]).name.lower()
+    if exe_name not in {"python3", "python", "ffprobe", "ffmpeg"}:
         raise ValueError("unexpected executable")
+    if Path(cmd[0]).is_absolute() and exe_name in {"ffprobe", "ffmpeg"}:
+        if not Path(cmd[0]).exists():
+            raise ValueError("missing executable")
 
 def run_cmd(cmd: list[str]) -> subprocess.CompletedProcess:
     _assert_safe_cmd(cmd)
@@ -665,7 +691,7 @@ def check_output_cmd(cmd: list[str]) -> str:
     return subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT)
 def docker_ffprobe_json(path: Path) -> dict:
     r = run_cmd([
-        "ffprobe", "-v", "quiet", "-print_format", "json",
+        FFPROBE_BIN, "-v", "quiet", "-print_format", "json",
         "-show_format", "-show_streams", str(path)
     ])
     if r.returncode != 0:
@@ -679,7 +705,7 @@ def docker_ffprobe_json(path: Path) -> dict:
             return {}
 def measure_loudness(path: Path) -> dict:
     r = run_cmd([
-        "ffmpeg", "-hide_banner", "-nostats", "-i", str(path),
+        FFMPEG_BIN, "-hide_banner", "-nostats", "-i", str(path),
         "-filter_complex", "ebur128=peak=true", "-f", "null", "-"
     ])
     if r.returncode != 0:
@@ -698,7 +724,7 @@ def calc_cf_corr(path: Path) -> dict:
     """Extract crest factor and other useful overall stats via ffmpeg astats (mirrors master_pack)."""
     want = "Peak_level+RMS_level+RMS_peak+Noise_floor+Crest_factor"
     r = run_cmd([
-        "ffmpeg", "-hide_banner", "-v", "verbose", "-nostats", "-i", str(path),
+        FFMPEG_BIN, "-hide_banner", "-v", "verbose", "-nostats", "-i", str(path),
         "-af", f"astats=measure_overall={want}:measure_perchannel=none:reset=0",
         "-f", "null", "-"
     ])
@@ -1720,8 +1746,8 @@ def favicon():
     return Response(content=svg, media_type="image/svg+xml")
 @app.get("/health")
 def health():
-    ffmpeg_ok = shutil.which("ffmpeg") is not None
-    ffprobe_ok = shutil.which("ffprobe") is not None
+    ffmpeg_ok = Path(FFMPEG_BIN).exists() if Path(FFMPEG_BIN).is_absolute() else (shutil.which(FFMPEG_BIN) is not None)
+    ffprobe_ok = Path(FFPROBE_BIN).exists() if Path(FFPROBE_BIN).is_absolute() else (shutil.which(FFPROBE_BIN) is not None)
     preset_exists = PRESET_DIR.exists()
     preset_count = len(list(PRESET_DIR.glob("*.json"))) if preset_exists else 0
     in_w = _writable(IN_DIR)
@@ -2003,28 +2029,21 @@ def master(
     guardrails: int = Form(0),
 ):
     safe_in = _validate_input_file(infile)
-    cmd = ["python3", str(MASTER_SCRIPT), "--infile", str(safe_in.name), "--strength", str(strength), "--presets", preset]
-    if lufs is not None:
-        cmd += ["--lufs", str(lufs)]
-    if tp is not None:
-        cmd += ["--tp", str(tp)]
-    if width is not None:
-        cmd += ["--width", str(width)]
-    if mono_bass is not None:
-        cmd += ["--mono_bass", str(mono_bass)]
-    if guardrails:
-        cmd += ["--guardrails"]
     try:
-        return check_output_cmd(cmd)
-    except subprocess.CalledProcessError as e:
-        msg = e.output or ""
-        if guardrails and "unrecognized arguments: --guardrails" in msg:
-            fallback_cmd = [c for c in cmd if c != "--guardrails"]
-            try:
-                return check_output_cmd(fallback_cmd)
-            except subprocess.CalledProcessError as e2:
-                raise HTTPException(status_code=500, detail=e2.output)
-        raise HTTPException(status_code=500, detail=msg)
+        result = mastering_pack.run_master_job(
+            str(safe_in.name),
+            strength=strength,
+            presets=preset,
+            lufs=lufs,
+            tp=tp,
+            width=width,
+            mono_bass=mono_bass,
+            guardrails=bool(guardrails),
+        )
+        outputs = result.get("outputs") or []
+        return "\n".join(outputs)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 @app.post("/api/master-pack")
 def master_pack(
     infile: str = Form(...),
@@ -2055,45 +2074,56 @@ def master_pack(
     presets: str | None = Form(None),
 ):
     safe_in = _validate_input_file(infile)
-    base_cmd = ["python3", str(MASTER_SCRIPT), "--infile", str(safe_in.name), "--strength", str(strength)]
-    if presets:
-        base_cmd += ["--presets", presets]
-    if lufs is not None:
-        base_cmd += ["--lufs", str(lufs)]
-    if tp is not None:
-        base_cmd += ["--tp", str(tp)]
-    if width is not None:
-        base_cmd += ["--width", str(width)]
-    if mono_bass is not None:
-        base_cmd += ["--mono_bass", str(mono_bass)]
-    if guardrails:
-        base_cmd += ["--guardrails"]
-    if voicing_mode:
-        base_cmd += ["--voicing_mode", voicing_mode]
-    if voicing_name:
-        base_cmd += ["--voicing_name", voicing_name]
-    base_cmd += ["--out_wav", "1" if out_wav else "0"]
-    base_cmd += ["--out_mp3", "1" if out_mp3 else "0"]
-    base_cmd += ["--out_aac", "1" if out_aac else "0"]
-    base_cmd += ["--out_ogg", "1" if out_ogg else "0"]
-    base_cmd += ["--out_flac", "1" if out_flac else "0"]
-    if wav_bit_depth: base_cmd += ["--wav_bit_depth", str(wav_bit_depth)]
-    if wav_sample_rate: base_cmd += ["--wav_sample_rate", str(wav_sample_rate)]
-    if mp3_bitrate: base_cmd += ["--mp3_bitrate", str(mp3_bitrate)]
-    if mp3_vbr: base_cmd += ["--mp3_vbr", str(mp3_vbr)]
-    if aac_bitrate: base_cmd += ["--aac_bitrate", str(aac_bitrate)]
-    if aac_codec: base_cmd += ["--aac_codec", str(aac_codec)]
-    if aac_container: base_cmd += ["--aac_container", str(aac_container)]
-    if ogg_quality: base_cmd += ["--ogg_quality", str(ogg_quality)]
-    if flac_level: base_cmd += ["--flac_level", str(flac_level)]
-    if flac_bit_depth: base_cmd += ["--flac_bit_depth", str(flac_bit_depth)]
-    if flac_sample_rate: base_cmd += ["--flac_sample_rate", str(flac_sample_rate)]
+    run_id = Path(safe_in.name).stem or safe_in.name
+    def _event_cb(event: dict):
+        if not isinstance(event, dict):
+            return
+        loop_obj = getattr(status_bus, "loop", None) or MAIN_LOOP
+        if loop_obj and loop_obj.is_running():
+            try:
+                asyncio.run_coroutine_threadsafe(status_bus.append_events(run_id, [event]), loop_obj)
+            except Exception:
+                pass
     def run_pack():
         try:
-            check_output_cmd(base_cmd)
-        except subprocess.CalledProcessError as e:
+            loop_obj = getattr(status_bus, "loop", None) or MAIN_LOOP
+            if loop_obj and loop_obj.is_running():
+                try:
+                    asyncio.run_coroutine_threadsafe(status_bus.mark_direct(run_id), loop_obj)
+                except Exception:
+                    pass
+            mastering_pack.run_master_job(
+                str(safe_in.name),
+                strength=strength,
+                presets=presets,
+                lufs=lufs,
+                tp=tp,
+                width=width,
+                mono_bass=mono_bass,
+                guardrails=bool(guardrails),
+                out_wav=out_wav,
+                out_mp3=out_mp3,
+                mp3_bitrate=mp3_bitrate if mp3_bitrate is not None else 320,
+                mp3_vbr=mp3_vbr if mp3_vbr is not None else "none",
+                out_aac=out_aac,
+                aac_bitrate=aac_bitrate if aac_bitrate is not None else 256,
+                aac_codec=aac_codec if aac_codec is not None else "aac",
+                aac_container=aac_container if aac_container is not None else "m4a",
+                out_ogg=out_ogg,
+                ogg_quality=ogg_quality if ogg_quality is not None else 5.0,
+                out_flac=out_flac,
+                flac_level=flac_level if flac_level is not None else 5,
+                flac_bit_depth=flac_bit_depth,
+                flac_sample_rate=flac_sample_rate,
+                wav_bit_depth=wav_bit_depth if wav_bit_depth is not None else 24,
+                wav_sample_rate=wav_sample_rate if wav_sample_rate is not None else 48000,
+                voicing_mode=voicing_mode or "presets",
+                voicing_name=voicing_name,
+                event_cb=_event_cb,
+            )
+        except Exception as e:
             # Log to stderr; UI will refresh Previous Runs anyway.
-            print(f"[master-pack] failed: {e.output or e}", file=sys.stderr)
+            print(f"[master-pack] failed: {e}", file=sys.stderr)
         else:
             print(f"[master-pack] started infile={infile} presets={presets} strength={strength}", file=sys.stderr)
     threading.Thread(target=run_pack, daemon=True).start()

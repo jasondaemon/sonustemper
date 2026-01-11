@@ -6,7 +6,7 @@
 
 - HTMX
   - License: MIT
-  - Bundling: Static asset (planned vendor copy)
+  - Bundling: Static asset (vendor)
 
 - WaveSurfer.js
   - License: BSD-3-Clause

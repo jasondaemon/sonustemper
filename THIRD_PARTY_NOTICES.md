@@ -19,7 +19,7 @@ Docker deployments may use the system ffmpeg inside the container image.
   - Source/Project home: https://palletsprojects.com/p/jinja/
 
 - HTMX
-  - Use: partial page updates
+  - Use: partial page updates (bundled static vendor asset)
   - License: MIT
   - Source/Project home: https://htmx.org/
 

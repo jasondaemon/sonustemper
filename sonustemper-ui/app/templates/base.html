@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block page_title %}SonusTemper{% endblock %}</title>
   <link rel="stylesheet" href="/static/css/app.css">
-  <!-- TODO: vendor htmx + wavesurfer locally for native builds -->
-  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <script src="{{ static_url('vendor/htmx.min.js') }}" defer></script>
+  <!-- <script src="https://unpkg.com/htmx.org@1.9.12"></script> -->
   <script defer src="/static/js/app.js"></script>
 </head>
 <body>

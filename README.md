@@ -105,10 +105,12 @@ uvicorn sonustemper.server:app --reload --port 8383
 
 ### Native Builds (planned)
 - macOS/Windows bundles will include ffmpeg/ffprobe; end users install nothing.
+- Maintainers: place `sonustemper-ui/app/static/vendor/htmx.min.js` and `vendor/ffmpeg/<platform>/` binaries before packaging.
 - Maintainers: see packaging docs for where bundled binaries are sourced.
 
 ### Maintainers
 - Generate a Python dependency/license snapshot: `python3 scripts/licenses_report.py` (writes `docs/python-deps.md`).
+- Native smoke test: `python -m sonustemper.smoke_test`.
 
 ### Logging
 - `LOG_LEVEL` controls structured logs from the mastering pipeline: `error` (default), `summary`, `debug`.

@@ -13,11 +13,17 @@ from typing import List
 from fastapi import APIRouter, Request, HTTPException, Form
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.templating import Jinja2Templates
+from sonustemper.tools import bundle_root, is_frozen
 
 # New tandem UI router (mounted at root).
 
-BASE_DIR = Path(__file__).resolve().parent
-TEMPLATES = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+UI_ROOT = (bundle_root() / "sonustemper-ui" / "app") if is_frozen() else Path(__file__).resolve().parent
+TEMPLATES = Jinja2Templates(directory=str(UI_ROOT / "templates"))
+
+def _static_url(path: str) -> str:
+    return f"/static/{(path or '').lstrip('/')}"
+
+TEMPLATES.env.globals["static_url"] = _static_url
 
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 MASTER_IN_DIR = Path(os.getenv("MASTER_IN_DIR", str(DATA_DIR / "mastering" / "in")))
