@@ -1,0 +1,1 @@
+vendor/ffmpeg/** filter=lfs diff=lfs merge=lfs -text
