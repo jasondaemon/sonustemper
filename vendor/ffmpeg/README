@@ -1,0 +1,6 @@
+This directory contains vendored FFmpeg binaries used for native builds.
+
+- macos/: ffmpeg, ffprobe (macOS builds)
+- windows/: ffmpeg.exe, ffprobe.exe (Windows builds)
+
+These binaries are bundled into native applications via PyInstaller.
