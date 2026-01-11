@@ -138,7 +138,7 @@
   const analyzeBrowser = document.getElementById('analyzeBrowser');
 
   const zoomSteps = [1, 2, 4, 8];
-  const baseMinPxPerSec = 60;
+  let fitMinPxPerSec = 1;
 
   const metricLabels = [
     { key: 'I', label: 'LUFS-I', suffix: ' LUFS' },
@@ -178,9 +178,38 @@
     const idx = Math.max(0, Math.min(zoomSteps.length - 1, level));
     const factor = zoomSteps[idx];
     if (zoomLabel) zoomLabel.textContent = `${factor}x`;
-    const minPxPerSec = baseMinPxPerSec * factor;
+    const minPxPerSec = Math.max(1, fitMinPxPerSec) * factor;
     if (sourceWave) sourceWave.zoom(minPxPerSec);
     if (processedWave) processedWave.zoom(minPxPerSec);
+  }
+
+  function clamp(val, minVal, maxVal){
+    return Math.max(minVal, Math.min(maxVal, val));
+  }
+
+  function fitPxPerSecFor(wave){
+    if (!wave || typeof wave.getWrapper !== 'function') return null;
+    const duration = wave.getDuration();
+    if (!duration || duration <= 0) return null;
+    const wrapper = wave.getWrapper();
+    const scrollEl = wrapper ? wrapper.parentElement : null;
+    const width = scrollEl?.clientWidth || wrapper?.clientWidth || 0;
+    if (!width) return null;
+    const fit = width / duration;
+    return clamp(fit, 1, 200);
+  }
+
+  function updateFitBaseline(){
+    const fits = [];
+    const sourceFit = fitPxPerSecFor(sourceWave);
+    if (sourceFit) fits.push(sourceFit);
+    const processedFit = fitPxPerSecFor(processedWave);
+    if (processedFit) fits.push(processedFit);
+    if (!fits.length) return;
+    const next = Math.min(...fits);
+    if (Math.abs(next - fitMinPxPerSec) < 0.01) return;
+    fitMinPxPerSec = next;
+    setZoomLevel(currentZoomIndex());
   }
 
   function cleanupTransport(){
@@ -635,10 +664,10 @@
       barGap: 1,
       normalize: true,
       backend: 'MediaElement',
-      minPxPerSec: baseMinPxPerSec * zoomSteps[zoomIdx],
-      fillParent: true,
-      autoScroll: true,
-      autoCenter: true,
+      minPxPerSec: Math.max(1, fitMinPxPerSec) * zoomSteps[zoomIdx],
+      fillParent: false,
+      autoScroll: false,
+      autoCenter: false,
     });
   }
 
@@ -749,12 +778,12 @@
     if (processedWave) {
       await loadWave(processedWave, payload.processed_url);
     }
+    updateFitBaseline();
     playbackMode = processedWave ? 'compare' : 'source';
     updatePlaybackModeUI();
     cleanupTransport();
     bindTransportEvents(sourceWave);
     bindTransportEvents(processedWave);
-    setZoomLevel(currentZoomIndex());
     updateControls();
     setupOverlays();
   }
@@ -888,6 +917,14 @@
     });
   }
 
+  window.addEventListener('resize', () => {
+    if (zoomRaf !== null) return;
+    zoomRaf = requestAnimationFrame(() => {
+      zoomRaf = null;
+      updateFitBaseline();
+    });
+  });
+
   modeButtons.forEach((btn) => {
     btn.addEventListener('click', () => {
       const mode = btn.dataset.playbackMode;
@@ -924,7 +961,7 @@
     });
   });
   syncToggleStyles();
-  setZoomLevel(currentZoomIndex());
+  updateFitBaseline();
   updatePlaybackModeUI();
 
   const params = new URLSearchParams(window.location.search);
