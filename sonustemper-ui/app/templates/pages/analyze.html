@@ -63,6 +63,20 @@
           <span>Zoom</span>
           <input type="range" id="zoomRange" min="30" max="200" value="90">
         </div>
+        <div class="analyze-toggles">
+          <label class="analyze-toggle is-active">
+            <input type="checkbox" id="togglePeakRisk" checked>
+            <span>Peak Risk</span>
+          </label>
+          <label class="analyze-toggle is-active">
+            <input type="checkbox" id="toggleHeatmap" checked>
+            <span>Loudness Heatmap</span>
+          </label>
+          <label class="analyze-toggle">
+            <input type="checkbox" id="toggleDelta">
+            <span>Δ Loudness</span>
+          </label>
+        </div>
       </div>
 
       <div class="compare-grid" id="compareGrid"></div>
@@ -89,11 +103,16 @@
   const pauseBtn = document.getElementById('pauseBtn');
   const stopBtn = document.getElementById('stopBtn');
   const zoomRange = document.getElementById('zoomRange');
+  const togglePeakRisk = document.getElementById('togglePeakRisk');
+  const toggleHeatmap = document.getElementById('toggleHeatmap');
+  const toggleDelta = document.getElementById('toggleDelta');
 
   let sourceWave = null;
   let processedWave = null;
   let syncing = false;
   let selectedItem = null;
+  let analysisData = null;
+  let overlayCleanup = [];
   const analyzeBrowser = document.getElementById('analyzeBrowser');
 
   const metricLabels = [
@@ -123,7 +142,296 @@
     return `${fmt(value, 1)}${suffix}`;
   }
 
+  function syncToggleStyles(){
+    [togglePeakRisk, toggleHeatmap, toggleDelta].forEach((el) => {
+      if (!el) return;
+      const label = el.closest('.analyze-toggle');
+      if (label) label.classList.toggle('is-active', el.checked);
+    });
+  }
+
+  function overlayState(){
+    return {
+      peak: togglePeakRisk ? togglePeakRisk.checked : true,
+      heatmap: toggleHeatmap ? toggleHeatmap.checked : true,
+      delta: toggleDelta ? toggleDelta.checked : false,
+    };
+  }
+
+  function cleanupOverlays(){
+    overlayCleanup.forEach((fn) => {
+      try {
+        fn();
+      } catch (_err) {
+        // ignore cleanup errors
+      }
+    });
+    overlayCleanup = [];
+  }
+
+  function percentile(values, p){
+    if (!values.length) return null;
+    const sorted = [...values].sort((a, b) => a - b);
+    const idx = Math.max(0, Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * p)));
+    return sorted[idx];
+  }
+
+  function ensureOverlayCanvas(wave, kind){
+    if (!wave || typeof wave.getWrapper !== 'function') return null;
+    const wrapper = wave.getWrapper();
+    if (!wrapper) return null;
+    let canvas = wrapper.querySelector(`canvas.analysis-overlay-${kind}`);
+    if (!canvas) {
+      canvas = document.createElement('canvas');
+      canvas.className = `analysis-overlay analysis-overlay-${kind}`;
+      canvas.style.position = 'absolute';
+      canvas.style.top = '0';
+      canvas.style.left = '0';
+      canvas.style.pointerEvents = 'none';
+      canvas.style.zIndex = '3';
+      wrapper.appendChild(canvas);
+    }
+    const width = Math.max(wrapper.scrollWidth || 0, wrapper.clientWidth || 0);
+    const height = Math.max(wrapper.clientHeight || 0, 1);
+    if (!width) return null;
+    const ratio = window.devicePixelRatio || 1;
+    canvas.width = Math.max(1, Math.round(width * ratio));
+    canvas.height = Math.max(1, Math.round(height * ratio));
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    return { canvas, ctx, wrapper, width, height };
+  }
+
+  function drawHeatmap(ctx, width, height, t, values, duration){
+    if (!t.length || !values.length || !duration) return;
+    const clean = values.filter((v) => typeof v === 'number' && !Number.isNaN(v));
+    if (clean.length < 2) return;
+    const minVal = percentile(clean, 0.1);
+    const maxVal = percentile(clean, 0.9);
+    if (minVal === null || maxVal === null || maxVal <= minVal) return;
+    const low = [24, 48, 76];
+    const high = [255, 138, 61];
+    const step = width / values.length;
+    for (let i = 0; i < values.length; i += 1) {
+      const val = values[i];
+      if (typeof val !== 'number' || Number.isNaN(val)) continue;
+      const norm = Math.max(0, Math.min(1, (val - minVal) / (maxVal - minVal)));
+      const r = Math.round(low[0] + (high[0] - low[0]) * norm);
+      const g = Math.round(low[1] + (high[1] - low[1]) * norm);
+      const b = Math.round(low[2] + (high[2] - low[2]) * norm);
+      const alpha = 0.08 + norm * 0.32;
+      const x = (t[i] / duration) * width;
+      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
+      ctx.fillRect(x - step * 0.5, 0, step, height);
+    }
+  }
+
+  function drawDelta(ctx, width, height, t, values, duration){
+    if (!t.length || !values.length || !duration) return;
+    const clean = values.filter((v) => typeof v === 'number' && !Number.isNaN(v));
+    if (!clean.length) return;
+    const absVals = clean.map((v) => Math.abs(v));
+    let maxAbs = percentile(absVals, 0.9) || Math.max(...absVals);
+    if (!maxAbs || maxAbs < 0.1) maxAbs = 0.1;
+    const mid = height * 0.5;
+    const scale = (height * 0.35) / maxAbs;
+    ctx.save();
+    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+    ctx.beginPath();
+    ctx.moveTo(0, mid);
+    ctx.lineTo(width, mid);
+    ctx.stroke();
+    const drawSign = (sign, color) => {
+      ctx.strokeStyle = color;
+      ctx.beginPath();
+      let started = false;
+      for (let i = 0; i < values.length; i += 1) {
+        const val = values[i];
+        if (typeof val !== 'number' || Number.isNaN(val) || val * sign <= 0) {
+          started = false;
+          continue;
+        }
+        const x = (t[i] / duration) * width;
+        const y = mid - (val * scale);
+        if (!started) {
+          ctx.moveTo(x, y);
+          started = true;
+        } else {
+          ctx.lineTo(x, y);
+        }
+      }
+      ctx.stroke();
+    };
+    drawSign(1, 'rgba(60, 214, 186, 0.9)');
+    drawSign(-1, 'rgba(255, 96, 96, 0.9)');
+    ctx.restore();
+  }
+
+  function drawMarkers(ctx, width, height, duration, markers){
+    if (!duration || !markers || !markers.length) return;
+    ctx.save();
+    markers.forEach((marker) => {
+      if (!marker || typeof marker.t !== 'number') return;
+      const x = (marker.t / duration) * width;
+      const isClip = marker.severity === 'clip';
+      ctx.strokeStyle = isClip ? 'rgba(255, 88, 88, 0.85)' : 'rgba(255, 184, 77, 0.45)';
+      ctx.lineWidth = isClip ? 1.4 : 1.0;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, height);
+      ctx.stroke();
+    });
+    ctx.restore();
+  }
+
+  function nearestIndex(arr, t){
+    if (!arr || !arr.length) return -1;
+    let lo = 0;
+    let hi = arr.length - 1;
+    while (lo <= hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      const val = arr[mid];
+      if (val === t) return mid;
+      if (val < t) lo = mid + 1;
+      else hi = mid - 1;
+    }
+    const idx = Math.max(0, Math.min(arr.length - 1, lo));
+    if (idx > 0 && Math.abs(arr[idx - 1] - t) < Math.abs(arr[idx] - t)) {
+      return idx - 1;
+    }
+    return idx;
+  }
+
+  function nearestMarker(markers, t, window){
+    if (!markers || !markers.length) return null;
+    let lo = 0;
+    let hi = markers.length - 1;
+    while (lo <= hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      const val = markers[mid].t;
+      if (val === t) return markers[mid];
+      if (val < t) lo = mid + 1;
+      else hi = mid - 1;
+    }
+    const idx = Math.max(0, Math.min(markers.length - 1, lo));
+    const candidates = [markers[idx], markers[idx - 1]].filter(Boolean);
+    let best = null;
+    let bestDist = window;
+    candidates.forEach((m) => {
+      const dist = Math.abs(m.t - t);
+      if (dist <= bestDist) {
+        best = m;
+        bestDist = dist;
+      }
+    });
+    return best;
+  }
+
+  function updateTooltip(evt, kind, wrapper){
+    if (!analysisData || !analysisData.series || !wrapper) return;
+    const rect = wrapper.getBoundingClientRect();
+    if (!rect.width) return;
+    const duration = analysisData.duration_s || (kind === 'source' ? sourceWave?.getDuration() : processedWave?.getDuration());
+    if (!duration) return;
+    const x = evt.clientX - rect.left;
+    const t = Math.max(0, Math.min(duration, (x / rect.width) * duration));
+    const seriesT = analysisData.series.t || [];
+    const idx = nearestIndex(seriesT, t);
+    const state = overlayState();
+    const lines = [];
+    if (state.heatmap && idx >= 0) {
+      const sVal = analysisData.series.lufs_st_source?.[idx];
+      const pVal = analysisData.series.lufs_st_processed?.[idx];
+      if (typeof sVal === 'number') lines.push(`Source ST: ${fmt(sVal, 1)} LUFS`);
+      if (typeof pVal === 'number') lines.push(`Processed ST: ${fmt(pVal, 1)} LUFS`);
+    }
+    if (state.delta && kind === 'processed' && idx >= 0) {
+      const dVal = analysisData.series.lufs_st_delta?.[idx];
+      if (typeof dVal === 'number') lines.push(`Δ Loudness: ${fmt(dVal, 1)} LU`);
+    }
+    if (state.peak) {
+      const markerList = analysisData.markers?.true_peak?.[kind === 'processed' ? 'processed' : 'source'] || [];
+      const marker = nearestMarker(markerList, t, 0.15);
+      if (marker) {
+        const label = kind === 'processed' ? 'Processed' : 'Source';
+        lines.push(`True Peak (${label}): ${fmt(marker.value, 1)} dBTP`);
+      }
+    }
+    wrapper.title = lines.join('\n');
+  }
+
+  function drawOverlay(wave, kind){
+    if (!wave) return;
+    const overlay = ensureOverlayCanvas(wave, kind);
+    if (!overlay) return;
+    const { ctx, width, height } = overlay;
+    ctx.clearRect(0, 0, width, height);
+    if (!analysisData || !analysisData.series) return;
+    const duration = analysisData.duration_s || wave.getDuration() || 0;
+    if (!duration) return;
+    const state = overlayState();
+    const t = analysisData.series.t || [];
+    if (!t.length) return;
+    const sourceVals = analysisData.series.lufs_st_source || [];
+    const processedVals = analysisData.series.lufs_st_processed || [];
+    const deltaVals = analysisData.series.lufs_st_delta || [];
+    if (state.heatmap) {
+      const values = (kind === 'processed' && processedVals.length) ? processedVals : sourceVals;
+      drawHeatmap(ctx, width, height, t, values, duration);
+    }
+    if (state.delta && kind === 'processed' && deltaVals.length) {
+      drawDelta(ctx, width, height, t, deltaVals, duration);
+    }
+    if (state.peak) {
+      const markerList = analysisData.markers?.true_peak?.[kind === 'processed' ? 'processed' : 'source'] || [];
+      drawMarkers(ctx, width, height, duration, markerList);
+    }
+  }
+
+  function drawOverlays(){
+    drawOverlay(sourceWave, 'source');
+    drawOverlay(processedWave, 'processed');
+  }
+
+  function bindOverlayEvents(wave, kind){
+    if (!wave) return () => {};
+    const cleanup = [];
+    const draw = () => drawOverlay(wave, kind);
+    cleanup.push(wave.on('ready', draw));
+    cleanup.push(wave.on('redraw', draw));
+    cleanup.push(wave.on('zoom', draw));
+    cleanup.push(wave.on('scroll', draw));
+    cleanup.push(wave.on('resize', draw));
+    const onResize = () => drawOverlay(wave, kind);
+    window.addEventListener('resize', onResize);
+    cleanup.push(() => window.removeEventListener('resize', onResize));
+    const wrapper = typeof wave.getWrapper === 'function' ? wave.getWrapper() : null;
+    if (wrapper) {
+      const onMove = (evt) => updateTooltip(evt, kind, wrapper);
+      const onLeave = () => { wrapper.title = ''; };
+      wrapper.addEventListener('mousemove', onMove);
+      wrapper.addEventListener('mouseleave', onLeave);
+      cleanup.push(() => {
+        wrapper.removeEventListener('mousemove', onMove);
+        wrapper.removeEventListener('mouseleave', onLeave);
+      });
+    }
+    return () => cleanup.forEach((fn) => fn && fn());
+  }
+
+  function setupOverlays(){
+    cleanupOverlays();
+    if (sourceWave) overlayCleanup.push(bindOverlayEvents(sourceWave, 'source'));
+    if (processedWave) overlayCleanup.push(bindOverlayEvents(processedWave, 'processed'));
+    drawOverlays();
+  }
+
   function clearWaves(){
+    cleanupOverlays();
     if (sourceWave) {
       sourceWave.destroy();
       sourceWave = null;
@@ -245,6 +553,12 @@
     if (!payload) return;
     const input = payload.metrics?.input || null;
     const output = payload.metrics?.output || null;
+    const durationFallback = payload.duration_s ?? output?.duration_sec ?? input?.duration_sec ?? null;
+    analysisData = {
+      duration_s: durationFallback,
+      series: payload.series || null,
+      markers: payload.markers || null,
+    };
 
     if (analyzeSubtitle) {
       const name = payload.run_id ? `Run ${payload.run_id}` : 'Standalone analysis';
@@ -269,6 +583,7 @@
       await loadWave(processedWave, payload.processed_url);
     }
     updateControls();
+    setupOverlays();
   }
 
   async function resolveRun(song, out){
@@ -349,6 +664,9 @@
           processed_url: null,
           processed_name: '',
           metrics: { input: data.metrics, output: null },
+          duration_s: data.duration_s,
+          series: data.series,
+          markers: data.markers,
         };
         await applyData(payload);
         if (data.rel) {
@@ -392,6 +710,15 @@
       if (processedWave) processedWave.zoom(val);
     });
   }
+
+  [togglePeakRisk, toggleHeatmap, toggleDelta].forEach((el) => {
+    if (!el) return;
+    el.addEventListener('change', () => {
+      syncToggleStyles();
+      drawOverlays();
+    });
+  });
+  syncToggleStyles();
 
   const params = new URLSearchParams(window.location.search);
   const song = params.get('song');

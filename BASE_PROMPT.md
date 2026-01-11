@@ -8,7 +8,7 @@ Use this as the starting prompt when opening a new session so the assistant has 
 - **SonusTemper** is a local-first audio mastering, tagging, analysis, and file management tool.
 - Backend: **FastAPI** (Python).
 - UI: **Jinja2 + HTMX** served by the backend (no SPA framework).
-- Primary UX is browser-based, but the project also ships as a **native macOS app**.
+- Primary UX is browser-based, but native desktop builds exist (macOS menu bar app, Windows browser + background process).
 - Legacy UI has been removed; the only UI is the `sonustemper-ui` app.
 
 ---
@@ -19,32 +19,33 @@ Use this as the starting prompt when opening a new session so the assistant has 
   - UI routes
   - SSE streams
   - Static assets
+- Docker runs the app behind an nginx proxy (Basic Auth + shared secret header).
 - The same server runs in:
-  - Docker
+  - Docker (behind proxy)
   - Local Python
-  - Native macOS `.app` (via PyInstaller)
+  - Native desktop builds (PyInstaller: macOS `.app`, Windows exe)
 
 The backend is the **single source of truth** across all environments.
 
 ---
 
-## Native macOS app (important context)
-- The macOS app is built using **PyInstaller**.
+## Native desktop app (important context)
+- The desktop app is built using **PyInstaller**.
 - The app:
   - Starts the FastAPI server locally on `127.0.0.1`
   - Auto-selects an available port (default range 8383–8433)
   - Opens the UI in the user’s default browser
-  - Runs as a **menu bar app** with:
-    - “Open SonusTemper”
-    - “Quit SonusTemper” (graceful shutdown)
-- The Dock icon is preserved (this is **not** a pure agent app).
+  - macOS: runs as a **menu bar app** with "Open SonusTemper" and "Quit SonusTemper"
+  - Windows: no tray/menu; keeps the background process alive
+- The Dock icon is preserved on macOS (this is **not** a pure agent app).
 
 ### Native entrypoint
 - `sonustemper/desktop_main.py`
   - Starts/stops Uvicorn using `uvicorn.Server` (not string imports)
   - Manages lifecycle, port detection, browser launch
-  - Hosts the macOS menu bar (via `rumps`)
+  - Hosts the macOS menu bar (via `rumps`) and Windows fallback loop
   - Loads bundled resources using `sys._MEIPASS` when frozen
+  - Sets OS-specific `DATA_DIR` defaults when unset
 
 ### Native build constraints
 - Changes to **UI templates, CSS, JS, and existing Python logic** are safe.
@@ -57,13 +58,15 @@ The backend is the **single source of truth** across all environments.
 ---
 
 ## Native build layout (PyInstaller)
-- Build output: `build/native/dist/SonusTemper.app`
+- Build output: `build/native/dist/SonusTemper.app` (macOS) or `build/native/dist/SonusTemper/` (Windows bundle)
 - Spec file: `build/native/sonustemper.spec`
 - Bundled resources:
   - UI templates + static assets
   - Menu bar icon (`images/sonustemper-menubar.png`)
   - App icon (`images/sonustemper.icns`)
-  - ffmpeg / ffprobe binaries
+  - ffmpeg / ffprobe binaries (from `vendor/ffmpeg/<platform>/`)
+  - LICENSE + third-party notices
+- HTMX must be the real minified build (not a placeholder) before packaging.
 - `noarchive=True` is used for reliability on Python 3.13.
 
 ### Menu bar icon behavior
@@ -75,13 +78,14 @@ The backend is the **single source of truth** across all environments.
 
 ## Architecture + key files
 - `sonustemper/server.py` – FastAPI entrypoint (routes, auth, SSE, static mounts).
-- `sonustemper/desktop_main.py` – Native macOS entrypoint + lifecycle manager.
+- `sonustemper/desktop_main.py` – Native desktop entrypoint + lifecycle manager.
 - `sonustemper/master_pack.py` – mastering pipeline, variant naming, metrics/provenance.
 - `sonustemper/logging_util.py` – structured logging helpers.
 - `sonustemper/tagger.py` – MP3 tagging service.
 - `sonustemper-ui/app/ui.py` – UI router (Jinja2 templates + HTMX partials).
 - `sonustemper-ui/app/templates/` – UI templates.
 - `sonustemper-ui/app/static/` – UI CSS/JS.
+- `nginx.conf.template`, `proxy-entrypoint.sh` – proxy auth + shared-secret header injection.
 - `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md` – docs + release workflow.
 
 ---
@@ -103,15 +107,18 @@ The backend is the **single source of truth** across all environments.
   - `/data/analysis/tmp`
 - Previews:
   - `/data/previews` (session-scoped, TTL-cleaned)
+- Native default `DATA_DIR` (if unset):
+  - macOS: `~/Library/Application Support/SonusTemper/data`
+  - Windows: `%APPDATA%/SonusTemper/data`
 
 ---
 
 ## UI routes
 - `/` – starter page (workflow tiles + docs).
-- `/mastering` – batch-first mastering UI.
+- `/mastering` – batch-first mastering UI (Voicing vs User Presets modes).
 - `/analyze` – source vs output comparison (waveforms + metrics).
 - `/tagging` – MP3 tagging workflow.
-- `/presets` – voicing profiles and delivery profiles.
+- `/presets` – voicing profiles + preset management (download/delete/create-from-reference).
 - `/files` – file manager.
 - `/docs` – documentation and how-tos.
 
@@ -128,8 +135,10 @@ The backend is the **single source of truth** across all environments.
 ---
 
 ## Backend behavior + API highlights
-- SSE status stream:
-  - `/api/status-stream?song=<run_id>`
+- Runs + status:
+  - `POST /api/run` (multi-file; returns `run_ids` + `primary_run_id`)
+  - `GET /api/status-stream?song=<run_id>` (SSE events)
+  - `GET /api/run/<run_id>` (snapshot for reconnect; in-memory replay buffer)
 - Preview audio (session-scoped):
   - `POST /api/preview/start`
   - `GET /api/preview/stream`
@@ -139,10 +148,12 @@ The backend is the **single source of truth** across all environments.
   - `/api/analyze-resolve-file`
   - `/api/analyze-upload`
 - Presets:
-  - `/api/preset/list`
+  - `/api/preset/list` (full metadata)
+  - `/api/presets` (name list)
+  - `/api/preset/download/{name}`
   - `/api/preset/upload`
-  - `/api/preset/generate`
-  - `/api/preset/{name}`
+  - `/api/preset/generate` (kind = `profile` or `voicing`)
+  - `/api/preset/{name}` (delete)
 - Tagger:
   - `/api/tagger/*`
 - File utilities:
@@ -168,18 +179,19 @@ The backend is the **single source of truth** across all environments.
 ---
 
 ## Security + runtime
-- API key + proxy shared secret guard `/api/*` (unless `API_AUTH_DISABLED=1`).
-- Uvicorn is started programmatically (not via CLI string).
-- Docker and native builds use the same FastAPI app object.
+- Docker perimeter is nginx Basic Auth; proxy injects `X-SonusTemper-Proxy` using `PROXY_SHARED_SECRET`.
+- API key (`API_KEY`) is optional and intended for CLI/scripts; UI does not embed it.
+- App-side auth accepts proxy secret or API key (unless `API_AUTH_DISABLED=1`).
+- Uvicorn is started programmatically (not via CLI string); Docker and native builds share the same app.
 
 ---
 
-## Distribution (macOS)
-- Distributed via **DMG** (not App Store).
-- Current approach:
+## Distribution (desktop builds)
+- macOS distributed via **DMG** (not App Store).
+- Current macOS approach:
   - Unsigned / unnotarized
   - Users approve via **Privacy & Security → Open Anyway**
-- Notarization is intentionally deferred until broader distribution.
+- Windows build is a PyInstaller bundle (signing/installer TBD).
 
 ---
 
@@ -189,9 +201,11 @@ The backend is the **single source of truth** across all environments.
 - Health:
   - `curl http://127.0.0.1:8383/health`
 - Mastering:
-  - Batch run completes
-  - SSE finishes
-  - Job Output refreshes
+  - Single-run completes
+  - Multi-file run returns one SSE stream and all runs appear in Previous Runs
+  - Job Output refreshes on terminal SSE event
+- SSE reconnect:
+  - Refresh mid-run; `/api/run/<run_id>` replay finishes cleanly
 - Preview:
   - Voicing/strength change rebuilds preview via SSE
 - Tagging:
@@ -201,10 +215,12 @@ The backend is the **single source of truth** across all environments.
 - Presets:
   - List/download/delete user presets
   - Create-from-reference produces JSON
-- Native (macOS):
-  - App launches
-  - Menu bar icon appears
-  - Open/Quit work correctly
+- Proxy (Docker):
+  - Basic Auth blocks default creds
+  - `PROXY_SHARED_SECRET` is set and matches app
+- Native:
+  - macOS app launches; menu bar icon appears; Open/Quit work correctly
+  - Windows build launches; browser opens; background process stays alive
 
 ---
 

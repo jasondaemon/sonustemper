@@ -431,6 +431,32 @@ h1{margin:0;font-size:24px;}
   gap:8px;
   flex-wrap:wrap;
 }
+.analyze-toggles{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  align-items:center;
+}
+.analyze-toggle{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  border:1px solid var(--line);
+  border-radius:999px;
+  padding:4px 10px;
+  background:#0f151d;
+  color:var(--muted);
+  font-size:11px;
+  cursor:pointer;
+}
+.analyze-toggle input{
+  margin:0;
+}
+.analyze-toggle.is-active{
+  color:var(--text);
+  border-color:rgba(43,212,189,0.45);
+  background:rgba(43,212,189,0.12);
+}
 .zoom-control{
   display:flex;
   align-items:center;

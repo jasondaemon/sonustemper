@@ -1,4 +1,5 @@
 import json
+import math
 import shutil
 import subprocess
 import shlex
@@ -689,6 +690,7 @@ def check_output_cmd(cmd: list[str]) -> str:
     _assert_safe_cmd(cmd)
     # CodeQL [py/command-line-injection]: argv is validated, shell=False, fixed binaries; user input does not control executed program
     return subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT)
+
 def docker_ffprobe_json(path: Path) -> dict:
     r = run_cmd([
         FFPROBE_BIN, "-v", "quiet", "-print_format", "json",
@@ -703,6 +705,175 @@ def docker_ffprobe_json(path: Path) -> dict:
             return json.loads(r.stderr)
         except Exception:
             return {}
+
+ANALYZE_ST_HOP_SEC = float(os.getenv("ANALYZE_ST_HOP_SEC", "1.0"))
+ANALYZE_SERIES_MAX_POINTS = int(os.getenv("ANALYZE_SERIES_MAX_POINTS", "600"))
+ANALYZE_TP_MERGE_SEC = float(os.getenv("ANALYZE_TP_MERGE_SEC", "0.25"))
+ANALYZE_TP_MAX_MARKERS = int(os.getenv("ANALYZE_TP_MAX_MARKERS", "500"))
+
+_EBUR_T_RE = re.compile(r"\bt:\s*([0-9\.]+)")
+_EBUR_S_RE = re.compile(r"\bS:\s*([\-0-9\.]+)")
+_EBUR_TPK_RE = re.compile(r"\bTPK:\s*([\-0-9\.]+)")
+_EBUR_PEAK_RE = re.compile(r"\bPeak:\s*([\-0-9\.]+)")
+_EBUR_TP_RE = re.compile(r"\bTP:\s*([\-0-9\.]+)")
+
+def _parse_ebur_float(raw: str | None) -> float | None:
+    if raw is None:
+        return None
+    val = raw.strip()
+    if not val or "inf" in val.lower():
+        return None
+    try:
+        return float(val)
+    except Exception:
+        return None
+
+def _duration_seconds(path: Path) -> float | None:
+    info = docker_ffprobe_json(path)
+    try:
+        return float(info.get("format", {}).get("duration"))
+    except Exception:
+        return None
+
+def _run_ebur128_framelog(path: Path) -> str | None:
+    r = run_cmd([
+        FFMPEG_BIN, "-hide_banner", "-nostats", "-i", str(path),
+        "-filter_complex", "ebur128=peak=true:framelog=verbose", "-f", "null", "-"
+    ])
+    if r.returncode != 0:
+        return None
+    return (r.stderr or "") + "\n" + (r.stdout or "")
+
+def _append_tp_marker(markers: list[tuple[float, float]], t: float, value: float) -> None:
+    if markers and (t - markers[-1][0]) <= ANALYZE_TP_MERGE_SEC:
+        if value > markers[-1][1]:
+            markers[-1] = (t, value)
+        return
+    markers.append((t, value))
+
+def _finalize_tp_markers(markers: list[tuple[float, float]]) -> list[dict]:
+    if not markers:
+        return []
+    if len(markers) > ANALYZE_TP_MAX_MARKERS:
+        stride = max(1, math.ceil(len(markers) / ANALYZE_TP_MAX_MARKERS))
+        reduced = []
+        for i in range(0, len(markers), stride):
+            chunk = markers[i : i + stride]
+            if not chunk:
+                continue
+            reduced.append(max(chunk, key=lambda item: item[1]))
+        markers = reduced
+    out = []
+    for t, value in markers:
+        out.append({
+            "t": round(t, 3),
+            "value": round(value, 2),
+            "severity": "clip" if value >= 0.0 else "warn",
+        })
+    return out
+
+def _ebur128_series(path: Path, *, duration_s: float | None, hop_s: float) -> dict | None:
+    txt = _run_ebur128_framelog(path)
+    if not txt:
+        return None
+    step = hop_s
+    if duration_s and duration_s > 0:
+        step = max(step, duration_s / max(1, ANALYZE_SERIES_MAX_POINTS))
+    t_vals: list[float] = []
+    s_vals: list[float] = []
+    tp_vals: list[float | None] = []
+    markers: list[tuple[float, float]] = []
+    next_t = 0.0
+    for raw in txt.splitlines():
+        if "t:" not in raw:
+            continue
+        t_match = _EBUR_T_RE.search(raw)
+        if not t_match:
+            continue
+        t = _parse_ebur_float(t_match.group(1))
+        if t is None:
+            continue
+        if duration_s and t > duration_s + 0.05:
+            continue
+        s_match = _EBUR_S_RE.search(raw)
+        s_val = _parse_ebur_float(s_match.group(1)) if s_match else None
+        tp_val = None
+        tp_match = _EBUR_TPK_RE.search(raw) or _EBUR_TP_RE.search(raw) or _EBUR_PEAK_RE.search(raw)
+        if tp_match:
+            tp_val = _parse_ebur_float(tp_match.group(1))
+        if tp_val is not None and tp_val > -1.0:
+            _append_tp_marker(markers, t, tp_val)
+        if s_val is not None and t >= next_t:
+            t_vals.append(round(t, 3))
+            s_vals.append(s_val)
+            tp_vals.append(tp_val)
+            next_t += step
+    if not t_vals:
+        return None
+    out = {
+        "t": t_vals,
+        "lufs": s_vals,
+        "markers": markers,
+    }
+    if any(v is not None for v in tp_vals):
+        out["tp"] = tp_vals
+    return out
+
+def _analysis_overlay_data(source_path: Path | None, processed_path: Path | None) -> dict:
+    source_duration = _duration_seconds(source_path) if source_path else None
+    processed_duration = _duration_seconds(processed_path) if processed_path else None
+    duration_s = source_duration or processed_duration
+    if source_duration and processed_duration:
+        duration_s = min(source_duration, processed_duration)
+    hop_s = ANALYZE_ST_HOP_SEC
+    series: dict = {}
+    markers = {"true_peak": {"source": [], "processed": []}}
+    if source_path:
+        src = _ebur128_series(source_path, duration_s=duration_s, hop_s=hop_s)
+        if src:
+            series["t"] = src["t"]
+            series["lufs_st_source"] = src["lufs"]
+            if "tp" in src:
+                series["tp_source"] = src["tp"]
+            markers["true_peak"]["source"] = _finalize_tp_markers(src.get("markers", []))
+    if processed_path:
+        proc = _ebur128_series(processed_path, duration_s=duration_s, hop_s=hop_s)
+        if proc:
+            if "t" not in series:
+                series["t"] = proc["t"]
+            series["lufs_st_processed"] = proc["lufs"]
+            if "tp" in proc:
+                series["tp_processed"] = proc["tp"]
+            markers["true_peak"]["processed"] = _finalize_tp_markers(proc.get("markers", []))
+    if series.get("lufs_st_source") and series.get("lufs_st_processed"):
+        min_len = min(
+            len(series.get("t", [])),
+            len(series["lufs_st_source"]),
+            len(series["lufs_st_processed"]),
+        )
+        if min_len > 0:
+            series["t"] = series["t"][:min_len]
+            series["lufs_st_source"] = series["lufs_st_source"][:min_len]
+            series["lufs_st_processed"] = series["lufs_st_processed"][:min_len]
+            if "tp_source" in series:
+                series["tp_source"] = series["tp_source"][:min_len]
+            if "tp_processed" in series:
+                series["tp_processed"] = series["tp_processed"][:min_len]
+            deltas = []
+            for src_val, proc_val in zip(series["lufs_st_source"], series["lufs_st_processed"]):
+                if isinstance(src_val, (int, float)) and isinstance(proc_val, (int, float)):
+                    deltas.append(proc_val - src_val)
+                else:
+                    deltas.append(None)
+            series["lufs_st_delta"] = deltas
+    payload = {}
+    if duration_s is not None:
+        payload["duration_s"] = duration_s
+    if series:
+        payload["series"] = series
+    if markers["true_peak"]["source"] or markers["true_peak"]["processed"]:
+        payload["markers"] = markers
+    return payload
 def measure_loudness(path: Path) -> dict:
     r = run_cmd([
         FFMPEG_BIN, "-hide_banner", "-nostats", "-i", str(path),
@@ -1836,7 +2007,7 @@ def analyze_resolve(song: str, out: str = ""):
             }
         except Exception:
             metrics = None
-    return {
+    payload = {
         "run_id": song,
         "source_url": source_url,
         "processed_url": processed_url,
@@ -1846,6 +2017,8 @@ def analyze_resolve(song: str, out: str = ""):
         "available_outputs": _available_outputs(song, files, processed.stem),
         "metrics": metrics,
     }
+    payload.update(_analysis_overlay_data(source_path, processed))
+    return payload
 @app.get("/api/analyze-resolve-file")
 def analyze_resolve_file(src: str = "", imp: str = ""):
     src = (src or "").strip()
@@ -1871,7 +2044,7 @@ def analyze_resolve_file(src: str = "", imp: str = ""):
             metrics = basic_metrics(path)
         except Exception:
             metrics = None
-    return {
+    payload = {
         "run_id": None,
         "source_url": f"/api/analyze-file?kind={kind}&name={quote(rel)}",
         "processed_url": None,
@@ -1881,6 +2054,8 @@ def analyze_resolve_file(src: str = "", imp: str = ""):
         "available_outputs": [],
         "metrics": {"input": metrics, "output": None} if metrics else None,
     }
+    payload.update(_analysis_overlay_data(path, None))
+    return payload
 @app.post("/api/analyze-upload")
 async def analyze_upload(file: UploadFile = File(...)):
     if not file.filename:
@@ -1916,13 +2091,15 @@ async def analyze_upload(file: UploadFile = File(...)):
             )
         except Exception:
             pass
-    return {
+    payload = {
         "id": dest.stem,
         "source_url": f"/analysis/{quote(dest.name)}",
         "metrics": metrics,
         "source_name": file.filename,
         "rel": dest.name,
     }
+    payload.update(_analysis_overlay_data(dest, None))
+    return payload
 @app.get("/api/analyze-sources")
 def analyze_sources():
     items = []
