@@ -52,6 +52,9 @@ OUT_DIR = MASTER_OUT_DIR
 APP_DIR = Path(__file__).resolve().parent
 REPO_ROOT = APP_DIR.parent
 UI_APP_DIR = (bundle_root() / "sonustemper-ui" / "app") if is_frozen() else (REPO_ROOT / "sonustemper-ui" / "app")
+ASSET_PRESET_DIR = (bundle_root() / "assets" / "presets") if is_frozen() else (REPO_ROOT / "assets" / "presets")
+BUILTIN_PROFILE_DIR = ASSET_PRESET_DIR / "profiles"
+BUILTIN_VOICING_DIR = ASSET_PRESET_DIR / "voicings"
 UI_TEMPLATES = Jinja2Templates(directory=str(UI_APP_DIR / "templates")) if UI_APP_DIR.exists() else None
 if UI_TEMPLATES:
     UI_TEMPLATES.env.globals["static_url"] = lambda path: f"/static/{(path or '').lstrip('/')}"
@@ -613,6 +616,10 @@ def _preset_paths():
         paths.extend(sorted(PRESET_DIR.glob("*.json")))
     if GEN_PRESET_DIR.exists():
         paths.extend(sorted(GEN_PRESET_DIR.glob("*.json")))
+    if BUILTIN_PROFILE_DIR.exists():
+        paths.extend(sorted(BUILTIN_PROFILE_DIR.glob("*.json")))
+    if BUILTIN_VOICING_DIR.exists():
+        paths.extend(sorted(BUILTIN_VOICING_DIR.glob("*.json")))
     return paths
     try:
         return json.loads(mp.read_text(encoding="utf-8"))
@@ -1044,17 +1051,34 @@ def _safe_slug(s: str, max_len: int = 64) -> str:
     s = re.sub(r"_+", "_", s).strip("_")
     return s[:max_len] if max_len and len(s) > max_len else s
 
-def _preset_meta_from_file(fp: Path) -> dict:
+def _detect_preset_kind(data: dict | None) -> str | None:
+    if not isinstance(data, dict):
+        return None
+    meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
+    meta_kind = meta.get("kind")
+    if isinstance(meta_kind, str) and meta_kind.strip():
+        return meta_kind.strip().lower()
+    keys = set(data.keys())
+    profile_hints = {"lufs", "tp", "limiter", "compressor", "loudness", "target_lufs", "target_tp"}
+    if keys & profile_hints:
+        return "profile"
+    if "eq" in keys or "width" in keys or "stereo" in keys:
+        return "voicing"
+    return None
+
+def _preset_meta_from_file(fp: Path, default_kind: str | None = None) -> dict:
     try:
         data = json.loads(fp.read_text(encoding="utf-8"))
         meta = data.get("meta", {}) if isinstance(data, dict) else {}
+        kind = _detect_preset_kind(data) or (default_kind.lower() if default_kind else None)
         return {
             "title": meta.get("title") or data.get("name") or fp.stem,
             "source_file": meta.get("source_file"),
             "created_at": meta.get("created_at"),
+            "kind": kind,
         }
     except Exception:
-        return {"title": fp.stem}
+        return {"title": fp.stem, "kind": default_kind.lower() if default_kind else None}
 def find_input_file(song: str) -> Path | None:
     candidates: list[Path] = []
     try:
@@ -1425,7 +1449,15 @@ LOUDNESS_PROFILES = {
 def load_preset_meta() -> dict:
     """Load preset metadata from preset JSON files; fall back to baked-in copy."""
     meta = {}
-    files = list(PRESET_DIR.glob("*.json")) if PRESET_DIR.exists() else []
+    files = []
+    if PRESET_DIR.exists():
+        files.extend(PRESET_DIR.glob("*.json"))
+    if GEN_PRESET_DIR.exists():
+        files.extend(GEN_PRESET_DIR.glob("*.json"))
+    if BUILTIN_PROFILE_DIR.exists():
+        files.extend(BUILTIN_PROFILE_DIR.glob("*.json"))
+    if BUILTIN_VOICING_DIR.exists():
+        files.extend(BUILTIN_VOICING_DIR.glob("*.json"))
     for fp in files:
         try:
             data = json.loads(fp.read_text(encoding="utf-8"))
@@ -1659,13 +1691,12 @@ def list_files():
     IN_DIR.mkdir(parents=True, exist_ok=True)
     files = sorted([p.name for p in IN_DIR.iterdir()
                     if p.is_file() and p.suffix.lower() in [".wav",".mp3",".flac",".aiff",".aif"]])
-    presets = sorted({p.stem for p in _preset_paths()})
+    presets = _preset_name_list()
     return {"files": files, "presets": presets}
 @app.get("/api/presets")
 def presets():
     # Return list of preset names derived from preset files on disk
-    names = sorted({p.stem for p in _preset_paths()})
-    return names
+    return _preset_name_list()
 @app.get("/api/recent")
 def recent(limit: int = 30):
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -1822,36 +1853,118 @@ def outlist(song: str):
     resp = {"items": items, "input": input_m}
     OUTLIST_CACHE[song] = {"ts": now, "data": resp}
     return resp
-@app.get("/api/preset/list")
-def preset_list():
-    items = []
+
+def _preset_reserved_names() -> set[str]:
+    names = set()
     for fp in _preset_paths():
+        names.add(fp.stem)
+    return names
+
+def _unique_preset_name(base: str, reserved: set[str]) -> str:
+    base = _safe_slug(base)
+    if base and base not in reserved:
+        return base
+    suffix = "user"
+    candidate = f"{base}_{suffix}" if base else suffix
+    if candidate not in reserved:
+        return candidate
+    idx = 2
+    while True:
+        candidate = f"{base}_{suffix}_{idx}" if base else f"{suffix}_{idx}"
+        if candidate not in reserved:
+            return candidate
+        idx += 1
+
+def _iter_preset_files():
+    for root in (PRESET_DIR, GEN_PRESET_DIR, BUILTIN_PROFILE_DIR, BUILTIN_VOICING_DIR):
+        if not root.exists():
+            continue
+        for fp in sorted(root.glob("*.json"), key=lambda p: p.name.lower()):
+            yield fp
+
+def _find_preset_path(name: str) -> Path | None:
+    if not name:
+        return None
+    safe = _safe_slug(name)
+    if not safe:
+        return None
+    roots = [PRESET_DIR, GEN_PRESET_DIR, BUILTIN_PROFILE_DIR, BUILTIN_VOICING_DIR]
+    for root in roots:
+        candidate = root / f"{safe}.json"
+        if candidate.exists():
+            return candidate
+    return None
+
+def _preset_items(kind: str | None = None) -> list[dict]:
+    items = []
+    for fp in _iter_preset_files():
+        origin = "user"
+        readonly = False
+        default_kind = None
+        if BUILTIN_PROFILE_DIR in fp.parents:
+            origin = "builtin"
+            readonly = True
+            default_kind = "profile"
+        elif BUILTIN_VOICING_DIR in fp.parents:
+            origin = "builtin"
+            readonly = True
+            default_kind = "voicing"
+        elif GEN_PRESET_DIR in fp.parents:
+            origin = "user"
+            default_kind = None
+        meta = _preset_meta_from_file(fp, default_kind=default_kind)
+        effective_kind = (meta.get("kind") or "profile").lower()
+        if kind and effective_kind != kind:
+            continue
         items.append({
             "name": fp.stem,
             "filename": fp.name,
-            "meta": _preset_meta_from_file(fp),
+            "origin": origin,
+            "readonly": readonly,
+            "kind": effective_kind,
+            "meta": meta,
         })
-    return {"items": items}
+    return items
+
+def _preset_name_list() -> list[str]:
+    seen = set()
+    names = []
+    for fp in _iter_preset_files():
+        if fp.stem in seen:
+            continue
+        seen.add(fp.stem)
+        names.append(fp.stem)
+    return sorted(names)
+
+@app.get("/api/preset/list")
+def preset_list():
+    return {"items": _preset_items()}
+
+@app.get("/api/voicings")
+def voicing_list():
+    return {"items": _preset_items("voicing")}
+
+@app.get("/api/profiles")
+def profile_list():
+    return {"items": _preset_items("profile")}
 @app.get("/api/preset/download/{name}")
 def preset_download(name: str):
-    target = None
-    for fp in _preset_paths():
-        if fp.stem == name:
-            target = fp
-            break
+    target = _find_preset_path(name)
     if not target:
         raise HTTPException(status_code=404, detail="preset_not_found")
     return FileResponse(str(target), media_type="application/json", filename=target.name)
 @app.delete("/api/preset/{name}")
 def preset_delete(name: str):
     target = None
-    # Only allow deleting user presets (PRESET_DIR)
-    for fp in PRESET_DIR.glob("*.json"):
-        if fp.stem == name:
-            target = fp
+    for root in (PRESET_DIR, GEN_PRESET_DIR):
+        for fp in root.glob("*.json"):
+            if fp.stem == name:
+                target = fp
+                break
+        if target:
             break
     if not target:
-        if any(fp.stem == name for fp in GEN_PRESET_DIR.glob("*.json")):
+        if _find_preset_path(name):
             raise HTTPException(status_code=403, detail="preset_forbidden")
         raise HTTPException(status_code=404, detail="preset_not_found")
     target.unlink()
@@ -1873,11 +1986,7 @@ async def preset_upload(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="invalid_preset")
     meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
     if "kind" not in meta:
-        kind = "profile"
-        if any(k in data for k in ("lufs", "tp", "limiter", "compressor", "loudness", "target_lufs", "target_tp")):
-            kind = "profile"
-        elif any(k in data for k in ("eq", "width", "stereo")):
-            kind = "voicing"
+        kind = _detect_preset_kind(data) or "profile"
         meta["kind"] = kind
         data["meta"] = meta
     # Minimal sanity check
@@ -1887,6 +1996,9 @@ async def preset_upload(file: UploadFile = File(...)):
     safe_name = re.sub(r"[^a-zA-Z0-9._-]+", "_", name.strip())
     if not safe_name:
         raise HTTPException(status_code=400, detail="invalid_name")
+    reserved = _preset_reserved_names()
+    safe_name = _unique_preset_name(safe_name, reserved)
+    data["name"] = safe_name
     dest = PRESET_DIR / f"{safe_name}.json"
     try:
         dest.write_text(json.dumps(data, indent=2), encoding="utf-8")
@@ -1909,6 +2021,8 @@ async def preset_generate(file: UploadFile = File(...), kind: str = Form("profil
     tmp_path.write_bytes(contents)
     try:
         name_slug = _safe_slug(Path(file.filename).stem)
+        reserved = _preset_reserved_names()
+        name_slug = _unique_preset_name(name_slug, reserved)
         target_dir = PRESET_DIR if PRESET_DIR.exists() and _writable(PRESET_DIR) else GEN_PRESET_DIR
         target_dir.mkdir(parents=True, exist_ok=True)
         dest = target_dir / f"{name_slug}.json"

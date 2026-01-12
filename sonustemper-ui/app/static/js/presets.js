@@ -13,6 +13,9 @@
   const presetJsonName = document.getElementById('presetJsonName');
   const uploadPresetJsonBtn = document.getElementById('uploadPresetJsonBtn');
   const uploadPresetJsonStatus = document.getElementById('uploadPresetJsonStatus');
+  const builtinPresetSelect = document.getElementById('builtinPresetSelect');
+  const duplicateBuiltinBtn = document.getElementById('duplicateBuiltinBtn');
+  const builtinPresetStatus = document.getElementById('builtinPresetStatus');
 
   const detailTitle = document.getElementById('presetDetailTitle');
   const detailMeta = document.getElementById('presetDetailMeta');
@@ -27,6 +30,50 @@
 
   function setStatus(el, msg){
     if(el) el.textContent = msg || '';
+  }
+
+  async function loadBuiltinPresets(){
+    if(!builtinPresetSelect) return;
+    builtinPresetSelect.innerHTML = '';
+    try{
+      const res = await fetch('/api/preset/list', { cache: 'no-store' });
+      if(!res.ok) throw new Error('load_failed');
+      const data = await res.json();
+      const items = (data.items || []).filter(item => item.origin === 'builtin');
+      if(!items.length){
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'No built-in presets found';
+        builtinPresetSelect.appendChild(opt);
+        if(duplicateBuiltinBtn) duplicateBuiltinBtn.disabled = true;
+        return;
+      }
+      const groups = {};
+      items.forEach(item => {
+        const kind = (item.kind || item.meta?.kind || 'profile').toLowerCase();
+        if(!groups[kind]) groups[kind] = [];
+        groups[kind].push(item);
+      });
+      Object.keys(groups).sort().forEach(kind => {
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = kind === 'voicing' ? 'Built-in Voicings' : 'Built-in Profiles';
+        groups[kind].sort((a, b) => {
+          const aTitle = a.meta?.title || a.name || '';
+          const bTitle = b.meta?.title || b.name || '';
+          return aTitle.localeCompare(bTitle);
+        }).forEach(item => {
+          const option = document.createElement('option');
+          option.value = item.name || '';
+          option.textContent = item.meta?.title || item.name || 'Preset';
+          optgroup.appendChild(option);
+        });
+        builtinPresetSelect.appendChild(optgroup);
+      });
+      if(duplicateBuiltinBtn) duplicateBuiltinBtn.disabled = false;
+    }catch(_err){
+      setStatus(builtinPresetStatus, 'Failed to load built-ins.');
+      if(duplicateBuiltinBtn) duplicateBuiltinBtn.disabled = true;
+    }
   }
 
   function refreshPresetBrowser(){
@@ -76,10 +123,9 @@
     detailMeta.innerHTML = `<div><span class="muted">Source:</span> ${source}</div>` +
       `<div><span class="muted">Created:</span> ${created}</div>` +
       `<div><span class="muted">Type:</span> ${kind}</div>`;
-    const isGenerated = selectedPreset.origin === 'generated';
     if(downloadBtn) downloadBtn.disabled = false;
     if(duplicateBtn) duplicateBtn.disabled = false;
-    if(deleteBtn) deleteBtn.disabled = isGenerated;
+    if(deleteBtn) deleteBtn.disabled = false;
     if(selectedHint) selectedHint.textContent = `Selected: ${selectedPreset.title || selectedPreset.name}`;
   }
 
@@ -231,10 +277,6 @@
 
   async function deletePreset(){
     if(!selectedPreset) return;
-    if(selectedPreset.origin === 'generated'){
-      setStatus(uploadPresetJsonStatus, 'Generated profiles cannot be deleted.');
-      return;
-    }
     if(!confirm(`Delete profile "${selectedPreset.name}"?`)) return;
     const res = await fetch(`/api/preset/${encodeURIComponent(selectedPreset.name)}`, { method: 'DELETE' });
     if(!res.ok){
@@ -265,6 +307,32 @@
       refreshPresetBrowser();
     }catch(_err){
       setStatus(uploadPresetJsonStatus, 'Duplicate failed.');
+    }
+  }
+
+  async function duplicateBuiltin(){
+    if(!builtinPresetSelect) return;
+    const name = builtinPresetSelect.value;
+    if(!name) return;
+    const newName = prompt('New profile name', `${name}-copy`);
+    if(!newName) return;
+    try{
+      const res = await fetch(`/api/preset/download/${encodeURIComponent(name)}`);
+      if(!res.ok) throw new Error('download_failed');
+      const data = await res.json();
+      data.name = newName;
+      data.meta = data.meta || {};
+      data.meta.title = newName;
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const uploadFile = new File([blob], `${newName}.json`, { type: 'application/json' });
+      const fd = new FormData();
+      fd.append('file', uploadFile, uploadFile.name);
+      const uploadRes = await fetch('/api/preset/upload', { method: 'POST', body: fd });
+      if(!uploadRes.ok) throw new Error('upload_failed');
+      setStatus(builtinPresetStatus, 'Preset duplicated.');
+      refreshPresetBrowser();
+    }catch(_err){
+      setStatus(builtinPresetStatus, 'Duplicate failed.');
     }
   }
 
@@ -299,7 +367,9 @@
     if(downloadBtn) downloadBtn.addEventListener('click', downloadPreset);
     if(duplicateBtn) duplicateBtn.addEventListener('click', duplicatePreset);
     if(deleteBtn) deleteBtn.addEventListener('click', deletePreset);
+    if(duplicateBuiltinBtn) duplicateBuiltinBtn.addEventListener('click', duplicateBuiltin);
     updateDetail();
+    loadBuiltinPresets();
   });
 
   document.addEventListener('htmx:afterSwap', (evt)=>{

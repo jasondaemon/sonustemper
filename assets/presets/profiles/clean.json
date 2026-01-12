@@ -1,0 +1,23 @@
+{
+  "name": "Clean",
+  "lufs": -14,
+  "eq": [
+    { "freq": 80, "gain": 0.8, "q": 0.9 },
+    { "freq": 3000, "gain": 1.2, "q": 1.1 },
+    { "freq": 10000, "gain": 1.0, "q": 0.8 }
+  ],
+  "compressor": { "threshold": -20, "ratio": 1.8, "attack": 30, "release": 250 },
+  "limiter": { "ceiling": -1.0 },
+  "mono_bass_hz": 110,
+  "width": 1.05,
+  "intent": "Transparent mastering: minimal coloration, just correction + safe loudness.",
+  "dsp": [
+    "Corrective EQ only (narrow-ish cuts over boosts).",
+    "Conservative dynamics: little-to-no saturation; no intentional grit.",
+    "Limiter focused on peak safety and translation, not character.",
+    "Stereo integrity prioritized; avoids artificial width."
+  ],
+  "bestFor": ["already-great mixes", "pop", "modern worship", "anything needing transparency"],
+  "watchOut": ["May feel ‘too polite’ on aggressive genres unless paired with a character preset."],
+  "abNotes": ["Use as a reference: compare others against Clean to hear coloration choices."]
+}

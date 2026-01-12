@@ -1,0 +1,23 @@
+{
+  "name": "Warm",
+  "lufs": -13,
+  "eq": [
+    { "freq": 120, "gain": 1.8, "q": 1.0 },
+    { "freq": 400, "gain": 1.2, "q": 1.2 },
+    { "freq": 8000, "gain": -0.8, "q": 0.9 }
+  ],
+  "compressor": { "threshold": -18, "ratio": 2.2, "attack": 40, "release": 300 },
+  "limiter": { "ceiling": -1.1 },
+  "mono_bass_hz": 120,
+  "width": 1.08,
+  "intent": "Thicker, smoother option: rounds edges, reduces brittleness, and enhances body.",
+  "dsp": [
+    "Gentle top smoothing (tames brittle highs).",
+    "Low-mid/body enhancement (broad strokes; careful).",
+    "Soft saturation for warmth and perceived loudness without harshness.",
+    "Dynamics tuned to feel relaxed, not aggressively pinned."
+  ],
+  "bestFor": ["bright mixes", "thin sources", "vintage-leaning material", "acoustic needing body"],
+  "watchOut": ["Can get muddy if the mix already has low-mid buildup—watch 200–400 Hz."],
+  "abNotes": ["Compare with Modern/Clean: does it add body without losing clarity?"]
+}

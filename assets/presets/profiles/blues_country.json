@@ -1,0 +1,24 @@
+{
+  "name": "Blues Country",
+  "lufs": -13,
+  "eq": [
+    { "freq": 90, "gain": 1.6, "q": 1.0 },
+    { "freq": 250, "gain": 1.2, "q": 1.1 },
+    { "freq": 2800, "gain": 1.8, "q": 1.2 },
+    { "freq": 7500, "gain": 0.8, "q": 0.9 }
+  ],
+  "compressor": { "threshold": -19, "ratio": 2.1, "attack": 35, "release": 300 },
+  "limiter": { "ceiling": -1.1 },
+  "mono_bass_hz": 120,
+  "width": 1.1,
+  "intent": "Warm, forward midrange with controlled low end and ‘glued’ dynamics.",
+  "dsp": [
+    "Low-end tightening to keep kick/bass defined without modern hyper-sub emphasis.",
+    "Midrange presence shaping for vocal/guitar forwardness (classic ‘radio’ focus).",
+    "Bus-style compression ‘glue’ with slower timing to keep groove breathing.",
+    "Limiter set for musical level, not maximum loudness."
+  ],
+  "bestFor": ["blues rock", "country", "americana", "roots"],
+  "watchOut": ["Too much glue can soften snare crack if the mix is already compressed."],
+  "abNotes": ["Listen for: vocal/guitar forwardness and groove ‘bounce’ staying intact."]
+}

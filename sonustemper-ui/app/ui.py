@@ -735,8 +735,18 @@ def _preset_meta_from_file(fp: Path) -> dict:
     try:
         data = json.loads(fp.read_text(encoding="utf-8"))
         meta = data.get("meta", {}) if isinstance(data, dict) else {}
+        kind = None
+        meta_kind = meta.get("kind")
+        if isinstance(meta_kind, str) and meta_kind.strip():
+            kind = meta_kind.strip().lower()
+        if not kind:
+            keys = set(data.keys())
+            profile_hints = {"lufs", "tp", "limiter", "compressor", "loudness", "target_lufs", "target_tp"}
+            if keys & profile_hints:
+                kind = "profile"
+            elif "eq" in keys or "width" in keys or "stereo" in keys:
+                kind = "voicing"
         title = meta.get("title") or data.get("name") or fp.stem
-        kind = meta.get("kind")
         return {
             "title": title,
             "source_file": meta.get("source_file"),

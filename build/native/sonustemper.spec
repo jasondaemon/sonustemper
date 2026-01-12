@@ -18,6 +18,7 @@ datas = [
     (str(project_root / "sonustemper-ui" / "app" / "templates"), "sonustemper-ui/app/templates"),
     (str(project_root / "sonustemper-ui" / "app" / "static"), "sonustemper-ui/app/static"),
     (str(project_root / "assets" / "demo"), "assets/demo"),
+    (str(project_root / "assets" / "presets"), "assets/presets"),
     (str(project_root / "images" / "sonustemper-menubar.png"), "images"),
     (str(project_root / "LICENSE"), "."),
     (str(project_root / "THIRD_PARTY_NOTICES.md"), "."),

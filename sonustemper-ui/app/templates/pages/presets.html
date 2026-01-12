@@ -14,7 +14,6 @@
     <div class="preset-browser">
       {% set browser_id = "presetBrowser" %}
       {% set sections = [
-        {"key": "voicings", "title": "Voicings", "endpoint": "/partials/library_list?view=voicings&context=presets"},
         {"key": "user_voicings", "title": "User Voicings", "endpoint": "/partials/library_list?view=presets_user_voicings&context=presets"},
         {"key": "user_profiles", "title": "User Profiles", "endpoint": "/partials/library_list?view=presets_user_profiles&context=presets", "autoselect": "first"},
         {"key": "generated", "title": "Generated Profiles", "endpoint": "/partials/library_list?view=presets_generated&context=presets"}
@@ -70,6 +69,25 @@
         <div class="preset-actions">
           <button class="btn small ghost" type="button" id="uploadPresetJsonBtn">Upload JSON</button>
           <span class="muted" id="uploadPresetJsonStatus"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">Duplicate Built-in Preset</div>
+          <div class="muted">Copy a built-in preset into your library so you can edit it.</div>
+        </div>
+      </div>
+      <div class="preset-form">
+        <div class="preset-field">
+          <label for="builtinPresetSelect">Built-in preset</label>
+          <select id="builtinPresetSelect" class="full-width-select"></select>
+        </div>
+        <div class="preset-actions">
+          <button class="btn small ghost" type="button" id="duplicateBuiltinBtn">Duplicate to User</button>
+          <span class="muted" id="builtinPresetStatus"></span>
         </div>
       </div>
     </div>

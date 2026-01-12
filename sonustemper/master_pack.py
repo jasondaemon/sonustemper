@@ -9,9 +9,9 @@ try:
 except ImportError:
     from logging_util import log_error, log_summary, log_debug
 try:
-    from sonustemper.tools import resolve_tool
+    from sonustemper.tools import resolve_tool, bundle_root, is_frozen
 except ImportError:
-    from tools import resolve_tool
+    from tools import resolve_tool, bundle_root, is_frozen
 
 def _safe_tag(s: str, max_len: int = 80) -> str:
     """Make a filesystem-safe tag chunk."""
@@ -209,6 +209,9 @@ OUT_DIR = Path(os.getenv("OUT_DIR", os.getenv("MASTER_OUT_DIR", str(DATA_DIR / "
 PRESET_DIR = Path(os.getenv("PRESET_DIR", os.getenv("PRESET_USER_DIR", str(DATA_DIR / "presets" / "user"))))
 ANALYSIS_TMP = Path(os.getenv("ANALYSIS_TMP_DIR", str(DATA_DIR / "analysis" / "tmp")))
 GEN_PRESET_DIR = Path(os.getenv("GEN_PRESET_DIR", str(DATA_DIR / "presets" / "generated")))
+ASSET_PRESET_DIR = (bundle_root() / "assets" / "presets") if is_frozen() else (Path(__file__).resolve().parents[1] / "assets" / "presets")
+BUILTIN_PROFILE_DIR = ASSET_PRESET_DIR / "profiles"
+BUILTIN_VOICING_DIR = ASSET_PRESET_DIR / "voicings"
 
 DEFAULT_PRESETS = [
     "clean","warm","rock","loud","acoustic","modern",
@@ -1197,15 +1200,17 @@ def _run_with_args(args, event_cb=None) -> dict:
                         continue
                     safe_presets.append(raw)
                 for p in safe_presets:
-                    preset_path = (PRESET_DIR / f"{p}.json").resolve()
-                    if PRESET_DIR.resolve() not in preset_path.parents:
-                        log_error("preset", "reject_out_of_tree", preset=p)
-                        continue
-                    if not preset_path.exists():
-                        alt = (GEN_PRESET_DIR / f"{p}.json").resolve()
-                        if GEN_PRESET_DIR.resolve() in alt.parents and alt.exists():
-                            preset_path = alt
-                    if not preset_path.exists():
+                    preset_path = None
+                    roots = [PRESET_DIR, GEN_PRESET_DIR, BUILTIN_PROFILE_DIR, BUILTIN_VOICING_DIR]
+                    for root in roots:
+                        candidate = (root / f"{p}.json").resolve()
+                        if root.resolve() not in candidate.parents:
+                            log_error("preset", "reject_out_of_tree", preset=p)
+                            continue
+                        if candidate.exists():
+                            preset_path = candidate
+                            break
+                    if not preset_path:
                         print(f"Skipping missing preset: {p}", file=sys.stderr)
                         continue
 
