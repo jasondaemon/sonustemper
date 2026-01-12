@@ -29,6 +29,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 MASTER_IN_DIR = Path(os.getenv("MASTER_IN_DIR", str(DATA_DIR / "mastering" / "in")))
 MASTER_OUT_DIR = Path(os.getenv("MASTER_OUT_DIR", str(DATA_DIR / "mastering" / "out")))
 TAG_IN_DIR = Path(os.getenv("TAG_IN_DIR", str(DATA_DIR / "tagging" / "in")))
+ANALYSIS_IN_DIR = Path(os.getenv("ANALYSIS_IN_DIR", str(DATA_DIR / "analysis" / "in")))
 PRESET_DIR = Path(os.getenv("PRESET_DIR", str(DATA_DIR / "presets" / "user")))
 GEN_PRESET_DIR = Path(os.getenv("GEN_PRESET_DIR", str(DATA_DIR / "presets" / "generated")))
 ASSET_PRESET_DIR = bundle_root() / "assets" / "presets"
@@ -502,6 +503,37 @@ def _list_tagging_mp3(q: str, limit: int, context: str = "", scope: str = "tag")
     return items[:limit]
 
 
+def _list_analysis_imports(q: str, limit: int, context: str = "") -> list[dict]:
+    if not ANALYSIS_IN_DIR.exists():
+        return []
+    items = []
+    for fp in sorted(ANALYSIS_IN_DIR.iterdir(), key=lambda p: p.name.lower()):
+        if not fp.is_file() or fp.suffix.lower() not in AUDIO_EXTS:
+            continue
+        title = _base_title(fp.stem)
+        if title:
+            title = title.replace("_", " ").strip() or title
+        badges = _parse_variant_tags(fp.name)
+        if not badges:
+            badges = [{"key": "format", "label": "Uploaded", "title": "Analyze upload"}]
+        items.append(
+            {
+                "id": fp.name,
+                "title": title,
+                "subtitle": "Analyze Upload",
+                "kind": "import",
+                "badges": badges,
+                "action": None,
+                "clickable": context == "analyze",
+                "meta": {"rel": fp.name},
+            }
+        )
+    if q:
+        ql = q.lower()
+        items = [i for i in items if ql in i["title"].lower()]
+    return items[:limit]
+
+
 @router.get("/partials/library_list", response_class=HTMLResponse)
 async def library_list(request: Request, view: str, q: str = "", limit: int = 200):
     view = (view or "").strip().lower()
@@ -518,6 +550,8 @@ async def library_list(request: Request, view: str, q: str = "", limit: int = 20
         items = _list_mastering_outputs(q, limit, context)
     elif view == "tagging_mp3":
         items = _list_tagging_mp3(q, limit, context, scope)
+    elif view == "analysis_imports":
+        items = _list_analysis_imports(q, limit, context)
     elif view == "presets_user":
         items = _list_presets("user", q, limit, context)
     elif view == "presets_user_profiles":

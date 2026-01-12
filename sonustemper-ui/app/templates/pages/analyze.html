@@ -3,6 +3,18 @@
 {% block title %}Analyze{% endblock %}
 {% block subtitle %}Compare source vs processed audio (metrics + waveform).{% endblock %}
 {% block sidebar %}
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <div class="card-title">Analyze Status</div>
+        <div class="muted">Upload + analysis activity.</div>
+      </div>
+    </div>
+    <div class="status-list" id="analyzeStatusList">(waiting)</div>
+    <div class="status-progress" id="analyzeStatusProgress">
+      <div class="status-progress-bar" id="analyzeStatusProgressBar"></div>
+    </div>
+  </div>
   <div class="card browse-card">
     <div class="card-head">
       <div>
@@ -12,7 +24,8 @@
     </div>
     {% set browser_id = "analyzeBrowser" %}
     {% set sections = [
-      {"key": "mastering_outputs", "title": "Mastering Outputs", "endpoint": "/partials/library_list?view=mastering_outputs&context=analyze"}
+      {"key": "mastering_outputs", "title": "Mastering Outputs", "endpoint": "/partials/library_list?view=mastering_outputs&context=analyze"},
+      {"key": "analyze_uploads", "title": "Analyze Uploads", "endpoint": "/partials/library_list?view=analysis_imports&context=analyze"}
     ] %}
     {% include "partials/file_browser.html" %}
   </div>
@@ -126,6 +139,8 @@
   const processedName = document.getElementById('processedName');
   const processedEmpty = document.getElementById('processedEmpty');
   const analyzeSubtitle = document.getElementById('analyzeSubtitle');
+  const analyzeStatusList = document.getElementById('analyzeStatusList');
+  const analyzeStatusProgressBar = document.getElementById('analyzeStatusProgressBar');
 
   const playBtn = document.getElementById('playBtn');
   const pauseBtn = document.getElementById('pauseBtn');
@@ -157,6 +172,8 @@
   const gainNodes = new Map();
   const volumeRafs = new Map();
   const analyzeBrowser = document.getElementById('analyzeBrowser');
+  let statusLines = [];
+  let statusRenderPending = false;
 
   const zoomSteps = [1, 2, 4, 8];
   let fitMinPxPerSec = 1;
@@ -175,6 +192,41 @@
     if (num === null || num === undefined || Number.isNaN(num)) return '-';
     const fixed = (typeof decimals === 'number') ? num.toFixed(decimals) : num.toFixed(1);
     return fixed.replace(/\.0$/, '');
+  }
+
+  function scheduleStatusRender(){
+    if (statusRenderPending) return;
+    statusRenderPending = true;
+    requestAnimationFrame(() => {
+      statusRenderPending = false;
+      if (!analyzeStatusList) return;
+      analyzeStatusList.textContent = statusLines.length ? statusLines.join('\n') : '(waiting)';
+      analyzeStatusList.scrollTop = analyzeStatusList.scrollHeight;
+    });
+  }
+
+  function addStatusLine(message){
+    if (!message) return;
+    const ts = new Date().toLocaleTimeString();
+    statusLines.push(`${ts} ${message}`);
+    if (statusLines.length > 200) statusLines = statusLines.slice(-200);
+    scheduleStatusRender();
+  }
+
+  function setStatusProgress(pct, active){
+    if (!analyzeStatusProgressBar) return;
+    if (pct === null || pct === undefined) {
+      analyzeStatusProgressBar.style.width = '0%';
+      analyzeStatusProgressBar.classList.remove('active');
+      return;
+    }
+    const clamped = Math.max(0, Math.min(100, pct));
+    analyzeStatusProgressBar.style.width = `${clamped}%`;
+    if (active) {
+      analyzeStatusProgressBar.classList.add('active');
+    } else {
+      analyzeStatusProgressBar.classList.remove('active');
+    }
   }
 
   function formatDelta(outVal, inVal){
@@ -1248,38 +1300,59 @@
     setActiveItem(node);
     try {
       if (item.kind === 'mastering_output') {
+        addStatusLine(`Loading run ${item.song}...`);
         const params = new URLSearchParams();
         params.set('song', item.song || item.id || '');
         if (item.out) params.set('out', item.out);
         if (shouldPush) updateUrl(params);
         const data = await resolveRun(item.song || item.id, item.out || '');
         await applyData(data);
+        addStatusLine('Analysis ready');
       } else if (item.kind === 'mastering_run') {
+        addStatusLine(`Loading run ${item.song || item.id}...`);
         const params = new URLSearchParams();
         params.set('song', item.song || item.id || '');
         if (shouldPush) updateUrl(params);
         const data = await resolveRun(item.song || item.id, item.out || '');
         await applyData(data);
+        addStatusLine('Analysis ready');
       } else if (item.kind === 'source' || item.kind === 'import') {
+        addStatusLine(`Loading ${item.kind}...`);
         const params = new URLSearchParams();
         params.set(item.kind === 'source' ? 'src' : 'imp', item.rel);
         if (shouldPush) updateUrl(params);
         const data = await resolveFile(item.kind, item.rel);
         await applyData(data);
+        addStatusLine('Analysis ready');
       }
     } catch (_err) {
+      addStatusLine('Analysis failed');
       if (typeof showToast === 'function') showToast('Analyze data unavailable');
     }
   }
 
   async function uploadFile(file){
-    const fd = new FormData();
-    fd.append('file', file, file.name);
-    const res = await fetch('/api/analyze-upload', { method: 'POST', body: fd });
-    if (!res.ok) {
-      throw new Error('upload_failed');
-    }
-    return res.json();
+    return new Promise((resolve, reject) => {
+      const fd = new FormData();
+      fd.append('file', file, file.name);
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/analyze-upload', true);
+      xhr.responseType = 'json';
+      xhr.upload.addEventListener('progress', (evt) => {
+        if (!evt.lengthComputable) return;
+        const pct = (evt.loaded / evt.total) * 100;
+        setStatusProgress(pct, true);
+      });
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(xhr.response || {});
+        } else {
+          reject(new Error('upload_failed'));
+        }
+      });
+      xhr.addEventListener('error', () => reject(new Error('upload_failed')));
+      xhr.send(fd);
+    });
   }
 
   if (uploadBtn && uploadInput) {
@@ -1288,8 +1361,12 @@
       const file = (uploadInput.files || [])[0];
       if (!file) return;
       try {
+        addStatusLine(`Uploading ${file.name}...`);
+        setStatusProgress(0, true);
         if (typeof showToast === 'function') showToast('Uploading...');
         const data = await uploadFile(file);
+        addStatusLine('Upload complete');
+        addStatusLine('Analyzing...');
         const payload = {
           source_url: data.source_url,
           source_name: data.source_name || file.name,
@@ -1301,6 +1378,8 @@
           markers: data.markers,
         };
         await applyData(payload);
+        addStatusLine('Analysis ready');
+        setStatusProgress(100, false);
         if (data.rel) {
           const item = { kind: 'import', rel: data.rel };
           selectedItem = item;
@@ -1310,6 +1389,8 @@
         }
         if (typeof showToast === 'function') showToast('Analysis ready');
       } catch (_err) {
+        addStatusLine('Upload or analysis failed');
+        setStatusProgress(0, false);
         if (typeof showToast === 'function') showToast('Upload failed');
       } finally {
         uploadInput.value = '';
@@ -1454,6 +1535,15 @@
         selectAndLoad(item, itemNode, true);
         return;
       }
+      if (kind === 'import') {
+        const rel = meta.rel || id;
+        if (!rel) return;
+        evt.preventDefault();
+        evt.stopPropagation();
+        const item = { kind, id, rel };
+        selectAndLoad(item, itemNode, true);
+        return;
+      }
       if (kind !== 'mastering_run') return;
       evt.preventDefault();
       evt.stopPropagation();
@@ -1472,6 +1562,23 @@
           try {
             const meta = JSON.parse(node.dataset.meta || '{}');
             if (meta.song === currentSong && meta.out === currentOut) {
+              setActiveItem(node);
+              break;
+            }
+          } catch (_err) {
+            continue;
+          }
+        }
+        return;
+      }
+      const currentImp = params.get('imp');
+      if (currentImp) {
+        const nodes = analyzeBrowser.querySelectorAll('.browser-item[data-kind="import"]');
+        for (const node of nodes) {
+          if (!node.dataset.meta) continue;
+          try {
+            const meta = JSON.parse(node.dataset.meta || '{}');
+            if (meta.rel === currentImp) {
               setActiveItem(node);
               break;
             }
