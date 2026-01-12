@@ -31,6 +31,8 @@ MASTER_OUT_DIR = Path(os.getenv("MASTER_OUT_DIR", str(DATA_DIR / "mastering" / "
 TAG_IN_DIR = Path(os.getenv("TAG_IN_DIR", str(DATA_DIR / "tagging" / "in")))
 PRESET_DIR = Path(os.getenv("PRESET_DIR", str(DATA_DIR / "presets" / "user")))
 GEN_PRESET_DIR = Path(os.getenv("GEN_PRESET_DIR", str(DATA_DIR / "presets" / "generated")))
+ASSET_PRESET_DIR = bundle_root() / "assets" / "presets"
+BUILTIN_VOICING_DIR = ASSET_PRESET_DIR / "voicings"
 
 UTILITY_ROOTS = {
     ("mastering", "source"): MASTER_IN_DIR,
@@ -71,6 +73,29 @@ PREVIEW_SESSION_COOKIE = "st_preview_session"
 APP_VERSION = os.getenv("APP_VERSION", os.getenv("SONUSTEMPER_TAG", "dev"))
 
 router = APIRouter()
+
+def _load_builtin_voicings() -> list[dict]:
+    items = []
+    if not BUILTIN_VOICING_DIR.exists():
+        return items
+    for fp in sorted(BUILTIN_VOICING_DIR.glob("*.json"), key=lambda p: p.name.lower()):
+        try:
+            data = json.loads(fp.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        meta = data.get("meta", {}) if isinstance(data, dict) else {}
+        title = meta.get("title") or data.get("name") or fp.stem
+        raw_tags = meta.get("tags")
+        if not isinstance(raw_tags, list):
+            raw_tags = []
+        tags = [str(tag) for tag in raw_tags if tag is not None and str(tag).strip()]
+        items.append({
+            "id": fp.stem,
+            "title": title,
+            "tags": tags,
+            "origin": "builtin",
+        })
+    return items
 
 
 def _version_label() -> str:
@@ -204,7 +229,12 @@ async def starter(request: Request):
 async def mastering_page(request: Request):
     response = TEMPLATES.TemplateResponse(
         "pages/mastering.html",
-        _page_context(request, show_sidebar=False, current_page="mastering"),
+        _page_context(
+            request,
+            show_sidebar=False,
+            current_page="mastering",
+            voicing_seed=_load_builtin_voicings(),
+        ),
     )
     if not request.cookies.get(PREVIEW_SESSION_COOKIE):
         response.set_cookie(

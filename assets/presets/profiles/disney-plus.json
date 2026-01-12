@@ -1,0 +1,11 @@
+{
+  "name": "disney-plus",
+  "lufs": -24.0,
+  "tpp": -2.0,
+  "category": "Platform Targets",
+  "order": 70,
+  "meta": {
+    "title": "DISNEY+",
+    "kind": "profile"
+  }
+}

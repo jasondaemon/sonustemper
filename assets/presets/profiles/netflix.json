@@ -1,0 +1,11 @@
+{
+  "name": "netflix",
+  "lufs": -27.0,
+  "tpp": -2.0,
+  "category": "Platform Targets",
+  "order": 50,
+  "meta": {
+    "title": "NETFLIX",
+    "kind": "profile"
+  }
+}

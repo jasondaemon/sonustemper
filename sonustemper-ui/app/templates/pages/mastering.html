@@ -275,6 +275,7 @@
     flac: 'FLAC',
   };
   let loudProfiles = {};
+  const voicingSeed = {{ voicing_seed|tojson }};
   let voicingCatalog = [];
   let voicingIndex = {};
 
@@ -830,6 +831,31 @@
     return String(value || '').toLowerCase().trim();
   }
 
+  function seedVoicings(){
+    if (!Array.isArray(voicingSeed) || !voicingSeed.length) return;
+    voicingCatalog = [];
+    voicingIndex = {};
+    voicingSeed.forEach(entry => {
+      if (!entry || !entry.id) return;
+      const rawTags = Array.isArray(entry.tags) ? entry.tags : [];
+      const tags = rawTags
+        .map(tag => String(tag || '').trim())
+        .filter(tag => tag.length);
+      const item = {
+        id: entry.id,
+        title: entry.title || entry.id,
+        tags,
+        origin: entry.origin || 'builtin',
+      };
+      item.searchText = normalizeText([item.title, item.id, tags.join(' ')].join(' '));
+      voicingCatalog.push(item);
+      voicingIndex[item.id] = item;
+    });
+    if (voicingCatalog.length) {
+      renderVoicingOptions(voicingFilter?.value || '', state.voicing);
+    }
+  }
+
   function updateVoicingTooltip(){
     if (!voicingSelect) return;
     const entry = voicingIndex[voicingSelect.value];
@@ -903,13 +929,13 @@
 
   async function loadVoicings(){
     if (!voicingSelect) return;
-    voicingCatalog = [];
-    voicingIndex = {};
     try{
       const res = await fetch('/api/voicings', { cache: 'no-store' });
       if (!res.ok) throw new Error('voicings_failed');
       const data = await res.json();
       const items = data.items || [];
+      voicingCatalog = [];
+      voicingIndex = {};
       items.forEach(item => {
         const meta = item.meta || {};
         const rawTags = Array.isArray(meta.tags) ? meta.tags : [];
@@ -929,9 +955,11 @@
       });
       renderVoicingOptions(voicingFilter?.value || '', state.voicing);
     }catch(_err){
+      if (voicingCatalog.length) {
+        renderVoicingOptions(voicingFilter?.value || '', state.voicing);
+        return;
+      }
       voicingSelect.innerHTML = '<option value="" disabled selected>Voicings unavailable</option>';
-      voicingCatalog = [];
-      voicingIndex = {};
       updateSummary();
       updateVoicingTooltip();
     }
@@ -972,8 +1000,12 @@
         loudnessMode.appendChild(option);
         loudProfiles[opt.id] = opt;
       });
-      if (loudnessMode.value === 'manual' && loudProfiles.apple) {
-        loudnessMode.value = 'apple';
+      if (loudnessMode.value === 'manual') {
+        if (loudProfiles.apple_music) {
+          loudnessMode.value = 'apple_music';
+        } else if (loudProfiles.apple) {
+          loudnessMode.value = 'apple';
+        }
       }
       applyLoudnessMode();
     }catch(_err){
@@ -1148,6 +1180,7 @@
   updateSummary();
   applyConvertOnly();
   loadFiles();
+  seedVoicings();
   loadVoicings();
   loadLoudnessProfiles();
 

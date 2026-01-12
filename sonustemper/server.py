@@ -1080,6 +1080,8 @@ def _preset_meta_from_file(fp: Path, default_kind: str | None = None) -> dict:
             lufs = data.get("target_lufs")
         tp = data.get("tp")
         if tp is None:
+            tp = data.get("tpp")
+        if tp is None:
             tp = data.get("target_tp")
         if tp is None and isinstance(data.get("limiter"), dict):
             tp = data.get("limiter", {}).get("ceiling")

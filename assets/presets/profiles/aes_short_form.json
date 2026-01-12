@@ -1,0 +1,11 @@
+{
+  "name": "aes_short_form",
+  "lufs": -16.0,
+  "tpp": -1.0,
+  "category": "Online Streaming",
+  "order": 40,
+  "meta": {
+    "title": "AES SHORT FORM",
+    "kind": "profile"
+  }
+}

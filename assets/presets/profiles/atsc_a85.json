@@ -1,0 +1,11 @@
+{
+  "name": "atsc_a85",
+  "lufs": -24.0,
+  "tpp": -2.0,
+  "category": "Film / TV / Gaming",
+  "order": 40,
+  "meta": {
+    "title": "ATSC A/85",
+    "kind": "profile"
+  }
+}

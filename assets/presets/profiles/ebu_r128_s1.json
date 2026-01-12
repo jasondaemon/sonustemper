@@ -1,0 +1,11 @@
+{
+  "name": "ebu_r128_s1",
+  "lufs": -23.0,
+  "tpp": -1.0,
+  "category": "Film / TV / Gaming",
+  "order": 30,
+  "meta": {
+    "title": "EBU R128 S1",
+    "kind": "profile"
+  }
+}

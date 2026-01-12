@@ -1,0 +1,11 @@
+{
+  "name": "arib_tr-b32",
+  "lufs": -24.0,
+  "tpp": -2.0,
+  "category": "Film / TV / Gaming",
+  "order": 70,
+  "meta": {
+    "title": "ARIB TR-B32",
+    "kind": "profile"
+  }
+}

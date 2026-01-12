@@ -1,0 +1,11 @@
+{
+  "name": "atsc_a85_dial",
+  "lufs": -24.0,
+  "tpp": -2.0,
+  "category": "Film / TV / Gaming",
+  "order": 50,
+  "meta": {
+    "title": "ATSC A/85 DIAL",
+    "kind": "profile"
+  }
+}

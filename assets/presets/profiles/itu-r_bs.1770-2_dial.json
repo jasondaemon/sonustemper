@@ -1,0 +1,11 @@
+{
+  "name": "itu-r_bs.1770-2_dial",
+  "lufs": -23.0,
+  "tpp": -1.0,
+  "category": "Online Streaming",
+  "order": 20,
+  "meta": {
+    "title": "ITU-R BS.1770-2 DIAL",
+    "kind": "profile"
+  }
+}

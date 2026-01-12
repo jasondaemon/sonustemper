@@ -1,0 +1,11 @@
+{
+  "name": "hbo",
+  "lufs": -24.0,
+  "tpp": -2.0,
+  "category": "Platform Targets",
+  "order": 60,
+  "meta": {
+    "title": "HBO",
+    "kind": "profile"
+  }
+}

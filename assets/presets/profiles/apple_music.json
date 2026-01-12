@@ -1,0 +1,11 @@
+{
+  "name": "apple_music",
+  "lufs": -16.0,
+  "tpp": -1.0,
+  "category": "Platform Targets",
+  "order": 10,
+  "meta": {
+    "title": "APPLE MUSIC",
+    "kind": "profile"
+  }
+}

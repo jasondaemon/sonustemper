@@ -1,11 +1,11 @@
 {
-  "name": "spotify",
-  "lufs": -14.0,
+  "name": "spotify_loud",
+  "lufs": -11.0,
   "tpp": -1.0,
   "category": "Online Streaming",
-  "order": 50,
+  "order": 60,
   "meta": {
-    "title": "SPOTIFY",
+    "title": "SPOTIFY LOUD",
     "kind": "profile"
   }
 }

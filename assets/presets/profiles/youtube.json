@@ -1,11 +1,11 @@
 {
-  "name": "spotify",
+  "name": "youtube",
   "lufs": -14.0,
   "tpp": -1.0,
   "category": "Online Streaming",
-  "order": 50,
+  "order": 70,
   "meta": {
-    "title": "SPOTIFY",
+    "title": "YOUTUBE",
     "kind": "profile"
   }
 }

@@ -1,0 +1,11 @@
+{
+  "name": "amazon_alexa",
+  "lufs": -14.0,
+  "tpp": -2.0,
+  "category": "Platform Targets",
+  "order": 90,
+  "meta": {
+    "title": "AMAZON ALEXA",
+    "kind": "profile"
+  }
+}
