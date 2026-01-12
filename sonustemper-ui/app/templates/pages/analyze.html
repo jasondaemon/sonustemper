@@ -324,15 +324,6 @@
     transportLock = false;
   }
 
-  function syncSlave(time){
-    const slave = getSlaveWave();
-    if (!slave) return;
-    const drift = Math.abs(slave.getCurrentTime() - time);
-    if (drift > 0.015) {
-      slave.setTime(time);
-    }
-  }
-
   function playTransport(){
     const master = getMasterWave();
     if (!master) return;
@@ -430,13 +421,6 @@
       wave.on('interaction', (time) => {
         if (transportLock) return;
         seekBoth(time);
-      })
-    );
-    transportCleanup.push(
-      wave.on('audioprocess', (time) => {
-        const master = getMasterWave();
-        if (wave !== master) return;
-        syncSlave(time);
       })
     );
     transportCleanup.push(
