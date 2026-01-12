@@ -13,6 +13,7 @@ import logging
 import time
 import hashlib
 import uuid
+import unicodedata
 from collections import deque
 from pathlib import Path
 from datetime import datetime
@@ -292,6 +293,88 @@ def _build_preview_filter(voicing: str, strength: int, width: float | None, guar
         logger.warning("[preview] voicing filter build failed: %s", exc)
         return None
 
+def _build_preview_filter_from_data(voicing_data: dict, strength: int, width: float | None,
+                                    guardrails: bool) -> str | None:
+    if not hasattr(mastering_pack, "_voicing_filters_from_json"):
+        return None
+    try:
+        return mastering_pack._voicing_filters_from_json(voicing_data, strength, width, True, guardrails)
+    except Exception as exc:
+        logger.warning("[preview] voicing data filter build failed: %s", exc)
+        return None
+
+def _sanitize_preview_voicing(payload: dict) -> dict:
+    if not isinstance(payload, dict):
+        return {}
+    chain = payload.get("chain") if isinstance(payload.get("chain"), dict) else {}
+    eq_in = chain.get("eq") if isinstance(chain.get("eq"), list) else []
+    dynamics_in = chain.get("dynamics") if isinstance(chain.get("dynamics"), dict) else {}
+    stereo_in = chain.get("stereo") if isinstance(chain.get("stereo"), dict) else {}
+    allowed_types = {"lowshelf", "highshelf", "peaking", "highpass", "lowpass", "bandpass", "notch"}
+    cleaned_eq = []
+    for band in eq_in:
+        if not isinstance(band, dict):
+            continue
+        band_type = str(band.get("type") or "").strip().lower()
+        if band_type not in allowed_types:
+            continue
+        try:
+            freq = float(band.get("freq_hz") or band.get("freq"))
+        except Exception:
+            continue
+        if freq < 20 or freq > 20000:
+            continue
+        try:
+            gain = float(band.get("gain_db", band.get("gain", 0.0)))
+        except Exception:
+            continue
+        if gain < -6 or gain > 6:
+            continue
+        try:
+            q = float(band.get("q", 1.0))
+        except Exception:
+            continue
+        if q < 0.3 or q > 4.0:
+            continue
+        cleaned_eq.append({
+            "type": band_type,
+            "freq_hz": freq,
+            "gain_db": gain,
+            "q": q,
+        })
+        if len(cleaned_eq) >= 12:
+            break
+
+    cleaned_dynamics = {}
+    for key in ("density", "transient_focus", "smoothness"):
+        if key not in dynamics_in:
+            continue
+        try:
+            val = float(dynamics_in.get(key))
+        except Exception:
+            continue
+        if val < 0 or val > 1:
+            continue
+        cleaned_dynamics[key] = val
+
+    cleaned_stereo = {}
+    if "width" in stereo_in:
+        try:
+            width_val = float(stereo_in.get("width"))
+        except Exception:
+            width_val = None
+        if width_val is not None and 0.9 <= width_val <= 1.1:
+            cleaned_stereo["width"] = width_val
+
+    cleaned_chain = {}
+    if cleaned_eq:
+        cleaned_chain["eq"] = cleaned_eq
+    if cleaned_dynamics:
+        cleaned_chain["dynamics"] = cleaned_dynamics
+    if cleaned_stereo:
+        cleaned_chain["stereo"] = cleaned_stereo
+    return {"chain": cleaned_chain} if cleaned_chain else {"chain": {}}
+
 def _slug_key(s: str) -> str:
     return _safe_slug(str(s or "").lower())
 
@@ -316,6 +399,7 @@ def _render_preview(preview_id: str) -> None:
             return
         input_path = entry.get("input_path")
         voicing = entry.get("voicing") or "universal"
+        voicing_data = entry.get("voicing_data")
         strength = int(entry.get("strength") or 0)
         width = entry.get("width")
         guardrails = bool(entry.get("guardrails", False))
@@ -337,7 +421,10 @@ def _render_preview(preview_id: str) -> None:
         limit_linear = 10 ** (target_tp / 20.0)
         limit_linear = max(0.0625, min(1.0, limit_linear))
         limiter = f"alimiter=limit={limit_linear:.6f}"
-    chain = _build_preview_filter(voicing, strength, width, guardrails)
+    if voicing_data:
+        chain = _build_preview_filter_from_data(voicing_data, strength, width, guardrails)
+    else:
+        chain = _build_preview_filter(voicing, strength, width, guardrails)
     af = f"{chain},{limiter}" if chain else limiter
     cmd = [
         FFMPEG_BIN, "-y", "-hide_banner", "-loglevel", "error",
@@ -1245,7 +1332,7 @@ def _preset_meta_from_file(fp: Path, default_kind: str | None = None) -> dict:
         tags = meta.get("tags")
         if not isinstance(tags, list):
             tags = []
-        tags = [str(tag) for tag in tags if tag is not None and str(tag).strip()]
+        tags = [_sanitize_label(tag, 60) for tag in tags if tag is not None and str(tag).strip()]
         chain = data.get("chain") if isinstance(data, dict) else None
         stereo = chain.get("stereo") if isinstance(chain, dict) else None
         dynamics = chain.get("dynamics") if isinstance(chain, dict) else None
@@ -1275,7 +1362,7 @@ def _preset_meta_from_file(fp: Path, default_kind: str | None = None) -> dict:
         if manual is None:
             manual = data.get("manual")
         return {
-            "title": meta.get("title") or name or voicing_id or fp.stem,
+            "title": _sanitize_label(meta.get("title") or name or voicing_id or fp.stem, 80),
             "name": name,
             "id": voicing_id,
             "source_file": meta.get("source_file"),
@@ -1370,7 +1457,9 @@ def _find_preset_file(origin: str, kind: str, preset_id: str) -> Path | None:
     return None
 
 def _sanitize_label(value: str, max_len: int = 80) -> str:
-    cleaned = re.sub(r"[\\r\\n\\t]+", " ", str(value or ""))
+    raw = str(value or "").replace("\u00a0", " ")
+    raw = "".join(ch for ch in raw if unicodedata.category(ch)[0] != "C")
+    cleaned = re.sub(r"[\\r\\n\\t]+", " ", raw)
     cleaned = re.sub(r"\\s+", " ", cleaned).strip()
     if len(cleaned) > max_len:
         cleaned = cleaned[:max_len].strip()
@@ -2375,6 +2464,7 @@ async def generate_from_reference(
     created: list[dict] = []
     try:
         display_title = (base_name or "").strip() or Path(file.filename).stem or "Reference"
+        display_title = _sanitize_label(display_title, 80) or "Reference"
         base = _safe_slug(display_title) or "reference"
         metrics = analyze_reference(tmp_path)
         if wants_voicing:
@@ -3343,6 +3433,7 @@ def preview_start(request: Request, body: dict = Body(...), background_tasks: Ba
         raise HTTPException(status_code=400, detail="invalid_payload")
     song = (body.get("song") or "").strip()
     voicing = (body.get("voicing") or "universal").strip()
+    voicing_data = body.get("voicing_data")
     strength = body.get("strength", 0)
     width = body.get("width", None)
     guardrails = bool(body.get("guardrails", False))
@@ -3369,12 +3460,18 @@ def preview_start(request: Request, body: dict = Body(...), background_tasks: Ba
         except Exception:
             tp = None
 
-    if not _preview_find_voicing_path(voicing):
+    if voicing_data is not None:
+        if not isinstance(voicing_data, dict):
+            raise HTTPException(status_code=400, detail="invalid_voicing")
+        voicing_data = _sanitize_preview_voicing(voicing_data)
+
+    if not voicing_data and not _preview_find_voicing_path(voicing):
         raise HTTPException(status_code=400, detail="invalid_voicing")
     safe_in = _validate_input_file(song)
     session_key = _preview_session_key(request)
     preview_id = uuid.uuid4().hex
-    params_raw = f"{song}|{voicing}|{strength_val}|{width}|{guardrails}|{lufs}|{tp}"
+    voicing_key = json.dumps(voicing_data, sort_keys=True) if voicing_data else voicing
+    params_raw = f"{song}|{voicing_key}|{strength_val}|{width}|{guardrails}|{lufs}|{tp}"
     params_hash = hashlib.sha256(params_raw.encode("utf-8")).hexdigest()
     event = threading.Event()
 
@@ -3390,6 +3487,7 @@ def preview_start(request: Request, body: dict = Body(...), background_tasks: Ba
             "error_msg": None,
             "input_path": str(safe_in),
             "voicing": voicing,
+            "voicing_data": voicing_data,
             "strength": strength_val,
             "width": width,
             "guardrails": guardrails,

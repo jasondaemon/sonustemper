@@ -149,6 +149,11 @@
           <div class="eq-preview preset-eq-preview">
             <svg id="presetEqPreview" width="100%" height="64" viewBox="0 0 240 64" role="img" aria-label="EQ Preview"></svg>
           </div>
+          <div class="control-row preview-row">
+            <span class="control-label">Preview</span>
+            <audio id="presetVoicingPreviewAudio" class="preview-audio" controls preload="none"></audio>
+            <span class="muted" id="presetVoicingPreviewStatus" aria-live="polite"></span>
+          </div>
           <div class="preset-detail-stats" id="presetVoicingStats"></div>
           <div class="preset-voicing-mode">
             <span class="preset-voicing-mode-label muted">Mode</span>

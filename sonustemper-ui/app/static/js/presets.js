@@ -34,6 +34,8 @@
   const profileEditor = document.getElementById('presetProfileEditor');
   const profileSaveBtn = document.getElementById('presetProfileSaveBtn');
   const eqPreview = document.getElementById('presetEqPreview');
+  const previewAudio = document.getElementById('presetVoicingPreviewAudio');
+  const previewStatus = document.getElementById('presetVoicingPreviewStatus');
   const voicingModeSimpleBtn = document.getElementById('presetVoicingModeSimple');
   const voicingModeAdvancedBtn = document.getElementById('presetVoicingModeAdvanced');
   const voicingMacro = document.getElementById('presetVoicingMacro');
@@ -53,9 +55,20 @@
   let profileBaseline = null;
   let voicingBaseline = null;
   let voicingEqBaseline = null;
+  let previewTimer = null;
+  let previewEventSource = null;
+  let previewCurrentId = null;
+  let previewRequestId = 0;
+  let previewReadyUrl = null;
+  let previewIsBuilding = false;
+  let previewLastStatus = null;
+  let previewAutoPlay = false;
+  let previewVoicingId = null;
 
   let statusLines = [];
   let statusRaf = null;
+  const PRESET_PREVIEW_SONG = 'SonusTemper.wav';
+  const PRESET_PREVIEW_STRENGTH = 100;
   const EQ_TYPES = ['lowshelf', 'highshelf', 'peaking', 'highpass', 'lowpass', 'bandpass', 'notch'];
   const EQ_LABELS = {
     lowshelf: 'Low Shelf',
@@ -115,6 +128,212 @@
     statusLines.push(`${stamp} ${message}`);
     if (statusLines.length > 120) statusLines = statusLines.slice(-120);
     scheduleStatusRender();
+  }
+
+  function setPreviewStatus(text){
+    const msg = text || '';
+    if (previewStatus) previewStatus.textContent = msg;
+    if (msg && msg !== previewLastStatus) {
+      addStatusLine(`Preview: ${msg}`);
+      previewLastStatus = msg;
+    }
+  }
+
+  function setPreviewPlayable(enabled){
+    if (!previewAudio) return;
+    previewAudio.classList.toggle('is-disabled', !enabled);
+    previewAudio.setAttribute('aria-disabled', enabled ? 'false' : 'true');
+  }
+
+  function closePreviewStream(){
+    if (previewEventSource) {
+      previewEventSource.close();
+      previewEventSource = null;
+    }
+  }
+
+  function stopPreviewPlayback(){
+    if (!previewAudio) return;
+    previewAudio.pause();
+    previewAudio.currentTime = 0;
+  }
+
+  function resetPreviewState(){
+    previewIsBuilding = false;
+    previewCurrentId = null;
+    previewReadyUrl = null;
+    closePreviewStream();
+    stopPreviewPlayback();
+    setPreviewPlayable(false);
+    if (previewAudio) {
+      previewAudio.removeAttribute('src');
+      previewAudio.load();
+    }
+  }
+
+  function buildPreviewVoicingData(){
+    const base = selectedVoicingFull || (selectedItem && selectedItem.kind === 'voicing'
+      ? voicingDataFromItem(selectedItem)
+      : null);
+    if (!base) return null;
+    const chain = base.chain && typeof base.chain === 'object' ? base.chain : {};
+    const eqList = Array.isArray(chain.eq) ? chain.eq : [];
+    const cleanedEq = [];
+    eqList.forEach((band) => {
+      const type = normalizeEqType(band?.type);
+      if (!type) return;
+      const freq = Number(band?.freq_hz ?? band?.freq);
+      if (!Number.isFinite(freq)) return;
+      const gain = Number(band?.gain_db ?? band?.gain ?? 0);
+      if (!Number.isFinite(gain)) return;
+      const q = Number(band?.q ?? 1.0);
+      if (!Number.isFinite(q)) return;
+      cleanedEq.push({
+        type,
+        freq_hz: clampValue(freq, 20, 20000),
+        gain_db: clampValue(gain, -6, 6),
+        q: clampValue(q, 0.3, 4.0),
+      });
+    });
+    const dynamicsIn = chain.dynamics && typeof chain.dynamics === 'object' ? chain.dynamics : {};
+    const cleanedDynamics = {};
+    ['density', 'transient_focus', 'smoothness'].forEach((key) => {
+      if (dynamicsIn[key] === undefined || dynamicsIn[key] === null) return;
+      const val = Number(dynamicsIn[key]);
+      if (!Number.isFinite(val)) return;
+      cleanedDynamics[key] = clampValue(val, 0, 1);
+    });
+    const stereoIn = chain.stereo && typeof chain.stereo === 'object' ? chain.stereo : {};
+    const cleanedStereo = {};
+    if (stereoIn.width !== undefined && stereoIn.width !== null) {
+      const widthVal = Number(stereoIn.width);
+      if (Number.isFinite(widthVal)) {
+        cleanedStereo.width = clampValue(widthVal, 0.9, 1.1);
+      }
+    }
+    const payload = { chain: {} };
+    if (cleanedEq.length) payload.chain.eq = cleanedEq;
+    if (Object.keys(cleanedDynamics).length) payload.chain.dynamics = cleanedDynamics;
+    if (Object.keys(cleanedStereo).length) payload.chain.stereo = cleanedStereo;
+    return payload;
+  }
+
+  function updatePreviewAvailability(){
+    if (!previewAudio) return;
+    if (!selectedItem || selectedItem.kind !== 'voicing') {
+      setPreviewStatus('Select a voicing to preview');
+      resetPreviewState();
+      return;
+    }
+    if (previewIsBuilding) {
+      setPreviewStatus('Generating...');
+      setPreviewPlayable(false);
+      return;
+    }
+    if (previewReadyUrl) {
+      setPreviewStatus(previewAudio.paused ? 'Ready' : 'Playing');
+      setPreviewPlayable(true);
+      return;
+    }
+    setPreviewStatus('Preview idle');
+    setPreviewPlayable(false);
+  }
+
+  function schedulePreview(){
+    if (!previewAudio) return;
+    if (!selectedItem || selectedItem.kind !== 'voicing') return;
+    if (!previewAutoPlay && !previewReadyUrl) {
+      updatePreviewAvailability();
+      return;
+    }
+    if (previewTimer) clearTimeout(previewTimer);
+    previewTimer = setTimeout(startPreview, 350);
+  }
+
+  function startPreview(){
+    if (!previewAudio || !selectedItem || selectedItem.kind !== 'voicing') {
+      updatePreviewAvailability();
+      return;
+    }
+    const voicingData = buildPreviewVoicingData();
+    if (!voicingData) {
+      setPreviewStatus('Preview unavailable');
+      setPreviewPlayable(false);
+      return;
+    }
+    if (!PRESET_PREVIEW_SONG) {
+      setPreviewStatus('Preview song missing');
+      setPreviewPlayable(false);
+      return;
+    }
+    const requestId = ++previewRequestId;
+    resetPreviewState();
+    previewIsBuilding = true;
+    setPreviewStatus('Generating...');
+    const payload = {
+      song: PRESET_PREVIEW_SONG,
+      strength: PRESET_PREVIEW_STRENGTH,
+      guardrails: true,
+      voicing_data: voicingData,
+    };
+    fetch('/api/preview/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ detail: 'preview_failed' }));
+          throw new Error(err.detail || 'preview_failed');
+        }
+        return res.json();
+      })
+      .then((data) => {
+        if (requestId !== previewRequestId) return;
+        const id = data.preview_id;
+        previewCurrentId = id;
+        const es = new EventSource(`/api/preview/stream?preview_id=${encodeURIComponent(id)}`);
+        previewEventSource = es;
+        es.onmessage = (ev) => {
+          if (requestId !== previewRequestId) return;
+          let msg = {};
+          try { msg = JSON.parse(ev.data || '{}'); } catch (_) { msg = {}; }
+          if (msg.status === 'ready' && msg.url) {
+            previewReadyUrl = `${msg.url}&cb=${Date.now()}`;
+            previewAudio.src = previewReadyUrl;
+            previewIsBuilding = false;
+            setPreviewStatus('Ready');
+            setPreviewPlayable(true);
+            if (previewAutoPlay) {
+              previewAudio.play().catch(() => {});
+            }
+            closePreviewStream();
+          } else if (msg.status === 'error') {
+            previewIsBuilding = false;
+            setPreviewStatus(`Preview failed: ${msg.message || 'error'}`);
+            setPreviewPlayable(false);
+            closePreviewStream();
+          }
+        };
+        es.onerror = () => {
+          if (requestId !== previewRequestId) return;
+          previewIsBuilding = false;
+          setPreviewStatus('Preview unavailable');
+          setPreviewPlayable(false);
+          closePreviewStream();
+        };
+      })
+      .catch((err) => {
+        if (requestId !== previewRequestId) return;
+        previewIsBuilding = false;
+        const message = err && err.message ? err.message : 'Preview failed';
+        if (message === 'input_not_found') {
+          setPreviewStatus('Demo song not found');
+        } else {
+          setPreviewStatus(message);
+        }
+        setPreviewPlayable(false);
+      });
   }
 
   function refreshPresetBrowser(){
@@ -1008,6 +1227,7 @@
       band.q = slot ? slot.defaultQ : 1.0;
     }
     renderEqPreview(eqList);
+    schedulePreview();
     updateSaveButtonStates();
   }
 
@@ -1034,6 +1254,7 @@
       band.q = Number.isFinite(qVal) ? qVal : null;
     }
     renderEqPreview(eqList);
+    schedulePreview();
     updateSaveButtonStates();
   }
 
@@ -1052,6 +1273,7 @@
     if(voicingMode === 'simple'){
       renderVoicingMacro();
     }
+    schedulePreview();
     updateSaveButtonStates();
   }
 
@@ -1071,6 +1293,7 @@
       chain.dynamics[field] = Number.isFinite(val) ? val : null;
     }
     selectedVoicingFull.chain = chain;
+    schedulePreview();
     updateSaveButtonStates();
   }
 
@@ -1089,6 +1312,7 @@
     if(voicingMode === 'simple'){
       renderVoicingMacro();
     }
+    schedulePreview();
     updateSaveButtonStates();
   }
 
@@ -1281,6 +1505,10 @@
       if(deleteBtn) deleteBtn.disabled = true;
     if(detailHint) detailHint.textContent = 'Select an item to view details.';
     if(selectedHint) selectedHint.textContent = 'Select a voicing or profile to view details.';
+    previewVoicingId = null;
+    previewAutoPlay = false;
+    resetPreviewState();
+    updatePreviewAvailability();
     setProfileBaselineFromEditor();
     setVoicingBaselineFromEditor();
     updateSaveButtonStates();
@@ -1302,6 +1530,11 @@
       `<div><span class="muted">Type:</span> ${kindLabel}</div>`;
 
     if(selectedItem.kind === 'voicing'){
+      if (previewVoicingId !== selectedItem.id) {
+        previewVoicingId = selectedItem.id;
+        previewAutoPlay = false;
+        resetPreviewState();
+      }
       const canEdit = selectedItem.origin === 'user' || selectedItem.origin === 'staging';
       if(!selectedVoicingFull || selectedVoicingFull.id !== selectedItem.id){
         selectedVoicingFull = voicingDataFromItem(selectedItem);
@@ -1357,11 +1590,17 @@
         }else{
           renderVoicingMacro();
         }
+        schedulePreview();
         setProfileBaselineFromEditor();
         setVoicingBaselineFromEditor();
         updateSaveButtonStates();
       });
     }else{
+      if (previewVoicingId !== null) {
+        previewVoicingId = null;
+        previewAutoPlay = false;
+        resetPreviewState();
+      }
       selectedVoicingFull = null;
       const lufs = formatNumber(selectedItem.meta?.lufs, 1);
       const tp = formatNumber(selectedItem.meta?.tp ?? selectedItem.meta?.tpp, 1);
@@ -1412,6 +1651,7 @@
       }
     }
     if(selectedHint) selectedHint.textContent = `Selected: ${selectedItem.title || selectedItem.id}`;
+    updatePreviewAvailability();
     setProfileBaselineFromEditor();
     setVoicingBaselineFromEditor();
     updateSaveButtonStates();
@@ -1629,6 +1869,27 @@
     if(voicingModeSimpleBtn) voicingModeSimpleBtn.addEventListener('click', ()=> setVoicingMode('simple'));
     if(voicingModeAdvancedBtn) voicingModeAdvancedBtn.addEventListener('click', ()=> setVoicingMode('advanced'));
     if(voicingAddBandBtn) voicingAddBandBtn.addEventListener('click', addVoicingBand);
+    if(previewAudio){
+      previewAudio.addEventListener('play', () => {
+        previewAutoPlay = true;
+        if (!previewReadyUrl && !previewIsBuilding) {
+          startPreview();
+          return;
+        }
+        setPreviewStatus('Playing');
+      });
+      previewAudio.addEventListener('pause', () => {
+        if (previewReadyUrl && !previewIsBuilding) {
+          if (!previewAudio.ended) {
+            previewAutoPlay = false;
+          }
+          setPreviewStatus('Ready');
+        }
+      });
+      previewAudio.addEventListener('ended', () => {
+        if (previewReadyUrl) setPreviewStatus('Ready');
+      });
+    }
     updateDetail();
     loadBuiltinPresets();
     scheduleStatusRender();
