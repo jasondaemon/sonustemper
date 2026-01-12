@@ -81,6 +81,10 @@
           <button class="btn ghost small is-active" data-track-toggle="source" id="toggleSourceBtn" type="button">Source</button>
           <button class="btn ghost small is-active" data-track-toggle="processed" id="toggleProcessedBtn" type="button">Processed</button>
         </div>
+        <label class="analyze-toggle match-toggle" title="Applies gain so A/B is loudness-matched (playback only).">
+          <input type="checkbox" id="toggleMatchLoudness">
+          <span>Match Loudness</span>
+        </label>
         <div class="zoom-control">
           <span>Zoom</span>
           <span class="zoom-label" id="zoomLabel">1x</span>
@@ -134,6 +138,7 @@
   const togglePeakRisk = document.getElementById('togglePeakRisk');
   const toggleHeatmap = document.getElementById('toggleHeatmap');
   const toggleDelta = document.getElementById('toggleDelta');
+  const toggleMatchLoudness = document.getElementById('toggleMatchLoudness');
 
   let sourceWave = null;
   let processedWave = null;
@@ -144,6 +149,10 @@
   let transportLock = false;
   let zoomRaf = null;
   let pendingZoom = null;
+  let analysisLufs = { source: null, processed: null };
+  let audioCtx = null;
+  const gainNodes = new Map();
+  const volumeRafs = new Map();
   const analyzeBrowser = document.getElementById('analyzeBrowser');
 
   const zoomSteps = [1, 2, 4, 8];
@@ -197,6 +206,141 @@
 
   function clamp(val, minVal, maxVal){
     return Math.max(minVal, Math.min(maxVal, val));
+  }
+
+  const MATCH_GAIN_LIMIT_DB = 12;
+  const VOLUME_RAMP_MS = 40;
+
+  function getLufsValue(metrics){
+    if (!metrics) return null;
+    const candidates = [
+      metrics.I,
+      metrics.lufs_i,
+      metrics.lufsI,
+      metrics.lufs,
+    ];
+    for (const val of candidates) {
+      if (typeof val === 'number' && !Number.isNaN(val)) return val;
+    }
+    return null;
+  }
+
+  function updateAnalysisLufs(payload, input, output){
+    let source = getLufsValue(input);
+    let processed = getLufsValue(output);
+    const lufsObj = payload?.metrics?.lufs_i;
+    if (lufsObj && typeof lufsObj === 'object') {
+      if (source === null && typeof lufsObj.source === 'number') source = lufsObj.source;
+      if (processed === null && typeof lufsObj.processed === 'number') processed = lufsObj.processed;
+    }
+    analysisLufs = { source, processed };
+  }
+
+  function dbToGain(db){
+    return Math.pow(10, db / 20);
+  }
+
+  function computeMatchGains(){
+    const src = analysisLufs.source;
+    const proc = analysisLufs.processed;
+    if (typeof src !== 'number' || typeof proc !== 'number') {
+      return { source: 1, processed: 1 };
+    }
+    const target = Math.max(src, proc);
+    const sourceDb = clamp(target - src, -MATCH_GAIN_LIMIT_DB, MATCH_GAIN_LIMIT_DB);
+    const processedDb = clamp(target - proc, -MATCH_GAIN_LIMIT_DB, MATCH_GAIN_LIMIT_DB);
+    return {
+      source: dbToGain(sourceDb),
+      processed: dbToGain(processedDb),
+    };
+  }
+
+  function getAudioContext(){
+    if (audioCtx) return audioCtx;
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return null;
+    audioCtx = new Ctx();
+    return audioCtx;
+  }
+
+  function resumeAudioContext(){
+    if (!audioCtx || audioCtx.state !== 'suspended') return;
+    audioCtx.resume().catch(() => {});
+  }
+
+  function ensureGainNode(wave){
+    if (!wave || typeof wave.getMediaElement !== 'function') return null;
+    const existing = gainNodes.get(wave);
+    if (existing) return existing;
+    const media = wave.getMediaElement();
+    if (!media) return null;
+    const ctx = getAudioContext();
+    if (!ctx) return null;
+    let source = null;
+    try {
+      source = ctx.createMediaElementSource(media);
+    } catch (_err) {
+      return null;
+    }
+    const gain = ctx.createGain();
+    gain.gain.value = 1;
+    source.connect(gain);
+    gain.connect(ctx.destination);
+    const state = { source, gain };
+    gainNodes.set(wave, state);
+    return state;
+  }
+
+  function rampGain(gainNode, target){
+    const ctx = gainNode.context;
+    const now = ctx.currentTime;
+    const clamped = Math.max(0, target);
+    gainNode.gain.cancelScheduledValues(now);
+    gainNode.gain.setValueAtTime(gainNode.gain.value, now);
+    gainNode.gain.linearRampToValueAtTime(clamped, now + VOLUME_RAMP_MS / 1000);
+  }
+
+  function rampMediaVolume(wave, target){
+    if (!wave || typeof wave.setVolume !== 'function') return;
+    const start = typeof wave.getVolume === 'function' ? wave.getVolume() : 1;
+    const clamped = Math.max(0, Math.min(1, target));
+    if (Math.abs(clamped - start) < 0.001) {
+      wave.setVolume(clamped);
+      return;
+    }
+    const startTime = performance.now();
+    const duration = VOLUME_RAMP_MS;
+    const prior = volumeRafs.get(wave);
+    if (prior) cancelAnimationFrame(prior);
+    const step = (now) => {
+      const t = Math.min(1, (now - startTime) / duration);
+      const next = start + (clamped - start) * t;
+      wave.setVolume(next);
+      if (t < 1) {
+        volumeRafs.set(wave, requestAnimationFrame(step));
+      } else {
+        volumeRafs.delete(wave);
+      }
+    };
+    volumeRafs.set(wave, requestAnimationFrame(step));
+  }
+
+  function setWaveGain(wave, gain, allowCreate){
+    if (!wave) return;
+    const node = allowCreate ? ensureGainNode(wave) : gainNodes.get(wave);
+    if (node && node.gain) {
+      rampGain(node.gain, gain);
+      return;
+    }
+    rampMediaVolume(wave, gain);
+  }
+
+  function applyMatchLoudness(){
+    const matchOn = toggleMatchLoudness && toggleMatchLoudness.checked;
+    const gains = matchOn ? computeMatchGains() : { source: 1, processed: 1 };
+    const allowCreate = Boolean(matchOn);
+    setWaveGain(sourceWave, gains.source, allowCreate);
+    setWaveGain(processedWave, gains.processed, allowCreate);
   }
 
   function waveHost(wave){
@@ -327,6 +471,9 @@
   function playTransport(){
     const master = getMasterWave();
     if (!master) return;
+    if (toggleMatchLoudness && toggleMatchLoudness.checked) {
+      resumeAudioContext();
+    }
     const time = master.getCurrentTime();
     seekBoth(time);
     if (sourceWave) sourceWave.play();
@@ -369,6 +516,7 @@
   function applyTrackState(){
     if (sourceWave) sourceWave.setMuted(!trackState.source);
     if (processedWave) processedWave.setMuted(!trackState.processed);
+    applyMatchLoudness();
     updateTrackToggleUI();
   }
 
@@ -431,7 +579,7 @@
   }
 
   function syncToggleStyles(){
-    [togglePeakRisk, toggleHeatmap, toggleDelta].forEach((el) => {
+    [togglePeakRisk, toggleHeatmap, toggleDelta, toggleMatchLoudness].forEach((el) => {
       if (!el) return;
       const label = el.closest('.analyze-toggle');
       if (label) label.classList.toggle('is-active', el.checked);
@@ -455,6 +603,24 @@
       }
     });
     overlayCleanup = [];
+  }
+
+  function cleanupGainNodes(){
+    volumeRafs.forEach((rafId) => cancelAnimationFrame(rafId));
+    volumeRafs.clear();
+    gainNodes.forEach((state) => {
+      try {
+        state.source.disconnect();
+      } catch (_err) {
+        // ignore disconnect errors
+      }
+      try {
+        state.gain.disconnect();
+      } catch (_err) {
+        // ignore disconnect errors
+      }
+    });
+    gainNodes.clear();
   }
 
   function percentile(values, p){
@@ -880,6 +1046,7 @@
   function clearWaves(){
     cleanupOverlays();
     cleanupTransport();
+    cleanupGainNodes();
     if (sourceWave) {
       sourceWave.destroy();
       sourceWave = null;
@@ -990,6 +1157,7 @@
     if (!payload) return;
     const input = payload.metrics?.input || null;
     const output = payload.metrics?.output || null;
+    updateAnalysisLufs(payload, input, output);
     const durationFallback = payload.duration_s ?? output?.duration_sec ?? input?.duration_sec ?? null;
     analysisData = {
       duration_s: durationFallback,
@@ -1196,6 +1364,13 @@
       drawOverlays();
     });
   });
+  if (toggleMatchLoudness) {
+    toggleMatchLoudness.addEventListener('change', () => {
+      syncToggleStyles();
+      applyMatchLoudness();
+      resumeAudioContext();
+    });
+  }
   syncToggleStyles();
   updateFitBaseline();
   updateTrackToggleUI();
