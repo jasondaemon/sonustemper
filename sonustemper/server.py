@@ -405,6 +405,7 @@ def _render_preview(preview_id: str) -> None:
         guardrails = bool(entry.get("guardrails", False))
         lufs = entry.get("lufs")
         tp = entry.get("tp")
+        start_s = entry.get("start_s")
     if not input_path:
         _preview_update(preview_id, "error", error_msg="missing_input")
         return
@@ -426,9 +427,12 @@ def _render_preview(preview_id: str) -> None:
     else:
         chain = _build_preview_filter(voicing, strength, width, guardrails)
     af = f"{chain},{limiter}" if chain else limiter
+    seek_start = PREVIEW_SEGMENT_START
+    if isinstance(start_s, (int, float)):
+        seek_start = max(0.0, float(start_s))
     cmd = [
         FFMPEG_BIN, "-y", "-hide_banner", "-loglevel", "error",
-        "-ss", str(PREVIEW_SEGMENT_START),
+        "-ss", str(seek_start),
         "-t", str(PREVIEW_SEGMENT_DURATION),
         "-i", str(input_path),
         "-af", af,
@@ -3439,6 +3443,7 @@ def preview_start(request: Request, body: dict = Body(...), background_tasks: Ba
     guardrails = bool(body.get("guardrails", False))
     lufs = body.get("lufs", None)
     tp = body.get("tp", None)
+    start_s = body.get("start", None)
     try:
         strength_val = int(strength)
     except Exception:
@@ -3459,6 +3464,13 @@ def preview_start(request: Request, body: dict = Body(...), background_tasks: Ba
             tp = float(tp)
         except Exception:
             tp = None
+    if start_s is not None:
+        try:
+            start_s = float(start_s)
+        except Exception:
+            start_s = None
+        if start_s is not None and start_s < 0:
+            start_s = 0.0
 
     if voicing_data is not None:
         if not isinstance(voicing_data, dict):
@@ -3471,7 +3483,7 @@ def preview_start(request: Request, body: dict = Body(...), background_tasks: Ba
     session_key = _preview_session_key(request)
     preview_id = uuid.uuid4().hex
     voicing_key = json.dumps(voicing_data, sort_keys=True) if voicing_data else voicing
-    params_raw = f"{song}|{voicing_key}|{strength_val}|{width}|{guardrails}|{lufs}|{tp}"
+    params_raw = f"{song}|{voicing_key}|{strength_val}|{width}|{guardrails}|{lufs}|{tp}|{start_s}"
     params_hash = hashlib.sha256(params_raw.encode("utf-8")).hexdigest()
     event = threading.Event()
 
@@ -3493,6 +3505,7 @@ def preview_start(request: Request, body: dict = Body(...), background_tasks: Ba
             "guardrails": guardrails,
             "lufs": lufs,
             "tp": tp,
+            "start_s": start_s,
             "event": event,
         }
         queue = PREVIEW_SESSION_INDEX.setdefault(session_key, deque())
