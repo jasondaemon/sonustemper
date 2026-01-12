@@ -29,6 +29,8 @@
   const voicingStats = document.getElementById('presetVoicingStats');
   const voicingEq = document.getElementById('presetVoicingEq');
   const profileStats = document.getElementById('presetProfileStats');
+  const profileEditor = document.getElementById('presetProfileEditor');
+  const profileSaveBtn = document.getElementById('presetProfileSaveBtn');
   const eqPreview = document.getElementById('presetEqPreview');
 
   const selectedHint = document.getElementById('presetSelectedHint');
@@ -214,6 +216,150 @@
     `;
   }
 
+  function makeProfileRow(labelText, inputEl){
+    const row = document.createElement('div');
+    row.className = 'preset-profile-row';
+    const label = document.createElement('div');
+    label.className = 'preset-profile-label';
+    label.textContent = labelText;
+    row.appendChild(label);
+    row.appendChild(inputEl);
+    return row;
+  }
+
+  function renderProfileEditor(item){
+    if(!profileEditor) return;
+    profileEditor.innerHTML = '';
+    if(!item){
+      if(profileSaveBtn) profileSaveBtn.disabled = true;
+      return;
+    }
+    const meta = item.meta || {};
+    const titleInput = document.createElement('input');
+    titleInput.className = 'preset-profile-input';
+    titleInput.type = 'text';
+    titleInput.value = meta.title || item.title || '';
+    titleInput.dataset.field = 'title';
+
+    const lufsInput = document.createElement('input');
+    lufsInput.className = 'preset-profile-input';
+    lufsInput.type = 'number';
+    lufsInput.step = '0.1';
+    lufsInput.value = Number.isFinite(Number(meta.lufs)) ? Number(meta.lufs).toFixed(1) : '';
+    lufsInput.dataset.field = 'lufs';
+
+    const tpInput = document.createElement('input');
+    tpInput.className = 'preset-profile-input';
+    tpInput.type = 'number';
+    tpInput.step = '0.1';
+    tpInput.value = Number.isFinite(Number(meta.tp)) ? Number(meta.tp).toFixed(1) : '';
+    tpInput.dataset.field = 'tpp';
+
+    const categoryInput = document.createElement('input');
+    categoryInput.className = 'preset-profile-input';
+    categoryInput.type = 'text';
+    categoryInput.value = meta.category || '';
+    categoryInput.dataset.field = 'category';
+
+    const orderInput = document.createElement('input');
+    orderInput.className = 'preset-profile-input';
+    orderInput.type = 'number';
+    orderInput.step = '1';
+    orderInput.value = Number.isFinite(Number(meta.order)) ? String(meta.order) : '';
+    orderInput.dataset.field = 'order';
+
+    const manualWrap = document.createElement('label');
+    manualWrap.className = 'check';
+    const manualInput = document.createElement('input');
+    manualInput.type = 'checkbox';
+    manualInput.checked = Boolean(meta.manual);
+    manualInput.dataset.field = 'manual';
+    manualWrap.appendChild(manualInput);
+    const manualText = document.createElement('span');
+    manualText.textContent = 'Manual';
+    manualWrap.appendChild(manualText);
+
+    profileEditor.appendChild(makeProfileRow('Title', titleInput));
+    profileEditor.appendChild(makeProfileRow('LUFS', lufsInput));
+    profileEditor.appendChild(makeProfileRow('True Peak', tpInput));
+    profileEditor.appendChild(makeProfileRow('Category', categoryInput));
+    profileEditor.appendChild(makeProfileRow('Order', orderInput));
+    profileEditor.appendChild(makeProfileRow('Manual', manualWrap));
+    if(profileSaveBtn) profileSaveBtn.disabled = item.origin !== 'user';
+  }
+
+  function sanitizeInputValue(value){
+    return String(value || '').replace(/\\s+/g, ' ').trim();
+  }
+
+  async function saveProfileEdits(){
+    if(!selectedItem || selectedItem.kind !== 'profile' || selectedItem.origin !== 'user') return;
+    if(!profileEditor) return;
+    const fields = {};
+    const title = sanitizeInputValue(profileEditor.querySelector('[data-field=\"title\"]')?.value || '');
+    if(!title){
+      addStatusLine('Title is required.');
+      return;
+    }
+    fields.title = title;
+
+    const lufsRaw = profileEditor.querySelector('[data-field=\"lufs\"]')?.value || '';
+    const lufs = Number(lufsRaw);
+    if(!Number.isFinite(lufs) || lufs < -60 || lufs > 0){
+      addStatusLine('LUFS must be between -60 and 0.');
+      return;
+    }
+    fields.lufs = lufs;
+
+    const tpRaw = profileEditor.querySelector('[data-field=\"tpp\"]')?.value || '';
+    const tpp = Number(tpRaw);
+    if(!Number.isFinite(tpp) || tpp < -20 || tpp > 2){
+      addStatusLine('True Peak must be between -20 and 2 dBTP.');
+      return;
+    }
+    fields.tpp = tpp;
+
+    const category = sanitizeInputValue(profileEditor.querySelector('[data-field=\"category\"]')?.value || '');
+    fields.category = category;
+
+    const orderRaw = profileEditor.querySelector('[data-field=\"order\"]')?.value || '';
+    if(orderRaw){
+      const order = Number(orderRaw);
+      if(!Number.isFinite(order) || order < 0 || order > 9999){
+        addStatusLine('Order must be between 0 and 9999.');
+        return;
+      }
+      fields.order = Math.round(order);
+    }else{
+      fields.order = null;
+    }
+
+    fields.manual = Boolean(profileEditor.querySelector('[data-field=\"manual\"]')?.checked);
+
+    try{
+      const res = await fetch('/api/library/item/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: selectedItem.id,
+          kind: 'profile',
+          origin: 'user',
+          fields,
+        }),
+      });
+      if(!res.ok){
+        const t = await res.text();
+        throw new Error(t || 'update_failed');
+      }
+      const data = await res.json();
+      setSelectedItem(data.item || null);
+      refreshPresetBrowser();
+      addStatusLine('Profile saved.');
+    }catch(_err){
+      addStatusLine('Profile save failed.');
+    }
+  }
+
   function updateDetail(){
     if(!detailTitle || !detailMeta) return;
     if(!selectedItem){
@@ -227,6 +373,7 @@
       if(detailVoicing) detailVoicing.hidden = true;
       if(detailProfile) detailProfile.hidden = true;
       if(voicingEq) voicingEq.innerHTML = '';
+      renderProfileEditor(null);
       if(downloadBtn) downloadBtn.disabled = true;
       if(moveBtn) moveBtn.disabled = true;
       if(duplicateBtn) duplicateBtn.disabled = true;
@@ -286,18 +433,38 @@
       }
       if(voicingEq){
         const bands = Array.isArray(selectedItem.meta?.eq) ? selectedItem.meta.eq : [];
+        voicingEq.innerHTML = '';
         if(!bands.length){
-          voicingEq.innerHTML = '<div class="preset-eq-row"><span class="muted">No EQ bands defined.</span></div>';
+          const empty = document.createElement('div');
+          empty.className = 'preset-eq-row';
+          const msg = document.createElement('span');
+          msg.className = 'muted';
+          msg.textContent = 'No EQ bands defined.';
+          empty.appendChild(msg);
+          voicingEq.appendChild(empty);
         }else{
-          const header = '<div class="preset-eq-row preset-eq-header"><div>Type</div><div>Freq</div><div>Gain</div><div>Q</div></div>';
-          const rows = bands.map(band => {
-            const type = String(band.type || band.filter || 'band');
-            const freq = Number.isFinite(Number(band.freq_hz ?? band.freq)) ? `${Number(band.freq_hz ?? band.freq).toFixed(0)} Hz` : '-';
-            const gain = Number.isFinite(Number(band.gain_db ?? band.gain)) ? `${Number(band.gain_db ?? band.gain).toFixed(1)} dB` : '0.0 dB';
-            const q = Number.isFinite(Number(band.q)) ? Number(band.q).toFixed(2) : '1.00';
-            return `<div class="preset-eq-row"><div>${type}</div><div>${freq}</div><div>${gain}</div><div>${q}</div></div>`;
-          }).join('');
-          voicingEq.innerHTML = header + rows;
+          const header = document.createElement('div');
+          header.className = 'preset-eq-row preset-eq-header';
+          ['Type', 'Freq', 'Gain', 'Q'].forEach(text => {
+            const cell = document.createElement('div');
+            cell.textContent = text;
+            header.appendChild(cell);
+          });
+          voicingEq.appendChild(header);
+          bands.forEach(band => {
+            const row = document.createElement('div');
+            row.className = 'preset-eq-row';
+            const type = String(band?.type || band?.filter || 'band');
+            const freq = Number.isFinite(Number(band?.freq_hz ?? band?.freq)) ? `${Number(band.freq_hz ?? band.freq).toFixed(0)} Hz` : '-';
+            const gain = Number.isFinite(Number(band?.gain_db ?? band?.gain)) ? `${Number(band.gain_db ?? band.gain).toFixed(1)} dB` : '0.0 dB';
+            const q = Number.isFinite(Number(band?.q)) ? Number(band.q).toFixed(2) : '1.00';
+            [type, freq, gain, q].forEach(text => {
+              const cell = document.createElement('div');
+              cell.textContent = text;
+              row.appendChild(cell);
+            });
+            voicingEq.appendChild(row);
+          });
         }
       }
       renderEqPreview(selectedItem.meta?.eq || []);
@@ -329,6 +496,7 @@
         });
       }
       if(voicingEq) voicingEq.innerHTML = '';
+      renderProfileEditor(selectedItem);
       renderEqPreview([]);
     }
 
@@ -549,6 +717,7 @@
     if(deleteBtn) deleteBtn.addEventListener('click', deletePreset);
     if(duplicateBuiltinProfileBtn) duplicateBuiltinProfileBtn.addEventListener('click', ()=> duplicateBuiltin('profile'));
     if(duplicateBuiltinVoicingBtn) duplicateBuiltinVoicingBtn.addEventListener('click', ()=> duplicateBuiltin('voicing'));
+    if(profileSaveBtn) profileSaveBtn.addEventListener('click', saveProfileEdits);
     updateDetail();
     loadBuiltinPresets();
     scheduleStatusRender();

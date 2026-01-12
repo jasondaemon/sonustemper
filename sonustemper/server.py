@@ -1368,6 +1368,13 @@ def _find_preset_file(origin: str, kind: str, preset_id: str) -> Path | None:
                 continue
         return candidate
     return None
+
+def _sanitize_label(value: str, max_len: int = 80) -> str:
+    cleaned = re.sub(r"[\\r\\n\\t]+", " ", str(value or ""))
+    cleaned = re.sub(r"\\s+", " ", cleaned).strip()
+    if len(cleaned) > max_len:
+        cleaned = cleaned[:max_len].strip()
+    return cleaned
 def find_input_file(song: str) -> Path | None:
     candidates: list[Path] = []
     try:
@@ -2478,6 +2485,76 @@ def staging_move_to_user(payload: dict = Body(...)):
     dest.write_text(json.dumps(data, indent=2), encoding="utf-8")
     source.unlink()
     return {"item": _library_item_from_file(dest, "user", default_kind=kind)}
+
+@app.post("/api/library/item/update")
+def library_item_update(payload: dict = Body(...)):
+    origin = (payload.get("origin") or "").strip().lower()
+    kind = (payload.get("kind") or "").strip().lower()
+    preset_id = payload.get("id") or ""
+    fields = payload.get("fields") or {}
+    if origin != "user":
+        raise HTTPException(status_code=403, detail="readonly_preset")
+    if kind != "profile":
+        raise HTTPException(status_code=400, detail="invalid_kind")
+    target = _find_preset_file("user", "profile", preset_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="preset_not_found")
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="invalid_preset") from exc
+    meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
+    title = fields.get("title")
+    if title is not None:
+        title = _sanitize_label(title, 80)
+        if not title:
+            raise HTTPException(status_code=400, detail="invalid_title")
+        meta["title"] = title
+    if "lufs" in fields:
+        try:
+            lufs = float(fields.get("lufs"))
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="invalid_lufs") from exc
+        if lufs < -60 or lufs > 0:
+            raise HTTPException(status_code=400, detail="invalid_lufs")
+        data["lufs"] = lufs
+    if "tpp" in fields or "tp" in fields:
+        raw_tp = fields.get("tpp") if "tpp" in fields else fields.get("tp")
+        try:
+            tpp = float(raw_tp)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="invalid_tpp") from exc
+        if tpp < -20 or tpp > 2:
+            raise HTTPException(status_code=400, detail="invalid_tpp")
+        data["tpp"] = tpp
+    if "category" in fields:
+        category = _sanitize_label(fields.get("category"), 60)
+        if category:
+            data["category"] = category
+        else:
+            data.pop("category", None)
+    if "order" in fields:
+        order = fields.get("order")
+        if order is None or order == "":
+            data.pop("order", None)
+        else:
+            try:
+                order_val = int(order)
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail="invalid_order") from exc
+            if order_val < 0 or order_val > 9999:
+                raise HTTPException(status_code=400, detail="invalid_order")
+            data["order"] = order_val
+    if "manual" in fields:
+        meta["manual"] = bool(fields.get("manual"))
+    meta["kind"] = "profile"
+    meta["updated_at"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    data["meta"] = meta
+    try:
+        target.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="write_failed") from exc
+    return {"item": _library_item_from_file(target, "user", default_kind="profile")}
 @app.get("/api/preset/download/{name}")
 def preset_download(name: str):
     target = _find_preset_path(name)

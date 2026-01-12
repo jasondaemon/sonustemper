@@ -635,6 +635,9 @@ async def library_list(request: Request, view: str, q: str = "", limit: int = 20
     limit = max(1, min(limit, 1000))
     items: list[dict] = []
 
+    groups = None
+    total_count = None
+
     if view == "mastering_runs":
         items = _list_mastering_runs(False, q, limit, context)
     elif view == "mastering_runs_with_mp3":
@@ -653,6 +656,8 @@ async def library_list(request: Request, view: str, q: str = "", limit: int = 20
         items = _list_presets("user", q, limit, context)
     elif view == "presets_user_profiles":
         items = _list_presets("user", q, limit, context, "profile")
+        groups = _group_profile_items(items)
+        total_count = sum(len(group["items"]) for group in groups)
     elif view == "presets_user_voicings":
         items = _list_presets("user", q, limit, context, "voicing")
     elif view == "presets_generated":
@@ -672,7 +677,7 @@ async def library_list(request: Request, view: str, q: str = "", limit: int = 20
 
     return TEMPLATES.TemplateResponse(
         "partials/library_list.html",
-        {"request": request, "items": items},
+        {"request": request, "items": items, "groups": groups, "total_count": total_count},
     )
 
 
@@ -1119,6 +1124,40 @@ def _list_presets(kind: str, q: str, limit: int, context: str = "", meta_kind: s
         ql = q.lower()
         items = [i for i in items if ql in i["title"].lower()]
     return items[:limit]
+
+
+def _group_profile_items(items: list[dict]) -> list[dict]:
+    category_order = [
+        "Custom Profiles",
+        "Film / TV / Gaming",
+        "Online Streaming",
+        "Platform Targets",
+        "Manual",
+    ]
+    grouped: dict[str, list[dict]] = {}
+    for item in items:
+        meta = item.get("meta") or {}
+        category = meta.get("category")
+        if not category:
+            if meta.get("manual"):
+                category = "Manual"
+            else:
+                category = "Custom Profiles"
+        grouped.setdefault(category, []).append(item)
+
+    def _category_rank(name: str) -> tuple[int, str]:
+        idx = category_order.index(name) if name in category_order else 9999
+        return idx, name
+
+    groups = []
+    for category in sorted(grouped.keys(), key=_category_rank):
+        group_items = grouped[category]
+        group_items.sort(key=lambda i: (
+            i.get("meta", {}).get("order") if isinstance(i.get("meta", {}).get("order"), (int, float)) else 9999,
+            i.get("title", "")
+        ))
+        groups.append({"title": category, "items": group_items})
+    return groups
 
 
 def _list_voicings(q: str, limit: int, context: str = "") -> list[dict]:

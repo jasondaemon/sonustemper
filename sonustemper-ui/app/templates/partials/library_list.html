@@ -1,37 +1,77 @@
-{% if items|length == 0 %}
+{% set has_groups = groups is defined and groups %}
+{% if (has_groups and (total_count is not none and total_count == 0)) or (not has_groups and items|length == 0) %}
   <div class="muted">No items.</div>
 {% else %}
   <div class="browser-list">
-    {% for item in items %}
-      {% set is_run = item.kind == "mastering_run" %}
-      {% if item.action and item.action.hx_get %}
-        <button class="btn ghost run-item browser-item"
-                data-browser-item
-                data-title="{{ item.title|lower }}"
-                data-kind="{{ item.kind }}"
-                data-id="{{ item.id }}"
-                {% if item.meta %}data-meta='{{ item.meta|tojson }}'{% endif %}
-                {% if is_run %}data-song="{{ item.id }}"{% endif %}
-                hx-get="{{ item.action.hx_get }}"
-                hx-target="{{ item.action.hx_target }}"
-                hx-swap="{{ item.action.hx_swap }}">
-          <div class="browser-item-title">{{ item.title }}</div>
-          {% if item.subtitle %}<div class="browser-item-subtitle">{{ item.subtitle }}</div>{% endif %}
-          <div class="badge-row" data-badges='{{ item.badges|tojson }}'></div>
-        </button>
-      {% else %}
-        <button class="btn ghost browser-item{% if not item.clickable %} disabled{% endif %}"
-                data-browser-item
-                data-title="{{ item.title|lower }}"
-                data-kind="{{ item.kind }}"
-                data-id="{{ item.id }}"
-                {% if item.meta %}data-meta='{{ item.meta|tojson }}'{% endif %}
-                {% if not item.clickable %}disabled{% endif %}>
-          <div class="browser-item-title">{{ item.title }}</div>
-          {% if item.subtitle %}<div class="browser-item-subtitle">{{ item.subtitle }}</div>{% endif %}
-          <div class="badge-row" data-badges='{{ item.badges|tojson }}'></div>
-        </button>
-      {% endif %}
-    {% endfor %}
+    {% if has_groups %}
+      {% for group in groups %}
+        <div class="browser-group">
+          <div class="browser-group-title">{{ group.title }}</div>
+          {% for item in group.items %}
+            {% set is_run = item.kind == "mastering_run" %}
+            {% if item.action and item.action.hx_get %}
+              <button class="btn ghost run-item browser-item"
+                      data-browser-item
+                      data-title="{{ item.title|lower }}"
+                      data-kind="{{ item.kind }}"
+                      data-id="{{ item.id }}"
+                      {% if item.meta %}data-meta='{{ item.meta|tojson }}'{% endif %}
+                      {% if is_run %}data-song="{{ item.id }}"{% endif %}
+                      hx-get="{{ item.action.hx_get }}"
+                      hx-target="{{ item.action.hx_target }}"
+                      hx-swap="{{ item.action.hx_swap }}">
+                <div class="browser-item-title">{{ item.title }}</div>
+                {% if item.subtitle %}<div class="browser-item-subtitle">{{ item.subtitle }}</div>{% endif %}
+                <div class="badge-row" data-badges='{{ item.badges|tojson }}'></div>
+              </button>
+            {% else %}
+              <button class="btn ghost browser-item{% if not item.clickable %} disabled{% endif %}"
+                      data-browser-item
+                      data-title="{{ item.title|lower }}"
+                      data-kind="{{ item.kind }}"
+                      data-id="{{ item.id }}"
+                      {% if item.meta %}data-meta='{{ item.meta|tojson }}'{% endif %}
+                      {% if not item.clickable %}disabled{% endif %}>
+                <div class="browser-item-title">{{ item.title }}</div>
+                {% if item.subtitle %}<div class="browser-item-subtitle">{{ item.subtitle }}</div>{% endif %}
+                <div class="badge-row" data-badges='{{ item.badges|tojson }}'></div>
+              </button>
+            {% endif %}
+          {% endfor %}
+        </div>
+      {% endfor %}
+    {% else %}
+      {% for item in items %}
+        {% set is_run = item.kind == "mastering_run" %}
+        {% if item.action and item.action.hx_get %}
+          <button class="btn ghost run-item browser-item"
+                  data-browser-item
+                  data-title="{{ item.title|lower }}"
+                  data-kind="{{ item.kind }}"
+                  data-id="{{ item.id }}"
+                  {% if item.meta %}data-meta='{{ item.meta|tojson }}'{% endif %}
+                  {% if is_run %}data-song="{{ item.id }}"{% endif %}
+                  hx-get="{{ item.action.hx_get }}"
+                  hx-target="{{ item.action.hx_target }}"
+                  hx-swap="{{ item.action.hx_swap }}">
+            <div class="browser-item-title">{{ item.title }}</div>
+            {% if item.subtitle %}<div class="browser-item-subtitle">{{ item.subtitle }}</div>{% endif %}
+            <div class="badge-row" data-badges='{{ item.badges|tojson }}'></div>
+          </button>
+        {% else %}
+          <button class="btn ghost browser-item{% if not item.clickable %} disabled{% endif %}"
+                  data-browser-item
+                  data-title="{{ item.title|lower }}"
+                  data-kind="{{ item.kind }}"
+                  data-id="{{ item.id }}"
+                  {% if item.meta %}data-meta='{{ item.meta|tojson }}'{% endif %}
+                  {% if not item.clickable %}disabled{% endif %}>
+            <div class="browser-item-title">{{ item.title }}</div>
+            {% if item.subtitle %}<div class="browser-item-subtitle">{{ item.subtitle }}</div>{% endif %}
+            <div class="badge-row" data-badges='{{ item.badges|tojson }}'></div>
+          </button>
+        {% endif %}
+      {% endfor %}
+    {% endif %}
   </div>
 {% endif %}
