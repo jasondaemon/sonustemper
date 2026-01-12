@@ -24,8 +24,8 @@
     </div>
     {% set browser_id = "analyzeBrowser" %}
     {% set sections = [
-      {"key": "mastering_outputs", "title": "Mastering Outputs", "endpoint": "/partials/library_list?view=mastering_outputs&context=analyze"},
-      {"key": "analyze_uploads", "title": "Analyze Uploads", "endpoint": "/partials/library_list?view=analysis_imports&context=analyze"}
+      {"key": "analyze_uploads", "title": "Analyze Uploads", "endpoint": "/partials/library_list?view=analysis_imports&context=analyze"},
+      {"key": "mastering_outputs", "title": "Mastering Outputs", "endpoint": "/partials/library_list?view=mastering_outputs&context=analyze"}
     ] %}
     {% include "partials/file_browser.html" %}
   </div>
@@ -1131,8 +1131,8 @@
     return WaveSurfer.create({
       container: el,
       waveColor: '#2a3a4f',
-      progressColor: '#ff8a3d',
-      cursorColor: '#ffc38a',
+      progressColor: '#3b4f66',
+      cursorColor: '#6b829a',
       height: 180,
       barWidth: 2,
       barGap: 1,

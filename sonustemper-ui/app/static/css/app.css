@@ -446,6 +446,13 @@ h1{margin:0;font-size:24px;}
   min-width:0;
   max-width:100%;
 }
+.page-analyze .browse-card{
+  flex:0 0 auto;
+}
+.page-analyze .browse-card .file-browser,
+.page-analyze .browse-card .file-browser-sections{
+  flex:0 0 auto;
+}
 .wave-panel{
   border:1px solid var(--line);
   border-radius:12px;
