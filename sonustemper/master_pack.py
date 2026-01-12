@@ -213,6 +213,44 @@ ASSET_PRESET_DIR = (bundle_root() / "assets" / "presets") if is_frozen() else (P
 BUILTIN_PROFILE_DIR = ASSET_PRESET_DIR / "profiles"
 BUILTIN_VOICING_DIR = ASSET_PRESET_DIR / "voicings"
 
+def _asset_preset_dirs() -> list[Path]:
+    candidates = []
+    env_dir = (os.getenv("ASSET_PRESET_DIR") or "").strip()
+    if env_dir:
+        candidates.append(Path(env_dir))
+    candidates.append(ASSET_PRESET_DIR)
+    candidates.append(Path(__file__).resolve().parents[2] / "assets" / "presets")
+    candidates.append(Path.cwd() / "assets" / "presets")
+    seen = set()
+    roots = []
+    for root in candidates:
+        try:
+            resolved = root.resolve()
+        except Exception:
+            resolved = root
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if resolved.exists():
+            roots.append(resolved)
+    return roots
+
+def _builtin_profile_dirs() -> list[Path]:
+    dirs = []
+    for root in _asset_preset_dirs():
+        candidate = root / "profiles"
+        if candidate.exists():
+            dirs.append(candidate)
+    return dirs
+
+def _builtin_voicing_dirs() -> list[Path]:
+    dirs = []
+    for root in _asset_preset_dirs():
+        candidate = root / "voicings"
+        if candidate.exists():
+            dirs.append(candidate)
+    return dirs
+
 DEFAULT_PRESETS = [
     "clean","warm","rock","loud","acoustic","modern",
     "foe_metal","foe_acoustic","blues_country"
@@ -1201,7 +1239,9 @@ def _run_with_args(args, event_cb=None) -> dict:
                     safe_presets.append(raw)
                 for p in safe_presets:
                     preset_path = None
-                    roots = [PRESET_DIR, GEN_PRESET_DIR, BUILTIN_PROFILE_DIR, BUILTIN_VOICING_DIR]
+                    roots = [PRESET_DIR, GEN_PRESET_DIR]
+                    roots.extend(_builtin_profile_dirs())
+                    roots.extend(_builtin_voicing_dirs())
                     for root in roots:
                         candidate = (root / f"{p}.json").resolve()
                         if root.resolve() not in candidate.parents:

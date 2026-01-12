@@ -74,27 +74,49 @@ APP_VERSION = os.getenv("APP_VERSION", os.getenv("SONUSTEMPER_TAG", "dev"))
 
 router = APIRouter()
 
+def _asset_preset_dirs() -> list[Path]:
+    candidates = [
+        ASSET_PRESET_DIR,
+        bundle_root().parent / "assets" / "presets",
+        Path.cwd() / "assets" / "presets",
+    ]
+    seen = set()
+    roots = []
+    for root in candidates:
+        try:
+            resolved = root.resolve()
+        except Exception:
+            resolved = root
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if resolved.exists():
+            roots.append(resolved)
+    return roots
+
 def _load_builtin_voicings() -> list[dict]:
     items = []
-    if not BUILTIN_VOICING_DIR.exists():
-        return items
-    for fp in sorted(BUILTIN_VOICING_DIR.glob("*.json"), key=lambda p: p.name.lower()):
-        try:
-            data = json.loads(fp.read_text(encoding="utf-8"))
-        except Exception:
+    for root in _asset_preset_dirs():
+        voicing_dir = root / "voicings"
+        if not voicing_dir.exists():
             continue
-        meta = data.get("meta", {}) if isinstance(data, dict) else {}
-        title = meta.get("title") or data.get("name") or fp.stem
-        raw_tags = meta.get("tags")
-        if not isinstance(raw_tags, list):
-            raw_tags = []
-        tags = [str(tag) for tag in raw_tags if tag is not None and str(tag).strip()]
-        items.append({
-            "id": fp.stem,
-            "title": title,
-            "tags": tags,
-            "origin": "builtin",
-        })
+        for fp in sorted(voicing_dir.glob("*.json"), key=lambda p: p.name.lower()):
+            try:
+                data = json.loads(fp.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            meta = data.get("meta", {}) if isinstance(data, dict) else {}
+            title = meta.get("title") or data.get("name") or fp.stem
+            raw_tags = meta.get("tags")
+            if not isinstance(raw_tags, list):
+                raw_tags = []
+            tags = [str(tag) for tag in raw_tags if tag is not None and str(tag).strip()]
+            items.append({
+                "id": fp.stem,
+                "title": title,
+                "tags": tags,
+                "origin": "builtin",
+            })
     return items
 
 

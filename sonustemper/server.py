@@ -55,6 +55,44 @@ UI_APP_DIR = (bundle_root() / "sonustemper-ui" / "app") if is_frozen() else (REP
 ASSET_PRESET_DIR = (bundle_root() / "assets" / "presets") if is_frozen() else (REPO_ROOT / "assets" / "presets")
 BUILTIN_PROFILE_DIR = ASSET_PRESET_DIR / "profiles"
 BUILTIN_VOICING_DIR = ASSET_PRESET_DIR / "voicings"
+
+def _asset_preset_dirs() -> list[Path]:
+    candidates = []
+    env_dir = (os.getenv("ASSET_PRESET_DIR") or "").strip()
+    if env_dir:
+        candidates.append(Path(env_dir))
+    candidates.append(ASSET_PRESET_DIR)
+    candidates.append(REPO_ROOT.parent / "assets" / "presets")
+    candidates.append(Path.cwd() / "assets" / "presets")
+    seen = set()
+    roots = []
+    for root in candidates:
+        try:
+            resolved = root.resolve()
+        except Exception:
+            resolved = root
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if resolved.exists():
+            roots.append(resolved)
+    return roots
+
+def _builtin_profile_dirs() -> list[Path]:
+    dirs = []
+    for root in _asset_preset_dirs():
+        candidate = root / "profiles"
+        if candidate.exists():
+            dirs.append(candidate)
+    return dirs
+
+def _builtin_voicing_dirs() -> list[Path]:
+    dirs = []
+    for root in _asset_preset_dirs():
+        candidate = root / "voicings"
+        if candidate.exists():
+            dirs.append(candidate)
+    return dirs
 UI_TEMPLATES = Jinja2Templates(directory=str(UI_APP_DIR / "templates")) if UI_APP_DIR.exists() else None
 if UI_TEMPLATES:
     UI_TEMPLATES.env.globals["static_url"] = lambda path: f"/static/{(path or '').lstrip('/')}"
@@ -616,10 +654,10 @@ def _preset_paths():
         paths.extend(sorted(PRESET_DIR.glob("*.json")))
     if GEN_PRESET_DIR.exists():
         paths.extend(sorted(GEN_PRESET_DIR.glob("*.json")))
-    if BUILTIN_PROFILE_DIR.exists():
-        paths.extend(sorted(BUILTIN_PROFILE_DIR.glob("*.json")))
-    if BUILTIN_VOICING_DIR.exists():
-        paths.extend(sorted(BUILTIN_VOICING_DIR.glob("*.json")))
+    for root in _builtin_profile_dirs():
+        paths.extend(sorted(root.glob("*.json")))
+    for root in _builtin_voicing_dirs():
+        paths.extend(sorted(root.glob("*.json")))
     return paths
     try:
         return json.loads(mp.read_text(encoding="utf-8"))
@@ -1901,7 +1939,10 @@ def _unique_preset_name(base: str, reserved: set[str]) -> str:
         idx += 1
 
 def _iter_preset_files():
-    for root in (PRESET_DIR, GEN_PRESET_DIR, BUILTIN_PROFILE_DIR, BUILTIN_VOICING_DIR):
+    roots = [PRESET_DIR, GEN_PRESET_DIR]
+    roots.extend(_builtin_profile_dirs())
+    roots.extend(_builtin_voicing_dirs())
+    for root in roots:
         if not root.exists():
             continue
         for fp in sorted(root.glob("*.json"), key=lambda p: p.name.lower()):
@@ -1913,7 +1954,9 @@ def _find_preset_path(name: str) -> Path | None:
     safe = _safe_slug(name)
     if not safe:
         return None
-    roots = [PRESET_DIR, GEN_PRESET_DIR, BUILTIN_PROFILE_DIR, BUILTIN_VOICING_DIR]
+    roots = [PRESET_DIR, GEN_PRESET_DIR]
+    roots.extend(_builtin_profile_dirs())
+    roots.extend(_builtin_voicing_dirs())
     for root in roots:
         candidate = root / f"{safe}.json"
         if candidate.exists():
@@ -1922,15 +1965,17 @@ def _find_preset_path(name: str) -> Path | None:
 
 def _preset_items(kind: str | None = None) -> list[dict]:
     items = []
+    builtin_profiles = _builtin_profile_dirs()
+    builtin_voicings = _builtin_voicing_dirs()
     for fp in _iter_preset_files():
         origin = "user"
         readonly = False
         default_kind = None
-        if BUILTIN_PROFILE_DIR in fp.parents:
+        if any(root in fp.parents for root in builtin_profiles):
             origin = "builtin"
             readonly = True
             default_kind = "profile"
-        elif BUILTIN_VOICING_DIR in fp.parents:
+        elif any(root in fp.parents for root in builtin_voicings):
             origin = "builtin"
             readonly = True
             default_kind = "voicing"

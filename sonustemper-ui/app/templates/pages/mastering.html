@@ -934,6 +934,10 @@
       if (!res.ok) throw new Error('voicings_failed');
       const data = await res.json();
       const items = data.items || [];
+      if (!items.length && voicingCatalog.length) {
+        renderVoicingOptions(voicingFilter?.value || '', state.voicing);
+        return;
+      }
       voicingCatalog = [];
       voicingIndex = {};
       items.forEach(item => {
