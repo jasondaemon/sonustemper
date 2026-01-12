@@ -163,8 +163,8 @@
               </div>
               <div class="control-row eq-preview-row">
                 <div class="eq-preview">
-                  <svg id="voicingEqPreview" width="240" height="64" viewBox="0 0 240 64" role="img" aria-label="EQ Preview"></svg>
-                  <div class="muted eq-preview-label" id="voicingEqLabel">EQ Preview</div>
+                  <svg id="voicingEqPreview" width="100%" height="64" viewBox="0 0 240 64" role="img" aria-label="EQ Preview"></svg>
+                  <div class="muted eq-preview-label" id="voicingEqLabel"></div>
                 </div>
               </div>
               <div class="control-row compact-row">
@@ -175,7 +175,7 @@
               <div class="control-row preview-row">
                 <div class="control-label small-label">Preview</div>
                 <audio id="voicingPreviewAudio" class="preview-audio" controls preload="none"></audio>
-                <span class="muted" id="previewStatus">Select a source file to preview</span>
+                <span class="muted" id="previewStatus" aria-live="polite" style="display:none;">Select a source file to preview</span>
               </div>
             </div>
 
@@ -674,9 +674,15 @@
   let previewReadyUrl = null;
   let previewSong = null;
   let previewIsBuilding = false;
+  let previewLastStatus = null;
 
   function setPreviewStatus(text){
-    if (previewStatus) previewStatus.textContent = text || '';
+    const msg = text || '';
+    if (previewStatus) previewStatus.textContent = msg;
+    if (msg && msg !== previewLastStatus) {
+      addStatusLine(`Preview: ${msg}`);
+      previewLastStatus = msg;
+    }
   }
 
   function setPreviewPlayable(enabled){
@@ -805,7 +811,7 @@
             closePreviewStream();
           } else if (msg.status === 'error') {
             previewIsBuilding = false;
-            setPreviewStatus('Preview failed');
+            setPreviewStatus(`Preview failed: ${msg.message || 'error'}`);
             setPreviewPlayable(false);
             closePreviewStream();
           }
@@ -818,10 +824,11 @@
           closePreviewStream();
         };
       })
-      .catch(() => {
+      .catch((err) => {
         if (requestId !== previewRequestId) return;
         previewIsBuilding = false;
-        setPreviewStatus('Preview failed');
+        const message = err && err.message ? err.message : 'Preview failed';
+        setPreviewStatus(message);
         setPreviewPlayable(false);
       });
   }
@@ -974,7 +981,7 @@
       <path class="eq-curve" d="${path}"></path>
     `;
     if (eqPreviewLabel) {
-      eqPreviewLabel.textContent = eqBands.length ? `${title} EQ Preview` : 'Neutral';
+      eqPreviewLabel.textContent = '';
     }
   }
 

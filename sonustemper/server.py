@@ -244,8 +244,11 @@ def _build_preview_filter(voicing: str, strength: int, width: float | None, guar
         logger.warning("[preview] voicing filter build failed: %s", exc)
         return None
 
+def _slug_key(s: str) -> str:
+    return _safe_slug(str(s or "").lower())
+
 def _preview_find_voicing_path(slug: str) -> Path | None:
-    key = _safe_slug(slug or "")
+    key = _slug_key(slug)
     if not key:
         return None
     roots = [PRESET_DIR, GEN_PRESET_DIR]
@@ -254,7 +257,7 @@ def _preview_find_voicing_path(slug: str) -> Path | None:
         if not root.exists():
             continue
         for fp in root.glob("*.json"):
-            if _safe_slug(fp.stem) == key:
+            if _slug_key(fp.stem) == key:
                 return fp
     return None
 

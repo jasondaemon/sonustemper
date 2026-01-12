@@ -172,6 +172,7 @@ h1{margin:0;font-size:24px;}
   border:1px solid var(--line);
   border-radius:10px;
   background:#0f151d;
+  width:100%;
 }
 .eq-preview-label{
   font-size:11px;
