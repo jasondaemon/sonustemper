@@ -49,11 +49,7 @@
               </td>
               <td>
                 {% if item.badges and item.badges|length %}
-                  <div class="badge-row compact">
-                    {% for b in item.badges %}
-                      <span class="badge badge-{{ b.key|default('format') }}" title="{{ b.title|default('') }}">{{ b.label }}</span>
-                    {% endfor %}
-                  </div>
+                  <div class="badge-row compact" data-badges='{{ item.badges|tojson }}' data-max-rows="2"></div>
                 {% else %}
                   <span class="muted">—</span>
                 {% endif %}

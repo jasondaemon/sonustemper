@@ -104,6 +104,45 @@ function computeVisibleBadges(badges, containerWidth){
   return { visible, hidden };
 }
 
+function packBadgesWithRows(badges, containerWidth, maxRows, reserve){
+  const gap = 6;
+  let row = 1;
+  let rowWidth = 0;
+  const visible = [];
+  let hidden = [];
+  const capForRow = (r) => (r === maxRows ? Math.max(0, containerWidth - reserve) : containerWidth);
+  for (let i = 0; i < badges.length; i++) {
+    const badge = badges[i];
+    const w = measureBadgeWidth(makeBadgeNode(badge));
+    let cap = capForRow(row);
+    let needed = w + (rowWidth ? gap : 0);
+    if (rowWidth && rowWidth + needed > cap) {
+      row += 1;
+      rowWidth = 0;
+      cap = capForRow(row);
+      needed = w;
+    }
+    if (row > maxRows || (rowWidth && rowWidth + needed > cap)) {
+      hidden = badges.slice(i);
+      break;
+    }
+    visible.push(badge);
+    rowWidth += (rowWidth ? gap : 0) + w;
+  }
+  return { visible, hidden };
+}
+
+function computeVisibleBadgesRows(badges, containerWidth, maxRows){
+  if(!badges.length || !containerWidth || maxRows <= 1) {
+    return computeVisibleBadges(badges, containerWidth);
+  }
+  const first = packBadgesWithRows(badges, containerWidth, maxRows, 0);
+  if (!first.hidden.length) return first;
+  const reserveLabel = `+${first.hidden.length}`;
+  const reserve = measureBadgeWidth(makeBadgeNode({ key: 'format', label: reserveLabel })) + 6;
+  return packBadgesWithRows(badges, containerWidth, maxRows, reserve);
+}
+
 function renderBadgeRow(container){
   if(!container) return;
   let badges = [];
@@ -115,7 +154,10 @@ function renderBadgeRow(container){
   container.innerHTML = '';
   if(!badges.length) return;
   const width = container.clientWidth || container.parentElement?.clientWidth || 0;
-  const { visible, hidden } = computeVisibleBadges(badges, width);
+  const maxRows = parseInt(container.dataset.maxRows || '0', 10);
+  const { visible, hidden } = maxRows > 1
+    ? computeVisibleBadgesRows(badges, width, maxRows)
+    : computeVisibleBadges(badges, width);
   visible.forEach(b => container.appendChild(makeBadgeNode(b)));
   if (hidden.length) {
     const more = makeBadgeNode({
