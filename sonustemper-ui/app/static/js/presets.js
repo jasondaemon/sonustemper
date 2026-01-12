@@ -27,6 +27,7 @@
   const detailVoicing = document.getElementById('presetDetailVoicing');
   const detailProfile = document.getElementById('presetDetailProfile');
   const voicingStats = document.getElementById('presetVoicingStats');
+  const voicingEq = document.getElementById('presetVoicingEq');
   const profileStats = document.getElementById('presetProfileStats');
   const eqPreview = document.getElementById('presetEqPreview');
 
@@ -225,6 +226,7 @@
         '<div><span class="muted">Type:</span> -</div>';
       if(detailVoicing) detailVoicing.hidden = true;
       if(detailProfile) detailProfile.hidden = true;
+      if(voicingEq) voicingEq.innerHTML = '';
       if(downloadBtn) downloadBtn.disabled = true;
       if(moveBtn) moveBtn.disabled = true;
       if(duplicateBtn) duplicateBtn.disabled = true;
@@ -282,6 +284,22 @@
           voicingStats.appendChild(span);
         });
       }
+      if(voicingEq){
+        const bands = Array.isArray(selectedItem.meta?.eq) ? selectedItem.meta.eq : [];
+        if(!bands.length){
+          voicingEq.innerHTML = '<div class="preset-eq-row"><span class="muted">No EQ bands defined.</span></div>';
+        }else{
+          const header = '<div class="preset-eq-row preset-eq-header"><div>Type</div><div>Freq</div><div>Gain</div><div>Q</div></div>';
+          const rows = bands.map(band => {
+            const type = String(band.type || band.filter || 'band');
+            const freq = Number.isFinite(Number(band.freq_hz ?? band.freq)) ? `${Number(band.freq_hz ?? band.freq).toFixed(0)} Hz` : '-';
+            const gain = Number.isFinite(Number(band.gain_db ?? band.gain)) ? `${Number(band.gain_db ?? band.gain).toFixed(1)} dB` : '0.0 dB';
+            const q = Number.isFinite(Number(band.q)) ? Number(band.q).toFixed(2) : '1.00';
+            return `<div class="preset-eq-row"><div>${type}</div><div>${freq}</div><div>${gain}</div><div>${q}</div></div>`;
+          }).join('');
+          voicingEq.innerHTML = header + rows;
+        }
+      }
       renderEqPreview(selectedItem.meta?.eq || []);
     }else{
       const lufs = formatNumber(selectedItem.meta?.lufs, 1);
@@ -310,6 +328,7 @@
           profileStats.appendChild(span);
         });
       }
+      if(voicingEq) voicingEq.innerHTML = '';
       renderEqPreview([]);
     }
 

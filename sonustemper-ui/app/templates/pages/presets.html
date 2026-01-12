@@ -88,7 +88,7 @@
       <div class="card-head">
         <div>
         <div class="card-title">Duplicate Provided Profile</div>
-          <div class="muted">Copy a built-in profile into your user library.</div>
+          <div class="muted">Create an editable user profile from a built-in loudness target.</div>
         </div>
       </div>
       <div class="preset-form">
@@ -100,7 +100,15 @@
           <button class="btn small ghost" type="button" id="duplicateBuiltinProfileBtn">Duplicate to User</button>
         </div>
       </div>
-      <div class="preset-divider"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+        <div class="card-title">Duplicate Provided Voicing</div>
+          <div class="muted">Create an editable user voicing from a built-in tonal chain.</div>
+        </div>
+      </div>
       <div class="preset-form">
         <div class="preset-field">
           <label for="builtinVoicingSelect">Provided voicing</label>
@@ -141,6 +149,7 @@
             <svg id="presetEqPreview" width="100%" height="64" viewBox="0 0 240 64" role="img" aria-label="EQ Preview"></svg>
           </div>
           <div class="preset-detail-stats" id="presetVoicingStats"></div>
+          <div class="preset-eq-table" id="presetVoicingEq"></div>
         </div>
         <div class="preset-detail-profile" id="presetDetailProfile" hidden>
           <div class="preset-detail-stats" id="presetProfileStats"></div>
