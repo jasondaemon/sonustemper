@@ -158,7 +158,7 @@
               </div>
               <div class="control-row">
                 <select id="voicingSelect" class="full-width-select">
-                  <option value="universal">Universal</option>
+                  <option value="" disabled selected>Loading voicings...</option>
                 </select>
               </div>
               <div class="control-row compact-row">
@@ -929,15 +929,9 @@
       });
       renderVoicingOptions(voicingFilter?.value || '', state.voicing);
     }catch(_err){
-      voicingSelect.innerHTML = '<option value="universal">Universal</option>';
-      voicingCatalog = [{
-        id: 'universal',
-        title: 'Universal',
-        tags: [],
-        origin: 'builtin',
-        searchText: 'universal',
-      }];
-      voicingIndex = { universal: voicingCatalog[0] };
+      voicingSelect.innerHTML = '<option value="" disabled selected>Voicings unavailable</option>';
+      voicingCatalog = [];
+      voicingIndex = {};
       updateSummary();
       updateVoicingTooltip();
     }
