@@ -888,14 +888,14 @@
       return;
     }
 
-    const groups = { builtin: [], user: [] };
+    const groups = { user: [], builtin: [] };
     matches.forEach(entry => {
       const origin = entry.origin === 'builtin' ? 'builtin' : 'user';
       groups[origin].push(entry);
     });
     [
+      { key: 'user', label: 'Your Voicings' },
       { key: 'builtin', label: 'Built-in' },
-      { key: 'user', label: 'Your Presets' },
     ].forEach(group => {
       if (!groups[group.key].length) return;
       const optgroup = document.createElement('optgroup');
@@ -979,13 +979,16 @@
         const kind = (item.kind || item.meta?.kind || 'profile').toLowerCase();
         if (kind !== 'profile') return;
         const meta = item.meta || {};
+        const origin = item.origin || 'user';
+        const isCustom = origin !== 'builtin';
+        const category = isCustom ? 'Custom Profiles' : meta.category;
         const entry = {
           id: item.name || item.filename || '',
           title: meta.title || item.name || 'Profile',
           lufs: meta.lufs,
           tp: meta.tp,
-          category: meta.category,
-          order: Number.isFinite(meta.order) ? meta.order : null,
+          category,
+          order: isCustom ? 0 : (Number.isFinite(meta.order) ? meta.order : null),
           manual: Boolean(meta.manual),
         };
         if (entry.id) options.push(entry);
@@ -995,6 +998,7 @@
         options.push(manualFallback);
       }
       const categoryOrder = [
+        'Custom Profiles',
         'Film / TV / Gaming',
         'Online Streaming',
         'Platform Targets',
