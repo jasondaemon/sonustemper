@@ -75,11 +75,15 @@ APP_VERSION = os.getenv("APP_VERSION", os.getenv("SONUSTEMPER_TAG", "dev"))
 router = APIRouter()
 
 def _asset_preset_dirs() -> list[Path]:
-    candidates = [
+    candidates = []
+    env_dir = (os.getenv("ASSET_PRESET_DIR") or "").strip()
+    if env_dir:
+        candidates.append(Path(env_dir))
+    candidates.extend([
         ASSET_PRESET_DIR,
         bundle_root().parent / "assets" / "presets",
         Path.cwd() / "assets" / "presets",
-    ]
+    ])
     seen = set()
     roots = []
     for root in candidates:

@@ -21,6 +21,7 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY sonustemper/ /app/sonustemper/
 COPY sonustemper-ui/app/ /app/sonustemper-ui/app/
+COPY assets/ /app/assets/
 
 ENV DATA_DIR=/data \
     MASTER_IN_DIR=/data/mastering/in \
@@ -32,7 +33,8 @@ ENV DATA_DIR=/data \
     GEN_PRESET_DIR=/data/presets/generated \
     ANALYSIS_IN_DIR=/data/analysis/in \
     ANALYSIS_OUT_DIR=/data/analysis/out \
-    ANALYSIS_TMP_DIR=/data/analysis/tmp
+    ANALYSIS_TMP_DIR=/data/analysis/tmp \
+    ASSET_PRESET_DIR=/app/assets/presets
 
 # Prepare writable dirs owned by non-root
 RUN mkdir -p \
