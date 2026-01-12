@@ -158,6 +158,44 @@ h1{margin:0;font-size:24px;}
   pointer-events:none;
   opacity:0.45;
 }
+.eq-preview-row{
+  margin-top:6px;
+}
+.eq-preview{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  align-items:flex-start;
+}
+.eq-preview svg{
+  display:block;
+  border:1px solid var(--line);
+  border-radius:10px;
+  background:#0f151d;
+}
+.eq-preview-label{
+  font-size:11px;
+}
+.eq-grid{
+  stroke:#1f2a38;
+  stroke-width:1;
+  opacity:0.6;
+}
+.eq-grid-mid{
+  stroke:#2b394d;
+  opacity:0.9;
+}
+.eq-grid-vert{
+  opacity:0.35;
+}
+.eq-curve{
+  stroke:var(--accent);
+  stroke-width:2;
+  fill:none;
+}
+.eq-fill{
+  fill:rgba(56,189,248,0.08);
+}
 .guardrails-row .control-label{
   font-size:12px;
 }

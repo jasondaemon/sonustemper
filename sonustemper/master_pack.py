@@ -481,37 +481,127 @@ def render_with_static_loudness(source: Path, tone_filters: str, final_wav: Path
     return merged
 
 # --- voicing chains (alternative to presets) ---
-def _voicing_filters(slug: str, strength_pct: int, width: float | None, do_stereo: bool, do_loudness: bool,
-                     target_I: float | None, target_TP: float | None) -> str:
+def _slug_key(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", str(text or "").lower()).strip("_")
+
+def _find_voicing_path(slug: str) -> Path | None:
+    key = _slug_key(slug)
+    if not key:
+        return None
+    roots = [PRESET_DIR, GEN_PRESET_DIR]
+    roots.extend(_builtin_voicing_dirs())
+    for root in roots:
+        if not root.exists():
+            continue
+        for fp in root.glob("*.json"):
+            if _slug_key(fp.stem) == key:
+                return fp
+    return None
+
+def _load_voicing_preset(slug: str) -> dict | None:
+    path = _find_voicing_path(slug)
+    if not path:
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+def _eq_filter_for_band(band: dict, strength: float) -> str | None:
+    if not isinstance(band, dict):
+        return None
+    btype = str(band.get("type", "")).lower().strip()
+    freq = band.get("freq_hz") or band.get("freq")
+    if freq is None:
+        return None
+    gain_db = float(band.get("gain_db", 0.0)) * strength
+    q = float(band.get("q", 0.7))
+    if btype == "highpass":
+        return f"highpass=f={float(freq):g}:t=q:w={q:g}"
+    if btype == "lowshelf":
+        return f"bass=f={float(freq):g}:t=q:w={q:g}:g={gain_db:g}"
+    if btype == "highshelf":
+        return f"treble=f={float(freq):g}:t=q:w={q:g}:g={gain_db:g}"
+    if btype in {"peaking", "peak", "bell"}:
+        return f"equalizer=f={float(freq):g}:t=q:w={q:g}:g={gain_db:g}"
+    return None
+
+def _compressor_from_dynamics(dynamics: dict, strength: float, guardrails: bool) -> str | None:
+    if not isinstance(dynamics, dict):
+        return None
+    density = clamp(float(dynamics.get("density", 0.0)), 0.0, 1.0)
+    transient = clamp(float(dynamics.get("transient_focus", 0.5)), 0.0, 1.0)
+    smooth = clamp(float(dynamics.get("smoothness", 0.5)), 0.0, 1.0)
+    if density <= 0.0 or strength <= 0.0:
+        return None
+    base_ratio = 1.0 + density * 3.0
+    base_threshold_db = -18.0 - density * 12.0
+    ratio = 1.0 + (base_ratio - 1.0) * strength
+    threshold_db = base_threshold_db * strength
+    attack = 5.0 + (35.0 - 5.0) * transient
+    release = 80.0 + (350.0 - 80.0) * smooth
+    if guardrails:
+        ratio = min(ratio, 2.4)
+        threshold_db = max(threshold_db, -24.0)
+    return f"acompressor=threshold={db_to_lin(threshold_db)}:ratio={ratio:.3f}:attack={attack:.1f}:release={release:.1f}"
+
+def _voicing_filters_from_json(preset: dict, strength_pct: int, width: float | None,
+                               do_stereo: bool, guardrails: bool) -> str:
+    strength = clamp(strength_pct, 0, 100) / 100.0
+    chain = preset.get("chain") if isinstance(preset, dict) else {}
+    eq_bands = chain.get("eq", []) if isinstance(chain, dict) else []
+    dynamics = chain.get("dynamics") if isinstance(chain, dict) else {}
+    stereo = chain.get("stereo") if isinstance(chain, dict) else {}
+
+    filters = []
+    for band in eq_bands or []:
+        eq_filter = _eq_filter_for_band(band, strength)
+        if eq_filter:
+            filters.append(eq_filter)
+
+    comp = _compressor_from_dynamics(dynamics or {}, strength, guardrails)
+    if comp:
+        filters.append(comp)
+
+    stereo_width = None
+    if isinstance(stereo, dict) and stereo.get("width") is not None:
+        try:
+            stereo_width = float(stereo.get("width"))
+        except Exception:
+            stereo_width = None
+    width_to_apply = width if width is not None else stereo_width
+    if do_stereo and width_to_apply is not None:
+        w = clamp(float(width_to_apply), 0.5, 1.5)
+        filters.append(f"stereotools=mode=lr>lr:slev={w:.3f}:mlev=1")
+
+    return ",".join([f for f in filters if f])
+
+def _legacy_voicing_filters(slug: str, strength_pct: int, width: float | None, do_stereo: bool,
+                            guardrails: bool) -> str:
     s = clamp(strength_pct, 0, 100) / 100.0
     eq_terms = []
     comp = None
     stere = None
-    # helper shelves
-    def shelf(freq, gain, shelf="high"):
-        tval = "l" if shelf == "low" else "h"
-        # equalizer with shelf mode (t=h/l), width_type=o uses octaves
-        return f"equalizer=f={freq}:t={tval}:width_type=o:width=1.0:g={gain:.3f}"
     def peak(freq, gain, q=1.2):
         return f"equalizer=f={freq}:width_type=q:width={q}:g={gain:.3f}"
 
     if slug == "universal":
         eq_terms.append(peak(120, -0.8*s, q=1.0))
-        eq_terms.append(shelf(9000, 1.2*s, "high"))
+        eq_terms.append(peak(9000, 1.2*s, q=0.7))
         comp = f"acompressor=threshold={db_to_lin(-22+6*s)}:ratio={1.2+0.3*s}:attack=12:release=140"
     elif slug == "airlift":
         eq_terms.append(peak(250, -1.5*s, q=1.1))
-        eq_terms.append(shelf(9500, 2.5*s, "high"))
+        eq_terms.append(peak(9500, 2.5*s, q=0.7))
         comp = f"acompressor=threshold={db_to_lin(-24+4*s)}:ratio={1.1+0.4*s}:attack=8:release=100"
     elif slug == "ember":
         eq_terms.append(peak(180, 1.8*s, q=0.9))
         eq_terms.append(peak(350, 1.2*s, q=1.0))
-        eq_terms.append(shelf(8500, -0.8*s, "high"))
+        eq_terms.append(peak(8500, -0.8*s, q=0.7))
         comp = f"acompressor=threshold={db_to_lin(-20)}:ratio={1.4+0.4*s}:attack=18:release=180"
     elif slug == "detail":
         eq_terms.append(peak(240, -2.2*s, q=1.0))
         eq_terms.append(peak(3200, 1.4*s, q=1.0))
-        eq_terms.append(shelf(11000, 1.0*s, "high"))
+        eq_terms.append(peak(11000, 1.0*s, q=0.7))
         comp = f"acompressor=threshold={db_to_lin(-20)}:ratio={1.2+0.4*s}:attack=10:release=150"
     elif slug == "glue":
         eq_terms.append(peak(90, -0.8*s, q=0.8))
@@ -522,23 +612,24 @@ def _voicing_filters(slug: str, strength_pct: int, width: float | None, do_stere
         eq_terms.append(peak(8000, 1.2*s, q=1.0))
         comp = f"acompressor=threshold={db_to_lin(-18)}:ratio={1.1+0.3*s}:attack=12:release=120"
         if do_stereo and width is not None:
-            # Use stereotools with side gain to widen (portable with available opts)
             w = max(0.01, min(1.5, float(width)))
             stere = f"stereotools=mode=lr>lr:slev={w:.3f}:mlev=1"
     elif slug == "cinematic":
         eq_terms.append(peak(70, 1.5*s, q=0.7))
         eq_terms.append(peak(240, -1.2*s, q=1.0))
-        eq_terms.append(shelf(9500, 1.2*s, "high"))
+        eq_terms.append(peak(9500, 1.2*s, q=0.7))
         comp = f"acompressor=threshold={db_to_lin(-21)}:ratio={1.3+0.4*s}:attack=18:release=180"
     elif slug == "punch":
         eq_terms.append(peak(90, -1.2*s, q=1.0))
         eq_terms.append(peak(1800, 1.6*s, q=1.0))
-        eq_terms.append(shelf(7500, 1.0*s, "high"))
+        eq_terms.append(peak(7500, 1.0*s, q=0.7))
         comp = f"acompressor=threshold={db_to_lin(-18)}:ratio={1.3+0.5*s}:attack=8:release=110"
     else:
-        # fallback to minimal processing
         comp = f"acompressor=threshold={db_to_lin(-22)}:ratio=1.5:attack=15:release=180"
 
+    if guardrails:
+        if comp:
+            comp = f"{comp}:ratio={min(2.4, 1.5+0.9*s):.3f}"
     chain = []
     chain.extend(eq_terms)
     if comp:
@@ -546,6 +637,12 @@ def _voicing_filters(slug: str, strength_pct: int, width: float | None, do_stere
     if do_stereo and stere:
         chain.append(stere)
     return ",".join([f for f in chain if f])
+
+def _voicing_filters(slug: str, strength_pct: int, width: float | None, do_stereo: bool, guardrails: bool) -> str:
+    preset = _load_voicing_preset(slug)
+    if preset:
+        return _voicing_filters_from_json(preset, strength_pct, width, do_stereo, guardrails)
+    return _legacy_voicing_filters(slug, strength_pct, width, do_stereo, guardrails)
 
 def make_mp3(wav_path: Path, mp3_path: Path, bitrate_kbps: int, vbr_mode: str):
     cmd = [
@@ -1347,7 +1444,20 @@ def _run_with_args(args, event_cb=None) -> dict:
                             pass
             elif do_master and voicing_mode == "voicing":
                 slug = voicing_name or "universal"
-                width_req = float(args.width) if args.width is not None else 1.0
+                width_req = None
+                if args.width is not None:
+                    width_req = float(args.width)
+                else:
+                    preset = _load_voicing_preset(slug)
+                    chain = preset.get("chain") if isinstance(preset, dict) else {}
+                    stereo = chain.get("stereo") if isinstance(chain, dict) else {}
+                    if isinstance(stereo, dict) and stereo.get("width") is not None:
+                        try:
+                            width_req = float(stereo.get("width"))
+                        except Exception:
+                            width_req = None
+                if width_req is None:
+                    width_req = 1.0
                 width_applied = width_req
                 if args.guardrails:
                     guard_max = float(args.guard_max_width or 1.1)
@@ -1373,7 +1483,7 @@ def _run_with_args(args, event_cb=None) -> dict:
                 wav_out = song_dir / f"{infile.stem}__{variant_tag}.wav"
                 print(f"[pack] variant tag={variant_tag} voicing={slug}", file=sys.stderr, flush=True)
                 append_status(song_dir, "preset_start", f"Voicing '{slug}' (S={strength_pct}, width={width_applied})", preset=slug)
-                af = _voicing_filters(slug, strength_pct, width_applied if do_stereo else None, do_stereo, do_loudness, target_lufs, ceiling_db)
+                af = _voicing_filters(slug, strength_pct, width_applied if do_stereo else None, do_stereo, args.guardrails)
                 log_summary("voicing", "filter_chain", voicing=slug, strength=strength_pct, width=width_applied, lufs=target_lufs, tp=ceiling_db, af=af)
                 render_with_static_loudness(
                     infile,

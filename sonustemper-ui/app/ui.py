@@ -115,10 +115,16 @@ def _load_builtin_voicings() -> list[dict]:
             if not isinstance(raw_tags, list):
                 raw_tags = []
             tags = [str(tag) for tag in raw_tags if tag is not None and str(tag).strip()]
+            chain = data.get("chain") if isinstance(data, dict) else {}
+            stereo = chain.get("stereo") if isinstance(chain, dict) else {}
+            width = stereo.get("width") if isinstance(stereo, dict) else None
+            eq = chain.get("eq") if isinstance(chain, dict) else None
             items.append({
                 "id": fp.stem,
                 "title": title,
                 "tags": tags,
+                "width": width,
+                "eq": eq if isinstance(eq, list) else None,
                 "origin": "builtin",
             })
     return items

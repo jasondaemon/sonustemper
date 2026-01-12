@@ -161,6 +161,12 @@
                   <option value="" disabled selected>Loading voicings...</option>
                 </select>
               </div>
+              <div class="control-row eq-preview-row">
+                <div class="eq-preview">
+                  <svg id="voicingEqPreview" width="240" height="64" viewBox="0 0 240 64" role="img" aria-label="EQ Preview"></svg>
+                  <div class="muted eq-preview-label" id="voicingEqLabel">EQ Preview</div>
+                </div>
+              </div>
               <div class="control-row compact-row">
                 <div class="control-label">Strength</div>
                 <input type="range" id="strength" min="0" max="100" value="80">
@@ -196,7 +202,7 @@
             <div class="stage-card" id="stereoStage">
               <div class="stage-title">Stereo Width</div>
               <div class="control-row compact-row">
-                <div class="control-label">Width</div>
+                <div class="control-label">Width Override</div>
                 <input type="range" id="width" min="0.5" max="1.5" step="0.01" value="1.0">
                 <div class="value-pill" id="widthVal">1.00</div>
               </div>
@@ -659,6 +665,8 @@
   const guardrails = document.getElementById('guardrails');
   const previewStatus = document.getElementById('previewStatus');
   const previewAudio = document.getElementById('voicingPreviewAudio');
+  const eqPreview = document.getElementById('voicingEqPreview');
+  const eqPreviewLabel = document.getElementById('voicingEqLabel');
   let previewTimer = null;
   let previewEventSource = null;
   let previewCurrentId = null;
@@ -749,11 +757,22 @@
     const voicing = voicingSelect?.value || 'universal';
     const strengthVal = parseInt(strength?.value || '0', 10);
     const widthVal = width?.value ? parseFloat(width.value) : null;
+    const activeProfile = loudProfiles[loudnessMode?.value || 'manual'];
+    const useProfileTargets = activeProfile && !activeProfile.manual;
+    const lufsVal = targetI?.value ? parseFloat(targetI.value) : NaN;
+    const tpVal = targetTp?.value ? parseFloat(targetTp.value) : NaN;
     resetPreview();
     previewIsBuilding = true;
     setPreviewStatus('Generating...');
     const payload = { song, voicing, strength: strengthVal };
     if (!Number.isNaN(widthVal) && widthVal !== null) payload.width = widthVal;
+    payload.guardrails = Boolean(guardrails?.checked);
+    if (useProfileTargets || ovTargetI?.checked) {
+      if (!Number.isNaN(lufsVal)) payload.lufs = lufsVal;
+    }
+    if (useProfileTargets || ovTargetTp?.checked) {
+      if (!Number.isNaN(tpVal)) payload.tp = tpVal;
+    }
     fetch('/api/preview/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -841,11 +860,15 @@
       const tags = rawTags
         .map(tag => String(tag || '').trim())
         .filter(tag => tag.length);
+      const parsedWidth = entry.width !== undefined && entry.width !== null ? parseFloat(entry.width) : null;
+      const eq = Array.isArray(entry.eq) ? entry.eq : [];
       const item = {
         id: entry.id,
         title: entry.title || entry.id,
         tags,
         origin: entry.origin || 'builtin',
+        width: Number.isFinite(parsedWidth) ? parsedWidth : null,
+        eq,
       };
       item.searchText = normalizeText([item.title, item.id, tags.join(' ')].join(' '));
       voicingCatalog.push(item);
@@ -854,6 +877,7 @@
     if (voicingCatalog.length) {
       renderVoicingOptions(voicingFilter?.value || '', state.voicing);
     }
+    renderEqPreview();
   }
 
   function updateVoicingTooltip(){
@@ -864,6 +888,106 @@
     } else {
       voicingSelect.title = '';
     }
+  }
+
+  function renderEqPreview(){
+    if (!eqPreview) return;
+    const entry = voicingIndex[voicingSelect?.value || ''];
+    const eqBands = entry && Array.isArray(entry.eq) ? entry.eq : [];
+    const title = entry ? (entry.title || entry.id) : 'EQ';
+    const strengthVal = parseInt(strength?.value || '0', 10);
+    const strengthNorm = Math.max(0, Math.min(1, strengthVal / 100));
+    const maxAbs = eqBands.reduce((acc, band) => {
+      const gain = parseFloat(band?.gain_db ?? 0);
+      return Math.max(acc, Math.abs(Number.isFinite(gain) ? gain : 0));
+    }, 0);
+    const range = maxAbs > 2.0 ? 8 : 6;
+    const w = eqPreview.viewBox?.baseVal?.width || eqPreview.clientWidth || 240;
+    const h = eqPreview.viewBox?.baseVal?.height || eqPreview.clientHeight || 64;
+    const padding = 8;
+    const plotW = w - padding * 2;
+    const plotH = h - padding * 2;
+    const mid = h / 2;
+    const samples = 96;
+    const minF = 20;
+    const maxF = 20000;
+    const logStep = Math.log(maxF / minF);
+    const values = [];
+    for (let i = 0; i < samples; i += 1) {
+      const t = i / (samples - 1);
+      const f = minF * Math.exp(logStep * t);
+      let y = 0;
+      eqBands.forEach(band => {
+        if (!band) return;
+        const f0 = parseFloat(band.freq_hz);
+        if (!Number.isFinite(f0) || f0 <= 0) return;
+        const gain = parseFloat(band.gain_db ?? 0);
+        if (!Number.isFinite(gain) || gain === 0) return;
+        const q = parseFloat(band.q ?? 1.0);
+        const qSafe = Math.max(q, 0.2);
+        const x = Math.log2(f / f0);
+        const type = String(band.type || '').toLowerCase();
+        if (type === 'peaking' || type === 'peak' || type === 'bell') {
+          const sigma = 0.55 / qSafe;
+          const g = gain * Math.exp(-(x * x) / (2 * sigma * sigma));
+          y += g;
+        } else if (type === 'highshelf') {
+          const k = 6 * qSafe;
+          const s = 1 / (1 + Math.exp(-k * x));
+          y += gain * s;
+        } else if (type === 'lowshelf') {
+          const k = 6 * qSafe;
+          const s = 1 / (1 + Math.exp(-k * x));
+          y += gain * (1 - s);
+        }
+      });
+      y *= strengthNorm;
+      y = Math.max(-range, Math.min(range, y));
+      values.push({ t, y });
+    }
+    const points = values.map((pt, idx) => {
+      const x = padding + pt.t * plotW;
+      const yPx = mid - (pt.y / range) * (plotH / 2);
+      return `${idx === 0 ? 'M' : 'L'}${x.toFixed(2)},${yPx.toFixed(2)}`;
+    }).join(' ');
+    const path = points || `M${padding},${mid} L${w - padding},${mid}`;
+    const grid = [
+      { y: padding, cls: 'eq-grid' },
+      { y: mid, cls: 'eq-grid eq-grid-mid' },
+      { y: h - padding, cls: 'eq-grid' },
+    ];
+    const ticks = [100, 1000, 10000].map(freq => {
+      const x = padding + (Math.log(freq / minF) / logStep) * plotW;
+      return x;
+    });
+    const gridLines = grid.map(line => (
+      `<line class="${line.cls}" x1="${padding}" y1="${line.y}" x2="${w - padding}" y2="${line.y}" />`
+    )).join('');
+    const tickLines = ticks.map(x => (
+      `<line class="eq-grid eq-grid-vert" x1="${x.toFixed(2)}" y1="${padding}" x2="${x.toFixed(2)}" y2="${h - padding}" />`
+    )).join('');
+    const fillPath = `${path} L${w - padding},${mid} L${padding},${mid} Z`;
+    eqPreview.innerHTML = `
+      ${gridLines}
+      ${tickLines}
+      <path class="eq-fill" d="${fillPath}"></path>
+      <path class="eq-curve" d="${path}"></path>
+    `;
+    if (eqPreviewLabel) {
+      eqPreviewLabel.textContent = eqBands.length ? `${title} EQ Preview` : 'Neutral';
+    }
+  }
+
+  function applyVoicingWidth(){
+    if (!width || !voicingSelect) return false;
+    const entry = voicingIndex[voicingSelect.value];
+    if (!entry || !Number.isFinite(entry.width)) return false;
+    const minVal = parseFloat(width.min || '0.5');
+    const maxVal = parseFloat(width.max || '1.5');
+    const nextVal = Math.max(minVal, Math.min(maxVal, entry.width));
+    if (parseFloat(width.value) === nextVal) return false;
+    width.value = String(nextVal);
+    return true;
   }
 
   function renderVoicingOptions(filterTerm, preferredId){
@@ -918,13 +1042,17 @@
       nextValue = universal ? universal.id : matches[0].id;
     }
     voicingSelect.value = nextValue;
+    const widthChanged = applyVoicingWidth();
     if (previousValue !== voicingSelect.value) {
       updateSummary();
       schedulePreview();
+    } else if (widthChanged) {
+      updateSummary();
     } else {
       updateSummary();
     }
     updateVoicingTooltip();
+    renderEqPreview();
   }
 
   async function loadVoicings(){
@@ -946,11 +1074,14 @@
         const tags = rawTags
           .map(tag => String(tag || '').trim())
           .filter(tag => tag.length);
+        const parsedWidth = meta.width !== undefined && meta.width !== null ? parseFloat(meta.width) : null;
         const entry = {
           id: item.name || item.filename || '',
           title: meta.title || item.name || 'Voicing',
           tags,
           origin: item.origin || 'user',
+          width: Number.isFinite(parsedWidth) ? parsedWidth : null,
+          eq: Array.isArray(meta.eq) ? meta.eq : [],
         };
         if (!entry.id) return;
         entry.searchText = normalizeText([entry.title, entry.id, tags.join(' ')].join(' '));
@@ -958,9 +1089,11 @@
         voicingIndex[entry.id] = entry;
       });
       renderVoicingOptions(voicingFilter?.value || '', state.voicing);
+      renderEqPreview();
     }catch(_err){
       if (voicingCatalog.length) {
         renderVoicingOptions(voicingFilter?.value || '', state.voicing);
+        renderEqPreview();
         return;
       }
       voicingSelect.innerHTML = '<option value="" disabled selected>Voicings unavailable</option>';
@@ -1173,11 +1306,16 @@
   if (strength) {
     strength.addEventListener('input', updateSummary);
     strength.addEventListener('input', schedulePreview);
+    strength.addEventListener('input', renderEqPreview);
   }
   if (voicingSelect) {
-    voicingSelect.addEventListener('change', updateSummary);
-    voicingSelect.addEventListener('change', schedulePreview);
-    voicingSelect.addEventListener('change', updateVoicingTooltip);
+    voicingSelect.addEventListener('change', () => {
+      applyVoicingWidth();
+      updateSummary();
+      schedulePreview();
+      updateVoicingTooltip();
+      renderEqPreview();
+    });
   }
   if (voicingFilter) {
     voicingFilter.addEventListener('input', () => {
@@ -1251,10 +1389,12 @@
       fd.append('voicing_mode', 'voicing');
       fd.append('voicing_name', voicingSelect?.value || '');
       // loudness
-      if(ovTargetI?.checked){
+      const activeProfile = loudProfiles[loudnessMode?.value || 'manual'];
+      const useProfileTargets = activeProfile && !activeProfile.manual;
+      if (useProfileTargets || ovTargetI?.checked) {
         fd.append('lufs', targetI?.value || '');
       }
-      if(ovTargetTp?.checked){
+      if (useProfileTargets || ovTargetTp?.checked) {
         fd.append('tp', targetTp?.value || '');
       }
       // stereo/tone

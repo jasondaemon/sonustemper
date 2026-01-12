@@ -36,6 +36,7 @@ PREVIEW_SESSION_CAP = int(os.getenv("PREVIEW_SESSION_CAP", "5"))
 PREVIEW_SEGMENT_START = int(os.getenv("PREVIEW_SEGMENT_START", "30"))
 PREVIEW_SEGMENT_DURATION = int(os.getenv("PREVIEW_SEGMENT_DURATION", "12"))
 PREVIEW_NORMALIZE_MODE = os.getenv("PREVIEW_NORMALIZE_MODE", "limiter").lower()
+PREVIEW_GUARD_MAX_WIDTH = float(os.getenv("PREVIEW_GUARD_MAX_WIDTH", "1.1"))
 PREVIEW_SESSION_COOKIE = "st_preview_session"
 PREVIEW_BITRATE_KBPS = int(os.getenv("PREVIEW_BITRATE_KBPS", "128"))
 PREVIEW_SAMPLE_RATE = int(os.getenv("PREVIEW_SAMPLE_RATE", "44100"))
@@ -234,14 +235,28 @@ def _preview_update(preview_id: str, status: str, **kwargs) -> None:
         if status in ("ready", "error") and isinstance(done_event, threading.Event):
             done_event.set()
 
-def _build_preview_filter(voicing: str, strength: int, width: float | None) -> str | None:
+def _build_preview_filter(voicing: str, strength: int, width: float | None, guardrails: bool) -> str | None:
     if not hasattr(mastering_pack, "_voicing_filters"):
         return None
     try:
-        return mastering_pack._voicing_filters(voicing, strength, width, True, False, None, None)
+        return mastering_pack._voicing_filters(voicing, strength, width, True, guardrails)
     except Exception as exc:
         logger.warning("[preview] voicing filter build failed: %s", exc)
         return None
+
+def _preview_find_voicing_path(slug: str) -> Path | None:
+    key = _safe_slug(slug or "")
+    if not key:
+        return None
+    roots = [PRESET_DIR, GEN_PRESET_DIR]
+    roots.extend(_builtin_voicing_dirs())
+    for root in roots:
+        if not root.exists():
+            continue
+        for fp in root.glob("*.json"):
+            if _safe_slug(fp.stem) == key:
+                return fp
+    return None
 
 def _render_preview(preview_id: str) -> None:
     with PREVIEW_LOCK:
@@ -252,16 +267,23 @@ def _render_preview(preview_id: str) -> None:
         voicing = entry.get("voicing") or "universal"
         strength = int(entry.get("strength") or 0)
         width = entry.get("width")
+        guardrails = bool(entry.get("guardrails", False))
+        lufs = entry.get("lufs")
+        tp = entry.get("tp")
     if not input_path:
         _preview_update(preview_id, "error", error_msg="missing_input")
         return
 
     PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
     out_path = PREVIEW_DIR / f"{preview_id}.mp3"
-    limiter = "alimiter=limit=-1.0dB"
+    target_lufs = float(lufs) if isinstance(lufs, (int, float)) else -16.0
+    target_tp = float(tp) if isinstance(tp, (int, float)) else -1.0
+    if width is not None and guardrails:
+        width = min(width, PREVIEW_GUARD_MAX_WIDTH)
+    limiter = f"alimiter=limit={target_tp:g}dB"
     if PREVIEW_NORMALIZE_MODE == "loudnorm":
-        limiter = "loudnorm=I=-16:TP=-1:LRA=11"
-    chain = _build_preview_filter(voicing, strength, width)
+        limiter = f"loudnorm=I={target_lufs:g}:TP={target_tp:g}:LRA=11"
+    chain = _build_preview_filter(voicing, strength, width, guardrails)
     af = f"{chain},{limiter}" if chain else limiter
     cmd = [
         FFMPEG_BIN, "-y", "-hide_banner", "-loglevel", "error",
@@ -1113,6 +1135,16 @@ def _preset_meta_from_file(fp: Path, default_kind: str | None = None) -> dict:
         if not isinstance(tags, list):
             tags = []
         tags = [str(tag) for tag in tags if tag is not None and str(tag).strip()]
+        chain = data.get("chain") if isinstance(data, dict) else None
+        stereo = chain.get("stereo") if isinstance(chain, dict) else None
+        width = None
+        eq = None
+        if isinstance(stereo, dict) and "width" in stereo:
+            width = stereo.get("width")
+        if isinstance(chain, dict) and isinstance(chain.get("eq"), list):
+            eq = chain.get("eq")
+        elif isinstance(data.get("eq"), list):
+            eq = data.get("eq")
         lufs = data.get("lufs")
         if lufs is None:
             lufs = data.get("target_lufs")
@@ -1139,6 +1171,8 @@ def _preset_meta_from_file(fp: Path, default_kind: str | None = None) -> dict:
             "tags": tags,
             "category": category,
             "order": order,
+            "width": width,
+            "eq": eq,
         }
     except Exception:
         return {"title": fp.stem, "kind": default_kind.lower() if default_kind else None}
@@ -2677,9 +2711,12 @@ def preview_start(request: Request, body: dict = Body(...), background_tasks: Ba
     if not isinstance(body, dict):
         raise HTTPException(status_code=400, detail="invalid_payload")
     song = (body.get("song") or "").strip()
-    voicing = (body.get("voicing") or "universal").strip().lower()
+    voicing = (body.get("voicing") or "universal").strip()
     strength = body.get("strength", 0)
     width = body.get("width", None)
+    guardrails = bool(body.get("guardrails", False))
+    lufs = body.get("lufs", None)
+    tp = body.get("tp", None)
     try:
         strength_val = int(strength)
     except Exception:
@@ -2690,13 +2727,23 @@ def preview_start(request: Request, body: dict = Body(...), background_tasks: Ba
             width = float(width)
         except Exception:
             width = None
+    if lufs is not None:
+        try:
+            lufs = float(lufs)
+        except Exception:
+            lufs = None
+    if tp is not None:
+        try:
+            tp = float(tp)
+        except Exception:
+            tp = None
 
-    if voicing not in {"universal", "airlift", "ember", "detail", "glue", "wide", "cinematic", "punch"}:
+    if not _preview_find_voicing_path(voicing):
         raise HTTPException(status_code=400, detail="invalid_voicing")
     safe_in = _validate_input_file(song)
     session_key = _preview_session_key(request)
     preview_id = uuid.uuid4().hex
-    params_raw = f"{song}|{voicing}|{strength_val}|{width}"
+    params_raw = f"{song}|{voicing}|{strength_val}|{width}|{guardrails}|{lufs}|{tp}"
     params_hash = hashlib.sha256(params_raw.encode("utf-8")).hexdigest()
     event = threading.Event()
 
@@ -2714,6 +2761,9 @@ def preview_start(request: Request, body: dict = Body(...), background_tasks: Ba
             "voicing": voicing,
             "strength": strength_val,
             "width": width,
+            "guardrails": guardrails,
+            "lufs": lufs,
+            "tp": tp,
             "event": event,
         }
         queue = PREVIEW_SESSION_INDEX.setdefault(session_key, deque())
