@@ -179,6 +179,18 @@ h1{margin:0;font-size:24px;}
 .eq-preview-label{
   font-size:11px;
 }
+.voicing-tags-row{
+  flex-direction:column;
+  align-items:flex-start;
+  gap:6px;
+}
+.voicing-desc{
+  font-size:12px;
+  line-height:1.35;
+}
+.voicing-tags{
+  margin-top:0;
+}
 .eq-grid{
   stroke:#1f2a38;
   stroke-width:1;
@@ -676,6 +688,7 @@ h1{margin:0;font-size:24px;}
 .badge-profile{background:rgba(43,212,189,0.15);border-color:rgba(43,212,189,0.45);color:#9df1e5;}
 .badge-param{background:rgba(43,212,189,0.15);border-color:rgba(43,212,189,0.45);color:#9df1e5;}
 .badge-format{background:rgba(255,255,255,0.04);border-color:rgba(255,255,255,0.15);color:#cfe0f1;}
+.badge-tag{background:rgba(255,255,255,0.04);border-color:rgba(255,255,255,0.12);color:#cfe0f1;}
 .badge-container{background:rgba(255,255,255,0.02);border-color:rgba(255,255,255,0.12);color:#9fb0c0;}
 .status-list{
   background:#0f151d;

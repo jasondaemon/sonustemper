@@ -161,6 +161,10 @@
                   <option value="" disabled selected>Loading voicings...</option>
                 </select>
               </div>
+              <div class="control-row voicing-tags-row" id="voicingTagsWrap" hidden>
+                <div class="muted voicing-desc" id="voicingDesc"></div>
+                <div class="badge-row compact voicing-tags" id="voicingTags"></div>
+              </div>
               <div class="control-row eq-preview-row">
                 <div class="eq-preview">
                   <svg id="voicingEqPreview" width="100%" height="64" viewBox="0 0 240 64" role="img" aria-label="EQ Preview"></svg>
@@ -667,6 +671,9 @@
   const previewAudio = document.getElementById('voicingPreviewAudio');
   const eqPreview = document.getElementById('voicingEqPreview');
   const eqPreviewLabel = document.getElementById('voicingEqLabel');
+  const voicingTagsWrap = document.getElementById('voicingTagsWrap');
+  const voicingDesc = document.getElementById('voicingDesc');
+  const voicingTags = document.getElementById('voicingTags');
   let previewTimer = null;
   let previewEventSource = null;
   let previewCurrentId = null;
@@ -901,6 +908,25 @@
     }
   }
 
+  function updateVoicingTags(){
+    if (!voicingTagsWrap || !voicingDesc || !voicingTags) return;
+    const entry = voicingIndex[voicingSelect?.value || ''];
+    const tags = entry && Array.isArray(entry.tags) ? entry.tags : [];
+    const desc = tags.length ? tags[0] : '';
+    const pills = tags.length > 1 ? tags.slice(1) : [];
+    voicingDesc.textContent = desc || '';
+    voicingTags.innerHTML = '';
+    pills.forEach(tag => {
+      const text = String(tag || '').trim();
+      if (!text) return;
+      const span = document.createElement('span');
+      span.className = 'badge badge-tag';
+      span.textContent = text;
+      voicingTags.appendChild(span);
+    });
+    voicingTagsWrap.hidden = !(desc || pills.length);
+  }
+
   function renderEqPreview(){
     if (!eqPreview) return;
     const entry = voicingIndex[voicingSelect?.value || ''];
@@ -1021,6 +1047,7 @@
       voicingSelect.value = '';
       updateSummary();
       updateVoicingTooltip();
+      updateVoicingTags();
       return;
     }
 
@@ -1064,6 +1091,7 @@
       updateSummary();
     }
     updateVoicingTooltip();
+    updateVoicingTags();
     renderEqPreview();
   }
 
@@ -1327,6 +1355,7 @@
       updateSummary();
       schedulePreview();
       updateVoicingTooltip();
+      updateVoicingTags();
       renderEqPreview();
     });
   }
