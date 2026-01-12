@@ -709,10 +709,18 @@
       canvas.style.top = '0';
       canvas.style.left = '0';
       canvas.style.pointerEvents = 'none';
-      canvas.style.zIndex = '3';
       wrapper.style.position = 'relative';
-      wrapper.appendChild(canvas);
+      if (wrapper.firstChild) {
+        wrapper.insertBefore(canvas, wrapper.firstChild);
+      } else {
+        wrapper.appendChild(canvas);
+      }
     }
+    canvas.style.zIndex = '1';
+    wrapper.querySelectorAll('canvas:not(.analysis-overlay)').forEach((node) => {
+      node.style.position = 'relative';
+      node.style.zIndex = '2';
+    });
     const width = Math.max(wrapper.scrollWidth || wrapper.clientWidth || 0, 1);
     const height = Math.max(wrapper.clientHeight || 1, 1);
     const ratio = window.devicePixelRatio || 1;
