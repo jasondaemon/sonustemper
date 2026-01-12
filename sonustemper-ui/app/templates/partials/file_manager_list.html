@@ -33,6 +33,7 @@
           <tr>
             <th style="width:32px;"></th>
             <th>Name</th>
+            <th>Details</th>
             <th style="width:120px;">Size</th>
             <th style="width:180px;">Modified</th>
             <th style="width:220px;">Actions</th>
@@ -45,17 +46,21 @@
               <td>
                 <div class="file-item-title">{{ item.title }}</div>
                 {% if item.subtitle %}<div class="muted">{{ item.subtitle }}</div>{% endif %}
+              </td>
+              <td>
                 {% if item.badges and item.badges|length %}
-                  <div class="badge-row">
+                  <div class="badge-row compact">
                     {% for b in item.badges %}
                       <span class="badge badge-{{ b.key|default('format') }}" title="{{ b.title|default('') }}">{{ b.label }}</span>
                     {% endfor %}
                   </div>
+                {% else %}
+                  <span class="muted">—</span>
                 {% endif %}
               </td>
-              <td>{{ item.size }}</td>
-              <td>{{ item.mtime }}</td>
-              <td>
+              <td class="file-meta">{{ item.size }}</td>
+              <td class="file-meta">{{ item.mtime }}</td>
+              <td class="actions-cell">
                 <div class="file-actions">
                   {% for d in item.downloads %}
                     <a class="btn ghost small" href="{{ d.url }}">{{ d.label }}</a>
