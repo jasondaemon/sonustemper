@@ -857,21 +857,50 @@
       const band = entry.band;
       const row = document.createElement('div');
       row.className = 'preset-voicing-macro-row preset-voicing-macro-row-extra';
+      row.dataset.index = String(entry.index);
+      row.dataset.slot = 'user';
       const label = document.createElement('div');
       label.className = 'preset-voicing-macro-label';
       label.textContent = 'User Band';
-      const freq = document.createElement('div');
-      freq.className = 'preset-voicing-macro-text';
+      const freq = document.createElement('input');
+      freq.className = 'preset-voicing-macro-input';
+      freq.type = 'number';
+      freq.step = '1';
+      freq.min = '20';
+      freq.max = '20000';
+      freq.placeholder = 'Hz';
       const freqVal = Number(band?.freq_hz ?? band?.freq);
-      freq.textContent = Number.isFinite(freqVal) ? `${freqVal.toFixed(0)} Hz` : '-';
-      const gain = document.createElement('div');
-      gain.className = 'preset-voicing-macro-text';
-      const gainVal = Number(band?.gain_db ?? band?.gain);
-      gain.textContent = Number.isFinite(gainVal) ? `${gainVal.toFixed(1)} dB` : '-';
-      const q = document.createElement('div');
-      q.className = 'preset-voicing-macro-text';
+      if(Number.isFinite(freqVal)){
+        freq.value = freqVal.toFixed(0);
+      }
+      freq.dataset.field = 'freq';
+      freq.disabled = !canEdit;
+      const gain = document.createElement('input');
+      gain.className = 'preset-voicing-macro-slider preset-voicing-macro-slider-short';
+      gain.type = 'range';
+      gain.min = '-6';
+      gain.max = '6';
+      gain.step = '0.1';
+      const gainVal = clampValue(Number(band?.gain_db ?? band?.gain ?? 0), -6, 6);
+      gain.value = Number.isFinite(gainVal) ? String(gainVal) : '0';
+      gain.dataset.field = 'gain';
+      gain.disabled = !canEdit;
+      if(Number.isFinite(gainVal)){
+        band.gain_db = gainVal;
+      }
+      const q = document.createElement('input');
+      q.className = 'preset-voicing-macro-input';
+      q.type = 'number';
+      q.step = '0.01';
+      q.min = '0.3';
+      q.max = '4';
+      q.placeholder = 'Q';
       const qVal = Number(band?.q);
-      q.textContent = Number.isFinite(qVal) ? `Q ${qVal.toFixed(2)}` : '-';
+      if(Number.isFinite(qVal)){
+        q.value = qVal.toFixed(2);
+      }
+      q.dataset.field = 'q';
+      q.disabled = !canEdit;
       row.appendChild(label);
       row.appendChild(freq);
       row.appendChild(gain);
@@ -920,17 +949,21 @@
     const field = evt.target.dataset.field;
     if(field === 'freq'){
       const freqVal = Number(evt.target.value);
-      if(Number.isFinite(freqVal)){
-        band.freq_hz = freqVal;
-      }
+      band.freq_hz = Number.isFinite(freqVal) ? freqVal : null;
     }
     if(field === 'gain'){
-      const gainVal = clampValue(Number(evt.target.value), -3, 3);
+      const min = Number(evt.target.min || -6);
+      const max = Number(evt.target.max || 6);
+      const gainVal = clampValue(Number(evt.target.value), min, max);
       if(Number.isFinite(gainVal)){
         band.gain_db = gainVal;
         const valueEl = row.querySelector('.preset-voicing-macro-value');
         if(valueEl) valueEl.textContent = `${gainVal.toFixed(1)} dB`;
       }
+    }
+    if(field === 'q'){
+      const qVal = Number(evt.target.value);
+      band.q = Number.isFinite(qVal) ? qVal : null;
     }
     if(!Number.isFinite(Number(band.q))){
       const slot = MACRO_SLOTS.find(item => item.key === row.dataset.slot);
