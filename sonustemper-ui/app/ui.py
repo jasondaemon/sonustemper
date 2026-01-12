@@ -4,6 +4,7 @@ import re
 import shutil
 import json
 import base64
+import unicodedata
 import hashlib
 import uuid
 from urllib.parse import quote
@@ -80,6 +81,15 @@ APP_VERSION = os.getenv("APP_VERSION", os.getenv("SONUSTEMPER_TAG", "dev"))
 
 router = APIRouter()
 
+def _sanitize_label(value: str, max_len: int = 80) -> str:
+    raw = str(value or "").replace("\u00a0", " ")
+    raw = "".join(ch for ch in raw if unicodedata.category(ch)[0] != "C")
+    cleaned = re.sub(r"[\r\n\t]+", " ", raw)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if len(cleaned) > max_len:
+        cleaned = cleaned[:max_len].strip()
+    return cleaned
+
 def _asset_preset_dirs() -> list[Path]:
     candidates = []
     env_dir = (os.getenv("ASSET_PRESET_DIR") or "").strip()
@@ -116,11 +126,11 @@ def _load_builtin_voicings() -> list[dict]:
             except Exception:
                 continue
             meta = data.get("meta", {}) if isinstance(data, dict) else {}
-            title = meta.get("title") or data.get("name") or fp.stem
+            title = _sanitize_label(meta.get("title") or data.get("name") or fp.stem, 80) or fp.stem
             raw_tags = meta.get("tags")
             if not isinstance(raw_tags, list):
                 raw_tags = []
-            tags = [str(tag) for tag in raw_tags if tag is not None and str(tag).strip()]
+            tags = [_sanitize_label(tag, 60) for tag in raw_tags if tag is not None and str(tag).strip()]
             chain = data.get("chain") if isinstance(data, dict) else {}
             stereo = chain.get("stereo") if isinstance(chain, dict) else {}
             width = stereo.get("width") if isinstance(stereo, dict) else None
@@ -995,7 +1005,7 @@ def _preset_meta_from_file(fp: Path) -> dict:
         tags = meta.get("tags")
         if not isinstance(tags, list):
             tags = []
-        tags = [str(tag) for tag in tags if tag is not None and str(tag).strip()]
+        tags = [_sanitize_label(tag, 60) for tag in tags if tag is not None and str(tag).strip()]
         chain = data.get("chain") if isinstance(data, dict) else None
         stereo = chain.get("stereo") if isinstance(chain, dict) else None
         dynamics = chain.get("dynamics") if isinstance(chain, dict) else None
@@ -1017,7 +1027,7 @@ def _preset_meta_from_file(fp: Path) -> dict:
             tp = data.get("target_tp")
         name = data.get("name")
         voicing_id = data.get("id")
-        title = meta.get("title") or name or voicing_id or fp.stem
+        title = _sanitize_label(meta.get("title") or name or voicing_id or fp.stem, 80) or fp.stem
         return {
             "title": title,
             "name": name,
@@ -1070,7 +1080,7 @@ def _list_presets(kind: str, q: str, limit: int, context: str = "", meta_kind: s
                 item_id = meta.get("id") or meta.get("name") or fp.stem
             else:
                 item_id = meta.get("name") or meta.get("id") or fp.stem
-            title = (meta.get("title") or item_id or fp.stem).replace("_", " ").strip() or fp.stem
+            title = _sanitize_label(meta.get("title") or item_id or fp.stem, 80).replace("_", " ").strip() or fp.stem
             kind_label = "Voicing" if effective_kind == "voicing" else "Profile"
             created = meta.get("created_at")
             subtitle = f"Created {created}" if created else ""
