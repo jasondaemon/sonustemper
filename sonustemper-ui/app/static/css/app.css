@@ -1033,6 +1033,8 @@ h1{margin:0;font-size:24px;}
 .preset-voicing-macro-select{width:100%;border-radius:8px;border:1px solid var(--line);background:#0b1118;color:var(--text);padding:6px 8px;font-size:12px;}
 .preset-voicing-macro-slider{width:100%;}
 .preset-voicing-macro-value{font-size:12px;color:var(--text);}
+.preset-voicing-macro-text{width:100%;border-radius:8px;border:1px solid var(--line);background:#0b1118;color:var(--text);padding:6px 8px;font-size:12px;}
+.preset-voicing-macro-row-extra{opacity:0.9;}
 .preset-voicing-advanced{display:flex;flex-direction:column;gap:6px;}
 .preset-voicing-advanced-actions{display:flex;gap:8px;justify-content:flex-end;}
 .preset-detail-stats{display:flex;flex-wrap:wrap;gap:8px;font-size:12px;}

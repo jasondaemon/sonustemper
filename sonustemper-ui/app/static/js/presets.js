@@ -716,7 +716,7 @@
 
   function ensureMacroBands(eqList){
     const used = new Set();
-    return MACRO_SLOTS.map((slot) => {
+    const slots = MACRO_SLOTS.map((slot) => {
       let bestIndex = -1;
       let bestDistance = Infinity;
       eqList.forEach((band, index) => {
@@ -761,6 +761,17 @@
       used.add(bestIndex);
       return { slot, index: bestIndex, band: eqList[bestIndex] };
     });
+    const extras = eqList
+      .map((band, index) => ({ band, index }))
+      .filter(item => !used.has(item.index))
+      .sort((a, b) => {
+        const aFreq = Number(a.band?.freq_hz ?? a.band?.freq);
+        const bFreq = Number(b.band?.freq_hz ?? b.band?.freq);
+        const aVal = Number.isFinite(aFreq) ? aFreq : Number.POSITIVE_INFINITY;
+        const bVal = Number.isFinite(bFreq) ? bFreq : Number.POSITIVE_INFINITY;
+        return aVal - bVal;
+      });
+    return { slots, extras };
   }
 
   function renderVoicingMacro(){
@@ -769,65 +780,102 @@
     if(!selectedVoicingFull) return;
     const canEdit = selectedItem && (selectedItem.origin === 'user' || selectedItem.origin === 'staging');
     const eqList = getVoicingEqList();
-    const slots = ensureMacroBands(eqList);
-    slots.forEach(({ slot, index, band }) => {
-      if(!band) return;
-      const row = document.createElement('div');
-      row.className = 'preset-voicing-macro-row';
-      row.dataset.index = String(index);
-      row.dataset.slot = slot.key;
+    const { slots, extras } = ensureMacroBands(eqList);
+    const entries = [
+      ...slots.map(({ slot, index, band }) => ({ kind: 'macro', slot, index, band })),
+      ...extras.map(({ band, index }) => ({ kind: 'extra', index, band })),
+    ].filter(entry => entry.band);
+    entries.sort((a, b) => {
+      const aFreq = Number(a.band?.freq_hz ?? a.band?.freq);
+      const bFreq = Number(b.band?.freq_hz ?? b.band?.freq);
+      const aVal = Number.isFinite(aFreq) ? aFreq : Number.POSITIVE_INFINITY;
+      const bVal = Number.isFinite(bFreq) ? bFreq : Number.POSITIVE_INFINITY;
+      return aVal - bVal;
+    });
+    entries.forEach((entry) => {
+      if(entry.kind === 'macro'){
+        const { slot, index, band } = entry;
+        const row = document.createElement('div');
+        row.className = 'preset-voicing-macro-row';
+        row.dataset.index = String(index);
+        row.dataset.slot = slot.key;
 
+        const label = document.createElement('div');
+        label.className = 'preset-voicing-macro-label';
+        label.textContent = slot.label;
+
+        const select = document.createElement('select');
+        select.className = 'preset-voicing-macro-select';
+        select.dataset.field = 'freq';
+        select.disabled = !canEdit;
+        const rawFreq = Number(band?.freq_hz ?? band?.freq);
+        const currentFreq = Number.isFinite(rawFreq) ? rawFreq : slot.defaultFreq;
+        band.freq_hz = currentFreq;
+        if(!Number.isFinite(Number(band?.q))){
+          band.q = slot.defaultQ;
+        }
+        const choices = slot.choices.slice();
+        if(Number.isFinite(currentFreq) && !choices.includes(currentFreq)){
+          choices.push(currentFreq);
+          choices.sort((a, b) => a - b);
+        }
+        choices.forEach((freq) => {
+          const option = document.createElement('option');
+          option.value = String(freq);
+          option.textContent = `${freq} Hz`;
+          if(Number.isFinite(currentFreq) && Math.round(currentFreq) === Math.round(freq)){
+            option.selected = true;
+          }
+          select.appendChild(option);
+        });
+
+        const slider = document.createElement('input');
+        slider.className = 'preset-voicing-macro-slider';
+        slider.type = 'range';
+        slider.min = '-3';
+        slider.max = '3';
+        slider.step = '0.1';
+        slider.dataset.field = 'gain';
+        const gainVal = clampValue(Number(band?.gain_db ?? band?.gain ?? 0), -3, 3);
+        slider.value = Number.isFinite(gainVal) ? String(gainVal) : '0';
+        slider.disabled = !canEdit;
+        if(Number.isFinite(gainVal)){
+          band.gain_db = gainVal;
+        }
+
+        const value = document.createElement('div');
+        value.className = 'preset-voicing-macro-value';
+        value.textContent = `${Number(slider.value).toFixed(1)} dB`;
+
+        row.appendChild(label);
+        row.appendChild(select);
+        row.appendChild(slider);
+        row.appendChild(value);
+        voicingMacro.appendChild(row);
+        return;
+      }
+      const band = entry.band;
+      const row = document.createElement('div');
+      row.className = 'preset-voicing-macro-row preset-voicing-macro-row-extra';
       const label = document.createElement('div');
       label.className = 'preset-voicing-macro-label';
-      label.textContent = slot.label;
-
-      const select = document.createElement('select');
-      select.className = 'preset-voicing-macro-select';
-      select.dataset.field = 'freq';
-      select.disabled = !canEdit;
-      const rawFreq = Number(band?.freq_hz ?? band?.freq);
-      const currentFreq = Number.isFinite(rawFreq) ? rawFreq : slot.defaultFreq;
-      band.freq_hz = currentFreq;
-      if(!Number.isFinite(Number(band?.q))){
-        band.q = slot.defaultQ;
-      }
-      const choices = slot.choices.slice();
-      if(Number.isFinite(currentFreq) && !choices.includes(currentFreq)){
-        choices.push(currentFreq);
-        choices.sort((a, b) => a - b);
-      }
-      choices.forEach((freq) => {
-        const option = document.createElement('option');
-        option.value = String(freq);
-        option.textContent = `${freq} Hz`;
-        if(Number.isFinite(currentFreq) && Math.round(currentFreq) === Math.round(freq)){
-          option.selected = true;
-        }
-        select.appendChild(option);
-      });
-
-      const slider = document.createElement('input');
-      slider.className = 'preset-voicing-macro-slider';
-      slider.type = 'range';
-      slider.min = '-3';
-      slider.max = '3';
-      slider.step = '0.1';
-      slider.dataset.field = 'gain';
-      const gainVal = clampValue(Number(band?.gain_db ?? band?.gain ?? 0), -3, 3);
-      slider.value = Number.isFinite(gainVal) ? String(gainVal) : '0';
-      slider.disabled = !canEdit;
-      if(Number.isFinite(gainVal)){
-        band.gain_db = gainVal;
-      }
-
-      const value = document.createElement('div');
-      value.className = 'preset-voicing-macro-value';
-      value.textContent = `${Number(slider.value).toFixed(1)} dB`;
-
+      label.textContent = 'User Band';
+      const freq = document.createElement('div');
+      freq.className = 'preset-voicing-macro-text';
+      const freqVal = Number(band?.freq_hz ?? band?.freq);
+      freq.textContent = Number.isFinite(freqVal) ? `${freqVal.toFixed(0)} Hz` : '-';
+      const gain = document.createElement('div');
+      gain.className = 'preset-voicing-macro-text';
+      const gainVal = Number(band?.gain_db ?? band?.gain);
+      gain.textContent = Number.isFinite(gainVal) ? `${gainVal.toFixed(1)} dB` : '-';
+      const q = document.createElement('div');
+      q.className = 'preset-voicing-macro-text';
+      const qVal = Number(band?.q);
+      q.textContent = Number.isFinite(qVal) ? `Q ${qVal.toFixed(2)}` : '-';
       row.appendChild(label);
-      row.appendChild(select);
-      row.appendChild(slider);
-      row.appendChild(value);
+      row.appendChild(freq);
+      row.appendChild(gain);
+      row.appendChild(q);
       voicingMacro.appendChild(row);
     });
   }
