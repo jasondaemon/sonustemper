@@ -509,6 +509,64 @@
     return { canvas, ctx, wrapper, width, height };
   }
 
+  function ensureReferenceLines(wave, kind){
+    if (!wave || typeof wave.getWrapper !== 'function') return null;
+    const wrapper = wave.getWrapper();
+    if (!wrapper) return null;
+    let box = wrapper.querySelector(`.wave-ref-lines-${kind}`);
+    if (!box) {
+      box = document.createElement('div');
+      box.className = `wave-ref-lines wave-ref-lines-${kind}`;
+      wrapper.style.position = 'relative';
+      wrapper.appendChild(box);
+      const center = document.createElement('div');
+      center.className = 'wave-ref-line center';
+      box.appendChild(center);
+      const clipTop = document.createElement('div');
+      clipTop.className = 'wave-ref-line clip';
+      box.appendChild(clipTop);
+      const clipBottom = document.createElement('div');
+      clipBottom.className = 'wave-ref-line clip';
+      box.appendChild(clipBottom);
+      const safeTop = document.createElement('div');
+      safeTop.className = 'wave-ref-line safe';
+      box.appendChild(safeTop);
+      const safeBottom = document.createElement('div');
+      safeBottom.className = 'wave-ref-line safe';
+      box.appendChild(safeBottom);
+    }
+    return box;
+  }
+
+  function updateReferenceLines(wave, kind){
+    if (!wave || typeof wave.getWrapper !== 'function') return;
+    const wrapper = wave.getWrapper();
+    const box = ensureReferenceLines(wave, kind);
+    if (!wrapper || !box) return;
+    const height = Math.max(wrapper.clientHeight || 0, 1);
+    const width = Math.max(wrapper.scrollWidth || wrapper.clientWidth || 0, 1);
+    box.style.width = `${width}px`;
+    box.style.height = `${height}px`;
+    const lines = box.querySelectorAll('.wave-ref-line');
+    const center = lines[0];
+    const clipTop = lines[1];
+    const clipBottom = lines[2];
+    const safeTop = lines[3];
+    const safeBottom = lines[4];
+    const half = height * 0.5;
+    const padding = 2;
+    if (center) center.style.top = `${Math.round(half)}px`;
+    if (clipTop) clipTop.style.top = `${padding}px`;
+    if (clipBottom) clipBottom.style.top = `${height - padding}px`;
+    const amp = Math.pow(10, -1 / 20);
+    const safeOffset = amp * (half - padding);
+    if (safeTop) safeTop.style.top = `${Math.max(padding, Math.round(half - safeOffset))}px`;
+    if (safeBottom) safeBottom.style.top = `${Math.min(height - padding, Math.round(half + safeOffset))}px`;
+    if (togglePeakRisk) {
+      box.classList.toggle('show-safe', togglePeakRisk.checked);
+    }
+  }
+
   function drawHeatmap(ctx, width, height, t, values, duration){
     if (!t.length || !values.length || !duration) return;
     const clean = values.filter((v) => typeof v === 'number' && !Number.isNaN(v));
@@ -672,6 +730,7 @@
 
   function drawOverlay(wave, kind){
     if (!wave) return;
+    updateReferenceLines(wave, kind);
     const overlay = ensureOverlayCanvas(wave, kind);
     if (!overlay) return;
     const { ctx, width, height } = overlay;

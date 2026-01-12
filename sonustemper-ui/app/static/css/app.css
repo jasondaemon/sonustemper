@@ -446,6 +446,34 @@ h1{margin:0;font-size:24px;}
 .wave-canvas.is-dragging{
   cursor:grabbing;
 }
+.wave-ref-lines{
+  position:absolute;
+  top:0;
+  left:0;
+  pointer-events:none;
+  z-index:4;
+}
+.wave-ref-line{
+  position:absolute;
+  left:0;
+  right:0;
+}
+.wave-ref-line.center{
+  height:1px;
+  background:rgba(255,255,255,0.08);
+}
+.wave-ref-line.clip{
+  height:1px;
+  background:rgba(255,255,255,0.16);
+}
+.wave-ref-line.safe{
+  height:0;
+  border-top:1px dashed rgba(255,138,61,0.35);
+  opacity:0;
+}
+.wave-ref-lines.show-safe .wave-ref-line.safe{
+  opacity:1;
+}
 .wave-empty{
   margin-top:8px;
   font-size:12px;
