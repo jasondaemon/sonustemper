@@ -908,6 +908,7 @@
     const title = entry ? (entry.title || entry.id) : 'EQ';
     const strengthVal = parseInt(strength?.value || '0', 10);
     const strengthNorm = Math.max(0, Math.min(1, strengthVal / 100));
+    const displayBoost = 1 + strengthNorm * 1.2;
     const maxAbs = eqBands.reduce((acc, band) => {
       const gain = parseFloat(band?.gain_db ?? 0);
       return Math.max(acc, Math.abs(Number.isFinite(gain) ? gain : 0));
@@ -952,7 +953,7 @@
           y += gain * (1 - s);
         }
       });
-      y *= strengthNorm;
+      y *= strengthNorm * displayBoost;
       y = Math.max(-range, Math.min(range, y));
       values.push({ t, y });
     }
