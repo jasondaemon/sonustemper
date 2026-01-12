@@ -2492,11 +2492,15 @@ def library_item_update(payload: dict = Body(...)):
     kind = (payload.get("kind") or "").strip().lower()
     preset_id = payload.get("id") or ""
     fields = payload.get("fields") or {}
-    if origin != "user":
+    if origin == "generated":
+        origin = "staging"
+    if origin == "builtin":
+        raise HTTPException(status_code=403, detail="readonly_preset")
+    if origin not in {"user", "staging"}:
         raise HTTPException(status_code=403, detail="readonly_preset")
     if kind not in {"profile", "voicing"}:
         raise HTTPException(status_code=400, detail="invalid_kind")
-    target = _find_preset_file("user", kind, preset_id)
+    target = _find_preset_file(origin, kind, preset_id)
     if not target:
         raise HTTPException(status_code=404, detail="preset_not_found")
     try:
@@ -2552,6 +2556,24 @@ def library_item_update(payload: dict = Body(...)):
         chain = data.get("chain") if isinstance(data.get("chain"), dict) else {}
         stereo = chain.get("stereo") if isinstance(chain.get("stereo"), dict) else {}
         dynamics = chain.get("dynamics") if isinstance(chain.get("dynamics"), dict) else {}
+        if "title" in fields:
+            title = _sanitize_label(fields.get("title"), 80)
+            if title:
+                meta["title"] = title
+        if "tags" in fields:
+            raw_tags = fields.get("tags")
+            if raw_tags is None:
+                meta.pop("tags", None)
+            elif isinstance(raw_tags, list):
+                cleaned_tags = []
+                for tag in raw_tags:
+                    cleaned = _sanitize_label(tag, 40)
+                    if cleaned:
+                        cleaned_tags.append(cleaned)
+                if cleaned_tags:
+                    meta["tags"] = cleaned_tags[:20]
+                else:
+                    meta.pop("tags", None)
         if "eq" in fields:
             eq = fields.get("eq")
             if not isinstance(eq, list):
@@ -2568,21 +2590,21 @@ def library_item_update(payload: dict = Body(...)):
                     freq = float(band.get("freq_hz"))
                 except Exception as exc:
                     raise HTTPException(status_code=400, detail="invalid_eq_freq") from exc
-                if freq < 10 or freq > 30000:
+                if freq < 20 or freq > 20000:
                     raise HTTPException(status_code=400, detail="invalid_eq_freq")
                 gain_raw = band.get("gain_db", 0.0)
                 try:
                     gain = float(gain_raw)
                 except Exception as exc:
                     raise HTTPException(status_code=400, detail="invalid_eq_gain") from exc
-                if gain < -24 or gain > 24:
+                if gain < -6 or gain > 6:
                     raise HTTPException(status_code=400, detail="invalid_eq_gain")
                 q_raw = band.get("q", 1.0)
                 try:
                     q = float(q_raw)
                 except Exception as exc:
                     raise HTTPException(status_code=400, detail="invalid_eq_q") from exc
-                if q < 0.1 or q > 10:
+                if q < 0.3 or q > 4.0:
                     raise HTTPException(status_code=400, detail="invalid_eq_q")
                 cleaned.append({
                     "type": band_type,
@@ -2603,7 +2625,7 @@ def library_item_update(payload: dict = Body(...)):
                     width_val = float(width)
                 except Exception as exc:
                     raise HTTPException(status_code=400, detail="invalid_width") from exc
-                if width_val < 0.5 or width_val > 2.0:
+                if width_val < 0.9 or width_val > 1.1:
                     raise HTTPException(status_code=400, detail="invalid_width")
                 stereo["width"] = width_val
         for key, detail in {
@@ -2641,7 +2663,7 @@ def library_item_update(payload: dict = Body(...)):
         target.write_text(json.dumps(data, indent=2), encoding="utf-8")
     except Exception as exc:
         raise HTTPException(status_code=500, detail="write_failed") from exc
-    return {"item": _library_item_from_file(target, "user", default_kind=kind)}
+    return {"item": _library_item_from_file(target, origin, default_kind=kind)}
 @app.get("/api/preset/download/{name}")
 def preset_download(name: str):
     target = _find_preset_path(name)

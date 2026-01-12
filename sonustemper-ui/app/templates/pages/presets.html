@@ -150,7 +150,18 @@
             <svg id="presetEqPreview" width="100%" height="64" viewBox="0 0 240 64" role="img" aria-label="EQ Preview"></svg>
           </div>
           <div class="preset-detail-stats" id="presetVoicingStats"></div>
-          <div class="preset-eq-table" id="presetVoicingEq"></div>
+          <div class="preset-voicing-mode">
+            <span class="preset-voicing-mode-label muted">Mode</span>
+            <button class="btn tiny ghost is-active" type="button" id="presetVoicingModeSimple">Simple</button>
+            <button class="btn tiny ghost" type="button" id="presetVoicingModeAdvanced">Advanced</button>
+          </div>
+          <div class="preset-voicing-macro" id="presetVoicingMacro"></div>
+          <div class="preset-voicing-advanced is-hidden" id="presetVoicingAdvancedWrap">
+            <div class="preset-eq-table" id="presetVoicingEq"></div>
+            <div class="preset-voicing-advanced-actions">
+              <button class="btn tiny ghost" type="button" id="presetVoicingAddBandBtn">Add band</button>
+            </div>
+          </div>
           <div class="preset-voicing-table" id="presetVoicingEditor"></div>
           <div class="preset-actions">
             <button class="btn small ghost" type="button" id="presetVoicingSaveBtn" disabled>Save Voicing</button>

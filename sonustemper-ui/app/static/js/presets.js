@@ -34,6 +34,11 @@
   const profileEditor = document.getElementById('presetProfileEditor');
   const profileSaveBtn = document.getElementById('presetProfileSaveBtn');
   const eqPreview = document.getElementById('presetEqPreview');
+  const voicingModeSimpleBtn = document.getElementById('presetVoicingModeSimple');
+  const voicingModeAdvancedBtn = document.getElementById('presetVoicingModeAdvanced');
+  const voicingMacro = document.getElementById('presetVoicingMacro');
+  const voicingAdvancedWrap = document.getElementById('presetVoicingAdvancedWrap');
+  const voicingAddBandBtn = document.getElementById('presetVoicingAddBandBtn');
 
   const selectedHint = document.getElementById('presetSelectedHint');
   const downloadBtn = document.getElementById('presetDownloadBtn');
@@ -42,6 +47,12 @@
   const deleteBtn = document.getElementById('presetDeleteBtn');
 
   let selectedItem = null;
+  let selectedVoicingFull = null;
+  let voicingMode = 'simple';
+  let voicingLoadToken = 0;
+  let profileBaseline = null;
+  let voicingBaseline = null;
+  let voicingEqBaseline = null;
 
   let statusLines = [];
   let statusRaf = null;
@@ -55,6 +66,40 @@
     bandpass: 'Band Pass',
     notch: 'Notch',
   };
+  const MACRO_SLOTS = [
+    {
+      key: 'low',
+      label: 'Low',
+      type: 'lowshelf',
+      defaultFreq: 85,
+      defaultQ: 0.8,
+      choices: [60, 80, 100, 120],
+    },
+    {
+      key: 'low_mid',
+      label: 'Low-mid',
+      type: 'peaking',
+      defaultFreq: 220,
+      defaultQ: 1.0,
+      choices: [180, 220, 300, 350],
+    },
+    {
+      key: 'presence',
+      label: 'Presence',
+      type: 'peaking',
+      defaultFreq: 3800,
+      defaultQ: 1.1,
+      choices: [2500, 3200, 3800, 4500],
+    },
+    {
+      key: 'air',
+      label: 'Air',
+      type: 'highshelf',
+      defaultFreq: 11000,
+      defaultQ: 0.7,
+      choices: [8000, 10000, 11000, 14000],
+    },
+  ];
 
   function scheduleStatusRender(){
     if(statusRaf) cancelAnimationFrame(statusRaf);
@@ -151,6 +196,197 @@
     return num.toFixed(digits ?? 1);
   }
 
+  function readNumericInput(value){
+    const raw = String(value ?? '').trim();
+    if(!raw) return null;
+    const num = Number(raw);
+    return Number.isFinite(num) ? num : NaN;
+  }
+
+  function numericEqual(a, b){
+    if(a === null && b === null) return true;
+    if(!Number.isFinite(a) || !Number.isFinite(b)) return false;
+    return Math.abs(a - b) < 0.001;
+  }
+
+  function clampValue(value, min, max){
+    if(!Number.isFinite(value)) return value;
+    return Math.min(Math.max(value, min), max);
+  }
+
+  function ensureVoicingShape(data){
+    if(!data || typeof data !== 'object') return null;
+    if(!data.meta || typeof data.meta !== 'object') data.meta = {};
+    if(!data.chain || typeof data.chain !== 'object') data.chain = {};
+    if(!Array.isArray(data.chain.eq)) data.chain.eq = [];
+    if(!data.chain.stereo || typeof data.chain.stereo !== 'object') data.chain.stereo = {};
+    if(!data.chain.dynamics || typeof data.chain.dynamics !== 'object') data.chain.dynamics = {};
+    return data;
+  }
+
+  function voicingDataFromItem(item){
+    if(!item) return null;
+    const meta = item.meta && typeof item.meta === 'object' ? { ...item.meta } : {};
+    const chain = {};
+    if(Array.isArray(meta.eq)){
+      chain.eq = meta.eq.map(band => ({
+        type: band?.type,
+        freq_hz: band?.freq_hz ?? band?.freq,
+        gain_db: band?.gain_db ?? band?.gain,
+        q: band?.q,
+      }));
+    } else {
+      chain.eq = [];
+    }
+    const stereoWidth = meta.width ?? meta.stereo?.width;
+    chain.stereo = {};
+    if(Number.isFinite(Number(stereoWidth))){
+      chain.stereo.width = Number(stereoWidth);
+    }
+    chain.dynamics = { ...(meta.dynamics || {}) };
+    return ensureVoicingShape({ id: item.id, meta, chain });
+  }
+
+  function getVoicingEqList(){
+    if(!selectedVoicingFull || !selectedVoicingFull.chain) return [];
+    const eq = selectedVoicingFull.chain.eq;
+    if(!Array.isArray(eq)) return [];
+    return eq;
+  }
+
+  function setVoicingMode(mode){
+    const nextMode = mode === 'advanced' ? 'advanced' : 'simple';
+    voicingMode = nextMode;
+    if(voicingModeSimpleBtn) voicingModeSimpleBtn.classList.toggle('is-active', nextMode === 'simple');
+    if(voicingModeAdvancedBtn) voicingModeAdvancedBtn.classList.toggle('is-active', nextMode === 'advanced');
+    if(voicingMacro) voicingMacro.classList.toggle('is-hidden', nextMode !== 'simple');
+    if(voicingAdvancedWrap) voicingAdvancedWrap.classList.toggle('is-hidden', nextMode !== 'advanced');
+    if(nextMode === 'simple'){
+      renderVoicingMacro();
+    }else{
+      renderVoicingAdvanced();
+    }
+    if(selectedVoicingFull){
+      renderEqPreview(getVoicingEqList());
+    }
+    updateSaveButtonStates();
+  }
+
+  function syncVoicingModeButtons(){
+    if(!voicingModeSimpleBtn || !voicingModeAdvancedBtn) return;
+    voicingModeSimpleBtn.classList.toggle('is-active', voicingMode === 'simple');
+    voicingModeAdvancedBtn.classList.toggle('is-active', voicingMode === 'advanced');
+  }
+
+  function profileStateFromEditor(){
+    if(!profileEditor) return null;
+    return {
+      title: sanitizeInputValue(profileEditor.querySelector('[data-field="title"]')?.value || ''),
+      lufs: readNumericInput(profileEditor.querySelector('[data-field="lufs"]')?.value || ''),
+      tpp: readNumericInput(profileEditor.querySelector('[data-field="tpp"]')?.value || ''),
+      category: sanitizeInputValue(profileEditor.querySelector('[data-field="category"]')?.value || ''),
+      order: readNumericInput(profileEditor.querySelector('[data-field="order"]')?.value || ''),
+    };
+  }
+
+  function voicingStateFromEditor(){
+    if(!voicingEditor) return null;
+    return {
+      width: readNumericInput(voicingEditor.querySelector('[data-field="width"]')?.value || ''),
+      density: readNumericInput(voicingEditor.querySelector('[data-field="density"]')?.value || ''),
+      transient_focus: readNumericInput(voicingEditor.querySelector('[data-field="transient_focus"]')?.value || ''),
+      smoothness: readNumericInput(voicingEditor.querySelector('[data-field="smoothness"]')?.value || ''),
+    };
+  }
+
+  function voicingEqStateFromEditor(){
+    if(selectedVoicingFull && Array.isArray(selectedVoicingFull.chain?.eq)){
+      return selectedVoicingFull.chain.eq.map(band => ({
+        type: normalizeEqType(band?.type),
+        freq: readNumericInput(band?.freq_hz ?? band?.freq ?? ''),
+        gain: readNumericInput(band?.gain_db ?? band?.gain ?? ''),
+        q: readNumericInput(band?.q ?? ''),
+      }));
+    }
+    if(!voicingEq) return null;
+    const rows = voicingEq.querySelectorAll('.preset-eq-row[data-type]');
+    return Array.from(rows).map(row => ({
+      type: normalizeEqType(row.dataset.type),
+      freq: readNumericInput(row.querySelector('[data-field="freq"]')?.value || ''),
+      gain: readNumericInput(row.querySelector('[data-field="gain"]')?.value || ''),
+      q: readNumericInput(row.querySelector('[data-field="q"]')?.value || ''),
+    }));
+  }
+
+  function profileStatesEqual(a, b){
+    if(!a || !b) return false;
+    return a.title === b.title &&
+      numericEqual(a.lufs, b.lufs) &&
+      numericEqual(a.tpp, b.tpp) &&
+      a.category === b.category &&
+      numericEqual(a.order, b.order);
+  }
+
+  function voicingStatesEqual(a, b){
+    if(!a || !b) return false;
+    return numericEqual(a.width, b.width) &&
+      numericEqual(a.density, b.density) &&
+      numericEqual(a.transient_focus, b.transient_focus) &&
+      numericEqual(a.smoothness, b.smoothness);
+  }
+
+  function voicingEqStatesEqual(a, b){
+    if(!a || !b) return false;
+    if(a.length !== b.length) return false;
+    for(let i = 0; i < a.length; i += 1){
+      const left = a[i];
+      const right = b[i];
+      if(left.type !== right.type) return false;
+      if(!numericEqual(left.freq, right.freq)) return false;
+      if(!numericEqual(left.gain, right.gain)) return false;
+      if(!numericEqual(left.q, right.q)) return false;
+    }
+    return true;
+  }
+
+  function setProfileBaselineFromEditor(){
+    if(!selectedItem || selectedItem.kind !== 'profile'){
+      profileBaseline = null;
+      return;
+    }
+    profileBaseline = profileStateFromEditor();
+  }
+
+  function setVoicingBaselineFromEditor(){
+    if(!selectedItem || selectedItem.kind !== 'voicing'){
+      voicingBaseline = null;
+      voicingEqBaseline = null;
+      return;
+    }
+    voicingBaseline = voicingStateFromEditor();
+    voicingEqBaseline = voicingEqStateFromEditor();
+  }
+
+  function updateSaveButtonStates(){
+    if(profileSaveBtn){
+      const canEdit = Boolean(selectedItem && selectedItem.kind === 'profile' && (selectedItem.origin === 'user' || selectedItem.origin === 'staging'));
+      const current = canEdit ? profileStateFromEditor() : null;
+      const dirty = Boolean(canEdit && profileBaseline && current && !profileStatesEqual(current, profileBaseline));
+      profileSaveBtn.disabled = !canEdit;
+      profileSaveBtn.classList.toggle('dirty', dirty && canEdit);
+    }
+    if(voicingSaveBtn){
+      const canEdit = Boolean(selectedItem && selectedItem.kind === 'voicing' && (selectedItem.origin === 'user' || selectedItem.origin === 'staging'));
+      const currentVoicing = canEdit ? voicingStateFromEditor() : null;
+      const currentEq = canEdit ? voicingEqStateFromEditor() : null;
+      const voicingDirty = Boolean(canEdit && voicingBaseline && currentVoicing && !voicingStatesEqual(currentVoicing, voicingBaseline));
+      const eqDirty = Boolean(canEdit && voicingEqBaseline && currentEq && !voicingEqStatesEqual(currentEq, voicingEqBaseline));
+      const dirty = voicingDirty || eqDirty;
+      voicingSaveBtn.disabled = !canEdit;
+      voicingSaveBtn.classList.toggle('dirty', dirty && canEdit);
+    }
+  }
+
   function renderEqPreview(eqBands){
     if(!eqPreview) return;
     const bands = Array.isArray(eqBands) ? eqBands : [];
@@ -236,94 +472,96 @@
     return EQ_LABELS[type] || type || 'Band';
   }
 
-  function renderVoicingEqEditor(bands){
+  function renderVoicingEqEditor(bands, options = {}){
     if(!voicingEq) return;
     const items = Array.isArray(bands) ? bands : [];
-    const byType = {};
-    const extra = [];
-    items.forEach((band) => {
-      const type = normalizeEqType(band?.type || band?.filter || 'peaking');
-      const row = {
-        type,
-        freq: band?.freq_hz ?? band?.freq,
-        gain: band?.gain_db ?? band?.gain,
-        q: band?.q,
-      };
-      if (EQ_TYPES.includes(type)) {
-        if(!byType[type]) byType[type] = [];
-        byType[type].push(row);
-      } else {
-        extra.push(row);
-      }
-    });
-    const ordered = [];
-    EQ_TYPES.forEach((type) => {
-      if (byType[type] && byType[type].length) {
-        ordered.push(...byType[type]);
-      } else {
-        ordered.push({ type });
-      }
-    });
-    ordered.push(...extra);
+    const canEdit = Boolean(options.canEdit);
 
     voicingEq.innerHTML = '';
     const header = document.createElement('div');
     header.className = 'preset-eq-row preset-eq-header';
-    ['Type', 'Freq', 'Gain', 'Q'].forEach(text => {
+    ['Type', 'Freq', 'Gain', 'Q', ''].forEach(text => {
       const cell = document.createElement('div');
       cell.textContent = text;
       header.appendChild(cell);
     });
     voicingEq.appendChild(header);
 
-    ordered.forEach((rowData) => {
+    if(!items.length){
+      const emptyRow = document.createElement('div');
+      emptyRow.className = 'preset-eq-row';
+      const cell = document.createElement('div');
+      cell.textContent = 'No EQ bands yet.';
+      cell.style.gridColumn = '1 / -1';
+      cell.className = 'muted';
+      emptyRow.appendChild(cell);
+      voicingEq.appendChild(emptyRow);
+      return;
+    }
+
+    items.forEach((rowData, index) => {
       const row = document.createElement('div');
       row.className = 'preset-eq-row';
-      row.dataset.type = rowData.type;
+      row.dataset.type = normalizeEqType(rowData?.type);
+      row.dataset.index = String(index);
 
       const typeCell = document.createElement('div');
-      typeCell.textContent = eqTypeLabel(rowData.type);
+      typeCell.textContent = eqTypeLabel(row.dataset.type);
 
       const freqInput = document.createElement('input');
       freqInput.className = 'preset-eq-input';
       freqInput.type = 'number';
       freqInput.step = '1';
-      freqInput.min = '10';
-      freqInput.max = '30000';
+      freqInput.min = '20';
+      freqInput.max = '20000';
       freqInput.placeholder = 'Hz';
-      if (Number.isFinite(Number(rowData.freq))) {
-        freqInput.value = Number(rowData.freq).toFixed(0);
+      if (Number.isFinite(Number(rowData?.freq_hz ?? rowData?.freq))) {
+        freqInput.value = Number(rowData.freq_hz ?? rowData.freq).toFixed(0);
       }
       freqInput.dataset.field = 'freq';
+      freqInput.disabled = !canEdit;
 
       const gainInput = document.createElement('input');
       gainInput.className = 'preset-eq-input';
       gainInput.type = 'number';
       gainInput.step = '0.1';
-      gainInput.min = '-24';
-      gainInput.max = '24';
+      gainInput.min = '-6';
+      gainInput.max = '6';
       gainInput.placeholder = 'dB';
-      if (Number.isFinite(Number(rowData.gain))) {
-        gainInput.value = Number(rowData.gain).toFixed(1);
+      if (Number.isFinite(Number(rowData?.gain_db ?? rowData?.gain))) {
+        gainInput.value = Number(rowData.gain_db ?? rowData.gain).toFixed(1);
       }
       gainInput.dataset.field = 'gain';
+      gainInput.disabled = !canEdit;
 
       const qInput = document.createElement('input');
       qInput.className = 'preset-eq-input';
       qInput.type = 'number';
       qInput.step = '0.01';
-      qInput.min = '0.1';
-      qInput.max = '10';
+      qInput.min = '0.3';
+      qInput.max = '4';
       qInput.placeholder = 'Q';
-      if (Number.isFinite(Number(rowData.q))) {
+      if (Number.isFinite(Number(rowData?.q))) {
         qInput.value = Number(rowData.q).toFixed(2);
       }
       qInput.dataset.field = 'q';
+      qInput.disabled = !canEdit;
+
+      const actionCell = document.createElement('div');
+      actionCell.className = 'preset-eq-action';
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'btn tiny ghost';
+      deleteBtn.type = 'button';
+      deleteBtn.textContent = 'Delete';
+      deleteBtn.disabled = !canEdit;
+      deleteBtn.dataset.action = 'delete-eq';
+      actionCell.appendChild(deleteBtn);
 
       row.appendChild(typeCell);
       row.appendChild(freqInput);
       row.appendChild(gainInput);
       row.appendChild(qInput);
+      row.appendChild(actionCell);
       voicingEq.appendChild(row);
     });
   }
@@ -346,12 +584,14 @@
       if(profileSaveBtn) profileSaveBtn.disabled = true;
       return;
     }
+    const canEdit = item.origin === 'user' || item.origin === 'staging';
     const meta = item.meta || {};
     const titleInput = document.createElement('input');
     titleInput.className = 'preset-profile-input';
     titleInput.type = 'text';
     titleInput.value = meta.title || item.title || '';
     titleInput.dataset.field = 'title';
+    titleInput.disabled = !canEdit;
 
     const lufsInput = document.createElement('input');
     lufsInput.className = 'preset-profile-input';
@@ -359,18 +599,40 @@
     lufsInput.step = '0.1';
     lufsInput.value = Number.isFinite(Number(meta.lufs)) ? Number(meta.lufs).toFixed(1) : '';
     lufsInput.dataset.field = 'lufs';
+    lufsInput.disabled = !canEdit;
 
     const tpInput = document.createElement('input');
     tpInput.className = 'preset-profile-input';
     tpInput.type = 'number';
     tpInput.step = '0.1';
-    tpInput.value = Number.isFinite(Number(meta.tp)) ? Number(meta.tp).toFixed(1) : '';
+    const tpValue = Number.isFinite(Number(meta.tp)) ? Number(meta.tp) : (Number.isFinite(Number(meta.tpp)) ? Number(meta.tpp) : null);
+    tpInput.value = Number.isFinite(tpValue) ? tpValue.toFixed(1) : '';
     tpInput.dataset.field = 'tpp';
+    tpInput.disabled = !canEdit;
+
+    const categoryInput = document.createElement('input');
+    categoryInput.className = 'preset-profile-input';
+    categoryInput.type = 'text';
+    categoryInput.value = meta.category || '';
+    categoryInput.dataset.field = 'category';
+    categoryInput.disabled = !canEdit;
+
+    const orderInput = document.createElement('input');
+    orderInput.className = 'preset-profile-input';
+    orderInput.type = 'number';
+    orderInput.step = '1';
+    orderInput.min = '0';
+    orderInput.max = '9999';
+    orderInput.value = Number.isFinite(Number(meta.order)) ? Number(meta.order).toString() : '';
+    orderInput.dataset.field = 'order';
+    orderInput.disabled = !canEdit;
 
     profileEditor.appendChild(makeProfileRow('Title', titleInput));
     profileEditor.appendChild(makeProfileRow('LUFS', lufsInput));
     profileEditor.appendChild(makeProfileRow('True Peak', tpInput));
-    if(profileSaveBtn) profileSaveBtn.disabled = item.origin !== 'user';
+    profileEditor.appendChild(makeProfileRow('Category', categoryInput));
+    profileEditor.appendChild(makeProfileRow('Order', orderInput));
+    if(profileSaveBtn) profileSaveBtn.disabled = !canEdit;
   }
 
   function sanitizeInputValue(value){
@@ -395,9 +657,12 @@
       if(voicingSaveBtn) voicingSaveBtn.disabled = true;
       return;
     }
+    const canEdit = item.origin === 'user' || item.origin === 'staging';
     const meta = item.meta || {};
-    const widthValue = meta.width ?? meta.stereo?.width;
-    const dynamics = meta.dynamics || {};
+    const chain = item.chain && typeof item.chain === 'object' ? item.chain : {};
+    const stereo = chain.stereo && typeof chain.stereo === 'object' ? chain.stereo : (meta.stereo || {});
+    const dynamics = chain.dynamics && typeof chain.dynamics === 'object' ? chain.dynamics : (meta.dynamics || {});
+    const widthValue = stereo.width ?? meta.width;
     const densityValue = dynamics.density;
     const transientValue = dynamics.transient_focus;
     const smoothValue = dynamics.smoothness;
@@ -406,39 +671,311 @@
     widthInput.className = 'preset-voicing-input';
     widthInput.type = 'number';
     widthInput.step = '0.01';
+    widthInput.min = '0.9';
+    widthInput.max = '1.1';
     widthInput.value = Number.isFinite(Number(widthValue)) ? Number(widthValue).toFixed(2) : '';
     widthInput.dataset.field = 'width';
+    widthInput.disabled = !canEdit;
 
     const densityInput = document.createElement('input');
     densityInput.className = 'preset-voicing-input';
     densityInput.type = 'number';
     densityInput.step = '0.01';
+    densityInput.min = '0';
+    densityInput.max = '1';
     densityInput.value = Number.isFinite(Number(densityValue)) ? Number(densityValue).toFixed(2) : '';
     densityInput.dataset.field = 'density';
+    densityInput.disabled = !canEdit;
 
     const transientInput = document.createElement('input');
     transientInput.className = 'preset-voicing-input';
     transientInput.type = 'number';
     transientInput.step = '0.01';
+    transientInput.min = '0';
+    transientInput.max = '1';
     transientInput.value = Number.isFinite(Number(transientValue)) ? Number(transientValue).toFixed(2) : '';
     transientInput.dataset.field = 'transient_focus';
+    transientInput.disabled = !canEdit;
 
     const smoothInput = document.createElement('input');
     smoothInput.className = 'preset-voicing-input';
     smoothInput.type = 'number';
     smoothInput.step = '0.01';
+    smoothInput.min = '0';
+    smoothInput.max = '1';
     smoothInput.value = Number.isFinite(Number(smoothValue)) ? Number(smoothValue).toFixed(2) : '';
     smoothInput.dataset.field = 'smoothness';
+    smoothInput.disabled = !canEdit;
 
     voicingEditor.appendChild(makeVoicingRow('Width', widthInput));
     voicingEditor.appendChild(makeVoicingRow('Density', densityInput));
     voicingEditor.appendChild(makeVoicingRow('Transient', transientInput));
     voicingEditor.appendChild(makeVoicingRow('Smoothness', smoothInput));
-    if(voicingSaveBtn) voicingSaveBtn.disabled = item.origin !== 'user';
+    if(voicingSaveBtn) voicingSaveBtn.disabled = !canEdit;
+  }
+
+  function ensureMacroBands(eqList){
+    const used = new Set();
+    return MACRO_SLOTS.map((slot) => {
+      let bestIndex = -1;
+      let bestDistance = Infinity;
+      eqList.forEach((band, index) => {
+        if(used.has(index)) return;
+        const bandType = normalizeEqType(band?.type);
+        if(bandType !== slot.type) return;
+        const freq = Number(band?.freq_hz ?? band?.freq);
+        if(!Number.isFinite(freq)) return;
+        const distance = Math.abs(freq - slot.defaultFreq);
+        if(distance < bestDistance){
+          bestDistance = distance;
+          bestIndex = index;
+        }
+      });
+      if(bestIndex === -1){
+        if(eqList.length < 10){
+          const newBand = {
+            type: slot.type,
+            freq_hz: slot.defaultFreq,
+            gain_db: 0,
+            q: slot.defaultQ,
+          };
+          eqList.push(newBand);
+          bestIndex = eqList.length - 1;
+        }else{
+          eqList.forEach((band, index) => {
+            const bandType = normalizeEqType(band?.type);
+            if(bandType !== slot.type) return;
+            const freq = Number(band?.freq_hz ?? band?.freq);
+            if(!Number.isFinite(freq)) return;
+            const distance = Math.abs(freq - slot.defaultFreq);
+            if(distance < bestDistance){
+              bestDistance = distance;
+              bestIndex = index;
+            }
+          });
+          if(bestIndex === -1 && eqList.length){
+            bestIndex = 0;
+          }
+        }
+      }
+      used.add(bestIndex);
+      return { slot, index: bestIndex, band: eqList[bestIndex] };
+    });
+  }
+
+  function renderVoicingMacro(){
+    if(!voicingMacro) return;
+    voicingMacro.innerHTML = '';
+    if(!selectedVoicingFull) return;
+    const canEdit = selectedItem && (selectedItem.origin === 'user' || selectedItem.origin === 'staging');
+    const eqList = getVoicingEqList();
+    const slots = ensureMacroBands(eqList);
+    slots.forEach(({ slot, index, band }) => {
+      if(!band) return;
+      const row = document.createElement('div');
+      row.className = 'preset-voicing-macro-row';
+      row.dataset.index = String(index);
+      row.dataset.slot = slot.key;
+
+      const label = document.createElement('div');
+      label.className = 'preset-voicing-macro-label';
+      label.textContent = slot.label;
+
+      const select = document.createElement('select');
+      select.className = 'preset-voicing-macro-select';
+      select.dataset.field = 'freq';
+      select.disabled = !canEdit;
+      const rawFreq = Number(band?.freq_hz ?? band?.freq);
+      const currentFreq = Number.isFinite(rawFreq) ? rawFreq : slot.defaultFreq;
+      band.freq_hz = currentFreq;
+      if(!Number.isFinite(Number(band?.q))){
+        band.q = slot.defaultQ;
+      }
+      const choices = slot.choices.slice();
+      if(Number.isFinite(currentFreq) && !choices.includes(currentFreq)){
+        choices.push(currentFreq);
+        choices.sort((a, b) => a - b);
+      }
+      choices.forEach((freq) => {
+        const option = document.createElement('option');
+        option.value = String(freq);
+        option.textContent = `${freq} Hz`;
+        if(Number.isFinite(currentFreq) && Math.round(currentFreq) === Math.round(freq)){
+          option.selected = true;
+        }
+        select.appendChild(option);
+      });
+
+      const slider = document.createElement('input');
+      slider.className = 'preset-voicing-macro-slider';
+      slider.type = 'range';
+      slider.min = '-3';
+      slider.max = '3';
+      slider.step = '0.1';
+      slider.dataset.field = 'gain';
+      const gainVal = clampValue(Number(band?.gain_db ?? band?.gain ?? 0), -3, 3);
+      slider.value = Number.isFinite(gainVal) ? String(gainVal) : '0';
+      slider.disabled = !canEdit;
+      if(Number.isFinite(gainVal)){
+        band.gain_db = gainVal;
+      }
+
+      const value = document.createElement('div');
+      value.className = 'preset-voicing-macro-value';
+      value.textContent = `${Number(slider.value).toFixed(1)} dB`;
+
+      row.appendChild(label);
+      row.appendChild(select);
+      row.appendChild(slider);
+      row.appendChild(value);
+      voicingMacro.appendChild(row);
+    });
+  }
+
+  function renderVoicingAdvanced(){
+    const eqList = getVoicingEqList();
+    const canEdit = selectedItem && (selectedItem.origin === 'user' || selectedItem.origin === 'staging');
+    renderVoicingEqEditor(eqList, { canEdit });
+    if(voicingAddBandBtn){
+      voicingAddBandBtn.disabled = !canEdit || eqList.length >= 10;
+    }
+  }
+
+  async function loadVoicingFull(item){
+    if(!item) return null;
+    const token = ++voicingLoadToken;
+    const params = new URLSearchParams({
+      id: item.id,
+      kind: 'voicing',
+      origin: item.origin,
+    });
+    try{
+      const res = await fetch(`/api/library/item/download?${params.toString()}`, { cache: 'no-store' });
+      if(!res.ok) throw new Error('load_failed');
+      const text = await res.text();
+      const data = JSON.parse(text);
+      if(token !== voicingLoadToken) return null;
+      return ensureVoicingShape(data);
+    }catch(_err){
+      return null;
+    }
+  }
+
+  function handleVoicingMacroInput(evt){
+    if(!selectedVoicingFull) return;
+    const row = evt.target.closest('.preset-voicing-macro-row');
+    if(!row) return;
+    const eqList = getVoicingEqList();
+    const index = Number(row.dataset.index);
+    if(!Number.isFinite(index) || !eqList[index]) return;
+    const band = eqList[index];
+    const field = evt.target.dataset.field;
+    if(field === 'freq'){
+      const freqVal = Number(evt.target.value);
+      if(Number.isFinite(freqVal)){
+        band.freq_hz = freqVal;
+      }
+    }
+    if(field === 'gain'){
+      const gainVal = clampValue(Number(evt.target.value), -3, 3);
+      if(Number.isFinite(gainVal)){
+        band.gain_db = gainVal;
+        const valueEl = row.querySelector('.preset-voicing-macro-value');
+        if(valueEl) valueEl.textContent = `${gainVal.toFixed(1)} dB`;
+      }
+    }
+    if(!Number.isFinite(Number(band.q))){
+      const slot = MACRO_SLOTS.find(item => item.key === row.dataset.slot);
+      band.q = slot ? slot.defaultQ : 1.0;
+    }
+    renderEqPreview(eqList);
+    updateSaveButtonStates();
+  }
+
+  function handleVoicingEqInput(evt){
+    if(!selectedVoicingFull) return;
+    const input = evt.target;
+    if(!input.dataset.field) return;
+    const row = input.closest('.preset-eq-row');
+    if(!row) return;
+    const eqList = getVoicingEqList();
+    const index = Number(row.dataset.index);
+    if(!Number.isFinite(index) || !eqList[index]) return;
+    const band = eqList[index];
+    if(input.dataset.field === 'freq'){
+      const freqVal = Number(input.value);
+      band.freq_hz = Number.isFinite(freqVal) ? freqVal : null;
+    }
+    if(input.dataset.field === 'gain'){
+      const gainVal = Number(input.value);
+      band.gain_db = Number.isFinite(gainVal) ? gainVal : null;
+    }
+    if(input.dataset.field === 'q'){
+      const qVal = Number(input.value);
+      band.q = Number.isFinite(qVal) ? qVal : null;
+    }
+    renderEqPreview(eqList);
+    updateSaveButtonStates();
+  }
+
+  function handleVoicingEqClick(evt){
+    const deleteBtn = evt.target.closest('[data-action="delete-eq"]');
+    if(!deleteBtn) return;
+    if(!selectedVoicingFull) return;
+    const row = deleteBtn.closest('.preset-eq-row');
+    if(!row) return;
+    const eqList = getVoicingEqList();
+    const index = Number(row.dataset.index);
+    if(!Number.isFinite(index)) return;
+    eqList.splice(index, 1);
+    renderEqPreview(eqList);
+    renderVoicingAdvanced();
+    if(voicingMode === 'simple'){
+      renderVoicingMacro();
+    }
+    updateSaveButtonStates();
+  }
+
+  function handleVoicingEditorInput(evt){
+    if(!selectedVoicingFull) return;
+    const input = evt.target;
+    const field = input.dataset.field;
+    if(!field) return;
+    const chain = selectedVoicingFull.chain || {};
+    if(field === 'width'){
+      const widthVal = Number(input.value);
+      if(!chain.stereo) chain.stereo = {};
+      chain.stereo.width = Number.isFinite(widthVal) ? widthVal : null;
+    }else{
+      if(!chain.dynamics) chain.dynamics = {};
+      const val = Number(input.value);
+      chain.dynamics[field] = Number.isFinite(val) ? val : null;
+    }
+    selectedVoicingFull.chain = chain;
+    updateSaveButtonStates();
+  }
+
+  function addVoicingBand(){
+    if(!selectedVoicingFull) return;
+    const eqList = getVoicingEqList();
+    if(eqList.length >= 10) return;
+    eqList.push({
+      type: 'peaking',
+      freq_hz: 1000,
+      gain_db: 0,
+      q: 1.0,
+    });
+    renderEqPreview(eqList);
+    renderVoicingAdvanced();
+    if(voicingMode === 'simple'){
+      renderVoicingMacro();
+    }
+    updateSaveButtonStates();
   }
 
   async function saveProfileEdits(){
-    if(!selectedItem || selectedItem.kind !== 'profile' || selectedItem.origin !== 'user') return;
+    if(!selectedItem || selectedItem.kind !== 'profile') return;
+    if(!(selectedItem.origin === 'user' || selectedItem.origin === 'staging')) return;
     if(!profileEditor) return;
     const fields = {};
     const title = sanitizeInputValue(profileEditor.querySelector('[data-field=\"title\"]')?.value || '');
@@ -464,6 +1001,25 @@
     }
     fields.tpp = tpp;
 
+    const category = sanitizeInputValue(profileEditor.querySelector('[data-field=\"category\"]')?.value || '');
+    if(category){
+      fields.category = category;
+    }else{
+      fields.category = '';
+    }
+
+    const orderRaw = profileEditor.querySelector('[data-field=\"order\"]')?.value || '';
+    if(orderRaw === ''){
+      fields.order = '';
+    }else{
+      const orderVal = Number(orderRaw);
+      if(!Number.isFinite(orderVal) || orderVal < 0 || orderVal > 9999){
+        addStatusLine('Order must be between 0 and 9999.');
+        return;
+      }
+      fields.order = Math.round(orderVal);
+    }
+
     try{
       const res = await fetch('/api/library/item/update', {
         method: 'POST',
@@ -471,7 +1027,7 @@
         body: JSON.stringify({
           id: selectedItem.id,
           kind: 'profile',
-          origin: 'user',
+          origin: selectedItem.origin,
           fields,
         }),
       });
@@ -489,9 +1045,13 @@
   }
 
   async function saveVoicingEdits(){
-    if(!selectedItem || selectedItem.kind !== 'voicing' || selectedItem.origin !== 'user') return;
+    if(!selectedItem || selectedItem.kind !== 'voicing') return;
+    if(!(selectedItem.origin === 'user' || selectedItem.origin === 'staging')) return;
     if(!voicingEditor) return;
     if(!voicingEq) return;
+    if(!selectedVoicingFull){
+      selectedVoicingFull = voicingDataFromItem(selectedItem);
+    }
     const readNum = (field) => {
       const raw = voicingEditor.querySelector(`[data-field="${field}"]`)?.value || '';
       if(!raw) return null;
@@ -499,8 +1059,8 @@
       return Number.isFinite(num) ? num : NaN;
     };
     const width = readNum('width');
-    if(width !== null && (!Number.isFinite(width) || width < 0.5 || width > 2.0)){
-      addStatusLine('Width must be between 0.50 and 2.00.');
+    if(width !== null && (!Number.isFinite(width) || width < 0.9 || width > 1.1)){
+      addStatusLine('Width must be between 0.90 and 1.10.');
       return;
     }
     const density = readNum('density');
@@ -519,36 +1079,24 @@
       return;
     }
     const eqBands = [];
-    const rows = voicingEq.querySelectorAll('.preset-eq-row[data-type]');
-    for (const row of rows) {
-      const type = normalizeEqType(row.dataset.type);
+    const eqList = getVoicingEqList();
+    for (const band of eqList) {
+      const type = normalizeEqType(band?.type);
       if (!type) continue;
-      const freqRaw = row.querySelector('[data-field="freq"]')?.value || '';
-      const gainRaw = row.querySelector('[data-field="gain"]')?.value || '';
-      const qRaw = row.querySelector('[data-field="q"]')?.value || '';
-      if (!freqRaw && !gainRaw && !qRaw) {
-        continue;
-      }
-      const freq = Number(freqRaw);
-      if (!Number.isFinite(freq) || freq < 10 || freq > 30000) {
-        addStatusLine(`EQ ${eqTypeLabel(type)} frequency must be 10-30000 Hz.`);
+      const freq = Number(band?.freq_hz ?? band?.freq);
+      if (!Number.isFinite(freq) || freq < 20 || freq > 20000) {
+        addStatusLine(`EQ ${eqTypeLabel(type)} frequency must be 20-20000 Hz.`);
         return;
       }
-      let gain = 0;
-      if (gainRaw !== '') {
-        gain = Number(gainRaw);
-        if (!Number.isFinite(gain) || gain < -24 || gain > 24) {
-          addStatusLine(`EQ ${eqTypeLabel(type)} gain must be between -24 and 24 dB.`);
-          return;
-        }
+      const gain = Number(band?.gain_db ?? band?.gain ?? 0);
+      if (!Number.isFinite(gain) || gain < -6 || gain > 6) {
+        addStatusLine(`EQ ${eqTypeLabel(type)} gain must be between -6 and 6 dB.`);
+        return;
       }
-      let q = 1.0;
-      if (qRaw !== '') {
-        q = Number(qRaw);
-        if (!Number.isFinite(q) || q < 0.1 || q > 10) {
-          addStatusLine(`EQ ${eqTypeLabel(type)} Q must be between 0.1 and 10.`);
-          return;
-        }
+      const q = Number(band?.q ?? 1.0);
+      if (!Number.isFinite(q) || q < 0.3 || q > 4.0) {
+        addStatusLine(`EQ ${eqTypeLabel(type)} Q must be between 0.3 and 4.0.`);
+        return;
       }
       eqBands.push({
         type,
@@ -557,6 +1105,9 @@
         q,
       });
     }
+    const meta = selectedVoicingFull?.meta || selectedItem.meta || {};
+    const title = sanitizeInputValue(meta.title || '');
+    const tags = Array.isArray(meta.tags) ? meta.tags.map(tag => sanitizeInputValue(tag)).filter(Boolean) : [];
     try{
       const res = await fetch('/api/library/item/update', {
         method: 'POST',
@@ -564,8 +1115,10 @@
         body: JSON.stringify({
           id: selectedItem.id,
           kind: 'voicing',
-          origin: 'user',
+          origin: selectedItem.origin,
           fields: {
+            title: title || undefined,
+            tags,
             width,
             density,
             transient_focus: transient,
@@ -599,6 +1152,7 @@
         '<div><span class="muted">Type:</span> -</div>';
       if(detailVoicing) detailVoicing.hidden = true;
       if(detailProfile) detailProfile.hidden = true;
+      selectedVoicingFull = null;
       if(voicingEq) voicingEq.innerHTML = '';
       renderProfileEditor(null);
       renderVoicingEditor(null);
@@ -606,10 +1160,13 @@
       if(moveBtn) moveBtn.disabled = true;
       if(duplicateBtn) duplicateBtn.disabled = true;
       if(deleteBtn) deleteBtn.disabled = true;
-      if(detailHint) detailHint.textContent = 'Select an item to view details.';
-      if(selectedHint) selectedHint.textContent = 'Select a voicing or profile to view details.';
-      return;
-    }
+    if(detailHint) detailHint.textContent = 'Select an item to view details.';
+    if(selectedHint) selectedHint.textContent = 'Select a voicing or profile to view details.';
+    setProfileBaselineFromEditor();
+    setVoicingBaselineFromEditor();
+    updateSaveButtonStates();
+    return;
+  }
 
     const kindLabel = selectedItem.kind === 'voicing' ? 'Voicing' : 'Profile';
     const originLabel = selectedItem.origin === 'staging' ? 'Staging' : 'User';
@@ -626,14 +1183,21 @@
       `<div><span class="muted">Type:</span> ${kindLabel}</div>`;
 
     if(selectedItem.kind === 'voicing'){
-      const tags = Array.isArray(selectedItem.meta?.tags) ? selectedItem.meta.tags : [];
+      const canEdit = selectedItem.origin === 'user' || selectedItem.origin === 'staging';
+      if(!selectedVoicingFull || selectedVoicingFull.id !== selectedItem.id){
+        selectedVoicingFull = voicingDataFromItem(selectedItem);
+      }
+      selectedVoicingFull = ensureVoicingShape(selectedVoicingFull);
+      const meta = selectedVoicingFull?.meta || selectedItem.meta || {};
+      const chain = selectedVoicingFull?.chain || {};
+      const tags = Array.isArray(meta.tags) ? meta.tags : [];
       detailSummary.textContent = tags[0] || 'No description available.';
       if(detailVoicing) detailVoicing.hidden = false;
       if(detailProfile) detailProfile.hidden = true;
-      const width = Number.isFinite(Number(selectedItem.meta?.width))
-        ? Number(selectedItem.meta.width)
-        : Number(selectedItem.meta?.stereo?.width);
-      const dynamics = selectedItem.meta?.dynamics || {};
+      const width = Number.isFinite(Number(chain?.stereo?.width))
+        ? Number(chain.stereo.width)
+        : Number(meta?.width ?? meta?.stereo?.width);
+      const dynamics = chain?.dynamics || meta?.dynamics || {};
       if(voicingStats){
         voicingStats.innerHTML = '';
         const parts = [];
@@ -659,12 +1223,29 @@
           voicingStats.appendChild(span);
         });
       }
-      renderVoicingEqEditor(selectedItem.meta?.eq || []);
-      renderVoicingEditor(selectedItem);
-      renderEqPreview(selectedItem.meta?.eq || []);
+      setVoicingMode('simple');
+      renderVoicingEditor({ ...selectedItem, ...selectedVoicingFull });
+      if(voicingAddBandBtn) voicingAddBandBtn.disabled = !canEdit;
+      loadVoicingFull(selectedItem).then((fullData) => {
+        if(!fullData) return;
+        const fullId = fullData.id || fullData.name;
+        if(!selectedItem || selectedItem.kind !== 'voicing' || (fullId && selectedItem.id !== fullId)) return;
+        selectedVoicingFull = fullData;
+        renderVoicingEditor({ ...selectedItem, ...selectedVoicingFull });
+        renderEqPreview(Array.isArray(fullData.chain?.eq) ? fullData.chain.eq : []);
+        if(voicingMode === 'advanced'){
+          renderVoicingAdvanced();
+        }else{
+          renderVoicingMacro();
+        }
+        setProfileBaselineFromEditor();
+        setVoicingBaselineFromEditor();
+        updateSaveButtonStates();
+      });
     }else{
+      selectedVoicingFull = null;
       const lufs = formatNumber(selectedItem.meta?.lufs, 1);
-      const tp = formatNumber(selectedItem.meta?.tp, 1);
+      const tp = formatNumber(selectedItem.meta?.tp ?? selectedItem.meta?.tpp, 1);
       const parts = [];
       if(lufs) parts.push(`${lufs} LUFS`);
       if(tp) parts.push(`${tp} dBTP`);
@@ -703,11 +1284,18 @@
     if(duplicateBtn) duplicateBtn.disabled = selectedItem.origin !== 'user';
     if(deleteBtn) deleteBtn.disabled = !(selectedItem.origin === 'user' || selectedItem.origin === 'staging');
     if(detailHint){
-      detailHint.textContent = selectedItem.origin === 'staging'
-        ? 'Move to User to store this item in your library.'
-        : 'Download, duplicate, or delete this item.';
+      if(selectedItem.origin === 'builtin'){
+        detailHint.textContent = 'Duplicate to User to edit this preset.';
+      }else{
+        detailHint.textContent = selectedItem.origin === 'staging'
+          ? 'Move to User to store this item in your library.'
+          : 'Download, duplicate, or delete this item.';
+      }
     }
     if(selectedHint) selectedHint.textContent = `Selected: ${selectedItem.title || selectedItem.id}`;
+    setProfileBaselineFromEditor();
+    setVoicingBaselineFromEditor();
+    updateSaveButtonStates();
   }
 
   function setSelectedItem(item){
@@ -914,6 +1502,14 @@
     if(duplicateBuiltinVoicingBtn) duplicateBuiltinVoicingBtn.addEventListener('click', ()=> duplicateBuiltin('voicing'));
     if(profileSaveBtn) profileSaveBtn.addEventListener('click', saveProfileEdits);
     if(voicingSaveBtn) voicingSaveBtn.addEventListener('click', saveVoicingEdits);
+    if(profileEditor) profileEditor.addEventListener('input', updateSaveButtonStates);
+    if(voicingEditor) voicingEditor.addEventListener('input', handleVoicingEditorInput);
+    if(voicingEq) voicingEq.addEventListener('input', handleVoicingEqInput);
+    if(voicingEq) voicingEq.addEventListener('click', handleVoicingEqClick);
+    if(voicingMacro) voicingMacro.addEventListener('input', handleVoicingMacroInput);
+    if(voicingModeSimpleBtn) voicingModeSimpleBtn.addEventListener('click', ()=> setVoicingMode('simple'));
+    if(voicingModeAdvancedBtn) voicingModeAdvancedBtn.addEventListener('click', ()=> setVoicingMode('advanced'));
+    if(voicingAddBandBtn) voicingAddBandBtn.addEventListener('click', addVoicingBand);
     updateDetail();
     loadBuiltinPresets();
     scheduleStatusRender();
