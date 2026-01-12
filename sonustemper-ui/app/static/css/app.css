@@ -188,6 +188,8 @@ h1{margin:0;font-size:24px;}
 .voicing-desc{
   font-size:12px;
   line-height:1.35;
+  min-height:calc(2 * 1.35em);
+  max-height:calc(2 * 1.35em);
   display:-webkit-box;
   -webkit-line-clamp:2;
   -webkit-box-orient:vertical;
@@ -195,8 +197,15 @@ h1{margin:0;font-size:24px;}
 }
 .voicing-tags{
   margin-top:auto;
+  min-height:50px;
   max-height:50px;
   overflow:hidden;
+  gap:4px;
+  align-content:flex-end;
+}
+.voicing-tags .badge{
+  padding:3px 6px;
+  font-size:10px;
 }
 .eq-grid{
   stroke:#1f2a38;
