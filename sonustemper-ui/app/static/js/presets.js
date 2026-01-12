@@ -829,13 +829,13 @@
           select.appendChild(option);
         });
 
-        const slider = document.createElement('input');
-        slider.className = 'preset-voicing-macro-slider';
-        slider.type = 'range';
-        slider.min = '-3';
-        slider.max = '3';
-        slider.step = '0.1';
-        slider.dataset.field = 'gain';
+      const slider = document.createElement('input');
+      slider.className = 'preset-voicing-macro-slider';
+      slider.type = 'range';
+      slider.min = '-3';
+      slider.max = '3';
+      slider.step = '0.1';
+      slider.dataset.field = 'gain';
         const gainVal = clampValue(Number(band?.gain_db ?? band?.gain ?? 0), -3, 3);
         slider.value = Number.isFinite(gainVal) ? String(gainVal) : '0';
         slider.disabled = !canEdit;
@@ -843,17 +843,39 @@
           band.gain_db = gainVal;
         }
 
-        const value = document.createElement('div');
-        value.className = 'preset-voicing-macro-value';
-        value.textContent = `${Number(slider.value).toFixed(1)} dB`;
+      const value = document.createElement('div');
+      value.className = 'preset-voicing-macro-value';
+      value.dataset.value = 'gain';
+      value.textContent = `${Number(slider.value).toFixed(1)} dB`;
 
-        row.appendChild(label);
-        row.appendChild(select);
-        row.appendChild(slider);
-        row.appendChild(value);
-        voicingMacro.appendChild(row);
-        return;
+      const qSlider = document.createElement('input');
+      qSlider.className = 'preset-voicing-macro-slider preset-voicing-macro-slider-short';
+      qSlider.type = 'range';
+      qSlider.min = '0.3';
+      qSlider.max = '4';
+      qSlider.step = '0.01';
+      qSlider.dataset.field = 'q';
+      const qVal = clampValue(Number(band?.q ?? slot.defaultQ), 0.3, 4);
+      qSlider.value = Number.isFinite(qVal) ? String(qVal) : '1.0';
+      qSlider.disabled = !canEdit;
+      if(Number.isFinite(qVal)){
+        band.q = qVal;
       }
+
+      const qValue = document.createElement('div');
+      qValue.className = 'preset-voicing-macro-value';
+      qValue.dataset.value = 'q';
+      qValue.textContent = `Q ${Number(qSlider.value).toFixed(2)}`;
+
+      row.appendChild(label);
+      row.appendChild(select);
+      row.appendChild(slider);
+      row.appendChild(value);
+      row.appendChild(qSlider);
+      row.appendChild(qValue);
+      voicingMacro.appendChild(row);
+      return;
+    }
       const band = entry.band;
       const row = document.createElement('div');
       row.className = 'preset-voicing-macro-row preset-voicing-macro-row-extra';
@@ -888,23 +910,35 @@
       if(Number.isFinite(gainVal)){
         band.gain_db = gainVal;
       }
-      const q = document.createElement('input');
-      q.className = 'preset-voicing-macro-input';
-      q.type = 'number';
-      q.step = '0.01';
-      q.min = '0.3';
-      q.max = '4';
-      q.placeholder = 'Q';
-      const qVal = Number(band?.q);
+      const gainValue = document.createElement('div');
+      gainValue.className = 'preset-voicing-macro-value';
+      gainValue.dataset.value = 'gain';
+      gainValue.textContent = `${Number(gain.value).toFixed(1)} dB`;
+
+      const qSlider = document.createElement('input');
+      qSlider.className = 'preset-voicing-macro-slider preset-voicing-macro-slider-short';
+      qSlider.type = 'range';
+      qSlider.min = '0.3';
+      qSlider.max = '4';
+      qSlider.step = '0.01';
+      qSlider.dataset.field = 'q';
+      const qVal = clampValue(Number(band?.q ?? 1.0), 0.3, 4);
+      qSlider.value = Number.isFinite(qVal) ? String(qVal) : '1.0';
+      qSlider.disabled = !canEdit;
       if(Number.isFinite(qVal)){
-        q.value = qVal.toFixed(2);
+        band.q = qVal;
       }
-      q.dataset.field = 'q';
-      q.disabled = !canEdit;
+
+      const qValue = document.createElement('div');
+      qValue.className = 'preset-voicing-macro-value';
+      qValue.dataset.value = 'q';
+      qValue.textContent = `Q ${Number(qSlider.value).toFixed(2)}`;
       row.appendChild(label);
       row.appendChild(freq);
       row.appendChild(gain);
-      row.appendChild(q);
+      row.appendChild(gainValue);
+      row.appendChild(qSlider);
+      row.appendChild(qValue);
       voicingMacro.appendChild(row);
     });
   }
@@ -957,13 +991,17 @@
       const gainVal = clampValue(Number(evt.target.value), min, max);
       if(Number.isFinite(gainVal)){
         band.gain_db = gainVal;
-        const valueEl = row.querySelector('.preset-voicing-macro-value');
+        const valueEl = row.querySelector('[data-value="gain"]');
         if(valueEl) valueEl.textContent = `${gainVal.toFixed(1)} dB`;
       }
     }
     if(field === 'q'){
       const qVal = Number(evt.target.value);
       band.q = Number.isFinite(qVal) ? qVal : null;
+      const valueEl = row.querySelector('[data-value="q"]');
+      if(valueEl && Number.isFinite(qVal)){
+        valueEl.textContent = `Q ${qVal.toFixed(2)}`;
+      }
     }
     if(!Number.isFinite(Number(band.q))){
       const slot = MACRO_SLOTS.find(item => item.key === row.dataset.slot);
