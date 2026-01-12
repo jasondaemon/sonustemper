@@ -42,6 +42,10 @@ PREVIEW_BITRATE_KBPS = int(os.getenv("PREVIEW_BITRATE_KBPS", "128"))
 PREVIEW_SAMPLE_RATE = int(os.getenv("PREVIEW_SAMPLE_RATE", "44100"))
 PRESET_DIR = Path(os.getenv("PRESET_DIR", os.getenv("PRESET_USER_DIR", str(DATA_DIR / "presets" / "user"))))
 GEN_PRESET_DIR = Path(os.getenv("GEN_PRESET_DIR", str(DATA_DIR / "presets" / "generated")))
+USER_VOICING_DIR = PRESET_DIR / "voicings"
+USER_PROFILE_DIR = PRESET_DIR / "profiles"
+STAGING_VOICING_DIR = GEN_PRESET_DIR / "voicings"
+STAGING_PROFILE_DIR = GEN_PRESET_DIR / "profiles"
 TAG_IN_DIR = Path(os.getenv("TAG_IN_DIR", str(DATA_DIR / "tagging" / "in")))
 TAG_TMP_DIR = Path(os.getenv("TAG_TMP_DIR", str(DATA_DIR / "tagging" / "tmp")))
 ANALYSIS_IN_DIR = Path(os.getenv("ANALYSIS_IN_DIR", str(DATA_DIR / "analysis" / "in")))
@@ -94,6 +98,50 @@ def _builtin_voicing_dirs() -> list[Path]:
         if candidate.exists():
             dirs.append(candidate)
     return dirs
+
+def _preset_dir(origin: str, kind: str) -> Path:
+    origin = (origin or "").strip().lower()
+    kind = (kind or "").strip().lower()
+    if kind not in {"voicing", "profile"}:
+        raise ValueError("invalid kind")
+    if origin == "user":
+        return USER_VOICING_DIR if kind == "voicing" else USER_PROFILE_DIR
+    if origin in {"staging", "generated"}:
+        return STAGING_VOICING_DIR if kind == "voicing" else STAGING_PROFILE_DIR
+    raise ValueError("invalid origin")
+
+def _preset_dirs_for_origin(origin: str, kind: str | None = None) -> list[tuple[Path, str | None]]:
+    origin = (origin or "").strip().lower()
+    kind = (kind or "").strip().lower() if kind else None
+    roots: list[tuple[Path, str | None]] = []
+    if origin == "user":
+        if kind in (None, "voicing"):
+            roots.append((USER_VOICING_DIR, "voicing"))
+        if kind in (None, "profile"):
+            roots.append((USER_PROFILE_DIR, "profile"))
+        roots.append((PRESET_DIR, None))
+    elif origin in {"staging", "generated"}:
+        if kind in (None, "voicing"):
+            roots.append((STAGING_VOICING_DIR, "voicing"))
+        if kind in (None, "profile"):
+            roots.append((STAGING_PROFILE_DIR, "profile"))
+        roots.append((GEN_PRESET_DIR, None))
+    elif origin == "builtin":
+        if kind in (None, "profile"):
+            for root in _builtin_profile_dirs():
+                roots.append((root, "profile"))
+        if kind in (None, "voicing"):
+            for root in _builtin_voicing_dirs():
+                roots.append((root, "voicing"))
+    return roots
+
+def _iter_preset_files_by_origin(origin: str, kind: str | None = None):
+    for root, default_kind in _preset_dirs_for_origin(origin, kind):
+        if not root.exists():
+            continue
+        for fp in sorted(root.glob("*.json"), key=lambda p: p.name.lower()):
+            if fp.is_file():
+                yield fp, default_kind
 UI_TEMPLATES = Jinja2Templates(directory=str(UI_APP_DIR / "templates")) if UI_APP_DIR.exists() else None
 if UI_TEMPLATES:
     UI_TEMPLATES.env.globals["static_url"] = lambda path: f"/static/{(path or '').lstrip('/')}"
@@ -678,8 +726,16 @@ def read_metrics_for_wav(wav: Path) -> dict | None:
         return None
 def _preset_paths():
     paths = []
+    if USER_VOICING_DIR.exists():
+        paths.extend(sorted(USER_VOICING_DIR.glob("*.json")))
+    if USER_PROFILE_DIR.exists():
+        paths.extend(sorted(USER_PROFILE_DIR.glob("*.json")))
     if PRESET_DIR.exists():
         paths.extend(sorted(PRESET_DIR.glob("*.json")))
+    if STAGING_VOICING_DIR.exists():
+        paths.extend(sorted(STAGING_VOICING_DIR.glob("*.json")))
+    if STAGING_PROFILE_DIR.exists():
+        paths.extend(sorted(STAGING_PROFILE_DIR.glob("*.json")))
     if GEN_PRESET_DIR.exists():
         paths.extend(sorted(GEN_PRESET_DIR.glob("*.json")))
     for root in _builtin_profile_dirs():
@@ -1112,6 +1168,55 @@ def analyze_reference(path: Path) -> dict:
         "crest_factor": cf_corr.get("crest_factor"),
     }
 
+def _build_profile_from_reference(metrics: dict, name: str, source_file: str | None = None) -> dict:
+    target_lufs = metrics.get("I")
+    if target_lufs is None:
+        target_lufs = -14.0
+    tp = metrics.get("TP")
+    if tp is None:
+        tp = -1.0
+    return {
+        "name": name,
+        "lufs": float(target_lufs),
+        "tpp": float(tp),
+        "category": "Generated",
+        "order": 999,
+        "meta": {
+            "title": name,
+            "kind": "profile",
+            "source_file": source_file,
+            "source": "generated",
+            "created_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
+        },
+    }
+
+def _build_voicing_from_reference(metrics: dict, name: str, source_file: str | None = None) -> dict:
+    eq = []
+    crest = metrics.get("crest_factor")
+    if crest is not None and crest < 10:
+        eq.append({"type": "peaking", "freq_hz": 250, "gain_db": -1.5, "q": 1.0})
+    eq.append({"type": "highshelf", "freq_hz": 9500, "gain_db": 1.0, "q": 0.8})
+    return {
+        "id": name,
+        "meta": {
+            "title": name,
+            "kind": "voicing",
+            "tags": ["Generated from reference audio."],
+            "source_file": source_file,
+            "source": "generated",
+            "created_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
+        },
+        "chain": {
+            "eq": eq,
+            "dynamics": {
+                "density": 0.4,
+                "transient_focus": 0.5,
+                "smoothness": 0.4,
+            },
+            "stereo": {"width": 1.0},
+        },
+    }
+
 def _safe_slug(s: str, max_len: int = 64) -> str:
     s = re.sub(r"[^A-Za-z0-9._-]+", "_", s.strip())
     s = re.sub(r"_+", "_", s).strip("_")
@@ -1143,6 +1248,7 @@ def _preset_meta_from_file(fp: Path, default_kind: str | None = None) -> dict:
         tags = [str(tag) for tag in tags if tag is not None and str(tag).strip()]
         chain = data.get("chain") if isinstance(data, dict) else None
         stereo = chain.get("stereo") if isinstance(chain, dict) else None
+        dynamics = chain.get("dynamics") if isinstance(chain, dict) else None
         width = None
         eq = None
         if isinstance(stereo, dict) and "width" in stereo:
@@ -1151,6 +1257,8 @@ def _preset_meta_from_file(fp: Path, default_kind: str | None = None) -> dict:
             eq = chain.get("eq")
         elif isinstance(data.get("eq"), list):
             eq = data.get("eq")
+        name = data.get("name")
+        voicing_id = data.get("id")
         lufs = data.get("lufs")
         if lufs is None:
             lufs = data.get("target_lufs")
@@ -1167,9 +1275,12 @@ def _preset_meta_from_file(fp: Path, default_kind: str | None = None) -> dict:
         if manual is None:
             manual = data.get("manual")
         return {
-            "title": meta.get("title") or data.get("name") or fp.stem,
+            "title": meta.get("title") or name or voicing_id or fp.stem,
+            "name": name,
+            "id": voicing_id,
             "source_file": meta.get("source_file"),
             "created_at": meta.get("created_at"),
+            "source": meta.get("source"),
             "kind": kind,
             "lufs": lufs,
             "tp": tp,
@@ -1179,9 +1290,84 @@ def _preset_meta_from_file(fp: Path, default_kind: str | None = None) -> dict:
             "order": order,
             "width": width,
             "eq": eq,
+            "dynamics": dynamics if isinstance(dynamics, dict) else None,
+            "stereo": stereo if isinstance(stereo, dict) else None,
         }
     except Exception:
         return {"title": fp.stem, "kind": default_kind.lower() if default_kind else None}
+
+def _library_item_from_file(fp: Path, origin: str, default_kind: str | None = None) -> dict:
+    meta = _preset_meta_from_file(fp, default_kind=default_kind)
+    effective_kind = (meta.get("kind") or default_kind or "profile").lower()
+    if effective_kind == "voicing":
+        item_id = meta.get("id") or meta.get("name") or fp.stem
+    else:
+        item_id = meta.get("name") or meta.get("id") or fp.stem
+    if not meta.get("source"):
+        meta["source"] = origin if origin != "staging" else "generated"
+    return {
+        "id": item_id,
+        "title": meta.get("title") or item_id,
+        "origin": origin,
+        "readonly": origin == "builtin",
+        "kind": effective_kind,
+        "filename": fp.name,
+        "meta": meta,
+    }
+
+def _library_items(origin: str, kind: str | None = None) -> list[dict]:
+    items: list[dict] = []
+    for fp, default_kind in _iter_preset_files_by_origin(origin, kind):
+        item = _library_item_from_file(fp, origin, default_kind=default_kind)
+        if kind and item.get("kind") != kind:
+            continue
+        items.append(item)
+    return items
+
+def _preset_reserved_names_for(kind: str, include_user: bool = True, include_staging: bool = True, include_builtin: bool = True) -> set[str]:
+    names: set[str] = set()
+    kind = (kind or "").strip().lower()
+    if kind not in {"voicing", "profile"}:
+        return names
+    if include_user:
+        for fp, default_kind in _iter_preset_files_by_origin("user", kind):
+            meta = _preset_meta_from_file(fp, default_kind=default_kind)
+            effective_kind = (meta.get("kind") or default_kind or "profile").lower()
+            if effective_kind == kind:
+                names.add(fp.stem)
+    if include_staging:
+        for fp, default_kind in _iter_preset_files_by_origin("staging", kind):
+            meta = _preset_meta_from_file(fp, default_kind=default_kind)
+            effective_kind = (meta.get("kind") or default_kind or "profile").lower()
+            if effective_kind == kind:
+                names.add(fp.stem)
+    if include_builtin:
+        for fp, default_kind in _iter_preset_files_by_origin("builtin", kind):
+            meta = _preset_meta_from_file(fp, default_kind=default_kind)
+            effective_kind = (meta.get("kind") or default_kind or "profile").lower()
+            if effective_kind == kind:
+                names.add(fp.stem)
+    return names
+
+def _find_preset_file(origin: str, kind: str, preset_id: str) -> Path | None:
+    origin = (origin or "").strip().lower()
+    kind = (kind or "").strip().lower()
+    safe = _safe_slug(preset_id or "")
+    if not safe or kind not in {"voicing", "profile"}:
+        return None
+    for root, default_kind in _preset_dirs_for_origin(origin, kind):
+        candidate = root / f"{safe}.json"
+        if not candidate.exists():
+            continue
+        if default_kind and default_kind != kind:
+            continue
+        if not default_kind:
+            meta = _preset_meta_from_file(candidate)
+            effective_kind = (meta.get("kind") or "profile").lower()
+            if effective_kind != kind:
+                continue
+        return candidate
+    return None
 def find_input_file(song: str) -> Path | None:
     candidates: list[Path] = []
     try:
@@ -1979,9 +2165,9 @@ def _unique_preset_name(base: str, reserved: set[str]) -> str:
         idx += 1
 
 def _iter_preset_files():
-    roots = [PRESET_DIR, GEN_PRESET_DIR]
-    roots.extend(_builtin_profile_dirs())
-    roots.extend(_builtin_voicing_dirs())
+    roots = [root for root, _ in _preset_dirs_for_origin("user")]
+    roots.extend([root for root, _ in _preset_dirs_for_origin("staging")])
+    roots.extend([root for root, _ in _preset_dirs_for_origin("builtin")])
     for root in roots:
         if not root.exists():
             continue
@@ -1994,46 +2180,42 @@ def _find_preset_path(name: str) -> Path | None:
     safe = _safe_slug(name)
     if not safe:
         return None
-    roots = [PRESET_DIR, GEN_PRESET_DIR]
-    roots.extend(_builtin_profile_dirs())
-    roots.extend(_builtin_voicing_dirs())
+    roots = [root for root, _ in _preset_dirs_for_origin("user")]
+    roots.extend([root for root, _ in _preset_dirs_for_origin("staging")])
+    roots.extend([root for root, _ in _preset_dirs_for_origin("builtin")])
     for root in roots:
         candidate = root / f"{safe}.json"
         if candidate.exists():
             return candidate
     return None
 
-def _preset_items(kind: str | None = None) -> list[dict]:
-    items = []
-    builtin_profiles = _builtin_profile_dirs()
-    builtin_voicings = _builtin_voicing_dirs()
-    for fp in _iter_preset_files():
-        origin = "user"
-        readonly = False
-        default_kind = None
-        if any(root in fp.parents for root in builtin_profiles):
-            origin = "builtin"
-            readonly = True
-            default_kind = "profile"
-        elif any(root in fp.parents for root in builtin_voicings):
-            origin = "builtin"
-            readonly = True
-            default_kind = "voicing"
-        elif GEN_PRESET_DIR in fp.parents:
-            origin = "user"
-            default_kind = None
-        meta = _preset_meta_from_file(fp, default_kind=default_kind)
-        effective_kind = (meta.get("kind") or "profile").lower()
-        if kind and effective_kind != kind:
-            continue
-        items.append({
-            "name": fp.stem,
-            "filename": fp.name,
-            "origin": origin,
-            "readonly": readonly,
-            "kind": effective_kind,
-            "meta": meta,
-        })
+def _preset_items(kind: str | None = None, include_staging: bool = True, include_builtin: bool = True, include_user: bool = True) -> list[dict]:
+    items: list[dict] = []
+    origins: list[str] = []
+    if include_user:
+        origins.append("user")
+    if include_staging:
+        origins.append("staging")
+    if include_builtin:
+        origins.append("builtin")
+    for origin in origins:
+        for fp, default_kind in _iter_preset_files_by_origin(origin):
+            meta = _preset_meta_from_file(fp, default_kind=default_kind)
+            effective_kind = (meta.get("kind") or "profile").lower()
+            if kind and effective_kind != kind:
+                continue
+            if effective_kind == "voicing":
+                item_name = meta.get("id") or meta.get("name") or fp.stem
+            else:
+                item_name = meta.get("name") or meta.get("id") or fp.stem
+            items.append({
+                "name": item_name,
+                "filename": fp.name,
+                "origin": origin,
+                "readonly": origin == "builtin",
+                "kind": effective_kind,
+                "meta": meta,
+            })
     return items
 
 def _preset_name_list() -> list[str]:
@@ -2052,11 +2234,250 @@ def preset_list():
 
 @app.get("/api/voicings")
 def voicing_list():
-    return {"items": _preset_items("voicing")}
+    return {"items": _preset_items("voicing", include_staging=False)}
 
 @app.get("/api/profiles")
 def profile_list():
-    return {"items": _preset_items("profile")}
+    return {"items": _preset_items("profile", include_staging=False)}
+
+@app.get("/api/library/voicings")
+def library_voicings(origin: str = "user"):
+    origin = (origin or "user").strip().lower()
+    if origin == "generated":
+        origin = "staging"
+    if origin not in {"user", "staging"}:
+        raise HTTPException(status_code=400, detail="invalid_origin")
+    return {"items": _library_items(origin, "voicing")}
+
+@app.get("/api/library/profiles")
+def library_profiles(origin: str = "user"):
+    origin = (origin or "user").strip().lower()
+    if origin == "generated":
+        origin = "staging"
+    if origin not in {"user", "staging"}:
+        raise HTTPException(status_code=400, detail="invalid_origin")
+    return {"items": _library_items(origin, "profile")}
+
+@app.get("/api/library/staging")
+def library_staging():
+    return {"items": _library_items("staging")}
+
+@app.get("/api/library/builtins")
+def library_builtins(kind: str | None = None):
+    kind = (kind or "").strip().lower() if kind else None
+    if kind and kind not in {"voicing", "profile"}:
+        raise HTTPException(status_code=400, detail="invalid_kind")
+    return {"items": _library_items("builtin", kind)}
+
+@app.get("/api/library/item/download")
+def library_item_download(id: str, kind: str, origin: str):
+    origin = (origin or "").strip().lower()
+    if origin == "generated":
+        origin = "staging"
+    kind = (kind or "").strip().lower()
+    if origin not in {"user", "staging", "builtin"}:
+        raise HTTPException(status_code=400, detail="invalid_origin")
+    if kind not in {"voicing", "profile"}:
+        raise HTTPException(status_code=400, detail="invalid_kind")
+    target = _find_preset_file(origin, kind, id)
+    if not target:
+        raise HTTPException(status_code=404, detail="preset_not_found")
+    return FileResponse(str(target), media_type="application/json", filename=target.name)
+
+@app.delete("/api/library/item")
+def library_item_delete(payload: dict = Body(...)):
+    origin = (payload.get("origin") or "").strip().lower()
+    kind = (payload.get("kind") or "").strip().lower()
+    preset_id = payload.get("id") or ""
+    if origin == "generated":
+        origin = "staging"
+    if origin == "builtin":
+        raise HTTPException(status_code=403, detail="readonly_preset")
+    if origin not in {"user", "staging"}:
+        raise HTTPException(status_code=400, detail="invalid_origin")
+    if kind not in {"voicing", "profile"}:
+        raise HTTPException(status_code=400, detail="invalid_kind")
+    target = _find_preset_file(origin, kind, preset_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="preset_not_found")
+    target.unlink()
+    return {"message": f"Deleted {kind} {preset_id}"}
+
+@app.post("/api/library/duplicate")
+def library_duplicate(payload: dict = Body(...)):
+    origin = (payload.get("origin") or "").strip().lower()
+    kind = (payload.get("kind") or "").strip().lower()
+    preset_id = payload.get("id") or ""
+    new_name = payload.get("name") or ""
+    if origin not in {"builtin", "user"}:
+        raise HTTPException(status_code=400, detail="invalid_origin")
+    if kind not in {"voicing", "profile"}:
+        raise HTTPException(status_code=400, detail="invalid_kind")
+    source = _find_preset_file(origin, kind, preset_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="preset_not_found")
+    try:
+        data = json.loads(source.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="invalid_preset") from exc
+    reserved = _preset_reserved_names_for(kind, include_user=True, include_staging=False, include_builtin=True)
+    base_name = new_name or preset_id
+    safe_name = _unique_preset_name(base_name, reserved)
+    meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
+    meta["kind"] = kind
+    if new_name:
+        meta["title"] = new_name
+    elif not meta.get("title"):
+        meta["title"] = base_name
+    if not meta.get("created_at"):
+        meta["created_at"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    if not meta.get("source"):
+        meta["source"] = "builtin" if origin == "builtin" else "user"
+    data["meta"] = meta
+    if kind == "voicing":
+        data["id"] = safe_name
+    else:
+        data["name"] = safe_name
+    dest_dir = _preset_dir("user", kind)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / f"{safe_name}.json"
+    dest.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    return {"item": _library_item_from_file(dest, "user", default_kind=kind)}
+
+@app.post("/api/generate_from_reference")
+async def generate_from_reference(
+    file: UploadFile = File(...),
+    base_name: str = Form(""),
+    generate_voicing: str = Form("true"),
+    generate_profile: str = Form("true"),
+):
+    allowed_ext = {".wav", ".mp3", ".flac", ".aiff", ".aif"}
+    suffix = Path(file.filename).suffix.lower()
+    if suffix not in allowed_ext:
+        raise HTTPException(status_code=400, detail="unsupported_type")
+    contents = await file.read()
+    if len(contents) > 100 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="file_too_large")
+    wants_voicing = str(generate_voicing).lower() in {"1", "true", "yes", "on"}
+    wants_profile = str(generate_profile).lower() in {"1", "true", "yes", "on"}
+    if not wants_voicing and not wants_profile:
+        raise HTTPException(status_code=400, detail="nothing_to_generate")
+    tmpdir = tempfile.mkdtemp(dir=str(DATA_DIR))
+    tmp_path = Path(tmpdir) / Path(file.filename).name
+    tmp_path.write_bytes(contents)
+    created: list[dict] = []
+    try:
+        display_title = (base_name or "").strip() or Path(file.filename).stem or "Reference"
+        base = _safe_slug(display_title) or "reference"
+        metrics = analyze_reference(tmp_path)
+        if wants_voicing:
+            reserved = _preset_reserved_names_for("voicing", include_user=True, include_staging=True, include_builtin=True)
+            voicing_name = _unique_preset_name(base, reserved)
+            voicing = _build_voicing_from_reference(metrics, voicing_name, file.filename)
+            if voicing.get("meta") and display_title:
+                voicing["meta"]["title"] = display_title
+            voicing_dir = _preset_dir("staging", "voicing")
+            voicing_dir.mkdir(parents=True, exist_ok=True)
+            voicing_path = voicing_dir / f"{voicing_name}.json"
+            voicing_path.write_text(json.dumps(voicing, indent=2), encoding="utf-8")
+            created.append(_library_item_from_file(voicing_path, "staging", default_kind="voicing"))
+        if wants_profile:
+            reserved = _preset_reserved_names_for("profile", include_user=True, include_staging=True, include_builtin=True)
+            profile_name = _unique_preset_name(base, reserved)
+            profile = _build_profile_from_reference(metrics, profile_name, file.filename)
+            if profile.get("meta") and display_title:
+                profile["meta"]["title"] = display_title
+            profile_dir = _preset_dir("staging", "profile")
+            profile_dir.mkdir(parents=True, exist_ok=True)
+            profile_path = profile_dir / f"{profile_name}.json"
+            profile_path.write_text(json.dumps(profile, indent=2), encoding="utf-8")
+            created.append(_library_item_from_file(profile_path, "staging", default_kind="profile"))
+    finally:
+        try:
+            tmp_path.unlink(missing_ok=True)
+            Path(tmpdir).rmdir()
+        except Exception:
+            pass
+    return {"items": created}
+
+@app.post("/api/import_json_to_staging")
+async def import_json_to_staging(file: UploadFile = File(...), name: str = Form("")):
+    suffix = Path(file.filename).suffix.lower()
+    if suffix != ".json":
+        raise HTTPException(status_code=400, detail="unsupported_type")
+    raw = await file.read()
+    if len(raw) > 1 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="file_too_large")
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="invalid_json") from exc
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="invalid_preset")
+    meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
+    kind = _detect_preset_kind(data) or meta.get("kind") or "profile"
+    kind = str(kind).strip().lower()
+    if kind not in {"voicing", "profile"}:
+        raise HTTPException(status_code=400, detail="invalid_kind")
+    override = (name or "").strip()
+    if kind == "voicing":
+        base = override or data.get("id") or meta.get("title") or data.get("name") or Path(file.filename).stem
+    else:
+        base = override or data.get("name") or meta.get("title") or data.get("id") or Path(file.filename).stem
+    reserved = _preset_reserved_names_for(kind, include_user=True, include_staging=True, include_builtin=True)
+    safe_name = _unique_preset_name(base, reserved)
+    meta["kind"] = kind
+    if override:
+        meta["title"] = override
+    if not meta.get("title"):
+        meta["title"] = base
+    if not meta.get("created_at"):
+        meta["created_at"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    meta["source"] = "upload"
+    meta["source_file"] = meta.get("source_file") or file.filename
+    data["meta"] = meta
+    if kind == "voicing":
+        data["id"] = safe_name
+    else:
+        data["name"] = safe_name
+    dest_dir = _preset_dir("staging", kind)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / f"{safe_name}.json"
+    dest.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    return {"item": _library_item_from_file(dest, "staging", default_kind=kind)}
+
+@app.post("/api/staging/move_to_user")
+def staging_move_to_user(payload: dict = Body(...)):
+    kind = (payload.get("kind") or "").strip().lower()
+    preset_id = payload.get("id") or ""
+    if kind not in {"voicing", "profile"}:
+        raise HTTPException(status_code=400, detail="invalid_kind")
+    source = _find_preset_file("staging", kind, preset_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="preset_not_found")
+    try:
+        data = json.loads(source.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="invalid_preset") from exc
+    reserved = _preset_reserved_names_for(kind, include_user=True, include_staging=False, include_builtin=True)
+    safe_name = _unique_preset_name(preset_id, reserved)
+    meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
+    meta["kind"] = kind
+    if not meta.get("created_at"):
+        meta["created_at"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    if not meta.get("source"):
+        meta["source"] = "generated"
+    data["meta"] = meta
+    if kind == "voicing":
+        data["id"] = safe_name
+    else:
+        data["name"] = safe_name
+    dest_dir = _preset_dir("user", kind)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / f"{safe_name}.json"
+    dest.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    source.unlink()
+    return {"item": _library_item_from_file(dest, "user", default_kind=kind)}
 @app.get("/api/preset/download/{name}")
 def preset_download(name: str):
     target = _find_preset_path(name)
@@ -2095,21 +2516,38 @@ async def preset_upload(file: UploadFile = File(...)):
     if not isinstance(data, dict):
         raise HTTPException(status_code=400, detail="invalid_preset")
     meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
-    if "kind" not in meta:
-        kind = _detect_preset_kind(data) or "profile"
-        meta["kind"] = kind
-        data["meta"] = meta
+    kind = _detect_preset_kind(data) or meta.get("kind") or "profile"
+    kind = str(kind).strip().lower()
+    if kind not in {"profile", "voicing"}:
+        kind = "profile"
+    meta["kind"] = kind
+    data["meta"] = meta
     # Minimal sanity check
-    name = data.get("name") or Path(file.filename).stem
+    if kind == "voicing":
+        name = data.get("id") or data.get("name") or Path(file.filename).stem
+    else:
+        name = data.get("name") or data.get("id") or Path(file.filename).stem
     if not isinstance(name, str) or not name.strip():
         raise HTTPException(status_code=400, detail="invalid_name")
     safe_name = re.sub(r"[^a-zA-Z0-9._-]+", "_", name.strip())
     if not safe_name:
         raise HTTPException(status_code=400, detail="invalid_name")
-    reserved = _preset_reserved_names()
+    reserved = _preset_reserved_names_for(kind, include_user=True, include_staging=True, include_builtin=True)
     safe_name = _unique_preset_name(safe_name, reserved)
-    data["name"] = safe_name
-    dest = PRESET_DIR / f"{safe_name}.json"
+    if kind == "voicing":
+        data["id"] = safe_name
+    else:
+        data["name"] = safe_name
+    if not meta.get("title"):
+        meta["title"] = name.strip() or safe_name
+    if not meta.get("created_at"):
+        meta["created_at"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    if not meta.get("source"):
+        meta["source"] = "upload"
+    data["meta"] = meta
+    dest_dir = _preset_dir("user", kind)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / f"{safe_name}.json"
     try:
         dest.write_text(json.dumps(data, indent=2), encoding="utf-8")
     except Exception as exc:
@@ -2131,42 +2569,20 @@ async def preset_generate(file: UploadFile = File(...), kind: str = Form("profil
     tmp_path.write_bytes(contents)
     try:
         name_slug = _safe_slug(Path(file.filename).stem)
-        reserved = _preset_reserved_names()
-        name_slug = _unique_preset_name(name_slug, reserved)
-        target_dir = PRESET_DIR if PRESET_DIR.exists() and _writable(PRESET_DIR) else GEN_PRESET_DIR
-        target_dir.mkdir(parents=True, exist_ok=True)
-        dest = target_dir / f"{name_slug}.json"
-        # Analyze reference and build preset (simple heuristic)
-        metrics = analyze_reference(tmp_path)
-        target_lufs = metrics.get("I", -14.0)
-        tp = metrics.get("TP", -1.0)
-        eq = []
-        cf = metrics.get("crest_factor")
-        if cf is not None and cf < 10:
-            eq.append({"freq": 250, "gain": -1.5, "q": 1.0})
-        eq.append({"freq": 9500, "gain": 1.0, "q": 0.8})
         kind = (kind or "profile").strip().lower()
         if kind not in {"profile", "voicing"}:
             kind = "profile"
-        preset = {
-            "name": name_slug,
-            "lufs": target_lufs,
-            "eq": eq,
-            "compressor": {
-                "threshold": -20,
-                "ratio": 2.0,
-                "attack": 20,
-                "release": 180
-            },
-            "limiter": {
-                "ceiling": tp if tp is not None else -1.0
-            },
-            "meta": {
-                "source_file": file.filename,
-                "created_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
-                "kind": kind,
-            }
-        }
+        reserved = _preset_reserved_names_for(kind, include_user=True, include_staging=True, include_builtin=True)
+        name_slug = _unique_preset_name(name_slug, reserved)
+        target_origin = "user" if PRESET_DIR.exists() and _writable(PRESET_DIR) else "staging"
+        target_dir = _preset_dir(target_origin, kind)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        dest = target_dir / f"{name_slug}.json"
+        metrics = analyze_reference(tmp_path)
+        if kind == "voicing":
+            preset = _build_voicing_from_reference(metrics, name_slug, file.filename)
+        else:
+            preset = _build_profile_from_reference(metrics, name_slug, file.filename)
         dest.write_text(json.dumps(preset, indent=2), encoding="utf-8")
     finally:
         try:

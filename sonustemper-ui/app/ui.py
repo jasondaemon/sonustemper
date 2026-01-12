@@ -32,6 +32,10 @@ TAG_IN_DIR = Path(os.getenv("TAG_IN_DIR", str(DATA_DIR / "tagging" / "in")))
 ANALYSIS_IN_DIR = Path(os.getenv("ANALYSIS_IN_DIR", str(DATA_DIR / "analysis" / "in")))
 PRESET_DIR = Path(os.getenv("PRESET_DIR", str(DATA_DIR / "presets" / "user")))
 GEN_PRESET_DIR = Path(os.getenv("GEN_PRESET_DIR", str(DATA_DIR / "presets" / "generated")))
+USER_VOICING_DIR = PRESET_DIR / "voicings"
+USER_PROFILE_DIR = PRESET_DIR / "profiles"
+STAGING_VOICING_DIR = GEN_PRESET_DIR / "voicings"
+STAGING_PROFILE_DIR = GEN_PRESET_DIR / "profiles"
 ASSET_PRESET_DIR = bundle_root() / "assets" / "presets"
 BUILTIN_VOICING_DIR = ASSET_PRESET_DIR / "voicings"
 
@@ -652,7 +656,9 @@ async def library_list(request: Request, view: str, q: str = "", limit: int = 20
     elif view == "presets_user_voicings":
         items = _list_presets("user", q, limit, context, "voicing")
     elif view == "presets_generated":
-        items = _list_presets("generated", q, limit, context, "profile")
+        items = _list_presets("staging", q, limit, context)
+    elif view == "presets_staging":
+        items = _list_presets("staging", q, limit, context)
     elif view == "presets_all":
         items = _list_presets("all", q, limit, context)
     elif view == "voicings":
@@ -975,12 +981,49 @@ def _preset_meta_from_file(fp: Path) -> dict:
                 kind = "profile"
             elif "eq" in keys or "width" in keys or "stereo" in keys:
                 kind = "voicing"
-        title = meta.get("title") or data.get("name") or fp.stem
+        tags = meta.get("tags")
+        if not isinstance(tags, list):
+            tags = []
+        tags = [str(tag) for tag in tags if tag is not None and str(tag).strip()]
+        chain = data.get("chain") if isinstance(data, dict) else None
+        stereo = chain.get("stereo") if isinstance(chain, dict) else None
+        dynamics = chain.get("dynamics") if isinstance(chain, dict) else None
+        width = None
+        eq = None
+        if isinstance(stereo, dict) and "width" in stereo:
+            width = stereo.get("width")
+        if isinstance(chain, dict) and isinstance(chain.get("eq"), list):
+            eq = chain.get("eq")
+        elif isinstance(data.get("eq"), list):
+            eq = data.get("eq")
+        lufs = data.get("lufs")
+        if lufs is None:
+            lufs = data.get("target_lufs")
+        tp = data.get("tpp")
+        if tp is None:
+            tp = data.get("tp")
+        if tp is None:
+            tp = data.get("target_tp")
+        name = data.get("name")
+        voicing_id = data.get("id")
+        title = meta.get("title") or name or voicing_id or fp.stem
         return {
             "title": title,
+            "name": name,
+            "id": voicing_id,
             "source_file": meta.get("source_file"),
             "created_at": meta.get("created_at"),
+            "source": meta.get("source"),
             "kind": kind,
+            "tags": tags,
+            "eq": eq,
+            "width": width,
+            "dynamics": dynamics if isinstance(dynamics, dict) else None,
+            "stereo": stereo if isinstance(stereo, dict) else None,
+            "lufs": lufs,
+            "tp": tp,
+            "category": data.get("category"),
+            "order": data.get("order"),
         }
     except Exception:
         return {"title": fp.stem}
@@ -990,35 +1033,49 @@ def _list_presets(kind: str, q: str, limit: int, context: str = "", meta_kind: s
     kind = (kind or "user").lower()
     roots = []
     if kind in {"user", "all"}:
-        roots.append(("user", PRESET_DIR))
-    if kind in {"generated", "gen", "all"}:
-        roots.append(("generated", GEN_PRESET_DIR))
+        if meta_kind in (None, "voicing"):
+            roots.append(("user", USER_VOICING_DIR, "voicing"))
+        if meta_kind in (None, "profile"):
+            roots.append(("user", USER_PROFILE_DIR, "profile"))
+        roots.append(("user", PRESET_DIR, None))
+    if kind in {"generated", "gen", "staging", "all"}:
+        if meta_kind in (None, "voicing"):
+            roots.append(("staging", STAGING_VOICING_DIR, "voicing"))
+        if meta_kind in (None, "profile"):
+            roots.append(("staging", STAGING_PROFILE_DIR, "profile"))
+        roots.append(("staging", GEN_PRESET_DIR, None))
     items = []
-    for label, root in roots:
+    for label, root, default_kind in roots:
         if not root.exists():
             continue
         for fp in sorted(root.glob("*.json"), key=lambda p: p.name.lower()):
             if not fp.is_file():
                 continue
             meta = _preset_meta_from_file(fp)
-            effective_kind = (meta.get("kind") or "profile").lower()
+            effective_kind = (meta.get("kind") or default_kind or "profile").lower()
             if meta_kind and effective_kind != meta_kind:
                 continue
-            title = (meta.get("title") or fp.stem).replace("_", " ").strip() or fp.stem
+            if effective_kind == "voicing":
+                item_id = meta.get("id") or meta.get("name") or fp.stem
+            else:
+                item_id = meta.get("name") or meta.get("id") or fp.stem
+            title = (meta.get("title") or item_id or fp.stem).replace("_", " ").strip() or fp.stem
             kind_label = "Voicing" if effective_kind == "voicing" else "Profile"
-            subtitle = ("User " if label == "user" else "Generated ") + kind_label
+            created = meta.get("created_at")
+            subtitle = f"Created {created}" if created else ""
+            source = meta.get("source") or ("user" if label == "user" else "generated")
             badges = [
                 {
                     "key": "format",
-                    "label": "User" if label == "user" else "Generated",
-                    "title": subtitle,
+                    "label": source.title() if isinstance(source, str) else "User",
+                    "title": f"Source: {source}" if source else "Source",
                 }
             ]
             if effective_kind:
                 badges.append({
-                    "key": "profile",
-                    "label": f"Type: {effective_kind}",
-                    "title": f"Profile type: {effective_kind}",
+                    "key": effective_kind,
+                    "label": kind_label,
+                    "title": f"Type: {kind_label}",
                 })
             action = None
             if context == "files":
@@ -1030,7 +1087,7 @@ def _list_presets(kind: str, q: str, limit: int, context: str = "", meta_kind: s
                 }
             items.append(
                 {
-                    "id": fp.stem,
+                    "id": item_id,
                     "title": title,
                     "subtitle": subtitle,
                     "kind": "preset",
@@ -1038,13 +1095,23 @@ def _list_presets(kind: str, q: str, limit: int, context: str = "", meta_kind: s
                     "action": action,
                     "clickable": context in ("presets", "files"),
                     "meta": {
-                        "name": fp.stem,
+                        "name": meta.get("name") or fp.stem,
+                        "id": meta.get("id") or fp.stem,
                         "filename": fp.name,
                         "title": meta.get("title") or fp.stem,
                         "source_file": meta.get("source_file"),
                         "created_at": meta.get("created_at"),
+                        "source": meta.get("source"),
                         "kind": effective_kind,
                         "origin": label,
+                        "tags": meta.get("tags") or [],
+                        "eq": meta.get("eq"),
+                        "width": meta.get("width"),
+                        "dynamics": meta.get("dynamics"),
+                        "stereo": meta.get("stereo"),
+                        "lufs": meta.get("lufs"),
+                        "tp": meta.get("tp"),
+                        "category": meta.get("category"),
                     },
                 }
             )
@@ -1370,8 +1437,16 @@ def _file_manager_data(category: str, q: str = "") -> dict:
         util, section = "presets", "user"
         want_kind = "voicing" if category == "user_voicings" else "profile"
         items = []
-        if PRESET_DIR.exists():
-            for fp in sorted(PRESET_DIR.glob("*.json"), key=lambda p: p.name.lower()):
+        roots = []
+        if want_kind == "voicing":
+            roots.append(USER_VOICING_DIR)
+        if want_kind == "profile":
+            roots.append(USER_PROFILE_DIR)
+        roots.append(PRESET_DIR)
+        for root in roots:
+            if not root.exists():
+                continue
+            for fp in sorted(root.glob("*.json"), key=lambda p: p.name.lower()):
                 if not fp.is_file():
                     continue
                 meta = _preset_meta_from_file(fp)
@@ -1379,7 +1454,7 @@ def _file_manager_data(category: str, q: str = "") -> dict:
                 if effective_kind != want_kind:
                     continue
                 display = (meta.get("title") or fp.stem).replace("_", " ").strip() or fp.stem
-                rel = fp.name
+                rel = str(fp.relative_to(PRESET_DIR))
                 downloads = [{"label": "JSON", "url": f"/download?utility=presets&section=user&rel={quote(rel)}"}]
                 badges = [
                     {"key": "format", "label": "User", "title": "User preset"},

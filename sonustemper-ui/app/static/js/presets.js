@@ -6,8 +6,9 @@
   const referenceFile = document.getElementById('referenceFile');
   const referenceName = document.getElementById('referenceName');
   const referenceStatus = document.getElementById('referenceStatus');
-  const referenceCreateVoicing = document.getElementById('referenceCreateVoicing');
-  const referenceCreateProfile = document.getElementById('referenceCreateProfile');
+  const referenceGenerateBtn = document.getElementById('referenceGenerateBtn');
+  const generateVoicing = document.getElementById('generateVoicing');
+  const generateProfile = document.getElementById('generateProfile');
 
   const presetJsonFile = document.getElementById('presetJsonFile');
   const presetJsonName = document.getElementById('presetJsonName');
@@ -18,28 +19,48 @@
   const builtinPresetStatus = document.getElementById('builtinPresetStatus');
 
   const detailTitle = document.getElementById('presetDetailTitle');
+  const detailKind = document.getElementById('presetDetailKind');
+  const detailSummary = document.getElementById('presetDetailSummary');
   const detailMeta = document.getElementById('presetDetailMeta');
   const detailSubtitle = document.getElementById('presetDetailSubtitle');
+  const detailHint = document.getElementById('presetDetailHint');
+  const detailVoicing = document.getElementById('presetDetailVoicing');
+  const detailProfile = document.getElementById('presetDetailProfile');
+  const voicingStats = document.getElementById('presetVoicingStats');
+  const profileStats = document.getElementById('presetProfileStats');
+  const eqPreview = document.getElementById('presetEqPreview');
+
   const selectedHint = document.getElementById('presetSelectedHint');
   const downloadBtn = document.getElementById('presetDownloadBtn');
+  const moveBtn = document.getElementById('presetMoveBtn');
   const duplicateBtn = document.getElementById('presetDuplicateBtn');
   const deleteBtn = document.getElementById('presetDeleteBtn');
 
-  let selectedPreset = null;
-  let selectedVoicing = null;
+  let selectedItem = null;
 
   function setStatus(el, msg){
     if(el) el.textContent = msg || '';
+  }
+
+  function refreshPresetBrowser(){
+    const browser = document.getElementById('presetBrowser');
+    if(!browser || !window.htmx) return;
+    browser.querySelectorAll('.file-browser-list[data-endpoint]').forEach(list => {
+      const endpoint = list.dataset.endpoint;
+      if(endpoint){
+        window.htmx.ajax('GET', endpoint, { target: list, swap: 'innerHTML' });
+      }
+    });
   }
 
   async function loadBuiltinPresets(){
     if(!builtinPresetSelect) return;
     builtinPresetSelect.innerHTML = '';
     try{
-      const res = await fetch('/api/preset/list', { cache: 'no-store' });
+      const res = await fetch('/api/library/builtins', { cache: 'no-store' });
       if(!res.ok) throw new Error('load_failed');
       const data = await res.json();
-      const items = (data.items || []).filter(item => item.origin === 'builtin');
+      const items = data.items || [];
       if(!items.length){
         const opt = document.createElement('option');
         opt.value = '';
@@ -58,13 +79,14 @@
         const optgroup = document.createElement('optgroup');
         optgroup.label = kind === 'voicing' ? 'Provided Voicings' : 'Provided Profiles';
         groups[kind].sort((a, b) => {
-          const aTitle = a.meta?.title || a.name || '';
-          const bTitle = b.meta?.title || b.name || '';
+          const aTitle = a.meta?.title || a.title || a.name || '';
+          const bTitle = b.meta?.title || b.title || b.name || '';
           return aTitle.localeCompare(bTitle);
         }).forEach(item => {
           const option = document.createElement('option');
-          option.value = item.name || '';
-          option.textContent = item.meta?.title || item.name || 'Preset';
+          const itemId = item.id || item.name || '';
+          option.value = `${kind}:${itemId}`;
+          option.textContent = item.meta?.title || item.title || itemId || 'Preset';
           optgroup.appendChild(option);
         });
         builtinPresetSelect.appendChild(optgroup);
@@ -76,152 +98,269 @@
     }
   }
 
-  function refreshPresetBrowser(){
-    const browser = document.getElementById('presetBrowser');
-    if(!browser || !window.htmx) return;
-    browser.querySelectorAll('.file-browser-list[data-endpoint]').forEach(list => {
-      const endpoint = list.dataset.endpoint;
-      if(endpoint){
-        window.htmx.ajax('GET', endpoint, { target: list, swap: 'innerHTML' });
-      }
-    });
-  }
-
-  function updateDetail(){
-    if(!detailTitle || !detailMeta) return;
-    if(!selectedPreset && !selectedVoicing){
-      detailTitle.textContent = 'No profile selected';
-      detailSubtitle.textContent = 'Choose a profile from the library.';
-      detailMeta.innerHTML = '<div><span class="muted">Source:</span> -</div>' +
-        '<div><span class="muted">Created:</span> -</div>' +
-        '<div><span class="muted">Type:</span> -</div>';
-      if(downloadBtn) downloadBtn.disabled = true;
-      if(duplicateBtn) duplicateBtn.disabled = true;
-      if(deleteBtn) deleteBtn.disabled = true;
-      if(selectedHint) selectedHint.textContent = 'Select a profile to view details.';
-      return;
-    }
-    if (selectedVoicing) {
-      detailTitle.textContent = selectedVoicing.title || 'Voicing';
-      detailSubtitle.textContent = 'Provided Voicing';
-      detailMeta.innerHTML = '<div><span class="muted">Source:</span> Provided</div>' +
-        '<div><span class="muted">Created:</span> -</div>' +
-        '<div><span class="muted">Type:</span> Voicing</div>';
-      if(downloadBtn) downloadBtn.disabled = true;
-      if(duplicateBtn) duplicateBtn.disabled = true;
-      if(deleteBtn) deleteBtn.disabled = true;
-      if(selectedHint) selectedHint.textContent = `Selected: ${selectedVoicing.title || 'Voicing'}`;
-      return;
-    }
-    detailTitle.textContent = selectedPreset.title || selectedPreset.name || 'Profile';
-    const subtitleParts = [selectedPreset.originLabel || 'Profile'];
-    if (selectedPreset.filename) subtitleParts.push(selectedPreset.filename);
-    detailSubtitle.textContent = subtitleParts.join(' | ');
-    const source = selectedPreset.source_file || '-';
-    const created = selectedPreset.created_at || '-';
-    const kind = selectedPreset.kind || '-';
-    detailMeta.innerHTML = `<div><span class="muted">Source:</span> ${source}</div>` +
-      `<div><span class="muted">Created:</span> ${created}</div>` +
-      `<div><span class="muted">Type:</span> ${kind}</div>`;
-    if(downloadBtn) downloadBtn.disabled = false;
-    if(duplicateBtn) duplicateBtn.disabled = false;
-    if(deleteBtn) deleteBtn.disabled = false;
-    if(selectedHint) selectedHint.textContent = `Selected: ${selectedPreset.title || selectedPreset.name}`;
-  }
-
   function syncActiveStates(){
     const browser = document.getElementById('presetBrowser');
     if(!browser) return;
     browser.querySelectorAll('.browser-item').forEach(btn => {
-      const kind = btn.dataset.kind;
-      if (kind === 'preset') {
-        btn.classList.toggle('active', selectedPreset && btn.dataset.id === selectedPreset.name);
-      } else if (kind === 'voicing') {
-        btn.classList.toggle('active', selectedVoicing && btn.dataset.id === selectedVoicing.slug);
-      }
+      const active = selectedItem && btn.dataset.id === selectedItem.id;
+      btn.classList.toggle('active', Boolean(active));
     });
   }
 
-  function setSelectedPreset(preset){
-    selectedPreset = preset;
-    selectedVoicing = null;
+  function formatNumber(value, digits){
+    const num = Number(value);
+    if(!Number.isFinite(num)) return null;
+    return num.toFixed(digits ?? 1);
+  }
+
+  function renderEqPreview(eqBands){
+    if(!eqPreview) return;
+    const bands = Array.isArray(eqBands) ? eqBands : [];
+    const w = eqPreview.viewBox?.baseVal?.width || eqPreview.clientWidth || 240;
+    const h = eqPreview.viewBox?.baseVal?.height || eqPreview.clientHeight || 64;
+    const padding = 8;
+    const plotW = w - padding * 2;
+    const plotH = h - padding * 2;
+    const mid = h / 2;
+    const samples = 96;
+    const minF = 20;
+    const maxF = 20000;
+    const logStep = Math.log(maxF / minF);
+    const range = bands.some(band => Math.abs(parseFloat(band?.gain_db ?? band?.gain ?? 0)) > 2.0) ? 8 : 6;
+    const values = [];
+
+    for(let i = 0; i < samples; i += 1){
+      const t = i / (samples - 1);
+      const f = minF * Math.exp(logStep * t);
+      let y = 0;
+      bands.forEach(band => {
+        if(!band) return;
+        const f0 = parseFloat(band.freq_hz ?? band.freq);
+        if(!Number.isFinite(f0) || f0 <= 0) return;
+        const gain = parseFloat(band.gain_db ?? band.gain ?? 0);
+        if(!Number.isFinite(gain) || gain === 0) return;
+        const q = parseFloat(band.q ?? 1.0);
+        const qSafe = Math.max(q, 0.2);
+        const x = Math.log2(f / f0);
+        const type = String(band.type || '').toLowerCase();
+        if(type === 'peaking' || type === 'peak' || type === 'bell'){
+          const sigma = 0.55 / qSafe;
+          y += gain * Math.exp(-(x * x) / (2 * sigma * sigma));
+        }else if(type === 'highshelf'){
+          const k = 6 * qSafe;
+          const s = 1 / (1 + Math.exp(-k * x));
+          y += gain * s;
+        }else if(type === 'lowshelf'){
+          const k = 6 * qSafe;
+          const s = 1 / (1 + Math.exp(-k * x));
+          y += gain * (1 - s);
+        }
+      });
+      y = Math.max(-range, Math.min(range, y));
+      values.push({ t, y });
+    }
+
+    const points = values.map((pt, idx) => {
+      const x = padding + pt.t * plotW;
+      const yPx = mid - (pt.y / range) * (plotH / 2);
+      return `${idx === 0 ? 'M' : 'L'}${x.toFixed(2)},${yPx.toFixed(2)}`;
+    }).join(' ');
+    const path = points || `M${padding},${mid} L${w - padding},${mid}`;
+    const grid = [
+      { y: padding, cls: 'eq-grid' },
+      { y: mid, cls: 'eq-grid eq-grid-mid' },
+      { y: h - padding, cls: 'eq-grid' },
+    ];
+    const ticks = [100, 1000, 10000].map(freq => {
+      const x = padding + (Math.log(freq / minF) / logStep) * plotW;
+      return x;
+    });
+    const gridLines = grid.map(line => (
+      `<line class="${line.cls}" x1="${padding}" y1="${line.y}" x2="${w - padding}" y2="${line.y}" />`
+    )).join('');
+    const tickLines = ticks.map(x => (
+      `<line class="eq-grid eq-grid-vert" x1="${x.toFixed(2)}" y1="${padding}" x2="${x.toFixed(2)}" y2="${h - padding}" />`
+    )).join('');
+    const fillPath = `${path} L${w - padding},${mid} L${padding},${mid} Z`;
+    eqPreview.innerHTML = `
+      ${gridLines}
+      ${tickLines}
+      <path class="eq-fill" d="${fillPath}"></path>
+      <path class="eq-curve" d="${path}"></path>
+    `;
+  }
+
+  function updateDetail(){
+    if(!detailTitle || !detailMeta) return;
+    if(!selectedItem){
+      detailTitle.textContent = 'No item selected';
+      detailSubtitle.textContent = 'Choose a voicing or profile from the library.';
+      detailKind.hidden = true;
+      detailSummary.textContent = '';
+      detailMeta.innerHTML = '<div><span class="muted">Source:</span> -</div>' +
+        '<div><span class="muted">Created:</span> -</div>' +
+        '<div><span class="muted">Type:</span> -</div>';
+      if(detailVoicing) detailVoicing.hidden = true;
+      if(detailProfile) detailProfile.hidden = true;
+      if(downloadBtn) downloadBtn.disabled = true;
+      if(moveBtn) moveBtn.disabled = true;
+      if(duplicateBtn) duplicateBtn.disabled = true;
+      if(deleteBtn) deleteBtn.disabled = true;
+      if(detailHint) detailHint.textContent = 'Select an item to view details.';
+      if(selectedHint) selectedHint.textContent = 'Select a voicing or profile to view details.';
+      return;
+    }
+
+    const kindLabel = selectedItem.kind === 'voicing' ? 'Voicing' : 'Profile';
+    const originLabel = selectedItem.origin === 'staging' ? 'Staging' : 'User';
+    const sourceLabel = selectedItem.meta?.source || originLabel.toLowerCase();
+    detailTitle.textContent = selectedItem.title || selectedItem.id;
+    detailSubtitle.textContent = `${originLabel} ${kindLabel}`;
+    if(detailKind){
+      detailKind.textContent = kindLabel;
+      detailKind.className = `badge badge-${selectedItem.kind === 'voicing' ? 'voicing' : 'profile'}`;
+      detailKind.hidden = false;
+    }
+    detailMeta.innerHTML = `<div><span class="muted">Source:</span> ${sourceLabel || '-'}</div>` +
+      `<div><span class="muted">Created:</span> ${selectedItem.meta?.created_at || '-'}</div>` +
+      `<div><span class="muted">Type:</span> ${kindLabel}</div>`;
+
+    if(selectedItem.kind === 'voicing'){
+      const tags = Array.isArray(selectedItem.meta?.tags) ? selectedItem.meta.tags : [];
+      detailSummary.textContent = tags[0] || 'No description available.';
+      if(detailVoicing) detailVoicing.hidden = false;
+      if(detailProfile) detailProfile.hidden = true;
+      const width = Number.isFinite(Number(selectedItem.meta?.width))
+        ? Number(selectedItem.meta.width)
+        : Number(selectedItem.meta?.stereo?.width);
+      const dynamics = selectedItem.meta?.dynamics || {};
+      if(voicingStats){
+        voicingStats.innerHTML = '';
+        const parts = [];
+        if(Number.isFinite(width)){
+          parts.push({ label: `Width: ${width.toFixed(2)}` });
+        }
+        if(Number.isFinite(Number(dynamics.density))){
+          parts.push({ label: `Density: ${Number(dynamics.density).toFixed(2)}` });
+        }
+        if(Number.isFinite(Number(dynamics.transient_focus))){
+          parts.push({ label: `Transient: ${Number(dynamics.transient_focus).toFixed(2)}` });
+        }
+        if(Number.isFinite(Number(dynamics.smoothness))){
+          parts.push({ label: `Smoothness: ${Number(dynamics.smoothness).toFixed(2)}` });
+        }
+        if(!parts.length){
+          parts.push({ label: 'No voicing stats available' });
+        }
+        parts.forEach(part => {
+          const span = document.createElement('span');
+          span.className = 'badge';
+          span.textContent = part.label;
+          voicingStats.appendChild(span);
+        });
+      }
+      renderEqPreview(selectedItem.meta?.eq || []);
+    }else{
+      const lufs = formatNumber(selectedItem.meta?.lufs, 1);
+      const tp = formatNumber(selectedItem.meta?.tp, 1);
+      const parts = [];
+      if(lufs) parts.push(`${lufs} LUFS`);
+      if(tp) parts.push(`${tp} dBTP`);
+      detailSummary.textContent = parts.length ? `Target: ${parts.join(' / ')}` : 'No loudness target available.';
+      if(detailVoicing) detailVoicing.hidden = true;
+      if(detailProfile) detailProfile.hidden = false;
+      if(profileStats){
+        profileStats.innerHTML = '';
+        const statParts = [];
+        if(lufs) statParts.push({ label: `LUFS: ${lufs}` });
+        if(tp) statParts.push({ label: `TP: ${tp}` });
+        if(selectedItem.meta?.category){
+          statParts.push({ label: `Category: ${selectedItem.meta.category}` });
+        }
+        if(!statParts.length){
+          statParts.push({ label: 'No profile stats available' });
+        }
+        statParts.forEach(part => {
+          const span = document.createElement('span');
+          span.className = 'badge';
+          span.textContent = part.label;
+          profileStats.appendChild(span);
+        });
+      }
+      renderEqPreview([]);
+    }
+
+    if(downloadBtn) downloadBtn.disabled = false;
+    if(moveBtn){
+      moveBtn.disabled = selectedItem.origin !== 'staging';
+      moveBtn.textContent = selectedItem.kind === 'voicing' ? 'Move to User Voicings' : 'Move to User Profiles';
+    }
+    if(duplicateBtn) duplicateBtn.disabled = selectedItem.origin !== 'user';
+    if(deleteBtn) deleteBtn.disabled = !(selectedItem.origin === 'user' || selectedItem.origin === 'staging');
+    if(detailHint){
+      detailHint.textContent = selectedItem.origin === 'staging'
+        ? 'Move to User to store this item in your library.'
+        : 'Download, duplicate, or delete this item.';
+    }
+    if(selectedHint) selectedHint.textContent = `Selected: ${selectedItem.title || selectedItem.id}`;
+  }
+
+  function setSelectedItem(item){
+    selectedItem = item;
     updateDetail();
     syncActiveStates();
   }
 
-  function setSelectedVoicing(voicing){
-    selectedVoicing = voicing;
-    selectedPreset = null;
-    updateDetail();
-    syncActiveStates();
-  }
-
-  function parsePresetFromButton(btn){
+  function parseItemFromButton(btn){
     if(!btn) return null;
     let meta = {};
     if(btn.dataset.meta){
       try{ meta = JSON.parse(btn.dataset.meta); }catch(_err){ meta = {}; }
     }
     const titleEl = btn.querySelector('.browser-item-title');
-    const title = titleEl ? titleEl.textContent.trim() : (meta.title || btn.dataset.id);
+    const title = titleEl ? titleEl.textContent.trim() : (meta.title || meta.name || meta.id || btn.dataset.id);
+    const kind = (meta.kind || 'profile').toLowerCase();
+    const origin = (meta.origin || 'user').toLowerCase();
     return {
-      name: meta.name || btn.dataset.id,
-      filename: meta.filename,
+      id: meta.id || meta.name || btn.dataset.id,
       title,
-      source_file: meta.source_file,
-      created_at: meta.created_at,
-      kind: meta.kind,
-      origin: meta.origin,
-      originLabel: meta.origin === 'generated' ? 'Generated Profile' : 'User Profile',
+      kind,
+      origin: origin === 'generated' ? 'staging' : origin,
+      meta,
     };
   }
 
-  function parseVoicingFromButton(btn){
-    if(!btn) return null;
-    let meta = {};
-    if(btn.dataset.meta){
-      try{ meta = JSON.parse(btn.dataset.meta); }catch(_err){ meta = {}; }
-    }
-    const titleEl = btn.querySelector('.browser-item-title');
-    const title = titleEl ? titleEl.textContent.trim() : (meta.title || btn.dataset.id);
-    return {
-      slug: meta.slug || btn.dataset.id,
-      title,
-    };
-  }
-
-  function slugifyName(name){
-    return (name || '').trim();
-  }
-
-  async function handleGenerate(kind){
+  async function handleGenerate(){
     const file = referenceFile?.files?.[0];
     if(!file){
       setStatus(referenceStatus, 'Select an audio file.');
       return;
     }
-    const targetKind = kind === 'voicing' ? 'voicing' : 'profile';
-    const override = slugifyName(referenceName?.value || '');
-    const ext = file.name.includes('.') ? file.name.slice(file.name.lastIndexOf('.')) : '';
-    const base = override || `${file.name.replace(ext, '')}-${targetKind}`;
-    const filename = `${base}${ext}`;
-    const sendFile = new File([file], filename, { type: file.type });
+    const wantsVoicing = Boolean(generateVoicing?.checked);
+    const wantsProfile = Boolean(generateProfile?.checked);
+    if(!wantsVoicing && !wantsProfile){
+      setStatus(referenceStatus, 'Select at least one item to generate.');
+      return;
+    }
     const fd = new FormData();
-    fd.append('file', sendFile, sendFile.name);
-    fd.append('kind', targetKind);
+    fd.append('file', file, file.name);
+    fd.append('base_name', (referenceName?.value || '').trim());
+    fd.append('generate_voicing', wantsVoicing ? 'true' : 'false');
+    fd.append('generate_profile', wantsProfile ? 'true' : 'false');
     setStatus(referenceStatus, 'Uploading...');
     try{
-      const res = await fetch('/api/preset/generate', { method: 'POST', body: fd });
+      const res = await fetch('/api/generate_from_reference', { method: 'POST', body: fd });
       if(!res.ok){
         const t = await res.text();
         throw new Error(t || 'Generate failed');
       }
       const data = await res.json();
-      setStatus(referenceStatus, data.message || 'Profile created.');
-      referenceFile.value = '';
+      const createdCount = Array.isArray(data.items) ? data.items.length : 0;
+      setStatus(referenceStatus, createdCount ? `Generated ${createdCount} item(s).` : 'Generated.');
+      if(referenceFile) referenceFile.value = '';
       refreshPresetBrowser();
-    }catch(err){
-      setStatus(referenceStatus, 'Create failed.');
+    }catch(_err){
+      setStatus(referenceStatus, 'Generate failed.');
     }
   }
 
@@ -231,79 +370,90 @@
       setStatus(uploadPresetJsonStatus, 'Select a JSON file.');
       return;
     }
-    let data;
-    try{
-      const text = await file.text();
-      data = JSON.parse(text);
-      if(!data || typeof data !== 'object') throw new Error();
-    }catch(_err){
-      setStatus(uploadPresetJsonStatus, 'Invalid JSON.');
-      return;
-    }
-    const override = slugifyName(presetJsonName?.value || '');
-    data.meta = data.meta || {};
-    const detectedKind = detectPresetKind(data);
-    data.meta.kind = detectedKind;
-    const baseName = override || data.name || file.name.replace(/\.json$/i, '') || 'profile';
-    data.name = baseName;
-    if(!data.meta.title){
-      data.meta.title = baseName;
-    }
-    const name = baseName;
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const uploadFile = new File([blob], `${name}.json`, { type: 'application/json' });
     const fd = new FormData();
-    fd.append('file', uploadFile, uploadFile.name);
+    fd.append('file', file, file.name);
+    fd.append('name', (presetJsonName?.value || '').trim());
     setStatus(uploadPresetJsonStatus, 'Uploading...');
     try{
-      const res = await fetch('/api/preset/upload', { method: 'POST', body: fd });
+      const res = await fetch('/api/import_json_to_staging', { method: 'POST', body: fd });
       if(!res.ok){
         const t = await res.text();
         throw new Error(t || 'Upload failed');
       }
-      const j = await res.json();
-      setStatus(uploadPresetJsonStatus, j.message || `Uploaded (${detectedKind}).`);
-      presetJsonFile.value = '';
+      setStatus(uploadPresetJsonStatus, 'Imported to staging.');
+      if(presetJsonFile) presetJsonFile.value = '';
       refreshPresetBrowser();
-    }catch(err){
-      setStatus(uploadPresetJsonStatus, 'Upload failed.');
+    }catch(_err){
+      setStatus(uploadPresetJsonStatus, 'Import failed.');
     }
   }
 
   function downloadPreset(){
-    if(!selectedPreset) return;
-    window.location.href = `/api/preset/download/${encodeURIComponent(selectedPreset.name)}`;
+    if(!selectedItem) return;
+    const params = new URLSearchParams({
+      id: selectedItem.id,
+      kind: selectedItem.kind,
+      origin: selectedItem.origin,
+    });
+    window.location.href = `/api/library/item/download?${params.toString()}`;
   }
 
   async function deletePreset(){
-    if(!selectedPreset) return;
-    if(!confirm(`Delete profile "${selectedPreset.name}"?`)) return;
-    const res = await fetch(`/api/preset/${encodeURIComponent(selectedPreset.name)}`, { method: 'DELETE' });
-    if(!res.ok){
+    if(!selectedItem) return;
+    if(!confirm(`Delete ${selectedItem.kind} "${selectedItem.title}"?`)) return;
+    try{
+      const res = await fetch('/api/library/item', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: selectedItem.id,
+          kind: selectedItem.kind,
+          origin: selectedItem.origin,
+        }),
+      });
+      if(!res.ok) throw new Error('delete_failed');
+      setSelectedItem(null);
+      refreshPresetBrowser();
+    }catch(_err){
       setStatus(uploadPresetJsonStatus, 'Delete failed.');
-      return;
     }
-    setSelectedPreset(null);
-    refreshPresetBrowser();
   }
 
-  async function duplicatePreset(){
-    if(!selectedPreset) return;
-    const newName = prompt('New profile name', `${selectedPreset.name}-copy`);
+  async function moveToUser(){
+    if(!selectedItem || selectedItem.origin !== 'staging') return;
+    try{
+      const res = await fetch('/api/staging/move_to_user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: selectedItem.id, kind: selectedItem.kind }),
+      });
+      if(!res.ok) throw new Error('move_failed');
+      const data = await res.json();
+      setSelectedItem(data.item || null);
+      refreshPresetBrowser();
+    }catch(_err){
+      setStatus(uploadPresetJsonStatus, 'Move failed.');
+    }
+  }
+
+  async function duplicateSelected(){
+    if(!selectedItem || selectedItem.origin !== 'user') return;
+    const newName = prompt(`New ${selectedItem.kind} name`, `${selectedItem.title}-copy`);
     if(!newName) return;
     try{
-      const res = await fetch(`/api/preset/download/${encodeURIComponent(selectedPreset.name)}`);
-      if(!res.ok) throw new Error('download_failed');
+      const res = await fetch('/api/library/duplicate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: selectedItem.id,
+          kind: selectedItem.kind,
+          origin: 'user',
+          name: newName,
+        }),
+      });
+      if(!res.ok) throw new Error('duplicate_failed');
       const data = await res.json();
-      data.name = newName;
-      data.meta = data.meta || {};
-      data.meta.title = newName;
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const uploadFile = new File([blob], `${newName}.json`, { type: 'application/json' });
-      const fd = new FormData();
-      fd.append('file', uploadFile, uploadFile.name);
-      const uploadRes = await fetch('/api/preset/upload', { method: 'POST', body: fd });
-      if(!uploadRes.ok) throw new Error('upload_failed');
+      setSelectedItem(data.item || null);
       refreshPresetBrowser();
     }catch(_err){
       setStatus(uploadPresetJsonStatus, 'Duplicate failed.');
@@ -312,23 +462,23 @@
 
   async function duplicateBuiltin(){
     if(!builtinPresetSelect) return;
-    const name = builtinPresetSelect.value;
-    if(!name) return;
-    const newName = prompt('New profile name', `${name}-copy`);
+    const value = builtinPresetSelect.value;
+    if(!value) return;
+    const [kind, id] = value.split(':');
+    const newName = prompt(`New ${kind} name`, `${id}-copy`);
     if(!newName) return;
     try{
-      const res = await fetch(`/api/preset/download/${encodeURIComponent(name)}`);
-      if(!res.ok) throw new Error('download_failed');
-      const data = await res.json();
-      data.name = newName;
-      data.meta = data.meta || {};
-      data.meta.title = newName;
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const uploadFile = new File([blob], `${newName}.json`, { type: 'application/json' });
-      const fd = new FormData();
-      fd.append('file', uploadFile, uploadFile.name);
-      const uploadRes = await fetch('/api/preset/upload', { method: 'POST', body: fd });
-      if(!uploadRes.ok) throw new Error('upload_failed');
+      const res = await fetch('/api/library/duplicate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id,
+          kind,
+          origin: 'builtin',
+          name: newName,
+        }),
+      });
+      if(!res.ok) throw new Error('duplicate_failed');
       setStatus(builtinPresetStatus, 'Preset duplicated.');
       refreshPresetBrowser();
     }catch(_err){
@@ -340,32 +490,17 @@
     const btn = evt.target.closest('.file-browser .browser-item');
     if(!btn) return;
     if(btn.disabled) return;
-    if (btn.dataset.kind === 'preset') {
-      const preset = parsePresetFromButton(btn);
-      setSelectedPreset(preset);
-    } else if (btn.dataset.kind === 'voicing') {
-      const voicing = parseVoicingFromButton(btn);
-      setSelectedVoicing(voicing);
-    }
+    const item = parseItemFromButton(btn);
+    if(item) setSelectedItem(item);
   });
-
-  function detectPresetKind(data){
-    const metaKind = data?.meta?.kind;
-    if (metaKind) return metaKind;
-    const keys = Object.keys(data || {});
-    const profileHints = ['lufs', 'tp', 'limiter', 'compressor', 'loudness', 'target_lufs', 'target_tp'];
-    if (keys.some(k => profileHints.includes(k))) return 'profile';
-    if ('eq' in data || 'width' in data || 'stereo' in data) return 'voicing';
-    return 'profile';
-  }
 
   document.addEventListener('DOMContentLoaded', ()=>{
     if(referenceForm) referenceForm.addEventListener('submit', (e)=>{ e.preventDefault(); });
-    if(referenceCreateVoicing) referenceCreateVoicing.addEventListener('click', ()=> handleGenerate('voicing'));
-    if(referenceCreateProfile) referenceCreateProfile.addEventListener('click', ()=> handleGenerate('profile'));
+    if(referenceGenerateBtn) referenceGenerateBtn.addEventListener('click', handleGenerate);
     if(uploadPresetJsonBtn) uploadPresetJsonBtn.addEventListener('click', handleUploadJson);
     if(downloadBtn) downloadBtn.addEventListener('click', downloadPreset);
-    if(duplicateBtn) duplicateBtn.addEventListener('click', duplicatePreset);
+    if(moveBtn) moveBtn.addEventListener('click', moveToUser);
+    if(duplicateBtn) duplicateBtn.addEventListener('click', duplicateSelected);
     if(deleteBtn) deleteBtn.addEventListener('click', deletePreset);
     if(duplicateBuiltinBtn) duplicateBuiltinBtn.addEventListener('click', duplicateBuiltin);
     updateDetail();
@@ -374,13 +509,8 @@
 
   document.addEventListener('htmx:afterSwap', (evt)=>{
     const browser = document.getElementById('presetBrowser');
-    if(browser && browser.contains(evt.target) && selectedPreset){
-      const btn = browser.querySelector(`.browser-item[data-kind="preset"][data-id="${selectedPreset.name}"]`);
-      if(btn) btn.classList.add('active');
-    }
-    if(browser && browser.contains(evt.target) && selectedVoicing){
-      const btn = browser.querySelector(`.browser-item[data-kind="voicing"][data-id="${selectedVoicing.slug}"]`);
-      if(btn) btn.classList.add('active');
+    if(browser && browser.contains(evt.target)){
+      syncActiveStates();
     }
   });
 })();
