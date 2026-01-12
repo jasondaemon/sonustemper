@@ -984,21 +984,54 @@
           title: meta.title || item.name || 'Profile',
           lufs: meta.lufs,
           tp: meta.tp,
+          category: meta.category,
+          order: Number.isFinite(meta.order) ? meta.order : null,
           manual: Boolean(meta.manual),
         };
         if (entry.id) options.push(entry);
       });
-      options.sort((a, b) => a.title.localeCompare(b.title));
-      const manualFallback = { id: 'manual', title: 'Manual', manual: true };
+      const manualFallback = { id: 'manual', title: 'Manual', manual: true, category: 'Manual', order: 9999 };
       if (!options.some(opt => opt.id === 'manual')) {
         options.push(manualFallback);
       }
-      options.forEach((opt) => {
-        const option = document.createElement('option');
-        option.value = opt.id;
-        option.textContent = opt.title;
-        loudnessMode.appendChild(option);
-        loudProfiles[opt.id] = opt;
+      const categoryOrder = [
+        'Film / TV / Gaming',
+        'Online Streaming',
+        'Platform Targets',
+        'Manual',
+      ];
+      const grouped = {};
+      options.forEach(opt => {
+        const category = opt.category || 'Other';
+        if (!grouped[category]) grouped[category] = [];
+        grouped[category].push(opt);
+      });
+      const categoryKeys = Object.keys(grouped).sort((a, b) => {
+        const aIdx = categoryOrder.indexOf(a);
+        const bIdx = categoryOrder.indexOf(b);
+        const aRank = aIdx === -1 ? Number.MAX_SAFE_INTEGER : aIdx;
+        const bRank = bIdx === -1 ? Number.MAX_SAFE_INTEGER : bIdx;
+        if (aRank !== bRank) return aRank - bRank;
+        return a.localeCompare(b);
+      });
+      categoryKeys.forEach(category => {
+        const group = grouped[category];
+        group.sort((a, b) => {
+          const aOrder = a.order ?? Number.MAX_SAFE_INTEGER;
+          const bOrder = b.order ?? Number.MAX_SAFE_INTEGER;
+          if (aOrder !== bOrder) return aOrder - bOrder;
+          return a.title.localeCompare(b.title);
+        });
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = category;
+        group.forEach((opt) => {
+          const option = document.createElement('option');
+          option.value = opt.id;
+          option.textContent = opt.title;
+          optgroup.appendChild(option);
+          loudProfiles[opt.id] = opt;
+        });
+        loudnessMode.appendChild(optgroup);
       });
       if (loudnessMode.value === 'manual') {
         if (loudProfiles.apple_music) {

@@ -1085,6 +1085,8 @@ def _preset_meta_from_file(fp: Path, default_kind: str | None = None) -> dict:
             tp = data.get("target_tp")
         if tp is None and isinstance(data.get("limiter"), dict):
             tp = data.get("limiter", {}).get("ceiling")
+        category = data.get("category")
+        order = data.get("order")
         manual = meta.get("manual")
         if manual is None:
             manual = data.get("manual")
@@ -1097,6 +1099,8 @@ def _preset_meta_from_file(fp: Path, default_kind: str | None = None) -> dict:
             "tp": tp,
             "manual": bool(manual) if manual is not None else False,
             "tags": tags,
+            "category": category,
+            "order": order,
         }
     except Exception:
         return {"title": fp.stem, "kind": default_kind.lower() if default_kind else None}
