@@ -7,6 +7,13 @@
   <div class="card preset-sidebar">
     <div class="card-head">
       <div>
+        <div class="card-title">Status</div>
+        <div class="muted">Uploads and analysis activity.</div>
+      </div>
+    </div>
+    <div class="status-list" id="presetStatusList">(waiting)</div>
+    <div class="card-head">
+      <div>
         <div class="card-title">Library</div>
         <div class="muted">User and staging voicings/profiles.</div>
       </div>
@@ -42,16 +49,15 @@
           <label for="referenceName">Output base name (optional)</label>
           <input type="text" id="referenceName" placeholder="e.g. Airlift Stream">
         </div>
-        <div class="preset-field preset-checkboxes">
-          <label>Generate</label>
-          <div class="preset-checkbox-row">
-            <label class="check"><input type="checkbox" id="generateVoicing" checked> Voicing</label>
-            <label class="check"><input type="checkbox" id="generateProfile" checked> Profile</label>
+        <div class="preset-generate-row">
+          <div class="preset-field preset-checkboxes">
+            <label>Generate</label>
+            <div class="preset-checkbox-row">
+              <label class="check"><input type="checkbox" id="generateVoicing" checked> Voicing</label>
+              <label class="check"><input type="checkbox" id="generateProfile" checked> Profile</label>
+            </div>
           </div>
-        </div>
-        <div class="preset-actions">
           <button class="btn btn-primary" type="button" id="referenceGenerateBtn">Analyze & Generate</button>
-          <span class="muted" id="referenceStatus"></span>
         </div>
       </form>
     </div>
@@ -74,7 +80,6 @@
         </div>
         <div class="preset-actions">
           <button class="btn small ghost" type="button" id="uploadPresetJsonBtn">Import to Staging</button>
-          <span class="muted" id="uploadPresetJsonStatus"></span>
         </div>
       </div>
     </div>
@@ -82,18 +87,27 @@
     <div class="card">
       <div class="card-head">
         <div>
-        <div class="card-title">Duplicate Provided Preset</div>
-          <div class="muted">Copy a built-in voicing/profile into your user library.</div>
+        <div class="card-title">Duplicate Provided Profile</div>
+          <div class="muted">Copy a built-in profile into your user library.</div>
         </div>
       </div>
       <div class="preset-form">
         <div class="preset-field">
-          <label for="builtinPresetSelect">Provided preset</label>
-          <select id="builtinPresetSelect" class="full-width-select"></select>
+          <label for="builtinProfileSelect">Provided profile</label>
+          <select id="builtinProfileSelect" class="full-width-select"></select>
         </div>
         <div class="preset-actions">
-          <button class="btn small ghost" type="button" id="duplicateBuiltinBtn">Duplicate to User</button>
-          <span class="muted" id="builtinPresetStatus"></span>
+          <button class="btn small ghost" type="button" id="duplicateBuiltinProfileBtn">Duplicate to User</button>
+        </div>
+      </div>
+      <div class="preset-divider"></div>
+      <div class="preset-form">
+        <div class="preset-field">
+          <label for="builtinVoicingSelect">Provided voicing</label>
+          <select id="builtinVoicingSelect" class="full-width-select"></select>
+        </div>
+        <div class="preset-actions">
+          <button class="btn small ghost" type="button" id="duplicateBuiltinVoicingBtn">Duplicate to User</button>
         </div>
       </div>
     </div>

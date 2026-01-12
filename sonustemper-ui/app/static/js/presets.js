@@ -5,7 +5,7 @@
   const referenceForm = document.getElementById('presetGenerateForm');
   const referenceFile = document.getElementById('referenceFile');
   const referenceName = document.getElementById('referenceName');
-  const referenceStatus = document.getElementById('referenceStatus');
+  const presetStatusList = document.getElementById('presetStatusList');
   const referenceGenerateBtn = document.getElementById('referenceGenerateBtn');
   const generateVoicing = document.getElementById('generateVoicing');
   const generateProfile = document.getElementById('generateProfile');
@@ -13,10 +13,10 @@
   const presetJsonFile = document.getElementById('presetJsonFile');
   const presetJsonName = document.getElementById('presetJsonName');
   const uploadPresetJsonBtn = document.getElementById('uploadPresetJsonBtn');
-  const uploadPresetJsonStatus = document.getElementById('uploadPresetJsonStatus');
-  const builtinPresetSelect = document.getElementById('builtinPresetSelect');
-  const duplicateBuiltinBtn = document.getElementById('duplicateBuiltinBtn');
-  const builtinPresetStatus = document.getElementById('builtinPresetStatus');
+  const builtinProfileSelect = document.getElementById('builtinProfileSelect');
+  const builtinVoicingSelect = document.getElementById('builtinVoicingSelect');
+  const duplicateBuiltinProfileBtn = document.getElementById('duplicateBuiltinProfileBtn');
+  const duplicateBuiltinVoicingBtn = document.getElementById('duplicateBuiltinVoicingBtn');
 
   const detailTitle = document.getElementById('presetDetailTitle');
   const detailKind = document.getElementById('presetDetailKind');
@@ -38,8 +38,23 @@
 
   let selectedItem = null;
 
-  function setStatus(el, msg){
-    if(el) el.textContent = msg || '';
+  let statusLines = [];
+  let statusRaf = null;
+
+  function scheduleStatusRender(){
+    if(statusRaf) cancelAnimationFrame(statusRaf);
+    statusRaf = requestAnimationFrame(() => {
+      if (!presetStatusList) return;
+      presetStatusList.textContent = statusLines.length ? statusLines.join('\n') : '(waiting)';
+      presetStatusList.scrollTop = presetStatusList.scrollHeight;
+    });
+  }
+
+  function addStatusLine(message){
+    const stamp = new Date().toLocaleTimeString();
+    statusLines.push(`${stamp} ${message}`);
+    if (statusLines.length > 120) statusLines = statusLines.slice(-120);
+    scheduleStatusRender();
   }
 
   function refreshPresetBrowser(){
@@ -54,8 +69,9 @@
   }
 
   async function loadBuiltinPresets(){
-    if(!builtinPresetSelect) return;
-    builtinPresetSelect.innerHTML = '';
+    if(!builtinProfileSelect || !builtinVoicingSelect) return;
+    builtinProfileSelect.innerHTML = '';
+    builtinVoicingSelect.innerHTML = '';
     try{
       const res = await fetch('/api/library/builtins', { cache: 'no-store' });
       if(!res.ok) throw new Error('load_failed');
@@ -65,36 +81,43 @@
         const opt = document.createElement('option');
         opt.value = '';
         opt.textContent = 'No provided presets found';
-        builtinPresetSelect.appendChild(opt);
-        if(duplicateBuiltinBtn) duplicateBuiltinBtn.disabled = true;
+        builtinProfileSelect.appendChild(opt.cloneNode(true));
+        builtinVoicingSelect.appendChild(opt);
+        if(duplicateBuiltinProfileBtn) duplicateBuiltinProfileBtn.disabled = true;
+        if(duplicateBuiltinVoicingBtn) duplicateBuiltinVoicingBtn.disabled = true;
         return;
       }
-      const groups = {};
-      items.forEach(item => {
-        const kind = (item.kind || item.meta?.kind || 'profile').toLowerCase();
-        if(!groups[kind]) groups[kind] = [];
-        groups[kind].push(item);
-      });
-      Object.keys(groups).sort().forEach(kind => {
-        const optgroup = document.createElement('optgroup');
-        optgroup.label = kind === 'voicing' ? 'Provided Voicings' : 'Provided Profiles';
-        groups[kind].sort((a, b) => {
+      const profiles = items.filter(item => (item.kind || item.meta?.kind) === 'profile');
+      const voicings = items.filter(item => (item.kind || item.meta?.kind) === 'voicing');
+      const fillSelect = (select, list) => {
+        select.innerHTML = '';
+        if(!list.length){
+          const opt = document.createElement('option');
+          opt.value = '';
+          opt.textContent = 'No provided presets found';
+          select.appendChild(opt);
+          return;
+        }
+        list.sort((a, b) => {
           const aTitle = a.meta?.title || a.title || a.name || '';
           const bTitle = b.meta?.title || b.title || b.name || '';
           return aTitle.localeCompare(bTitle);
         }).forEach(item => {
           const option = document.createElement('option');
           const itemId = item.id || item.name || '';
-          option.value = `${kind}:${itemId}`;
+          option.value = itemId;
           option.textContent = item.meta?.title || item.title || itemId || 'Preset';
-          optgroup.appendChild(option);
+          select.appendChild(option);
         });
-        builtinPresetSelect.appendChild(optgroup);
-      });
-      if(duplicateBuiltinBtn) duplicateBuiltinBtn.disabled = false;
+      };
+      fillSelect(builtinProfileSelect, profiles);
+      fillSelect(builtinVoicingSelect, voicings);
+      if(duplicateBuiltinProfileBtn) duplicateBuiltinProfileBtn.disabled = !profiles.length;
+      if(duplicateBuiltinVoicingBtn) duplicateBuiltinVoicingBtn.disabled = !voicings.length;
     }catch(_err){
-      setStatus(builtinPresetStatus, 'Failed to load provided presets.');
-      if(duplicateBuiltinBtn) duplicateBuiltinBtn.disabled = true;
+      addStatusLine('Failed to load provided presets.');
+      if(duplicateBuiltinProfileBtn) duplicateBuiltinProfileBtn.disabled = true;
+      if(duplicateBuiltinVoicingBtn) duplicateBuiltinVoicingBtn.disabled = true;
     }
   }
 
@@ -333,13 +356,13 @@
   async function handleGenerate(){
     const file = referenceFile?.files?.[0];
     if(!file){
-      setStatus(referenceStatus, 'Select an audio file.');
+      addStatusLine('Select an audio file.');
       return;
     }
     const wantsVoicing = Boolean(generateVoicing?.checked);
     const wantsProfile = Boolean(generateProfile?.checked);
     if(!wantsVoicing && !wantsProfile){
-      setStatus(referenceStatus, 'Select at least one item to generate.');
+      addStatusLine('Select at least one item to generate.');
       return;
     }
     const fd = new FormData();
@@ -347,7 +370,7 @@
     fd.append('base_name', (referenceName?.value || '').trim());
     fd.append('generate_voicing', wantsVoicing ? 'true' : 'false');
     fd.append('generate_profile', wantsProfile ? 'true' : 'false');
-    setStatus(referenceStatus, 'Uploading...');
+    addStatusLine('Reference upload started.');
     try{
       const res = await fetch('/api/generate_from_reference', { method: 'POST', body: fd });
       if(!res.ok){
@@ -356,35 +379,35 @@
       }
       const data = await res.json();
       const createdCount = Array.isArray(data.items) ? data.items.length : 0;
-      setStatus(referenceStatus, createdCount ? `Generated ${createdCount} item(s).` : 'Generated.');
+      addStatusLine(createdCount ? `Generated ${createdCount} item(s).` : 'Generated.');
       if(referenceFile) referenceFile.value = '';
       refreshPresetBrowser();
     }catch(_err){
-      setStatus(referenceStatus, 'Generate failed.');
+      addStatusLine('Generate failed.');
     }
   }
 
   async function handleUploadJson(){
     const file = presetJsonFile?.files?.[0];
     if(!file){
-      setStatus(uploadPresetJsonStatus, 'Select a JSON file.');
+      addStatusLine('Select a JSON file.');
       return;
     }
     const fd = new FormData();
     fd.append('file', file, file.name);
     fd.append('name', (presetJsonName?.value || '').trim());
-    setStatus(uploadPresetJsonStatus, 'Uploading...');
+    addStatusLine('Import started.');
     try{
       const res = await fetch('/api/import_json_to_staging', { method: 'POST', body: fd });
       if(!res.ok){
         const t = await res.text();
         throw new Error(t || 'Upload failed');
       }
-      setStatus(uploadPresetJsonStatus, 'Imported to staging.');
+      addStatusLine('Imported to staging.');
       if(presetJsonFile) presetJsonFile.value = '';
       refreshPresetBrowser();
     }catch(_err){
-      setStatus(uploadPresetJsonStatus, 'Import failed.');
+      addStatusLine('Import failed.');
     }
   }
 
@@ -414,8 +437,9 @@
       if(!res.ok) throw new Error('delete_failed');
       setSelectedItem(null);
       refreshPresetBrowser();
+      addStatusLine('Item deleted.');
     }catch(_err){
-      setStatus(uploadPresetJsonStatus, 'Delete failed.');
+      addStatusLine('Delete failed.');
     }
   }
 
@@ -431,8 +455,9 @@
       const data = await res.json();
       setSelectedItem(data.item || null);
       refreshPresetBrowser();
+      addStatusLine('Moved to user library.');
     }catch(_err){
-      setStatus(uploadPresetJsonStatus, 'Move failed.');
+      addStatusLine('Move failed.');
     }
   }
 
@@ -455,16 +480,17 @@
       const data = await res.json();
       setSelectedItem(data.item || null);
       refreshPresetBrowser();
+      addStatusLine('Item duplicated.');
     }catch(_err){
-      setStatus(uploadPresetJsonStatus, 'Duplicate failed.');
+      addStatusLine('Duplicate failed.');
     }
   }
 
-  async function duplicateBuiltin(){
-    if(!builtinPresetSelect) return;
-    const value = builtinPresetSelect.value;
-    if(!value) return;
-    const [kind, id] = value.split(':');
+  async function duplicateBuiltin(kind){
+    const select = kind === 'voicing' ? builtinVoicingSelect : builtinProfileSelect;
+    if(!select) return;
+    const id = select.value;
+    if(!id) return;
     const newName = prompt(`New ${kind} name`, `${id}-copy`);
     if(!newName) return;
     try{
@@ -479,10 +505,10 @@
         }),
       });
       if(!res.ok) throw new Error('duplicate_failed');
-      setStatus(builtinPresetStatus, 'Preset duplicated.');
+      addStatusLine(`Duplicated provided ${kind}.`);
       refreshPresetBrowser();
     }catch(_err){
-      setStatus(builtinPresetStatus, 'Duplicate failed.');
+      addStatusLine('Duplicate failed.');
     }
   }
 
@@ -502,9 +528,11 @@
     if(moveBtn) moveBtn.addEventListener('click', moveToUser);
     if(duplicateBtn) duplicateBtn.addEventListener('click', duplicateSelected);
     if(deleteBtn) deleteBtn.addEventListener('click', deletePreset);
-    if(duplicateBuiltinBtn) duplicateBuiltinBtn.addEventListener('click', duplicateBuiltin);
+    if(duplicateBuiltinProfileBtn) duplicateBuiltinProfileBtn.addEventListener('click', ()=> duplicateBuiltin('profile'));
+    if(duplicateBuiltinVoicingBtn) duplicateBuiltinVoicingBtn.addEventListener('click', ()=> duplicateBuiltin('voicing'));
     updateDetail();
     loadBuiltinPresets();
+    scheduleStatusRender();
   });
 
   document.addEventListener('htmx:afterSwap', (evt)=>{
