@@ -78,8 +78,9 @@
           </svg>
         </button>
         <div class="playback-modes">
-          <button class="btn ghost small is-active" data-track-toggle="source" id="toggleSourceBtn" type="button">Source</button>
-          <button class="btn ghost small is-active" data-track-toggle="processed" id="toggleProcessedBtn" type="button">Processed</button>
+          <button class="btn ghost small is-active" data-track-mode="both" id="toggleBothBtn" type="button">Both</button>
+          <button class="btn ghost small" data-track-mode="source" id="toggleSourceBtn" type="button">Source</button>
+          <button class="btn ghost small" data-track-mode="processed" id="toggleProcessedBtn" type="button">Processed</button>
         </div>
         <label class="analyze-toggle match-toggle" title="Applies gain so A/B is loudness-matched (playback only).">
           <input type="checkbox" id="toggleMatchLoudness">
@@ -133,6 +134,7 @@
   const zoomLabel = document.getElementById('zoomLabel');
   const soloSourceBtn = document.getElementById('soloSourceBtn');
   const soloProcessedBtn = document.getElementById('soloProcessedBtn');
+  const toggleBothBtn = document.getElementById('toggleBothBtn');
   const toggleSourceBtn = document.getElementById('toggleSourceBtn');
   const toggleProcessedBtn = document.getElementById('toggleProcessedBtn');
   const togglePeakRisk = document.getElementById('togglePeakRisk');
@@ -157,7 +159,7 @@
 
   const zoomSteps = [1, 2, 4, 8];
   let fitMinPxPerSec = 1;
-  const trackState = { source: true, processed: true };
+  let trackMode = 'both';
 
   const metricLabels = [
     { key: 'I', label: 'LUFS-I', suffix: ' LUFS' },
@@ -493,74 +495,57 @@
   function updateTrackToggleUI(){
     const hasSource = Boolean(sourceWave);
     const hasProcessed = Boolean(processedWave);
-    const sourceOn = hasSource && trackState.source;
-    const processedOn = hasProcessed && trackState.processed;
+    const sourceOn = hasSource && (trackMode === 'source' || trackMode === 'both');
+    const processedOn = hasProcessed && (trackMode === 'processed' || trackMode === 'both');
     if (toggleSourceBtn) {
       toggleSourceBtn.disabled = !hasSource;
-      toggleSourceBtn.classList.toggle('is-active', sourceOn);
+      toggleSourceBtn.classList.toggle('is-active', trackMode === 'source');
     }
     if (toggleProcessedBtn) {
       toggleProcessedBtn.disabled = !hasProcessed;
-      toggleProcessedBtn.classList.toggle('is-active', processedOn);
+      toggleProcessedBtn.classList.toggle('is-active', trackMode === 'processed');
+    }
+    if (toggleBothBtn) {
+      toggleBothBtn.disabled = !hasSource || !hasProcessed;
+      toggleBothBtn.classList.toggle('is-active', trackMode === 'both');
     }
     if (soloSourceBtn) {
       soloSourceBtn.disabled = !hasSource;
-      soloSourceBtn.classList.toggle('is-active', sourceOn && !processedOn);
+      soloSourceBtn.classList.toggle('is-active', trackMode === 'source');
     }
     if (soloProcessedBtn) {
       soloProcessedBtn.disabled = !hasProcessed;
-      soloProcessedBtn.classList.toggle('is-active', processedOn && !sourceOn);
+      soloProcessedBtn.classList.toggle('is-active', trackMode === 'processed');
     }
   }
 
   function applyTrackState(){
-    if (sourceWave) sourceWave.setMuted(!trackState.source);
-    if (processedWave) processedWave.setMuted(!trackState.processed);
+    const sourceOn = trackMode === 'source' || trackMode === 'both';
+    const processedOn = trackMode === 'processed' || trackMode === 'both';
+    if (sourceWave) sourceWave.setMuted(!sourceOn);
+    if (processedWave) processedWave.setMuted(!processedOn);
     applyMatchLoudness();
     updateTrackToggleUI();
   }
 
-  function setTrackEnabled(kind, enabled){
-    if (kind === 'source' && !sourceWave) return;
-    if (kind === 'processed' && !processedWave) return;
-    const next = {
-      source: trackState.source,
-      processed: processedWave ? trackState.processed : false,
-    };
-    if (kind === 'source') next.source = enabled;
-    if (kind === 'processed') next.processed = enabled;
-    if (!next.source && !next.processed) {
-      next.source = true;
+  function setTrackMode(mode){
+    if (mode === 'processed' && !processedWave) {
+      trackMode = 'source';
+    } else if (mode === 'both' && (!sourceWave || !processedWave)) {
+      trackMode = sourceWave ? 'source' : (processedWave ? 'processed' : 'source');
+    } else {
+      trackMode = mode;
     }
-    if (!processedWave) next.processed = false;
-    trackState.source = next.source;
-    trackState.processed = next.processed;
     applyTrackState();
   }
 
   function setSolo(kind){
-    if (kind === 'source' && !sourceWave) return;
-    if (kind === 'processed' && !processedWave) return;
-    if (kind === 'source') {
-      if (trackState.source && !trackState.processed) {
-        trackState.processed = true;
-      } else {
-        trackState.source = true;
-        trackState.processed = false;
-      }
-    } else {
-      if (trackState.processed && !trackState.source) {
-        trackState.source = true;
-      } else {
-        trackState.source = false;
-        trackState.processed = true;
-      }
+    if (kind === 'source' && sourceWave) {
+      setTrackMode('source');
     }
-    if (!processedWave) trackState.processed = false;
-    if (!trackState.source && !trackState.processed) {
-      trackState.source = true;
+    if (kind === 'processed' && processedWave) {
+      setTrackMode('processed');
     }
-    applyTrackState();
   }
 
   function bindTransportEvents(wave){
@@ -1187,8 +1172,7 @@
       await loadWave(processedWave, payload.processed_url);
     }
     updateFitBaseline();
-    trackState.source = true;
-    trackState.processed = Boolean(processedWave);
+    trackMode = processedWave ? 'both' : 'source';
     applyTrackState();
     cleanupTransport();
     bindTransportEvents(sourceWave);
@@ -1336,12 +1320,25 @@
 
   if (toggleSourceBtn) {
     toggleSourceBtn.addEventListener('click', () => {
-      setTrackEnabled('source', !trackState.source);
+      if (trackMode === 'source' && processedWave) {
+        setTrackMode('processed');
+      } else {
+        setTrackMode('source');
+      }
     });
   }
   if (toggleProcessedBtn) {
     toggleProcessedBtn.addEventListener('click', () => {
-      setTrackEnabled('processed', !trackState.processed);
+      if (trackMode === 'processed' && sourceWave) {
+        setTrackMode('source');
+      } else {
+        setTrackMode('processed');
+      }
+    });
+  }
+  if (toggleBothBtn) {
+    toggleBothBtn.addEventListener('click', () => {
+      setTrackMode('both');
     });
   }
 
