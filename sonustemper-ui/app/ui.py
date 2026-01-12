@@ -92,9 +92,14 @@ def _sanitize_label(value: str, max_len: int = 80) -> str:
 
 def _legacy_sanitize_label(value: str) -> str:
     raw = str(value or "").replace("\u00a0", " ")
-    cleaned = re.sub(r"[\\r\\n\\t]+", " ", raw)
-    cleaned = re.sub(r"\\s+", " ", cleaned).strip()
+    cleaned = re.sub(r"[\r\n\t]+", " ", raw)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
     return cleaned
+
+def _legacy_corruption_signature(value: str, max_len: int = 80) -> str:
+    raw = str(value or "")
+    stripped = raw.translate(str.maketrans("", "", "\\rnts"))
+    return _sanitize_label(stripped, max_len)
 
 def _repair_legacy_label(label: str, fallback: str | None, max_len: int = 80) -> str:
     cleaned = _sanitize_label(label, max_len)
@@ -103,7 +108,7 @@ def _repair_legacy_label(label: str, fallback: str | None, max_len: int = 80) ->
     fallback_clean = _sanitize_label(fallback, max_len)
     if not fallback_clean:
         return cleaned
-    if _legacy_sanitize_label(fallback_clean).lower() == cleaned.lower():
+    if _legacy_corruption_signature(fallback_clean, max_len).lower() == cleaned.lower():
         return fallback_clean
     return cleaned
 
@@ -150,7 +155,7 @@ def _load_builtin_voicings() -> list[dict]:
             if not isinstance(raw_tags, list):
                 raw_tags = []
             tags = []
-            legacy_generated = _legacy_sanitize_label("Generated from reference audio.")
+            legacy_generated = _legacy_corruption_signature("Generated from reference audio.")
             for tag in raw_tags:
                 if tag is None or not str(tag).strip():
                     continue
@@ -1034,7 +1039,7 @@ def _preset_meta_from_file(fp: Path) -> dict:
         if not isinstance(tags, list):
             tags = []
         cleaned_tags = []
-        legacy_generated = _legacy_sanitize_label("Generated from reference audio.")
+        legacy_generated = _legacy_corruption_signature("Generated from reference audio.")
         for tag in tags:
             if tag is None or not str(tag).strip():
                 continue
