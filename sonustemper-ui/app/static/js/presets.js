@@ -43,7 +43,7 @@
       if(!items.length){
         const opt = document.createElement('option');
         opt.value = '';
-        opt.textContent = 'No built-in presets found';
+        opt.textContent = 'No provided presets found';
         builtinPresetSelect.appendChild(opt);
         if(duplicateBuiltinBtn) duplicateBuiltinBtn.disabled = true;
         return;
@@ -56,7 +56,7 @@
       });
       Object.keys(groups).sort().forEach(kind => {
         const optgroup = document.createElement('optgroup');
-        optgroup.label = kind === 'voicing' ? 'Built-in Voicings' : 'Built-in Profiles';
+        optgroup.label = kind === 'voicing' ? 'Provided Voicings' : 'Provided Profiles';
         groups[kind].sort((a, b) => {
           const aTitle = a.meta?.title || a.name || '';
           const bTitle = b.meta?.title || b.name || '';
@@ -71,7 +71,7 @@
       });
       if(duplicateBuiltinBtn) duplicateBuiltinBtn.disabled = false;
     }catch(_err){
-      setStatus(builtinPresetStatus, 'Failed to load built-ins.');
+      setStatus(builtinPresetStatus, 'Failed to load provided presets.');
       if(duplicateBuiltinBtn) duplicateBuiltinBtn.disabled = true;
     }
   }
@@ -103,8 +103,8 @@
     }
     if (selectedVoicing) {
       detailTitle.textContent = selectedVoicing.title || 'Voicing';
-      detailSubtitle.textContent = 'Built-in Voicing';
-      detailMeta.innerHTML = '<div><span class="muted">Source:</span> Built-in</div>' +
+      detailSubtitle.textContent = 'Provided Voicing';
+      detailMeta.innerHTML = '<div><span class="muted">Source:</span> Provided</div>' +
         '<div><span class="muted">Created:</span> -</div>' +
         '<div><span class="muted">Type:</span> Voicing</div>';
       if(downloadBtn) downloadBtn.disabled = true;
