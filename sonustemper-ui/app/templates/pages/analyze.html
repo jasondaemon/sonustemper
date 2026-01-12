@@ -517,22 +517,54 @@
     if (!box) {
       box = document.createElement('div');
       box.className = `wave-ref-lines wave-ref-lines-${kind}`;
+      box.style.position = 'absolute';
+      box.style.top = '0';
+      box.style.left = '0';
+      box.style.pointerEvents = 'none';
+      box.style.zIndex = '4';
       wrapper.style.position = 'relative';
       wrapper.appendChild(box);
       const center = document.createElement('div');
       center.className = 'wave-ref-line center';
+      center.style.position = 'absolute';
+      center.style.left = '0';
+      center.style.right = '0';
+      center.style.height = '1px';
+      center.style.background = 'rgba(255,255,255,0.12)';
       box.appendChild(center);
       const clipTop = document.createElement('div');
       clipTop.className = 'wave-ref-line clip';
+      clipTop.style.position = 'absolute';
+      clipTop.style.left = '0';
+      clipTop.style.right = '0';
+      clipTop.style.height = '1px';
+      clipTop.style.background = 'rgba(255,255,255,0.22)';
       box.appendChild(clipTop);
       const clipBottom = document.createElement('div');
       clipBottom.className = 'wave-ref-line clip';
+      clipBottom.style.position = 'absolute';
+      clipBottom.style.left = '0';
+      clipBottom.style.right = '0';
+      clipBottom.style.height = '1px';
+      clipBottom.style.background = 'rgba(255,255,255,0.22)';
       box.appendChild(clipBottom);
       const safeTop = document.createElement('div');
       safeTop.className = 'wave-ref-line safe';
+      safeTop.style.position = 'absolute';
+      safeTop.style.left = '0';
+      safeTop.style.right = '0';
+      safeTop.style.height = '0';
+      safeTop.style.borderTop = '1px dashed rgba(255,138,61,0.45)';
+      safeTop.style.opacity = '0';
       box.appendChild(safeTop);
       const safeBottom = document.createElement('div');
       safeBottom.className = 'wave-ref-line safe';
+      safeBottom.style.position = 'absolute';
+      safeBottom.style.left = '0';
+      safeBottom.style.right = '0';
+      safeBottom.style.height = '0';
+      safeBottom.style.borderTop = '1px dashed rgba(255,138,61,0.45)';
+      safeBottom.style.opacity = '0';
       box.appendChild(safeBottom);
     }
     return box;
@@ -557,13 +589,16 @@
     const padding = 2;
     if (center) center.style.top = `${Math.round(half)}px`;
     if (clipTop) clipTop.style.top = `${padding}px`;
-    if (clipBottom) clipBottom.style.top = `${height - padding}px`;
+    if (clipBottom) clipBottom.style.top = `${Math.max(padding, height - padding - 1)}px`;
     const amp = Math.pow(10, -1 / 20);
     const safeOffset = amp * (half - padding);
     if (safeTop) safeTop.style.top = `${Math.max(padding, Math.round(half - safeOffset))}px`;
     if (safeBottom) safeBottom.style.top = `${Math.min(height - padding, Math.round(half + safeOffset))}px`;
     if (togglePeakRisk) {
-      box.classList.toggle('show-safe', togglePeakRisk.checked);
+      const showSafe = togglePeakRisk.checked;
+      box.classList.toggle('show-safe', showSafe);
+      if (safeTop) safeTop.style.opacity = showSafe ? '1' : '0';
+      if (safeBottom) safeBottom.style.opacity = showSafe ? '1' : '0';
     }
   }
 
