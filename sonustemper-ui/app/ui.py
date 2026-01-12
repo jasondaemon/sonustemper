@@ -408,6 +408,44 @@ def _list_mastering_runs(only_mp3: bool, q: str, limit: int, context: str = "") 
     return items[:limit]
 
 
+def _list_mastering_outputs(q: str, limit: int, context: str = "") -> list[dict]:
+    if not MASTER_OUT_DIR.exists():
+        return []
+    items = []
+    for d in MASTER_OUT_DIR.iterdir():
+        if not d.is_dir():
+            continue
+        run_mtime = d.stat().st_mtime if d.exists() else 0
+        outputs = _run_outputs(d.name)
+        for out in outputs:
+            stem = out.get("name") or ""
+            display_title = out.get("display_title") or stem or d.name
+            meta = {"song": d.name, "out": stem}
+            items.append(
+                {
+                    "id": f"{d.name}::{stem}",
+                    "title": display_title,
+                    "subtitle": f"Run {d.name}",
+                    "kind": "mastering_output",
+                    "badges": out.get("badges") or [],
+                    "action": None,
+                    "clickable": True,
+                    "meta": meta,
+                    "mtime": run_mtime,
+                }
+            )
+    if q:
+        ql = q.lower()
+        items = [
+            i for i in items
+            if ql in i["title"].lower()
+            or ql in (i.get("meta", {}).get("out") or "").lower()
+            or ql in (i.get("meta", {}).get("song") or "").lower()
+        ]
+    items.sort(key=lambda x: x.get("mtime", 0), reverse=True)
+    return items[:limit]
+
+
 def _make_tagger_id(root_key: str, relpath: str, size: int, mtime: float) -> str:
     raw = f"{root_key}:{relpath}:{size}:{mtime}".encode("utf-8")
     digest = hashlib.sha256(raw).digest()
@@ -476,6 +514,8 @@ async def library_list(request: Request, view: str, q: str = "", limit: int = 20
         items = _list_mastering_runs(False, q, limit, context)
     elif view == "mastering_runs_with_mp3":
         items = _list_mastering_runs(True, q, limit, context)
+    elif view == "mastering_outputs":
+        items = _list_mastering_outputs(q, limit, context)
     elif view == "tagging_mp3":
         items = _list_tagging_mp3(q, limit, context, scope)
     elif view == "presets_user":

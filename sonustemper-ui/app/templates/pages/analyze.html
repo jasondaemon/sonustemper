@@ -12,8 +12,7 @@
     </div>
     {% set browser_id = "analyzeBrowser" %}
     {% set sections = [
-      {"key": "mastering_runs", "title": "Mastering Runs", "endpoint": "/partials/library_list?view=mastering_runs&context=analyze"},
-      {"key": "tagging_mp3", "title": "Tagging MP3 Library", "endpoint": "/partials/library_list?view=tagging_mp3&context=analyze"}
+      {"key": "mastering_outputs", "title": "Mastering Outputs", "endpoint": "/partials/library_list?view=mastering_outputs&context=analyze"}
     ] %}
     {% include "partials/file_browser.html" %}
   </div>
@@ -1248,11 +1247,18 @@
     selectedItem = item;
     setActiveItem(node);
     try {
-      if (item.kind === 'mastering_run') {
+      if (item.kind === 'mastering_output') {
+        const params = new URLSearchParams();
+        params.set('song', item.song || item.id || '');
+        if (item.out) params.set('out', item.out);
+        if (shouldPush) updateUrl(params);
+        const data = await resolveRun(item.song || item.id, item.out || '');
+        await applyData(data);
+      } else if (item.kind === 'mastering_run') {
         const params = new URLSearchParams();
         params.set('song', item.song || item.id || '');
         if (shouldPush) updateUrl(params);
-        const data = await resolveRun(item.song || item.id, '');
+        const data = await resolveRun(item.song || item.id, item.out || '');
         await applyData(data);
       } else if (item.kind === 'source' || item.kind === 'import') {
         const params = new URLSearchParams();
@@ -1409,10 +1415,13 @@
 
   const params = new URLSearchParams(window.location.search);
   const song = params.get('song');
+  const out = params.get('out');
   const src = params.get('src');
   const imp = params.get('imp');
   if (song) {
-    selectedItem = { kind: 'mastering_run', id: song, song };
+    selectedItem = out
+      ? { kind: 'mastering_output', id: `${song}::${out}`, song, out }
+      : { kind: 'mastering_run', id: song, song };
     selectAndLoad(selectedItem, null, false);
   } else if (src) {
     selectedItem = { kind: 'source', rel: src };
@@ -1428,6 +1437,23 @@
       if (!itemNode || itemNode.disabled) return;
       const kind = itemNode.dataset.kind || '';
       const id = itemNode.dataset.id || '';
+      let meta = {};
+      if (itemNode.dataset.meta) {
+        try {
+          meta = JSON.parse(itemNode.dataset.meta || '{}');
+        } catch (_err) {
+          meta = {};
+        }
+      }
+      if (kind === 'mastering_output') {
+        const song = meta.song || '';
+        if (!song) return;
+        evt.preventDefault();
+        evt.stopPropagation();
+        const item = { kind, id, song, out: meta.out || '' };
+        selectAndLoad(item, itemNode, true);
+        return;
+      }
       if (kind !== 'mastering_run') return;
       evt.preventDefault();
       evt.stopPropagation();
@@ -1436,9 +1462,27 @@
     });
     document.addEventListener('htmx:afterSwap', (evt) => {
       if (!analyzeBrowser.contains(evt.target)) return;
-      const current = new URLSearchParams(window.location.search).get('song');
-      if (!current) return;
-      const node = analyzeBrowser.querySelector(`.browser-item[data-song="${current}"]`);
+      const params = new URLSearchParams(window.location.search);
+      const currentSong = params.get('song');
+      const currentOut = params.get('out');
+      if (currentSong && currentOut) {
+        const nodes = analyzeBrowser.querySelectorAll('.browser-item[data-kind="mastering_output"]');
+        for (const node of nodes) {
+          if (!node.dataset.meta) continue;
+          try {
+            const meta = JSON.parse(node.dataset.meta || '{}');
+            if (meta.song === currentSong && meta.out === currentOut) {
+              setActiveItem(node);
+              break;
+            }
+          } catch (_err) {
+            continue;
+          }
+        }
+        return;
+      }
+      if (!currentSong) return;
+      const node = analyzeBrowser.querySelector(`.browser-item[data-song="${currentSong}"]`);
       if (node) setActiveItem(node);
     });
   }
