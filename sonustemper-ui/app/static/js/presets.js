@@ -235,8 +235,8 @@
       setPreviewPlayable(true);
       return;
     }
-    setPreviewStatus('Preview idle');
-    setPreviewPlayable(false);
+    setPreviewStatus('Tap play to generate');
+    setPreviewPlayable(true);
   }
 
   function schedulePreview(){
@@ -1877,6 +1877,12 @@
           return;
         }
         setPreviewStatus('Playing');
+      });
+      previewAudio.addEventListener('click', (event) => {
+        if (!previewReadyUrl && !previewIsBuilding) {
+          event.preventDefault();
+          startPreview();
+        }
       });
       previewAudio.addEventListener('pause', () => {
         if (previewReadyUrl && !previewIsBuilding) {
