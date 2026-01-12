@@ -52,13 +52,6 @@
                     {% endfor %}
                   </div>
                 {% endif %}
-                {% if item.metric_pills and item.metric_pills|length %}
-                  <div class="metric-pills">
-                    {% for metric in item.metric_pills %}
-                      <span class="metric-pill">{{ metric.label }}: {{ metric.value }}</span>
-                    {% endfor %}
-                  </div>
-                {% endif %}
               </td>
               <td>{{ item.size }}</td>
               <td>{{ item.mtime }}</td>
