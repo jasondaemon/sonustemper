@@ -163,12 +163,6 @@
                   <option value="punch">Punch</option>
                 </select>
               </div>
-              <div class="control-row">
-                <select id="presetSelect" class="full-width-select">
-                  <option value="">Use Voicing Chain (default)</option>
-                </select>
-              </div>
-              <div class="muted" id="presetSelectHint">Optional: apply a preset instead of the voicing chain.</div>
               <div class="control-row compact-row">
                 <div class="control-label">Strength</div>
                 <input type="range" id="strength" min="0" max="100" value="80">
@@ -185,9 +179,6 @@
               <div class="stage-title">Loudness &amp; Delivery</div>
               <div class="control-row">
                 <select id="loudnessMode" class="full-width-select">
-                  <option value="apple" selected>Apple Music</option>
-                  <option value="spotify">Spotify</option>
-                  <option value="loud">Loud</option>
                   <option value="manual">Manual</option>
                 </select>
               </div>
@@ -262,7 +253,6 @@
   const state = {
     selectedFiles: [],
     voicing: 'universal',
-    preset: '',
     strength: 80,
     profile: 'apple',
     lufsOverrideEnabled: true,
@@ -286,12 +276,7 @@
     ogg: 'OGG',
     flac: 'FLAC',
   };
-  const profileLabels = {
-    apple: 'Apple Music',
-    spotify: 'Spotify',
-    loud: 'Loud',
-    manual: 'Manual',
-  };
+  let loudProfiles = {};
 
   function setBusy(on){
     if(!indicator) return;
@@ -478,51 +463,6 @@
     }
   }
 
-  async function loadPresets(){
-    if (!presetSelect) return;
-    presetSelect.innerHTML = '<option value="">Use Voicing Chain (default)</option>';
-    try{
-      const res = await fetch('/api/preset/list', { cache: 'no-store' });
-      if (!res.ok) return;
-      const data = await res.json();
-      const items = data.items || [];
-      const groups = {
-        builtin_profile: { label: 'Built-in Profiles', items: [] },
-        user_profile: { label: 'Your Profiles', items: [] },
-        user_voicing: { label: 'Your Voicings', items: [] },
-      };
-      items.forEach((item) => {
-        const kind = (item.kind || item.meta?.kind || 'profile').toLowerCase();
-        const origin = item.origin === 'builtin' ? 'builtin' : 'user';
-        if (origin === 'builtin' && kind === 'voicing') {
-          return;
-        }
-        const key = `${origin}_${kind}`;
-        const title = item.meta?.title || item.name || item.filename || 'Preset';
-        if (groups[key]) {
-          groups[key].items.push({ ...item, display: title });
-        }
-      });
-      Object.values(groups).forEach((group) => {
-        if (!group.items.length) return;
-        const optgroup = document.createElement('optgroup');
-        optgroup.label = group.label;
-        group.items.sort((a, b) => a.display.localeCompare(b.display));
-        group.items.forEach((item) => {
-          const option = document.createElement('option');
-          option.value = item.name || '';
-          option.textContent = item.display;
-          option.dataset.kind = item.kind || item.meta?.kind || 'profile';
-          option.dataset.origin = item.origin || 'user';
-          optgroup.appendChild(option);
-        });
-        presetSelect.appendChild(optgroup);
-      });
-    }catch(_err){
-      // ignore preset load errors
-    }
-  }
-
   const uploadBtn = document.getElementById('uploadBtn');
   const uploadInput = document.getElementById('inputUpload');
   const selectAllBtn = document.getElementById('selectAllBtn');
@@ -705,7 +645,6 @@
   const strength = document.getElementById('strength');
   const strengthVal = document.getElementById('strengthVal');
   const voicingSelect = document.getElementById('voicingSelect');
-  const presetSelect = document.getElementById('presetSelect');
   const loudnessMode = document.getElementById('loudnessMode');
   const ovTargetI = document.getElementById('ov_target_I');
   const ovTargetTp = document.getElementById('ov_target_TP');
@@ -736,9 +675,6 @@
     previewAudio.setAttribute('aria-disabled', enabled ? 'false' : 'true');
   }
 
-  function isPresetMode(){
-    return Boolean(presetSelect && presetSelect.value);
-  }
 
   function closePreviewStream(){
     if (previewEventSource) {
@@ -773,11 +709,6 @@
       resetPreview();
       return;
     }
-    if (isPresetMode()) {
-      setPreviewStatus('Preview available for voicing chain only');
-      resetPreview();
-      return;
-    }
     if (!song) {
       setPreviewStatus('Select a source file to preview');
       resetPreview();
@@ -805,10 +736,6 @@
   function startPreview(){
     const song = state.selectedFiles[0] || null;
     if (convertOnly?.checked) {
-      updatePreviewAvailability();
-      return;
-    }
-    if (isPresetMode()) {
       updatePreviewAvailability();
       return;
     }
@@ -898,11 +825,51 @@
     updatePreviewAvailability();
   }
 
-  const loudProfiles = {
-    apple: { lufs: -16.0, tp: -1.0 },
-    spotify: { lufs: -14.0, tp: -1.0 },
-    loud: { lufs: -11.0, tp: -1.0 },
-  };
+  async function loadLoudnessProfiles(){
+    if (!loudnessMode) return;
+    loudProfiles = {};
+    loudnessMode.innerHTML = '';
+    try{
+      const res = await fetch('/api/profiles', { cache: 'no-store' });
+      if (!res.ok) throw new Error('profiles_failed');
+      const data = await res.json();
+      const items = data.items || [];
+      const options = [];
+      items.forEach((item) => {
+        const kind = (item.kind || item.meta?.kind || 'profile').toLowerCase();
+        if (kind !== 'profile') return;
+        const meta = item.meta || {};
+        const entry = {
+          id: item.name || item.filename || '',
+          title: meta.title || item.name || 'Profile',
+          lufs: meta.lufs,
+          tp: meta.tp,
+          manual: Boolean(meta.manual),
+        };
+        if (entry.id) options.push(entry);
+      });
+      options.sort((a, b) => a.title.localeCompare(b.title));
+      const manualFallback = { id: 'manual', title: 'Manual', manual: true };
+      if (!options.some(opt => opt.id === 'manual')) {
+        options.push(manualFallback);
+      }
+      options.forEach((opt) => {
+        const option = document.createElement('option');
+        option.value = opt.id;
+        option.textContent = opt.title;
+        loudnessMode.appendChild(option);
+        loudProfiles[opt.id] = opt;
+      });
+      if (loudnessMode.value === 'manual' && loudProfiles.apple) {
+        loudnessMode.value = 'apple';
+      }
+      applyLoudnessMode();
+    }catch(_err){
+      loudnessMode.innerHTML = '<option value="manual">Manual</option>';
+      loudProfiles = { manual: { id: 'manual', title: 'Manual', manual: true } };
+      applyLoudnessMode();
+    }
+  }
 
   function syncOverrideInputs(){
     if (ovTargetI) {
@@ -919,17 +886,19 @@
 
   function applyLoudnessMode(){
     const mode = loudnessMode.value;
-    if(mode === 'manual'){
+    const prof = loudProfiles[mode];
+    const lufsVal = prof ? parseFloat(prof.lufs) : NaN;
+    const tpVal = prof ? parseFloat(prof.tp) : NaN;
+    if (mode === 'manual' || !prof || prof.manual || Number.isNaN(lufsVal) || Number.isNaN(tpVal)){
       ovTargetI.disabled = false;
       ovTargetTp.disabled = false;
       ovTargetI.checked = true;
       ovTargetTp.checked = true;
     }else{
-      const prof = loudProfiles[mode] || loudProfiles.apple;
-      targetI.value = prof.lufs;
-      targetIRange.value = prof.lufs;
-      targetTp.value = prof.tp;
-      targetTpRange.value = prof.tp;
+      targetI.value = lufsVal;
+      targetIRange.value = lufsVal;
+      targetTp.value = tpVal;
+      targetTpRange.value = tpVal;
       ovTargetI.checked = false;
       ovTargetTp.checked = false;
       ovTargetI.disabled = true;
@@ -961,9 +930,8 @@
 
   function updateState(){
     state.voicing = voicingSelect?.value || 'universal';
-    state.preset = presetSelect?.value || '';
     state.strength = parseInt(strength?.value || '0', 10);
-    state.profile = loudnessMode?.value || 'apple';
+    state.profile = loudnessMode?.value || 'manual';
     state.lufsOverrideEnabled = ovTargetI?.checked ?? false;
     state.lufsValue = parseFloat(targetI?.value || '');
     state.tpOverrideEnabled = ovTargetTp?.checked ?? false;
@@ -1004,18 +972,11 @@
       if (state.convertOnly) {
         runSummaryText.textContent = `${count} ${fileLabel} • Convert Only • Outputs: ${outputText}`;
       } else {
-        const profileLabel = profileLabels[state.profile] || state.profile;
-        if (state.preset) {
-          const presetLabel = presetSelect?.options[presetSelect.selectedIndex]?.textContent?.trim() || state.preset;
-          runSummaryText.textContent =
-            `${count} ${fileLabel} • Preset: ${presetLabel} (Strength ${state.strength}) • ` +
-            `Profile: ${profileLabel} • Width: ${state.widthValue.toFixed(2)} • Outputs: ${outputText}`;
-        } else {
-          const voicingLabel = voicingSelect?.options[voicingSelect.selectedIndex]?.textContent?.trim() || state.voicing;
-          runSummaryText.textContent =
-            `${count} ${fileLabel} • Voicing: ${voicingLabel} (Strength ${state.strength}) • ` +
-            `Profile: ${profileLabel} • Width: ${state.widthValue.toFixed(2)} • Outputs: ${outputText}`;
-        }
+        const profileLabel = loudnessMode?.options[loudnessMode.selectedIndex]?.textContent?.trim() || state.profile;
+        const voicingLabel = voicingSelect?.options[voicingSelect.selectedIndex]?.textContent?.trim() || state.voicing;
+        runSummaryText.textContent =
+          `${count} ${fileLabel} • Voicing: ${voicingLabel} (Strength ${state.strength}) • ` +
+          `Profile: ${profileLabel} • Width: ${state.widthValue.toFixed(2)} • Outputs: ${outputText}`;
       }
     }
   }
@@ -1031,13 +992,6 @@
   if (voicingSelect) {
     voicingSelect.addEventListener('change', updateSummary);
     voicingSelect.addEventListener('change', schedulePreview);
-  }
-  if (presetSelect) {
-    presetSelect.addEventListener('change', () => {
-      updateSummary();
-      resetPreview();
-      updatePreviewAvailability();
-    });
   }
   if (width) width.addEventListener('input', updateSummary);
   if (guardrails) guardrails.addEventListener('change', updateSummary);
@@ -1076,7 +1030,7 @@
   updateSummary();
   applyConvertOnly();
   loadFiles();
-  loadPresets();
+  loadLoudnessProfiles();
 
   form.addEventListener('submit', async (e)=>{
     e.preventDefault();
@@ -1101,14 +1055,8 @@
       fd.append('stage_stereo', '1');
       fd.append('stage_output', '1');
       // voicing
-      const presetValue = presetSelect?.value || '';
-      if (presetValue) {
-        fd.append('voicing_mode', 'presets');
-        fd.append('presets', presetValue);
-      } else {
-        fd.append('voicing_mode', 'voicing');
-        fd.append('voicing_name', voicingSelect?.value || '');
-      }
+      fd.append('voicing_mode', 'voicing');
+      fd.append('voicing_name', voicingSelect?.value || '');
       // loudness
       if(ovTargetI?.checked){
         fd.append('lufs', targetI?.value || '');

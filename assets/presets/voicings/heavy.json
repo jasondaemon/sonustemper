@@ -1,0 +1,50 @@
+{
+  "id": "heavy",
+  "meta": {
+    "title": "Heavy",
+    "kind": "voicing",
+    "tags": [
+      "Dark, weight-forward voicing for aggressive or dense material.",
+      "dark",
+      "weight",
+      "aggressive",
+      "metal"
+    ]
+  },
+  "chain": {
+    "eq": [
+      {
+        "type": "lowshelf",
+        "freq_hz": 75,
+        "gain_db": 1.6,
+        "q": 0.8
+      },
+      {
+        "type": "peaking",
+        "freq_hz": 250,
+        "gain_db": 0.8,
+        "q": 1.0
+      },
+      {
+        "type": "peaking",
+        "freq_hz": 3600,
+        "gain_db": -1.0,
+        "q": 1.1
+      },
+      {
+        "type": "highshelf",
+        "freq_hz": 10500,
+        "gain_db": -0.8,
+        "q": 0.7
+      }
+    ],
+    "dynamics": {
+      "density": 0.7,
+      "transient_focus": 0.55,
+      "smoothness": 0.55
+    },
+    "stereo": {
+      "width": 0.98
+    }
+  }
+}

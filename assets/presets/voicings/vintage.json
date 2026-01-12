@@ -1,0 +1,50 @@
+{
+  "id": "vintage",
+  "meta": {
+    "title": "Vintage",
+    "kind": "voicing",
+    "tags": [
+      "Classic tonal balance: softer highs, warm mids, and rounded edges.",
+      "vintage",
+      "warm",
+      "soft",
+      "classic"
+    ]
+  },
+  "chain": {
+    "eq": [
+      {
+        "type": "lowshelf",
+        "freq_hz": 95,
+        "gain_db": 0.7,
+        "q": 0.7
+      },
+      {
+        "type": "peaking",
+        "freq_hz": 420,
+        "gain_db": 0.6,
+        "q": 0.9
+      },
+      {
+        "type": "peaking",
+        "freq_hz": 3600,
+        "gain_db": -0.8,
+        "q": 1.1
+      },
+      {
+        "type": "highshelf",
+        "freq_hz": 10500,
+        "gain_db": -0.7,
+        "q": 0.7
+      }
+    ],
+    "dynamics": {
+      "density": 0.55,
+      "transient_focus": 0.3,
+      "smoothness": 0.7
+    },
+    "stereo": {
+      "width": 0.99
+    }
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "id": "warm-glue",
+  "meta": {
+    "title": "Warm Glue",
+    "kind": "voicing",
+    "tags": [
+      "Glue with added warmth and softer edges for an organic finish.",
+      "warm",
+      "cohesion",
+      "soft",
+      "analog-ish"
+    ]
+  },
+  "chain": {
+    "eq": [
+      {
+        "type": "lowshelf",
+        "freq_hz": 95,
+        "gain_db": 0.8,
+        "q": 0.7
+      },
+      {
+        "type": "peaking",
+        "freq_hz": 360,
+        "gain_db": 0.7,
+        "q": 0.9
+      },
+      {
+        "type": "highshelf",
+        "freq_hz": 12000,
+        "gain_db": -0.4,
+        "q": 0.7
+      }
+    ],
+    "dynamics": {
+      "density": 0.7,
+      "transient_focus": 0.3,
+      "smoothness": 0.7
+    },
+    "stereo": {
+      "width": 0.99
+    }
+  }
+}

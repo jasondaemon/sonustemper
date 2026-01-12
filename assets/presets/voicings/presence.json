@@ -1,0 +1,44 @@
+{
+  "id": "presence",
+  "meta": {
+    "title": "Presence",
+    "kind": "voicing",
+    "tags": [
+      "Brings vocals and lead elements forward with tasteful upper-mid focus.",
+      "vocals",
+      "forward",
+      "upper-mids",
+      "clarity"
+    ]
+  },
+  "chain": {
+    "eq": [
+      {
+        "type": "peaking",
+        "freq_hz": 240,
+        "gain_db": -0.7,
+        "q": 1.0
+      },
+      {
+        "type": "peaking",
+        "freq_hz": 3200,
+        "gain_db": 1.2,
+        "q": 1.1
+      },
+      {
+        "type": "highshelf",
+        "freq_hz": 12000,
+        "gain_db": 0.5,
+        "q": 0.7
+      }
+    ],
+    "dynamics": {
+      "density": 0.35,
+      "transient_focus": 0.55,
+      "smoothness": 0.3
+    },
+    "stereo": {
+      "width": 1.01
+    }
+  }
+}

@@ -1,7 +1,38 @@
 {
-  "name": "glue",
+  "id": "glue",
   "meta": {
     "title": "Glue",
-    "kind": "voicing"
+    "kind": "voicing",
+    "tags": [
+      "Unifies the mix with gentle cohesion and a finished feel.",
+      "cohesion",
+      "smooth",
+      "album",
+      "glue"
+    ]
+  },
+  "chain": {
+    "eq": [
+      {
+        "type": "peaking",
+        "freq_hz": 300,
+        "gain_db": 0.4,
+        "q": 0.9
+      },
+      {
+        "type": "peaking",
+        "freq_hz": 3000,
+        "gain_db": 0.3,
+        "q": 1.0
+      }
+    ],
+    "dynamics": {
+      "density": 0.65,
+      "transient_focus": 0.35,
+      "smoothness": 0.65
+    },
+    "stereo": {
+      "width": 1.0
+    }
   }
 }

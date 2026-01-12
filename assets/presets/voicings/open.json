@@ -1,0 +1,44 @@
+{
+  "id": "open",
+  "meta": {
+    "title": "Open",
+    "kind": "voicing",
+    "tags": [
+      "Adds depth and airy openness with gentle clarity.",
+      "depth",
+      "space",
+      "open",
+      "ambient"
+    ]
+  },
+  "chain": {
+    "eq": [
+      {
+        "type": "peaking",
+        "freq_hz": 240,
+        "gain_db": -0.5,
+        "q": 0.9
+      },
+      {
+        "type": "peaking",
+        "freq_hz": 5200,
+        "gain_db": 0.6,
+        "q": 1.1
+      },
+      {
+        "type": "highshelf",
+        "freq_hz": 12000,
+        "gain_db": 1.0,
+        "q": 0.7
+      }
+    ],
+    "dynamics": {
+      "density": 0.25,
+      "transient_focus": 0.45,
+      "smoothness": 0.3
+    },
+    "stereo": {
+      "width": 1.08
+    }
+  }
+}

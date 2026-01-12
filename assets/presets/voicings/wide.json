@@ -1,7 +1,38 @@
 {
-  "name": "wide",
+  "id": "wide",
   "meta": {
     "title": "Wide",
-    "kind": "voicing"
+    "kind": "voicing",
+    "tags": [
+      "Expands stereo image while preserving a stable mono center.",
+      "stereo",
+      "width",
+      "space",
+      "edm"
+    ]
+  },
+  "chain": {
+    "eq": [
+      {
+        "type": "highpass",
+        "freq_hz": 28,
+        "gain_db": 0.0,
+        "q": 0.7
+      },
+      {
+        "type": "highshelf",
+        "freq_hz": 12000,
+        "gain_db": 0.6,
+        "q": 0.7
+      }
+    ],
+    "dynamics": {
+      "density": 0.35,
+      "transient_focus": 0.45,
+      "smoothness": 0.35
+    },
+    "stereo": {
+      "width": 1.12
+    }
   }
 }

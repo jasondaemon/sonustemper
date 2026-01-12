@@ -1,0 +1,56 @@
+{
+  "id": "modern",
+  "meta": {
+    "title": "Modern",
+    "kind": "voicing",
+    "tags": [
+      "Contemporary tonal balance with tight lows and clean clarity for streaming-ready masters.",
+      "modern",
+      "tight",
+      "clear",
+      "streaming"
+    ]
+  },
+  "chain": {
+    "eq": [
+      {
+        "type": "highpass",
+        "freq_hz": 30,
+        "gain_db": 0.0,
+        "q": 0.7
+      },
+      {
+        "type": "lowshelf",
+        "freq_hz": 85,
+        "gain_db": 0.7,
+        "q": 0.8
+      },
+      {
+        "type": "peaking",
+        "freq_hz": 250,
+        "gain_db": -0.8,
+        "q": 1.0
+      },
+      {
+        "type": "peaking",
+        "freq_hz": 5200,
+        "gain_db": 0.8,
+        "q": 1.1
+      },
+      {
+        "type": "highshelf",
+        "freq_hz": 12000,
+        "gain_db": 0.7,
+        "q": 0.7
+      }
+    ],
+    "dynamics": {
+      "density": 0.45,
+      "transient_focus": 0.6,
+      "smoothness": 0.35
+    },
+    "stereo": {
+      "width": 1.04
+    }
+  }
+}

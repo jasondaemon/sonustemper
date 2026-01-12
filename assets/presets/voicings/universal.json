@@ -1,7 +1,38 @@
 {
-  "name": "universal",
+  "id": "universal",
   "meta": {
     "title": "Universal",
-    "kind": "voicing"
+    "kind": "voicing",
+    "tags": [
+      "Balanced, transparent starting point for most material.",
+      "neutral",
+      "safe",
+      "transparent",
+      "default"
+    ]
+  },
+  "chain": {
+    "eq": [
+      {
+        "type": "lowshelf",
+        "freq_hz": 90,
+        "gain_db": 0.5,
+        "q": 0.7
+      },
+      {
+        "type": "highshelf",
+        "freq_hz": 12000,
+        "gain_db": 0.5,
+        "q": 0.7
+      }
+    ],
+    "dynamics": {
+      "density": 0.35,
+      "transient_focus": 0.5,
+      "smoothness": 0.35
+    },
+    "stereo": {
+      "width": 1.0
+    }
   }
 }

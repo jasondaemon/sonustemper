@@ -1,0 +1,9 @@
+{
+  "name": "spotify",
+  "lufs": -14.0,
+  "tp": -1.0,
+  "meta": {
+    "title": "Spotify",
+    "kind": "profile"
+  }
+}

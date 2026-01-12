@@ -1,7 +1,50 @@
 {
-  "name": "detail",
+  "id": "detail",
   "meta": {
     "title": "Detail",
-    "kind": "voicing"
+    "kind": "voicing",
+    "tags": [
+      "Enhances articulation and micro-detail without getting sharp.",
+      "clarity",
+      "texture",
+      "definition",
+      "detail"
+    ]
+  },
+  "chain": {
+    "eq": [
+      {
+        "type": "peaking",
+        "freq_hz": 180,
+        "gain_db": -0.7,
+        "q": 1.0
+      },
+      {
+        "type": "peaking",
+        "freq_hz": 1600,
+        "gain_db": 0.7,
+        "q": 1.0
+      },
+      {
+        "type": "peaking",
+        "freq_hz": 5200,
+        "gain_db": 0.9,
+        "q": 1.2
+      },
+      {
+        "type": "highshelf",
+        "freq_hz": 12000,
+        "gain_db": 0.7,
+        "q": 0.7
+      }
+    ],
+    "dynamics": {
+      "density": 0.35,
+      "transient_focus": 0.6,
+      "smoothness": 0.3
+    },
+    "stereo": {
+      "width": 1.02
+    }
   }
 }

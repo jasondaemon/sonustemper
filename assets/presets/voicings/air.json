@@ -1,0 +1,44 @@
+{
+  "id": "air",
+  "meta": {
+    "title": "Air",
+    "kind": "voicing",
+    "tags": [
+      "Opens the top end for brightness and space with a gentle lift.",
+      "brightness",
+      "top-end",
+      "sparkle",
+      "open"
+    ]
+  },
+  "chain": {
+    "eq": [
+      {
+        "type": "peaking",
+        "freq_hz": 320,
+        "gain_db": -0.6,
+        "q": 0.9
+      },
+      {
+        "type": "highshelf",
+        "freq_hz": 11000,
+        "gain_db": 1.6,
+        "q": 0.7
+      },
+      {
+        "type": "peaking",
+        "freq_hz": 6500,
+        "gain_db": 0.6,
+        "q": 1.1
+      }
+    ],
+    "dynamics": {
+      "density": 0.25,
+      "transient_focus": 0.55,
+      "smoothness": 0.25
+    },
+    "stereo": {
+      "width": 1.03
+    }
+  }
+}

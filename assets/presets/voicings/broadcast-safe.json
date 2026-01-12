@@ -1,0 +1,50 @@
+{
+  "id": "broadcast-safe",
+  "meta": {
+    "title": "Broadcast Safe",
+    "kind": "voicing",
+    "tags": [
+      "Conservative, intelligible voicing for spoken word and broadcast delivery.",
+      "utility",
+      "speech",
+      "conservative",
+      "delivery"
+    ]
+  },
+  "chain": {
+    "eq": [
+      {
+        "type": "highpass",
+        "freq_hz": 55,
+        "gain_db": 0.0,
+        "q": 0.7
+      },
+      {
+        "type": "peaking",
+        "freq_hz": 250,
+        "gain_db": -1.0,
+        "q": 1.0
+      },
+      {
+        "type": "peaking",
+        "freq_hz": 3200,
+        "gain_db": 1.0,
+        "q": 1.1
+      },
+      {
+        "type": "highshelf",
+        "freq_hz": 9500,
+        "gain_db": 0.5,
+        "q": 0.7
+      }
+    ],
+    "dynamics": {
+      "density": 0.55,
+      "transient_focus": 0.25,
+      "smoothness": 0.6
+    },
+    "stereo": {
+      "width": 0.98
+    }
+  }
+}

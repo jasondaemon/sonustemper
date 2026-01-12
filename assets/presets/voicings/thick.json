@@ -1,50 +1,50 @@
 {
-  "id": "cinematic",
+  "id": "thick",
   "meta": {
-    "title": "Cinematic",
+    "title": "Thick",
     "kind": "voicing",
     "tags": [
-      "Big, wide, polished voicing with controlled dynamics for cinematic material.",
-      "cinematic",
-      "wide",
-      "polished",
-      "soundtrack"
+      "Adds body and weight, especially in the low-mids, without harshness.",
+      "body",
+      "warmth",
+      "low-mids",
+      "dense"
     ]
   },
   "chain": {
     "eq": [
       {
         "type": "lowshelf",
-        "freq_hz": 90,
-        "gain_db": 0.8,
+        "freq_hz": 95,
+        "gain_db": 1.0,
         "q": 0.7
       },
       {
         "type": "peaking",
-        "freq_hz": 250,
-        "gain_db": -0.6,
-        "q": 1.0
+        "freq_hz": 320,
+        "gain_db": 1.2,
+        "q": 0.9
       },
       {
         "type": "peaking",
-        "freq_hz": 5200,
-        "gain_db": 0.6,
+        "freq_hz": 2800,
+        "gain_db": -0.6,
         "q": 1.1
       },
       {
         "type": "highshelf",
         "freq_hz": 12000,
-        "gain_db": 0.9,
+        "gain_db": -0.3,
         "q": 0.7
       }
     ],
     "dynamics": {
       "density": 0.6,
-      "transient_focus": 0.45,
+      "transient_focus": 0.4,
       "smoothness": 0.55
     },
     "stereo": {
-      "width": 1.15
+      "width": 0.99
     }
   }
 }

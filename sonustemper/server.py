@@ -1071,11 +1071,25 @@ def _preset_meta_from_file(fp: Path, default_kind: str | None = None) -> dict:
         data = json.loads(fp.read_text(encoding="utf-8"))
         meta = data.get("meta", {}) if isinstance(data, dict) else {}
         kind = _detect_preset_kind(data) or (default_kind.lower() if default_kind else None)
+        lufs = data.get("lufs")
+        if lufs is None:
+            lufs = data.get("target_lufs")
+        tp = data.get("tp")
+        if tp is None:
+            tp = data.get("target_tp")
+        if tp is None and isinstance(data.get("limiter"), dict):
+            tp = data.get("limiter", {}).get("ceiling")
+        manual = meta.get("manual")
+        if manual is None:
+            manual = data.get("manual")
         return {
             "title": meta.get("title") or data.get("name") or fp.stem,
             "source_file": meta.get("source_file"),
             "created_at": meta.get("created_at"),
             "kind": kind,
+            "lufs": lufs,
+            "tp": tp,
+            "manual": bool(manual) if manual is not None else False,
         }
     except Exception:
         return {"title": fp.stem, "kind": default_kind.lower() if default_kind else None}

@@ -1,0 +1,44 @@
+{
+  "id": "smooth",
+  "meta": {
+    "title": "Smooth",
+    "kind": "voicing",
+    "tags": [
+      "Reduces harshness and sharp edges for fatigue-free listening.",
+      "deharsh",
+      "soften",
+      "relaxed",
+      "easy-listening"
+    ]
+  },
+  "chain": {
+    "eq": [
+      {
+        "type": "peaking",
+        "freq_hz": 3500,
+        "gain_db": -1.2,
+        "q": 1.2
+      },
+      {
+        "type": "highshelf",
+        "freq_hz": 11500,
+        "gain_db": -0.6,
+        "q": 0.7
+      },
+      {
+        "type": "peaking",
+        "freq_hz": 220,
+        "gain_db": 0.4,
+        "q": 0.9
+      }
+    ],
+    "dynamics": {
+      "density": 0.55,
+      "transient_focus": 0.25,
+      "smoothness": 0.8
+    },
+    "stereo": {
+      "width": 1.0
+    }
+  }
+}

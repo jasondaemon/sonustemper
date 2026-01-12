@@ -1,0 +1,32 @@
+{
+  "id": "clean",
+  "meta": {
+    "title": "Clean",
+    "kind": "voicing",
+    "tags": [
+      "Preserves the mix with minimal coloration and very gentle control.",
+      "neutral",
+      "transparent",
+      "minimal",
+      "safe"
+    ]
+  },
+  "chain": {
+    "eq": [
+      {
+        "type": "highpass",
+        "freq_hz": 28,
+        "gain_db": 0.0,
+        "q": 0.7
+      }
+    ],
+    "dynamics": {
+      "density": 0.2,
+      "transient_focus": 0.45,
+      "smoothness": 0.25
+    },
+    "stereo": {
+      "width": 1.0
+    }
+  }
+}

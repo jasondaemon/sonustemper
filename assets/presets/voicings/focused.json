@@ -1,0 +1,44 @@
+{
+  "id": "focused",
+  "meta": {
+    "title": "Focused",
+    "kind": "voicing",
+    "tags": [
+      "Tight, centered image for punch and compatibility on all systems.",
+      "mono-safe",
+      "center",
+      "tight",
+      "club"
+    ]
+  },
+  "chain": {
+    "eq": [
+      {
+        "type": "lowshelf",
+        "freq_hz": 85,
+        "gain_db": 0.8,
+        "q": 0.8
+      },
+      {
+        "type": "peaking",
+        "freq_hz": 250,
+        "gain_db": -0.7,
+        "q": 1.0
+      },
+      {
+        "type": "peaking",
+        "freq_hz": 3200,
+        "gain_db": 0.5,
+        "q": 1.1
+      }
+    ],
+    "dynamics": {
+      "density": 0.5,
+      "transient_focus": 0.65,
+      "smoothness": 0.35
+    },
+    "stereo": {
+      "width": 0.92
+    }
+  }
+}
