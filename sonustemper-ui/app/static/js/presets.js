@@ -69,6 +69,8 @@
   let statusRaf = null;
   const PRESET_PREVIEW_SONG = 'SonusTemper.wav';
   const PRESET_PREVIEW_STRENGTH = 100;
+  const PRESET_PREVIEW_PLACEHOLDER = 'data:audio/wav;base64,UklGRkQDAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YSADAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==';
+  const PRESET_PREVIEW_DISPLAY = '/assets/demo/SonusTemper.wav';
   const EQ_TYPES = ['lowshelf', 'highshelf', 'peaking', 'highpass', 'lowpass', 'bandpass', 'notch'];
   const EQ_LABELS = {
     lowshelf: 'Low Shelf',
@@ -145,6 +147,15 @@
     previewAudio.setAttribute('aria-disabled', enabled ? 'false' : 'true');
   }
 
+  function ensurePreviewPlaceholder(){
+    if (!previewAudio) return;
+    if (!selectedItem || selectedItem.kind !== 'voicing') return;
+    if (!previewAudio.getAttribute('src') || previewAudio.getAttribute('src') === '') {
+      previewAudio.setAttribute('src', PRESET_PREVIEW_PLACEHOLDER);
+      previewAudio.load();
+    }
+  }
+
   function closePreviewStream(){
     if (previewEventSource) {
       previewEventSource.close();
@@ -168,6 +179,7 @@
     if (previewAudio) {
       previewAudio.removeAttribute('src');
       previewAudio.load();
+      ensurePreviewPlaceholder();
     }
   }
 
@@ -237,6 +249,7 @@
     }
     setPreviewStatus('Tap play to generate');
     setPreviewPlayable(true);
+    ensurePreviewPlaceholder();
   }
 
   function schedulePreview(){
@@ -270,6 +283,7 @@
     resetPreviewState();
     previewIsBuilding = true;
     setPreviewStatus('Generating...');
+    addStatusLine(`Preview source: ${PRESET_PREVIEW_DISPLAY}`);
     const payload = {
       song: PRESET_PREVIEW_SONG,
       strength: PRESET_PREVIEW_STRENGTH,

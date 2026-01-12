@@ -1459,8 +1459,8 @@ def _find_preset_file(origin: str, kind: str, preset_id: str) -> Path | None:
 def _sanitize_label(value: str, max_len: int = 80) -> str:
     raw = str(value or "").replace("\u00a0", " ")
     raw = "".join(ch for ch in raw if unicodedata.category(ch)[0] != "C")
-    cleaned = re.sub(r"[\\r\\n\\t]+", " ", raw)
-    cleaned = re.sub(r"\\s+", " ", cleaned).strip()
+    cleaned = re.sub(r"[\r\n\t]+", " ", raw)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
     if len(cleaned) > max_len:
         cleaned = cleaned[:max_len].strip()
     return cleaned
