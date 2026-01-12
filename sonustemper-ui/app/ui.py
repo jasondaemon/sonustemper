@@ -39,6 +39,7 @@ UTILITY_ROOTS = {
     ("mastering", "source"): MASTER_IN_DIR,
     ("mastering", "output"): MASTER_OUT_DIR,
     ("tagging", "library"): TAG_IN_DIR,
+    ("analysis", "uploads"): ANALYSIS_IN_DIR,
     ("presets", "user"): PRESET_DIR,
     ("presets", "generated"): GEN_PRESET_DIR,
 }
@@ -384,10 +385,11 @@ def _list_mastering_runs(only_mp3: bool, q: str, limit: int, context: str = "") 
         badges = _parse_variant_tags(rep.name) if rep else []
         action = None
         clickable = True
-        if context in ("", "mastering"):
+        if context in ("", "mastering", "files"):
+            target = "#outputPaneWrap" if context in ("", "mastering") else "#fileDetailPane"
             action = {
                 "hx_get": f"/partials/master_output?song={quote(d.name)}",
-                "hx_target": "#outputPaneWrap",
+                "hx_target": target,
                 "hx_swap": "innerHTML",
             }
         items.append(
@@ -406,6 +408,39 @@ def _list_mastering_runs(only_mp3: bool, q: str, limit: int, context: str = "") 
         ql = q.lower()
         items = [i for i in items if ql in i["title"].lower()]
     items.sort(key=lambda x: x.get("mtime", 0), reverse=True)
+    return items[:limit]
+
+
+def _list_mastering_sources(q: str, limit: int, context: str = "") -> list[dict]:
+    if not MASTER_IN_DIR.exists():
+        return []
+    items = []
+    for fp in sorted(MASTER_IN_DIR.iterdir(), key=lambda p: p.name.lower()):
+        if not fp.is_file() or fp.suffix.lower() not in AUDIO_EXTS:
+            continue
+        title = _base_title(fp.stem).replace("_", " ").strip() or fp.stem
+        action = None
+        if context == "files":
+            action = {
+                "hx_get": f"/partials/file_detail?utility=mastering&section=source&rel={quote(fp.name)}",
+                "hx_target": "#fileDetailPane",
+                "hx_swap": "innerHTML",
+            }
+        items.append(
+            {
+                "id": fp.name,
+                "title": title,
+                "subtitle": "Source File",
+                "kind": "source",
+                "badges": [{"key": "format", "label": "Source", "title": "Source file"}],
+                "action": action,
+                "clickable": context == "files",
+                "meta": {"rel": fp.name},
+            }
+        )
+    if q:
+        ql = q.lower()
+        items = [i for i in items if ql in i["title"].lower()]
     return items[:limit]
 
 
@@ -525,6 +560,13 @@ def _list_analysis_imports(q: str, limit: int, context: str = "") -> list[dict]:
         badges = _parse_variant_tags(fp.name)
         if not badges:
             badges = [{"key": "format", "label": "Uploaded", "title": "Analyze upload"}]
+        action = None
+        if context == "files":
+            action = {
+                "hx_get": f"/partials/file_detail?utility=analysis&section=uploads&rel={quote(fp.name)}",
+                "hx_target": "#fileDetailPane",
+                "hx_swap": "innerHTML",
+            }
         items.append(
             {
                 "id": fp.name,
@@ -532,8 +574,46 @@ def _list_analysis_imports(q: str, limit: int, context: str = "") -> list[dict]:
                 "subtitle": "Analyze Upload",
                 "kind": "import",
                 "badges": badges,
-                "action": None,
-                "clickable": context == "analyze",
+                "action": action,
+                "clickable": context in ("analyze", "files"),
+                "meta": {"rel": fp.name},
+            }
+        )
+    if q:
+        ql = q.lower()
+        items = [i for i in items if ql in i["title"].lower()]
+    return items[:limit]
+
+
+def _list_tagging_uploads(q: str, limit: int, context: str = "") -> list[dict]:
+    if not TAG_IN_DIR.exists():
+        return []
+    items = []
+    for fp in sorted(TAG_IN_DIR.iterdir(), key=lambda p: p.name.lower()):
+        if not fp.is_file() or fp.suffix.lower() not in AUDIO_EXTS:
+            continue
+        title = _base_title(fp.stem)
+        if title:
+            title = title.replace("_", " ").strip() or title
+        badges = _parse_variant_tags(fp.name)
+        if not badges:
+            badges = [{"key": "format", "label": "Tagged", "title": "Tagging upload"}]
+        action = None
+        if context == "files":
+            action = {
+                "hx_get": f"/partials/file_detail?utility=tagging&section=library&rel={quote(fp.name)}",
+                "hx_target": "#fileDetailPane",
+                "hx_swap": "innerHTML",
+            }
+        items.append(
+            {
+                "id": fp.name,
+                "title": title,
+                "subtitle": "Tagging Upload",
+                "kind": "tagging_upload",
+                "badges": badges,
+                "action": action,
+                "clickable": context == "files",
                 "meta": {"rel": fp.name},
             }
         )
@@ -555,10 +635,14 @@ async def library_list(request: Request, view: str, q: str = "", limit: int = 20
         items = _list_mastering_runs(False, q, limit, context)
     elif view == "mastering_runs_with_mp3":
         items = _list_mastering_runs(True, q, limit, context)
+    elif view == "mastering_sources":
+        items = _list_mastering_sources(q, limit, context)
     elif view == "mastering_outputs":
         items = _list_mastering_outputs(q, limit, context)
     elif view == "tagging_mp3":
         items = _list_tagging_mp3(q, limit, context, scope)
+    elif view == "tagging_uploads":
+        items = _list_tagging_uploads(q, limit, context)
     elif view == "analysis_imports":
         items = _list_analysis_imports(q, limit, context)
     elif view == "presets_user":
@@ -936,6 +1020,14 @@ def _list_presets(kind: str, q: str, limit: int, context: str = "", meta_kind: s
                     "label": f"Type: {effective_kind}",
                     "title": f"Profile type: {effective_kind}",
                 })
+            action = None
+            if context == "files":
+                section = "user" if label == "user" else "generated"
+                action = {
+                    "hx_get": f"/partials/file_detail?utility=presets&section={section}&rel={quote(fp.name)}",
+                    "hx_target": "#fileDetailPane",
+                    "hx_swap": "innerHTML",
+                }
             items.append(
                 {
                     "id": fp.stem,
@@ -943,8 +1035,8 @@ def _list_presets(kind: str, q: str, limit: int, context: str = "", meta_kind: s
                     "subtitle": subtitle,
                     "kind": "preset",
                     "badges": badges,
-                    "action": None,
-                    "clickable": context == "presets",
+                    "action": action,
+                    "clickable": context in ("presets", "files"),
                     "meta": {
                         "name": fp.stem,
                         "filename": fp.name,
@@ -1052,21 +1144,73 @@ async def master_output(request: Request, song: str = ""):
     )
 
 
+def _detail_title(target: Path, utility: str, section: str) -> dict:
+    title = target.name
+    subtitle = "File"
+    if utility == "mastering" and section == "source":
+        title = _base_title(target.stem).replace("_", " ").strip() or target.name
+        subtitle = "Source File"
+    elif utility == "analysis" and section == "uploads":
+        title = _base_title(target.stem).replace("_", " ").strip() or target.name
+        subtitle = "Analyze Upload"
+    elif utility == "tagging" and section == "library":
+        title = _base_title(target.stem).replace("_", " ").strip() or target.name
+        subtitle = "Tagging Upload"
+    elif utility == "presets":
+        meta = _preset_meta_from_file(target)
+        title = (meta.get("title") or target.stem).replace("_", " ").strip() or target.name
+        kind = (meta.get("kind") or "preset").title()
+        subtitle = f"User {kind}"
+    return {"title": title, "subtitle": subtitle}
+
+
+@router.get("/partials/file_detail", response_class=HTMLResponse)
+async def file_detail(request: Request, utility: str, section: str, rel: str):
+    root = _util_root(utility, section)
+    target = _safe_rel(root, rel)
+    if not target.exists() or target.is_dir():
+        return TEMPLATES.TemplateResponse(
+            "partials/file_detail_empty.html",
+            {"request": request},
+        )
+    info = _detail_title(target, utility, section)
+    stat = target.stat()
+    is_audio = target.suffix.lower() in AUDIO_EXTS
+    return TEMPLATES.TemplateResponse(
+        "partials/file_detail.html",
+        {
+            "request": request,
+            "utility": utility,
+            "section": section,
+            "rel": str(rel),
+            "filename": target.name,
+            "title": info["title"],
+            "subtitle": info["subtitle"],
+            "size": _human_size(stat.st_size),
+            "mtime": _fmt_mtime(stat.st_mtime),
+            "is_audio": is_audio,
+        },
+    )
+
+
 @router.post("/actions/delete", response_class=HTMLResponse)
-async def delete_items(request: Request, util: str = Form(...), section: str = Form(...), delete_all: str = Form(default=""), rels: list[str] = Form(default=[])):
-    util = util if util in ("mastering", "tagging", "presets") else "mastering"
+async def delete_items(request: Request, util: str = Form(...), section: str = Form(...), delete_all: str = Form(default=""), rels: list[str] = Form(default=[]), context: str = Form(default="")):
+    util = util if util in ("mastering", "tagging", "presets", "analysis") else "mastering"
     root = _util_root(util, section)
     to_delete = []
     allow_dirs = util == "mastering" and section == "output"
     if delete_all:
-        allow_audio = util in ("mastering", "tagging")
+        allow_audio = util in ("mastering", "tagging", "analysis")
         allow_json = util == "presets"
         items = _list_dir(root, allow_audio=allow_audio, allow_json=allow_json)
         to_delete = [i["rel"] for i in items if allow_dirs or not i["is_dir"]]
     else:
         to_delete = [r for r in rels if r]
     if not to_delete:
-        return _render_sections(request, util)
+        return _render_sections(request, util) if context != "file_detail" else TEMPLATES.TemplateResponse(
+            "partials/file_detail_empty.html",
+            {"request": request},
+        )
     for rel in to_delete:
         try:
             target = _safe_rel(root, rel)
@@ -1104,6 +1248,13 @@ async def delete_items(request: Request, util: str = Form(...), section: str = F
             raise
         except Exception:
             continue
+    if context == "file_detail":
+        response = TEMPLATES.TemplateResponse(
+            "partials/file_detail_empty.html",
+            {"request": request},
+        )
+        response.headers["HX-Trigger"] = "refreshFileBrowser"
+        return response
     return _render_sections(request, util)
 
 

@@ -1,0 +1,25 @@
+<div class="card">
+  <div class="card-head">
+    <div>
+      <div class="card-title">{{ title }}</div>
+      <div class="muted">{{ subtitle }}</div>
+    </div>
+    <div class="output-toolbar">
+      <a class="btn ghost small" href="/download?utility={{ utility }}&section={{ section }}&rel={{ rel }}">Download</a>
+      <form hx-post="/actions/delete" hx-target="#fileDetailPane" hx-swap="innerHTML" class="delete-selected-form">
+        <input type="hidden" name="util" value="{{ utility }}">
+        <input type="hidden" name="section" value="{{ section }}">
+        <input type="hidden" name="rels" value="{{ rel }}">
+        <input type="hidden" name="context" value="file_detail">
+        <button type="submit" class="btn danger small">Delete</button>
+      </form>
+    </div>
+  </div>
+  <div class="muted">File: {{ filename }}</div>
+  <div class="muted">Size: {{ size }} · Modified: {{ mtime }}</div>
+  {% if is_audio %}
+  <audio controls style="width:100%; margin-top:10px;">
+    <source src="/download?utility={{ utility }}&section={{ section }}&rel={{ rel }}">
+  </audio>
+  {% endif %}
+</div>

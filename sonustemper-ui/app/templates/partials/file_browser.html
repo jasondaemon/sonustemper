@@ -16,7 +16,7 @@
            {% if section.endpoint %}
            data-endpoint="{{ section.endpoint }}"
            hx-get="{{ section.endpoint }}"
-           hx-trigger="load"
+           hx-trigger="{{ section.trigger if section.trigger else 'load' }}"
            hx-swap="innerHTML"
            {% endif %}
            {% if section.autoselect %}data-autoselect="{{ section.autoselect }}"{% endif %}></div>
