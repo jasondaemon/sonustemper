@@ -80,7 +80,7 @@
         <div class="playback-modes">
           <button class="btn ghost small is-active" data-track-mode="both" id="toggleBothBtn" type="button">Both</button>
           <button class="btn ghost small" data-track-mode="source" id="toggleSourceBtn" type="button">Source</button>
-          <button class="btn ghost small" id="toggleSwapBtn" type="button" aria-label="Swap Source/Processed" title="Swap Source/Processed">⇄</button>
+          <button class="btn ghost small" id="toggleFlipBtn" type="button" aria-label="A/B Flip" title="A/B Flip">⇄</button>
           <button class="btn ghost small" data-track-mode="processed" id="toggleProcessedBtn" type="button">Processed</button>
         </div>
         <label class="analyze-toggle match-toggle" title="Applies gain so A/B is loudness-matched (playback only).">
@@ -137,7 +137,7 @@
   const soloProcessedBtn = document.getElementById('soloProcessedBtn');
   const toggleBothBtn = document.getElementById('toggleBothBtn');
   const toggleSourceBtn = document.getElementById('toggleSourceBtn');
-  const toggleSwapBtn = document.getElementById('toggleSwapBtn');
+  const toggleFlipBtn = document.getElementById('toggleFlipBtn');
   const toggleProcessedBtn = document.getElementById('toggleProcessedBtn');
   const togglePeakRisk = document.getElementById('togglePeakRisk');
   const toggleHeatmap = document.getElementById('toggleHeatmap');
@@ -162,7 +162,6 @@
   const zoomSteps = [1, 2, 4, 8];
   let fitMinPxPerSec = 1;
   let trackMode = 'both';
-  let lastSoloMode = 'source';
 
   const metricLabels = [
     { key: 'I', label: 'LUFS-I', suffix: ' LUFS' },
@@ -287,8 +286,11 @@
     } catch (_err) {
       return null;
     }
+    if (typeof media.volume === 'number') {
+      media.volume = 1;
+    }
     const gain = ctx.createGain();
-    gain.gain.value = 1;
+    gain.gain.value = 0;
     source.connect(gain);
     gain.connect(ctx.destination);
     const state = { source, gain };
@@ -340,12 +342,16 @@
     rampMediaVolume(wave, gain);
   }
 
-  function applyMatchLoudness(){
+  function applyMatchLoudness(options = {}){
     const matchOn = toggleMatchLoudness && toggleMatchLoudness.checked;
     const gains = matchOn ? computeMatchGains() : { source: 1, processed: 1 };
-    const allowCreate = Boolean(matchOn);
-    setWaveGain(sourceWave, gains.source, allowCreate);
-    setWaveGain(processedWave, gains.processed, allowCreate);
+    const sourceOn = trackMode === 'source' || trackMode === 'both';
+    const processedOn = trackMode === 'processed' || trackMode === 'both';
+    const sourceGain = (sourceOn ? 1 : 0) * gains.source;
+    const processedGain = (processedOn ? 1 : 0) * gains.processed;
+    const allowCreate = options.allowCreate || matchOn;
+    setWaveGain(sourceWave, sourceGain, allowCreate);
+    setWaveGain(processedWave, processedGain, allowCreate);
   }
 
   function waveHost(wave){
@@ -512,8 +518,8 @@
       toggleBothBtn.disabled = !hasSource || !hasProcessed;
       toggleBothBtn.classList.toggle('is-active', trackMode === 'both');
     }
-    if (toggleSwapBtn) {
-      toggleSwapBtn.disabled = !hasSource || !hasProcessed;
+    if (toggleFlipBtn) {
+      toggleFlipBtn.disabled = !hasSource || !hasProcessed;
     }
     if (soloSourceBtn) {
       soloSourceBtn.disabled = !hasSource;
@@ -526,10 +532,8 @@
   }
 
   function applyTrackState(){
-    const sourceOn = trackMode === 'source' || trackMode === 'both';
-    const processedOn = trackMode === 'processed' || trackMode === 'both';
-    if (sourceWave) sourceWave.setMuted(!sourceOn);
-    if (processedWave) processedWave.setMuted(!processedOn);
+    if (sourceWave && typeof sourceWave.setMuted === 'function') sourceWave.setMuted(false);
+    if (processedWave && typeof processedWave.setMuted === 'function') processedWave.setMuted(false);
     applyMatchLoudness();
     updateTrackToggleUI();
   }
@@ -542,10 +546,28 @@
     } else {
       trackMode = mode;
     }
-    if (trackMode === 'source' || trackMode === 'processed') {
-      lastSoloMode = trackMode;
-    }
     applyTrackState();
+  }
+
+  function flipAudition(){
+    if (!sourceWave || !processedWave) return;
+    if (trackMode === 'processed') {
+      setTrackMode('source');
+    } else if (trackMode === 'source') {
+      setTrackMode('processed');
+    } else {
+      setTrackMode('source');
+    }
+    resumeAudioContext();
+  }
+
+  function ignoreShortcut(evt){
+    if (evt.repeat) return true;
+    const target = evt.target;
+    if (!target) return false;
+    const tag = target.tagName ? target.tagName.toLowerCase() : '';
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
+    return Boolean(target.isContentEditable);
   }
 
   function setSolo(kind){
@@ -1182,7 +1204,6 @@
     }
     updateFitBaseline();
     trackMode = processedWave ? 'both' : 'source';
-    lastSoloMode = trackMode === 'processed' ? 'processed' : 'source';
     applyTrackState();
     cleanupTransport();
     bindTransportEvents(sourceWave);
@@ -1343,18 +1364,18 @@
       setTrackMode('both');
     });
   }
-  if (toggleSwapBtn) {
-    toggleSwapBtn.addEventListener('click', () => {
-      if (!sourceWave || !processedWave) return;
-      if (trackMode === 'processed') {
-        setTrackMode('source');
-      } else if (trackMode === 'source') {
-        setTrackMode('processed');
-      } else {
-        setTrackMode(lastSoloMode === 'processed' ? 'source' : 'processed');
-      }
+  if (toggleFlipBtn) {
+    toggleFlipBtn.addEventListener('click', () => {
+      flipAudition();
     });
   }
+  window.addEventListener('keydown', (evt) => {
+    if (ignoreShortcut(evt)) return;
+    if (evt.key && evt.key.toLowerCase() === 'a') {
+      evt.preventDefault();
+      flipAudition();
+    }
+  });
 
   if (soloSourceBtn) {
     soloSourceBtn.addEventListener('click', () => {
