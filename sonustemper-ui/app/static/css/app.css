@@ -183,13 +183,18 @@ h1{margin:0;font-size:24px;}
   flex-direction:column;
   align-items:flex-start;
   gap:6px;
+  min-height:64px;
 }
 .voicing-desc{
   font-size:12px;
   line-height:1.35;
+  max-height:32px;
+  overflow:hidden;
 }
 .voicing-tags{
   margin-top:0;
+  max-height:40px;
+  overflow:hidden;
 }
 .eq-grid{
   stroke:#1f2a38;
