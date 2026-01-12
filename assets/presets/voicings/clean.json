@@ -8,7 +8,14 @@
       "neutral",
       "transparent",
       "minimal",
-      "safe"
+      "safe",
+      "acoustic",
+      "folk",
+      "singer-songwriter",
+      "classical",
+      "jazz",
+      "piano",
+      "ambient"
     ]
   },
   "chain": {

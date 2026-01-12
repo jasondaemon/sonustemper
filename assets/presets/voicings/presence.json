@@ -8,7 +8,14 @@
       "vocals",
       "forward",
       "upper-mids",
-      "clarity"
+      "clarity",
+      "pop",
+      "rnb",
+      "hip-hop",
+      "country",
+      "singer-songwriter",
+      "indie-pop",
+      "trap"
     ]
   },
   "chain": {

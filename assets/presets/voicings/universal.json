@@ -8,7 +8,15 @@
       "neutral",
       "safe",
       "transparent",
-      "default"
+      "default",
+      "pop",
+      "rock",
+      "hip-hop",
+      "indie",
+      "electronic",
+      "country",
+      "folk",
+      "jazz"
     ]
   },
   "chain": {

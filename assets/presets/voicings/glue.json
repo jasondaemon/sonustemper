@@ -8,7 +8,12 @@
       "cohesion",
       "smooth",
       "album",
-      "glue"
+      "glue",
+      "rock",
+      "pop",
+      "indie",
+      "alternative",
+      "folk"
     ]
   },
   "chain": {

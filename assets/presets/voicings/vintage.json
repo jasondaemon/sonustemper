@@ -8,7 +8,13 @@
       "vintage",
       "warm",
       "soft",
-      "classic"
+      "classic",
+      "classic-rock",
+      "blues",
+      "soul",
+      "jazz",
+      "oldies",
+      "retro"
     ]
   },
   "chain": {

@@ -8,7 +8,14 @@
       "clarity",
       "texture",
       "definition",
-      "detail"
+      "detail",
+      "acoustic",
+      "jazz",
+      "classical",
+      "progressive",
+      "post-rock",
+      "ambient",
+      "indie"
     ]
   },
   "chain": {

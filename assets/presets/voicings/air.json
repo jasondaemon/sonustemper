@@ -8,7 +8,14 @@
       "brightness",
       "top-end",
       "sparkle",
-      "open"
+      "open",
+      "pop",
+      "edm",
+      "house",
+      "trance",
+      "dance",
+      "electropop",
+      "synthpop"
     ]
   },
   "chain": {
