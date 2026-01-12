@@ -194,8 +194,8 @@ h1{margin:0;font-size:24px;}
   overflow:hidden;
 }
 .voicing-tags{
-  margin-top:0;
-  max-height:48px;
+  margin-top:auto;
+  max-height:50px;
   overflow:hidden;
 }
 .eq-grid{
