@@ -1275,10 +1275,11 @@
     setupOverlays();
   }
 
-  async function resolveRun(song, out){
+  async function resolveRun(song, out, solo){
     const params = new URLSearchParams();
     params.set('song', song);
     if (out) params.set('out', out);
+    if (solo) params.set('solo', '1');
     const res = await fetch(`/api/analyze-resolve?${params.toString()}`);
     if (!res.ok) {
       throw new Error('resolve_failed');
@@ -1316,8 +1317,9 @@
         const params = new URLSearchParams();
         params.set('song', item.song || item.id || '');
         if (item.out) params.set('out', item.out);
+        if (item.solo) params.set('solo', '1');
         if (shouldPush) updateUrl(params);
-        const data = await resolveRun(item.song || item.id, item.out || '');
+        const data = await resolveRun(item.song || item.id, item.out || '', item.solo);
         await applyData(data);
         addStatusLine('Analysis ready');
       } else if (item.kind === 'mastering_run') {
@@ -1325,7 +1327,7 @@
         const params = new URLSearchParams();
         params.set('song', item.song || item.id || '');
         if (shouldPush) updateUrl(params);
-        const data = await resolveRun(item.song || item.id, item.out || '');
+        const data = await resolveRun(item.song || item.id, item.out || '', false);
         await applyData(data);
         addStatusLine('Analysis ready');
       } else if (item.kind === 'source' || item.kind === 'import') {
@@ -1509,11 +1511,12 @@
   const params = new URLSearchParams(window.location.search);
   const song = params.get('song');
   const out = params.get('out');
+  const solo = params.get('solo');
   const src = params.get('src');
   const imp = params.get('imp');
   if (song) {
     selectedItem = out
-      ? { kind: 'mastering_output', id: `${song}::${out}`, song, out }
+      ? { kind: 'mastering_output', id: `${song}::${out}`, song, out, solo: solo === '1' || solo === 'true' }
       : { kind: 'mastering_run', id: song, song };
     selectAndLoad(selectedItem, null, false);
   } else if (src) {
@@ -1543,7 +1546,7 @@
         if (!song) return;
         evt.preventDefault();
         evt.stopPropagation();
-        const item = { kind, id, song, out: meta.out || '' };
+        const item = { kind, id, song, out: meta.out || '', solo: Boolean(meta.solo) };
         selectAndLoad(item, itemNode, true);
         return;
       }

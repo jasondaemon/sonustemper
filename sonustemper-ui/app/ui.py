@@ -421,14 +421,22 @@ def _list_mastering_outputs(q: str, limit: int, context: str = "") -> list[dict]
         for out in outputs:
             stem = out.get("name") or ""
             display_title = out.get("display_title") or stem or d.name
-            meta = {"song": d.name, "out": stem}
+            badges = out.get("badges") or []
+            has_source_badge = any(
+                (badge.get("label") or "").strip().lower() == "source"
+                or (badge.get("title") or "").strip().lower() == "source"
+                for badge in badges
+                if isinstance(badge, dict)
+            )
+            is_source = bool(has_source_badge or (not badges and out.get("metrics") is None))
+            meta = {"song": d.name, "out": stem, "solo": is_source}
             items.append(
                 {
                     "id": f"{d.name}::{stem}",
                     "title": display_title,
                     "subtitle": f"Run {d.name}",
                     "kind": "mastering_output",
-                    "badges": out.get("badges") or [],
+                    "badges": badges,
                     "action": None,
                     "clickable": True,
                     "meta": meta,

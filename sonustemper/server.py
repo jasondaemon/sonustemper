@@ -2240,7 +2240,7 @@ def analyze_file(kind: str, name: str):
     mime, _ = mimetypes.guess_type(path.name)
     return FileResponse(path, media_type=mime or "application/octet-stream", filename=path.name)
 @app.get("/api/analyze-resolve")
-def analyze_resolve(song: str, out: str = ""):
+def analyze_resolve(song: str, out: str = "", solo: bool = False):
     song = (song or "").strip()
     if not song:
         raise HTTPException(status_code=400, detail="missing_song")
@@ -2252,6 +2252,29 @@ def analyze_resolve(song: str, out: str = ""):
     processed, files = _resolve_processed_file(folder, out)
     if not processed:
         raise HTTPException(status_code=404, detail="output_not_found")
+    if solo:
+        metrics = None
+        output_metrics = _load_output_metrics(folder, processed)
+        if output_metrics:
+            metrics = {"input": output_metrics, "output": None, "version": 1, "run_id": song}
+        else:
+            try:
+                metrics = {"input": basic_metrics(processed), "output": None, "version": 1, "run_id": song}
+            except Exception:
+                metrics = None
+        payload = {
+            "run_id": song,
+            "source_url": f"/out/{quote(song)}/{quote(processed.name)}",
+            "processed_url": None,
+            "source_name": processed.name,
+            "processed_name": "",
+            "processed_label": None,
+            "available_outputs": [],
+            "metrics": metrics,
+        }
+        payload.update(_analysis_overlay_data(processed, None))
+        return payload
+
     source_path = find_input_file(song)
     source_name = source_path.name if source_path else song
     source_url = f"/api/analyze-source?song={quote(song)}" if source_path else ""
