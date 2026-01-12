@@ -382,14 +382,24 @@ def _preview_find_voicing_path(slug: str) -> Path | None:
     key = _slug_key(slug)
     if not key:
         return None
-    roots = [PRESET_DIR, GEN_PRESET_DIR]
-    roots.extend(_builtin_voicing_dirs())
-    for root in roots:
+    roots: list[tuple[Path, str | None]] = []
+    roots.extend(_preset_dirs_for_origin("user", "voicing"))
+    roots.extend(_preset_dirs_for_origin("staging", "voicing"))
+    roots.extend(_preset_dirs_for_origin("builtin", "voicing"))
+    for root, default_kind in roots:
         if not root.exists():
             continue
         for fp in root.glob("*.json"):
-            if _slug_key(fp.stem) == key:
-                return fp
+            if _slug_key(fp.stem) != key:
+                continue
+            if default_kind and default_kind != "voicing":
+                continue
+            if not default_kind:
+                meta = _preset_meta_from_file(fp)
+                effective_kind = (meta.get("kind") or "profile").lower()
+                if effective_kind != "voicing":
+                    continue
+            return fp
     return None
 
 def _render_preview(preview_id: str) -> None:
