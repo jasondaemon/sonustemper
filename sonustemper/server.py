@@ -283,9 +283,12 @@ def _render_preview(preview_id: str) -> None:
     target_tp = float(tp) if isinstance(tp, (int, float)) else -1.0
     if width is not None and guardrails:
         width = min(width, PREVIEW_GUARD_MAX_WIDTH)
-    limiter = f"alimiter=limit={target_tp:g}dB"
     if PREVIEW_NORMALIZE_MODE == "loudnorm":
         limiter = f"loudnorm=I={target_lufs:g}:TP={target_tp:g}:LRA=11"
+    else:
+        limit_linear = 10 ** (target_tp / 20.0)
+        limit_linear = max(0.0625, min(1.0, limit_linear))
+        limiter = f"alimiter=limit={limit_linear:.6f}"
     chain = _build_preview_filter(voicing, strength, width, guardrails)
     af = f"{chain},{limiter}" if chain else limiter
     cmd = [
