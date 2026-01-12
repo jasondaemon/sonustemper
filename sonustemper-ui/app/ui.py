@@ -1104,6 +1104,7 @@ def _run_outputs(song: str) -> list[dict]:
     for stem in stems:
         downloads = []
         primary = None
+        primary_path = None
         for ext in pref:
             fp = base / f"{stem}{ext}"
             if not fp.exists():
@@ -1112,13 +1113,20 @@ def _run_outputs(song: str) -> list[dict]:
             downloads.append({"label": audio_exts[ext], "url": url})
             if not primary:
                 primary = url
+                primary_path = fp
         m = _load_metrics(base / f"{stem}.metrics.json") or _load_metrics(base / "metrics.json")
         display_title = _base_title(stem)
         badges = _parse_badges(stem)
+        primary_rel = f"{song}/{primary_path.name}" if primary_path else ""
+        primary_size = primary_path.stat().st_size if primary_path else None
+        primary_mtime = primary_path.stat().st_mtime if primary_path else None
         items.append({
             "name": stem,
             "display_title": display_title,
             "primary": primary,
+            "primary_rel": primary_rel,
+            "primary_size": primary_size,
+            "primary_mtime": primary_mtime,
             "downloads": downloads,
             "metrics": m,
             "metric_pills": _metric_pills(m),
@@ -1193,8 +1201,232 @@ async def file_detail(request: Request, utility: str, section: str, rel: str):
     )
 
 
+def _make_file_item(
+    title: str,
+    subtitle: str,
+    rel: str,
+    size: int | None,
+    mtime: float | None,
+    downloads: list[dict],
+    badges: list[dict] | None = None,
+    metric_pills: list[dict] | None = None,
+) -> dict:
+    return {
+        "title": title,
+        "subtitle": subtitle,
+        "rel": rel,
+        "size": _human_size(size),
+        "mtime": _fmt_mtime(mtime),
+        "downloads": downloads,
+        "badges": badges or [],
+        "metric_pills": metric_pills or [],
+    }
+
+
+def _list_processed_outputs_groups(q: str) -> list[dict]:
+    groups = []
+    if not MASTER_OUT_DIR.exists():
+        return groups
+    pref = [".mp3", ".m4a", ".aac", ".ogg", ".flac", ".wav"]
+    for run_dir in sorted(MASTER_OUT_DIR.iterdir(), key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True):
+        if not run_dir.is_dir():
+            continue
+        files = [p for p in run_dir.iterdir() if p.is_file() and p.suffix.lower() in AUDIO_EXTS]
+        stems = sorted(set(p.stem for p in files))
+        items = []
+        for stem in stems:
+            stem_files = [p for p in files if p.stem == stem]
+            primary_path = None
+            downloads = []
+            for ext in pref:
+                fp = run_dir / f"{stem}{ext}"
+                if not fp.exists():
+                    continue
+                label = ext.lstrip(".").upper()
+                rel = f"{run_dir.name}/{fp.name}"
+                downloads.append({"label": label, "url": f"/download?utility=mastering&section=output&rel={quote(rel)}"})
+                if not primary_path:
+                    primary_path = fp
+            if not downloads:
+                continue
+            metrics = _load_metrics(run_dir / f"{stem}.metrics.json") or _load_metrics(run_dir / "metrics.json")
+            metric_pills = _metric_pills(metrics)
+            title = _base_title(stem).replace("_", " ").strip() or stem
+            badges = _parse_badges(stem)
+            rel = f"{run_dir.name}/{primary_path.name}" if primary_path else ""
+            size = primary_path.stat().st_size if primary_path else None
+            mtime = primary_path.stat().st_mtime if primary_path else None
+            items.append(
+                _make_file_item(
+                    title=title,
+                    subtitle="Processed Output",
+                    rel=rel,
+                    size=size,
+                    mtime=mtime,
+                    downloads=downloads,
+                    badges=badges,
+                    metric_pills=metric_pills,
+                )
+            )
+        if q:
+            ql = q.lower()
+            items = [i for i in items if ql in i["title"].lower() or ql in run_dir.name.lower()]
+        if items:
+            groups.append({"title": run_dir.name, "items": items})
+    return groups
+
+
+def _file_manager_data(category: str, q: str = "") -> dict:
+    category = (category or "").strip().lower()
+    groups = []
+    title = "Files"
+    util = "mastering"
+    section = "source"
+
+    if category == "sources":
+        title = "Sources"
+        util, section = "mastering", "source"
+        items = []
+        if MASTER_IN_DIR.exists():
+            for fp in sorted(MASTER_IN_DIR.iterdir(), key=lambda p: p.name.lower()):
+                if not fp.is_file() or fp.suffix.lower() not in AUDIO_EXTS:
+                    continue
+                display = _base_title(fp.stem).replace("_", " ").strip() or fp.name
+                rel = fp.name
+                downloads = [{"label": fp.suffix.lstrip(".").upper(), "url": f"/download?utility=mastering&section=source&rel={quote(rel)}"}]
+                items.append(
+                    _make_file_item(
+                        title=display,
+                        subtitle="Source File",
+                        rel=rel,
+                        size=fp.stat().st_size,
+                        mtime=fp.stat().st_mtime,
+                        downloads=downloads,
+                        badges=[{"key": "format", "label": "Source", "title": "Source file"}],
+                    )
+                )
+        if q:
+            ql = q.lower()
+            items = [i for i in items if ql in i["title"].lower()]
+        groups = [{"title": None, "items": items}]
+    elif category == "processed_runs":
+        title = "Processed Runs"
+        util, section = "mastering", "output"
+        groups = _list_processed_outputs_groups(q)
+    elif category == "analysis_uploads":
+        title = "Analyze Uploads"
+        util, section = "analysis", "uploads"
+        items = []
+        if ANALYSIS_IN_DIR.exists():
+            for fp in sorted(ANALYSIS_IN_DIR.iterdir(), key=lambda p: p.name.lower()):
+                if not fp.is_file() or fp.suffix.lower() not in AUDIO_EXTS:
+                    continue
+                display = _base_title(fp.stem).replace("_", " ").strip() or fp.name
+                rel = fp.name
+                downloads = [{"label": fp.suffix.lstrip(".").upper(), "url": f"/download?utility=analysis&section=uploads&rel={quote(rel)}"}]
+                items.append(
+                    _make_file_item(
+                        title=display,
+                        subtitle="Analyze Upload",
+                        rel=rel,
+                        size=fp.stat().st_size,
+                        mtime=fp.stat().st_mtime,
+                        downloads=downloads,
+                        badges=[{"key": "format", "label": "Uploaded", "title": "Analyze upload"}],
+                    )
+                )
+        if q:
+            ql = q.lower()
+            items = [i for i in items if ql in i["title"].lower()]
+        groups = [{"title": None, "items": items}]
+    elif category == "tagging_uploads":
+        title = "Tagging Uploads"
+        util, section = "tagging", "library"
+        items = []
+        if TAG_IN_DIR.exists():
+            for fp in sorted(TAG_IN_DIR.iterdir(), key=lambda p: p.name.lower()):
+                if not fp.is_file() or fp.suffix.lower() not in AUDIO_EXTS:
+                    continue
+                display = _base_title(fp.stem).replace("_", " ").strip() or fp.name
+                rel = fp.name
+                downloads = [{"label": fp.suffix.lstrip(".").upper(), "url": f"/download?utility=tagging&section=library&rel={quote(rel)}"}]
+                items.append(
+                    _make_file_item(
+                        title=display,
+                        subtitle="Tagging Upload",
+                        rel=rel,
+                        size=fp.stat().st_size,
+                        mtime=fp.stat().st_mtime,
+                        downloads=downloads,
+                        badges=[{"key": "format", "label": "Tagged", "title": "Tagging upload"}],
+                    )
+                )
+        if q:
+            ql = q.lower()
+            items = [i for i in items if ql in i["title"].lower()]
+        groups = [{"title": None, "items": items}]
+    elif category in {"user_voicings", "user_profiles"}:
+        title = "User Voicings" if category == "user_voicings" else "User Profiles"
+        util, section = "presets", "user"
+        want_kind = "voicing" if category == "user_voicings" else "profile"
+        items = []
+        if PRESET_DIR.exists():
+            for fp in sorted(PRESET_DIR.glob("*.json"), key=lambda p: p.name.lower()):
+                if not fp.is_file():
+                    continue
+                meta = _preset_meta_from_file(fp)
+                effective_kind = (meta.get("kind") or "profile").lower()
+                if effective_kind != want_kind:
+                    continue
+                display = (meta.get("title") or fp.stem).replace("_", " ").strip() or fp.stem
+                rel = fp.name
+                downloads = [{"label": "JSON", "url": f"/download?utility=presets&section=user&rel={quote(rel)}"}]
+                badges = [
+                    {"key": "format", "label": "User", "title": "User preset"},
+                    {"key": "profile", "label": want_kind.title(), "title": f"{want_kind.title()} preset"},
+                ]
+                items.append(
+                    _make_file_item(
+                        title=display,
+                        subtitle=f"User {want_kind.title()}",
+                        rel=rel,
+                        size=fp.stat().st_size,
+                        mtime=fp.stat().st_mtime,
+                        downloads=downloads,
+                        badges=badges,
+                    )
+                )
+        if q:
+            ql = q.lower()
+            items = [i for i in items if ql in i["title"].lower()]
+        groups = [{"title": None, "items": items}]
+    else:
+        title = "Files"
+        util, section = "mastering", "source"
+        groups = [{"title": None, "items": []}]
+
+    total_count = sum(len(group["items"]) for group in groups)
+    return {
+        "title": title,
+        "category": category,
+        "util": util,
+        "section": section,
+        "groups": groups,
+        "total_count": total_count,
+    }
+
+
+@router.get("/partials/file_manager_list", response_class=HTMLResponse)
+async def file_manager_list(request: Request, category: str = "", q: str = ""):
+    data = _file_manager_data(category, q)
+    return TEMPLATES.TemplateResponse(
+        "partials/file_manager_list.html",
+        {"request": request, **data},
+    )
+
+
 @router.post("/actions/delete", response_class=HTMLResponse)
-async def delete_items(request: Request, util: str = Form(...), section: str = Form(...), delete_all: str = Form(default=""), rels: list[str] = Form(default=[]), context: str = Form(default="")):
+async def delete_items(request: Request, util: str = Form(...), section: str = Form(...), delete_all: str = Form(default=""), rels: list[str] = Form(default=[]), context: str = Form(default=""), category: str = Form(default="")):
     util = util if util in ("mastering", "tagging", "presets", "analysis") else "mastering"
     root = _util_root(util, section)
     to_delete = []
@@ -1207,10 +1439,17 @@ async def delete_items(request: Request, util: str = Form(...), section: str = F
     else:
         to_delete = [r for r in rels if r]
     if not to_delete:
-        return _render_sections(request, util) if context != "file_detail" else TEMPLATES.TemplateResponse(
-            "partials/file_detail_empty.html",
-            {"request": request},
-        )
+        if context == "file_detail":
+            return TEMPLATES.TemplateResponse(
+                "partials/file_detail_empty.html",
+                {"request": request},
+            )
+        if context == "file_manager":
+            return TEMPLATES.TemplateResponse(
+                "partials/file_manager_list.html",
+                {"request": request, **_file_manager_data(category)},
+            )
+        return _render_sections(request, util)
     for rel in to_delete:
         try:
             target = _safe_rel(root, rel)
@@ -1255,6 +1494,11 @@ async def delete_items(request: Request, util: str = Form(...), section: str = F
         )
         response.headers["HX-Trigger"] = "refreshFileBrowser"
         return response
+    if context == "file_manager":
+        return TEMPLATES.TemplateResponse(
+            "partials/file_manager_list.html",
+            {"request": request, **_file_manager_data(category)},
+        )
     return _render_sections(request, util)
 
 

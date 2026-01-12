@@ -1,0 +1,86 @@
+<div class="card" id="fileManagerList">
+  <div class="card-head">
+    <div>
+      <div class="card-title">{{ title }}</div>
+      <div class="muted">{{ total_count }} item(s)</div>
+    </div>
+    <div class="table-actions">
+      <input type="hidden" name="util" value="{{ util }}">
+      <input type="hidden" name="section" value="{{ section }}">
+      <input type="hidden" name="context" value="file_manager">
+      <input type="hidden" name="category" value="{{ category }}">
+      <button class="btn danger small"
+              hx-post="/actions/delete"
+              hx-target="#fileManagerList"
+              hx-swap="innerHTML"
+              hx-include="#fileManagerList input[name='util'], #fileManagerList input[name='section'], #fileManagerList input[name='context'], #fileManagerList input[name='category'], #fileManagerList input[name='rels']:checked"
+              {% if total_count == 0 %}disabled{% endif %}>
+        Delete Selected
+      </button>
+      <span class="muted hx-indicator">Deleting…</span>
+    </div>
+  </div>
+
+  {% if total_count == 0 %}
+    <div class="muted">No items.</div>
+  {% else %}
+    {% for group in groups %}
+      {% if group.title %}
+        <div class="file-group-title">{{ group.title }}</div>
+      {% endif %}
+      <table class="file-table">
+        <thead>
+          <tr>
+            <th style="width:32px;"></th>
+            <th>Name</th>
+            <th style="width:120px;">Size</th>
+            <th style="width:180px;">Modified</th>
+            <th style="width:220px;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in group.items %}
+            <tr>
+              <td><input type="checkbox" name="rels" value="{{ item.rel }}"></td>
+              <td>
+                <div class="file-item-title">{{ item.title }}</div>
+                {% if item.subtitle %}<div class="muted">{{ item.subtitle }}</div>{% endif %}
+                {% if item.badges and item.badges|length %}
+                  <div class="badge-row">
+                    {% for b in item.badges %}
+                      <span class="badge badge-{{ b.key|default('format') }}" title="{{ b.title|default('') }}">{{ b.label }}</span>
+                    {% endfor %}
+                  </div>
+                {% endif %}
+                {% if item.metric_pills and item.metric_pills|length %}
+                  <div class="metric-pills">
+                    {% for metric in item.metric_pills %}
+                      <span class="metric-pill">{{ metric.label }}: {{ metric.value }}</span>
+                    {% endfor %}
+                  </div>
+                {% endif %}
+              </td>
+              <td>{{ item.size }}</td>
+              <td>{{ item.mtime }}</td>
+              <td>
+                <div class="file-actions">
+                  {% for d in item.downloads %}
+                    <a class="btn ghost small" href="{{ d.url }}">{{ d.label }}</a>
+                  {% endfor %}
+                  <button class="btn danger small"
+                          hx-post="/actions/delete"
+                          hx-target="#fileManagerList"
+                          hx-swap="innerHTML"
+                          hx-confirm="Delete {{ item.title }}?"
+                          hx-vals='{"util":"{{ util }}","section":"{{ section }}","rels":["{{ item.rel }}"],"context":"file_manager","category":"{{ category }}"}'>
+                    Delete
+                  </button>
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endfor %}
+  {% endif %}
+</div>

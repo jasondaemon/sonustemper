@@ -418,6 +418,21 @@ h1{margin:0;font-size:24px;}
 .browser-item .badge-row{
   margin-top:6px;
 }
+.file-group-title{
+  margin:12px 0 6px;
+  font-weight:600;
+  font-size:13px;
+  color:var(--muted);
+}
+.file-item-title{
+  font-weight:600;
+}
+.file-actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  align-items:center;
+}
 .analyze-card .card-head{
   align-items:center;
 }

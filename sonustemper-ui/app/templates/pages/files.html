@@ -7,94 +7,24 @@
     <div class="card-head">
       <div>
         <div class="card-title">Browse</div>
-        <div class="muted">Select a category, then pick a file.</div>
+        <div class="muted">Select a category to load files.</div>
       </div>
     </div>
     {% set browser_id = "filesBrowser" %}
     {% set sections = [
-      {"key": "sources", "title": "Sources", "endpoint": "/partials/library_list?view=mastering_sources&context=files", "trigger": "load, refreshFileBrowser from:body"},
-      {"key": "processed_runs", "title": "Processed Runs", "endpoint": "/partials/library_list?view=mastering_runs&context=files", "trigger": "load, refreshFileBrowser from:body"},
-      {"key": "analysis_uploads", "title": "Analyze Uploads", "endpoint": "/partials/library_list?view=analysis_imports&context=files", "trigger": "load, refreshFileBrowser from:body"},
-      {"key": "tagging_uploads", "title": "Tagging Uploads", "endpoint": "/partials/library_list?view=tagging_uploads&context=files", "trigger": "load, refreshFileBrowser from:body"},
-      {"key": "user_voicings", "title": "User Voicings", "endpoint": "/partials/library_list?view=presets_user_voicings&context=files", "trigger": "load, refreshFileBrowser from:body"},
-      {"key": "user_profiles", "title": "User Profiles", "endpoint": "/partials/library_list?view=presets_user_profiles&context=files", "trigger": "load, refreshFileBrowser from:body"}
+      {"key": "sources", "title": "Sources", "action": "/partials/file_manager_list?category=sources", "trigger": "load", "hide_list": true},
+      {"key": "processed_runs", "title": "Processed Runs", "action": "/partials/file_manager_list?category=processed_runs", "hide_list": true},
+      {"key": "analysis_uploads", "title": "Analyze Uploads", "action": "/partials/file_manager_list?category=analysis_uploads", "hide_list": true},
+      {"key": "tagging_uploads", "title": "Tagging Uploads", "action": "/partials/file_manager_list?category=tagging_uploads", "hide_list": true},
+      {"key": "user_voicings", "title": "User Voicings", "action": "/partials/file_manager_list?category=user_voicings", "hide_list": true},
+      {"key": "user_profiles", "title": "User Profiles", "action": "/partials/file_manager_list?category=user_profiles", "hide_list": true}
     ] %}
+    {% set hide_search = true %}
     {% include "partials/file_browser.html" %}
   </div>
 {% endblock %}
 {% block content %}
-  <div id="fileDetailPane">
-    {% include "partials/file_detail_empty.html" %}
+  <div id="fileManagerList" hx-target="this">
+    <div class="muted">Select a category to load files.</div>
   </div>
-{% endblock %}
-
-{% block extra_js %}
-<script>
-(() => {
-  const detailPane = document.getElementById('fileDetailPane');
-
-  function refreshBrowser(){
-    if (window.htmx) {
-      window.htmx.trigger(document.body, 'refreshFileBrowser');
-    }
-  }
-
-  async function loadOutput(song){
-    if (!detailPane || !song) return;
-    try {
-      const res = await fetch(`/partials/master_output?song=${encodeURIComponent(song)}`);
-      if (!res.ok) throw new Error('load_failed');
-      detailPane.innerHTML = await res.text();
-    } catch (_err) {
-      if (typeof showToast === 'function') showToast('Failed to load output');
-    }
-  }
-
-  document.addEventListener('click', (evt) => {
-    const deleteRun = evt.target.closest && evt.target.closest('[data-action="delete-run"]');
-    if (deleteRun && deleteRun.dataset && deleteRun.dataset.song) {
-      const song = deleteRun.dataset.song;
-      if (!confirm(`Delete outputs for ${song}?`)) return;
-      fetch(`/api/song/${encodeURIComponent(song)}`, { method: 'DELETE' })
-        .then(res => {
-          if (!res.ok) throw new Error('delete_failed');
-          if (typeof showToast === 'function') showToast('Deleted');
-          refreshBrowser();
-          if (detailPane) {
-            detailPane.innerHTML = `
-              <div class="card">
-                <div class="card-head">
-                  <div>
-                    <div class="card-title">Details</div>
-                    <div class="muted">Select an item to view actions.</div>
-                  </div>
-                </div>
-              </div>`;
-          }
-        })
-        .catch(() => {
-          if (typeof showToast === 'function') showToast('Delete failed');
-        });
-      return;
-    }
-    const deleteOutput = evt.target.closest && evt.target.closest('[data-action="delete-output"]');
-    if (deleteOutput && deleteOutput.dataset) {
-      const song = deleteOutput.dataset.song;
-      const stem = deleteOutput.dataset.stem;
-      if (!song || !stem) return;
-      if (!confirm(`Delete ${stem}?`)) return;
-      fetch(`/api/output/${encodeURIComponent(song)}/${encodeURIComponent(stem)}`, { method: 'DELETE' })
-        .then(res => {
-          if (!res.ok) throw new Error('delete_failed');
-          if (typeof showToast === 'function') showToast('Deleted');
-          loadOutput(song);
-          refreshBrowser();
-        })
-        .catch(() => {
-          if (typeof showToast === 'function') showToast('Delete failed');
-        });
-    }
-  });
-})();
-</script>
 {% endblock %}

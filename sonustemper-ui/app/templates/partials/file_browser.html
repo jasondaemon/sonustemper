@@ -1,25 +1,38 @@
 {% set browser_id = browser_id|default('fileBrowser') %}
 {% set sections = sections|default([]) %}
 <div class="file-browser" id="{{ browser_id }}">
-  <div class="file-browser-search">
-    <input type="search" id="{{ browser_id }}-search" placeholder="Search" aria-label="Search files">
-  </div>
+  {% if not hide_search %}
+    <div class="file-browser-search">
+      <input type="search" id="{{ browser_id }}-search" placeholder="Search" aria-label="Search files">
+    </div>
+  {% endif %}
   <div class="file-browser-sections" id="{{ browser_id }}-sections">
     {% for section in sections %}
     <div class="file-browser-section" data-section="{{ section.key }}">
-      <button class="file-browser-toggle" type="button" id="{{ browser_id }}-toggle-{{ section.key }}" data-section="{{ section.key }}">
+      <button class="file-browser-toggle"
+              type="button"
+              id="{{ browser_id }}-toggle-{{ section.key }}"
+              data-section="{{ section.key }}"
+              {% if section.action %}
+              hx-get="{{ section.action }}"
+              hx-target="{{ section.target if section.target else '#fileManagerList' }}"
+              hx-swap="{{ section.swap if section.swap else 'innerHTML' }}"
+              hx-trigger="{{ section.trigger if section.trigger else 'click' }}"
+              {% endif %}>
         <span class="file-browser-title">{{ section.title }}</span>
         <span class="file-browser-caret" aria-hidden="true">&gt;</span>
       </button>
-      <div class="file-browser-list"
-           id="{{ browser_id }}-list-{{ section.key }}"
-           {% if section.endpoint %}
-           data-endpoint="{{ section.endpoint }}"
-           hx-get="{{ section.endpoint }}"
-           hx-trigger="{{ section.trigger if section.trigger else 'load' }}"
-           hx-swap="innerHTML"
-           {% endif %}
-           {% if section.autoselect %}data-autoselect="{{ section.autoselect }}"{% endif %}></div>
+      {% if not section.hide_list %}
+        <div class="file-browser-list"
+             id="{{ browser_id }}-list-{{ section.key }}"
+             {% if section.endpoint %}
+             data-endpoint="{{ section.endpoint }}"
+             hx-get="{{ section.endpoint }}"
+             hx-trigger="{{ section.trigger if section.trigger else 'load' }}"
+             hx-swap="innerHTML"
+             {% endif %}
+             {% if section.autoselect %}data-autoselect="{{ section.autoselect }}"{% endif %}></div>
+      {% endif %}
     </div>
     {% endfor %}
   </div>
