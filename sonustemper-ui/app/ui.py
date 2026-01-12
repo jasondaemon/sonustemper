@@ -428,7 +428,8 @@ def _list_mastering_outputs(q: str, limit: int, context: str = "") -> list[dict]
                 for badge in badges
                 if isinstance(badge, dict)
             )
-            is_source = bool(has_source_badge or (not badges and out.get("metrics") is None))
+            same_as_run = stem.strip().lower() == d.name.strip().lower()
+            is_source = bool(has_source_badge or same_as_run or (not badges and out.get("metrics") is None))
             meta = {"song": d.name, "out": stem, "solo": is_source}
             items.append(
                 {
