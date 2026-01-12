@@ -2494,9 +2494,9 @@ def library_item_update(payload: dict = Body(...)):
     fields = payload.get("fields") or {}
     if origin != "user":
         raise HTTPException(status_code=403, detail="readonly_preset")
-    if kind != "profile":
+    if kind not in {"profile", "voicing"}:
         raise HTTPException(status_code=400, detail="invalid_kind")
-    target = _find_preset_file("user", "profile", preset_id)
+    target = _find_preset_file("user", kind, preset_id)
     if not target:
         raise HTTPException(status_code=404, detail="preset_not_found")
     try:
@@ -2504,57 +2504,102 @@ def library_item_update(payload: dict = Body(...)):
     except Exception as exc:
         raise HTTPException(status_code=400, detail="invalid_preset") from exc
     meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
-    title = fields.get("title")
-    if title is not None:
-        title = _sanitize_label(title, 80)
-        if not title:
-            raise HTTPException(status_code=400, detail="invalid_title")
-        meta["title"] = title
-    if "lufs" in fields:
-        try:
-            lufs = float(fields.get("lufs"))
-        except Exception as exc:
-            raise HTTPException(status_code=400, detail="invalid_lufs") from exc
-        if lufs < -60 or lufs > 0:
-            raise HTTPException(status_code=400, detail="invalid_lufs")
-        data["lufs"] = lufs
-    if "tpp" in fields or "tp" in fields:
-        raw_tp = fields.get("tpp") if "tpp" in fields else fields.get("tp")
-        try:
-            tpp = float(raw_tp)
-        except Exception as exc:
-            raise HTTPException(status_code=400, detail="invalid_tpp") from exc
-        if tpp < -20 or tpp > 2:
-            raise HTTPException(status_code=400, detail="invalid_tpp")
-        data["tpp"] = tpp
-    if "category" in fields:
-        category = _sanitize_label(fields.get("category"), 60)
-        if category:
-            data["category"] = category
-        else:
-            data.pop("category", None)
-    if "order" in fields:
-        order = fields.get("order")
-        if order is None or order == "":
-            data.pop("order", None)
-        else:
+    if kind == "profile":
+        title = fields.get("title")
+        if title is not None:
+            title = _sanitize_label(title, 80)
+            if not title:
+                raise HTTPException(status_code=400, detail="invalid_title")
+            meta["title"] = title
+        if "lufs" in fields:
             try:
-                order_val = int(order)
+                lufs = float(fields.get("lufs"))
             except Exception as exc:
-                raise HTTPException(status_code=400, detail="invalid_order") from exc
-            if order_val < 0 or order_val > 9999:
-                raise HTTPException(status_code=400, detail="invalid_order")
-            data["order"] = order_val
-    if "manual" in fields:
-        meta["manual"] = bool(fields.get("manual"))
-    meta["kind"] = "profile"
+                raise HTTPException(status_code=400, detail="invalid_lufs") from exc
+            if lufs < -60 or lufs > 0:
+                raise HTTPException(status_code=400, detail="invalid_lufs")
+            data["lufs"] = lufs
+        if "tpp" in fields or "tp" in fields:
+            raw_tp = fields.get("tpp") if "tpp" in fields else fields.get("tp")
+            try:
+                tpp = float(raw_tp)
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail="invalid_tpp") from exc
+            if tpp < -20 or tpp > 2:
+                raise HTTPException(status_code=400, detail="invalid_tpp")
+            data["tpp"] = tpp
+        if "category" in fields:
+            category = _sanitize_label(fields.get("category"), 60)
+            if category:
+                data["category"] = category
+            else:
+                data.pop("category", None)
+        if "order" in fields:
+            order = fields.get("order")
+            if order is None or order == "":
+                data.pop("order", None)
+            else:
+                try:
+                    order_val = int(order)
+                except Exception as exc:
+                    raise HTTPException(status_code=400, detail="invalid_order") from exc
+                if order_val < 0 or order_val > 9999:
+                    raise HTTPException(status_code=400, detail="invalid_order")
+                data["order"] = order_val
+        if "manual" in fields:
+            meta["manual"] = bool(fields.get("manual"))
+    else:
+        chain = data.get("chain") if isinstance(data.get("chain"), dict) else {}
+        stereo = chain.get("stereo") if isinstance(chain.get("stereo"), dict) else {}
+        dynamics = chain.get("dynamics") if isinstance(chain.get("dynamics"), dict) else {}
+        if "width" in fields:
+            width = fields.get("width")
+            if width is None or width == "":
+                stereo.pop("width", None)
+            else:
+                try:
+                    width_val = float(width)
+                except Exception as exc:
+                    raise HTTPException(status_code=400, detail="invalid_width") from exc
+                if width_val < 0.5 or width_val > 2.0:
+                    raise HTTPException(status_code=400, detail="invalid_width")
+                stereo["width"] = width_val
+        for key, detail in {
+            "density": "invalid_density",
+            "transient_focus": "invalid_transient",
+            "smoothness": "invalid_smoothness",
+        }.items():
+            if key not in fields:
+                continue
+            raw = fields.get(key)
+            if raw is None or raw == "":
+                dynamics.pop(key, None)
+                continue
+            try:
+                val = float(raw)
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail=detail) from exc
+            if val < 0 or val > 1:
+                raise HTTPException(status_code=400, detail=detail)
+            dynamics[key] = val
+        if stereo:
+            chain["stereo"] = stereo
+        else:
+            chain.pop("stereo", None)
+        if dynamics:
+            chain["dynamics"] = dynamics
+        else:
+            chain.pop("dynamics", None)
+        if chain:
+            data["chain"] = chain
+    meta["kind"] = kind
     meta["updated_at"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
     data["meta"] = meta
     try:
         target.write_text(json.dumps(data, indent=2), encoding="utf-8")
     except Exception as exc:
         raise HTTPException(status_code=500, detail="write_failed") from exc
-    return {"item": _library_item_from_file(target, "user", default_kind="profile")}
+    return {"item": _library_item_from_file(target, "user", default_kind=kind)}
 @app.get("/api/preset/download/{name}")
 def preset_download(name: str):
     target = _find_preset_path(name)

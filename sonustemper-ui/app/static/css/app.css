@@ -306,6 +306,14 @@ h1{margin:0;font-size:24px;}
   gap:10px;
   --browser-max-height:220px;
 }
+.file-browser-list{
+  min-height:44px;
+}
+.file-browser-empty{
+  min-height:40px;
+  display:flex;
+  align-items:center;
+}
 .file-browser-search input{
   width:100%;
   border-radius:12px;
@@ -980,6 +988,8 @@ h1{margin:0;font-size:24px;}
 .tag-item .badge-row{flex-wrap:nowrap;overflow:hidden;white-space:nowrap;margin-top:4px;}
 .preset-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;}
 .preset-sidebar{display:flex;flex-direction:column;gap:12px;}
+.sidebar-slot .preset-sidebar{flex:1 1 auto;min-height:0;}
+.preset-sidebar .file-browser{flex:1 1 auto;min-height:0;--browser-max-height:calc(100vh - 320px);}
 .preset-browser{display:flex;flex-direction:column;gap:8px;}
 .preset-form{display:flex;flex-direction:column;gap:10px;margin-top:6px;}
 .preset-field{display:flex;flex-direction:column;gap:6px;}
@@ -1017,6 +1027,11 @@ h1{margin:0;font-size:24px;}
 .preset-profile-row + .preset-profile-row{border-top:1px solid rgba(255,255,255,0.06);}
 .preset-profile-label{color:var(--muted);font-weight:600;text-transform:uppercase;font-size:11px;letter-spacing:0.02em;}
 .preset-profile-input{width:100%;border-radius:8px;border:1px solid var(--line);background:#0b1118;color:var(--text);padding:6px 8px;font-size:12px;}
+.preset-voicing-table{border:1px solid var(--line);border-radius:10px;background:#0f151d;overflow:hidden;}
+.preset-voicing-row{display:grid;grid-template-columns:1fr 1.2fr;gap:10px;padding:6px 10px;font-size:12px;align-items:center;}
+.preset-voicing-row + .preset-voicing-row{border-top:1px solid rgba(255,255,255,0.06);}
+.preset-voicing-label{color:var(--muted);font-weight:600;text-transform:uppercase;font-size:11px;letter-spacing:0.02em;}
+.preset-voicing-input{width:100%;border-radius:8px;border:1px solid var(--line);background:#0b1118;color:var(--text);padding:6px 8px;font-size:12px;}
 .doc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;}
 .doc-section{margin-top:10px;display:flex;flex-direction:column;gap:6px;}
 .doc-subtitle{font-weight:700;font-size:13px;}

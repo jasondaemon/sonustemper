@@ -23,7 +23,8 @@
       {% set sections = [
         {"key": "user_voicings", "title": "User Voicings", "endpoint": "/partials/library_list?view=presets_user_voicings&context=presets"},
         {"key": "user_profiles", "title": "User Profiles", "endpoint": "/partials/library_list?view=presets_user_profiles&context=presets", "autoselect": "first"},
-        {"key": "generated", "title": "Generated (Staging)", "endpoint": "/partials/library_list?view=presets_staging&context=presets"}
+        {"key": "generated_voicings", "title": "Generated Voicings", "endpoint": "/partials/library_list?view=presets_staging_voicings&context=presets"},
+        {"key": "generated_profiles", "title": "Generated Profiles", "endpoint": "/partials/library_list?view=presets_staging_profiles&context=presets"}
       ] %}
       {% include "partials/file_browser.html" %}
     </div>
@@ -150,6 +151,10 @@
           </div>
           <div class="preset-detail-stats" id="presetVoicingStats"></div>
           <div class="preset-eq-table" id="presetVoicingEq"></div>
+          <div class="preset-voicing-table" id="presetVoicingEditor"></div>
+          <div class="preset-actions">
+            <button class="btn small ghost" type="button" id="presetVoicingSaveBtn" disabled>Save Voicing</button>
+          </div>
         </div>
         <div class="preset-detail-profile" id="presetDetailProfile" hidden>
           <div class="preset-detail-stats" id="presetProfileStats"></div>

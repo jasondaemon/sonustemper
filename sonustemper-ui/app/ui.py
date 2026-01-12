@@ -664,6 +664,12 @@ async def library_list(request: Request, view: str, q: str = "", limit: int = 20
         items = _list_presets("staging", q, limit, context)
     elif view == "presets_staging":
         items = _list_presets("staging", q, limit, context)
+    elif view == "presets_staging_profiles":
+        items = _list_presets("staging", q, limit, context, "profile")
+        groups = _group_profile_items(items)
+        total_count = sum(len(group["items"]) for group in groups)
+    elif view == "presets_staging_voicings":
+        items = _list_presets("staging", q, limit, context, "voicing")
     elif view == "presets_all":
         items = _list_presets("all", q, limit, context)
     elif view == "voicings":

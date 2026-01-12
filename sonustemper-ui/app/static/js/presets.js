@@ -28,6 +28,8 @@
   const detailProfile = document.getElementById('presetDetailProfile');
   const voicingStats = document.getElementById('presetVoicingStats');
   const voicingEq = document.getElementById('presetVoicingEq');
+  const voicingEditor = document.getElementById('presetVoicingEditor');
+  const voicingSaveBtn = document.getElementById('presetVoicingSaveBtn');
   const profileStats = document.getElementById('presetProfileStats');
   const profileEditor = document.getElementById('presetProfileEditor');
   const profileSaveBtn = document.getElementById('presetProfileSaveBtn');
@@ -255,41 +257,74 @@
     tpInput.value = Number.isFinite(Number(meta.tp)) ? Number(meta.tp).toFixed(1) : '';
     tpInput.dataset.field = 'tpp';
 
-    const categoryInput = document.createElement('input');
-    categoryInput.className = 'preset-profile-input';
-    categoryInput.type = 'text';
-    categoryInput.value = meta.category || '';
-    categoryInput.dataset.field = 'category';
-
-    const orderInput = document.createElement('input');
-    orderInput.className = 'preset-profile-input';
-    orderInput.type = 'number';
-    orderInput.step = '1';
-    orderInput.value = Number.isFinite(Number(meta.order)) ? String(meta.order) : '';
-    orderInput.dataset.field = 'order';
-
-    const manualWrap = document.createElement('label');
-    manualWrap.className = 'check';
-    const manualInput = document.createElement('input');
-    manualInput.type = 'checkbox';
-    manualInput.checked = Boolean(meta.manual);
-    manualInput.dataset.field = 'manual';
-    manualWrap.appendChild(manualInput);
-    const manualText = document.createElement('span');
-    manualText.textContent = 'Manual';
-    manualWrap.appendChild(manualText);
-
     profileEditor.appendChild(makeProfileRow('Title', titleInput));
     profileEditor.appendChild(makeProfileRow('LUFS', lufsInput));
     profileEditor.appendChild(makeProfileRow('True Peak', tpInput));
-    profileEditor.appendChild(makeProfileRow('Category', categoryInput));
-    profileEditor.appendChild(makeProfileRow('Order', orderInput));
-    profileEditor.appendChild(makeProfileRow('Manual', manualWrap));
     if(profileSaveBtn) profileSaveBtn.disabled = item.origin !== 'user';
   }
 
   function sanitizeInputValue(value){
     return String(value || '').replace(/\\s+/g, ' ').trim();
+  }
+
+  function makeVoicingRow(labelText, inputEl){
+    const row = document.createElement('div');
+    row.className = 'preset-voicing-row';
+    const label = document.createElement('div');
+    label.className = 'preset-voicing-label';
+    label.textContent = labelText;
+    row.appendChild(label);
+    row.appendChild(inputEl);
+    return row;
+  }
+
+  function renderVoicingEditor(item){
+    if(!voicingEditor) return;
+    voicingEditor.innerHTML = '';
+    if(!item){
+      if(voicingSaveBtn) voicingSaveBtn.disabled = true;
+      return;
+    }
+    const meta = item.meta || {};
+    const widthValue = meta.width ?? meta.stereo?.width;
+    const dynamics = meta.dynamics || {};
+    const densityValue = dynamics.density;
+    const transientValue = dynamics.transient_focus;
+    const smoothValue = dynamics.smoothness;
+
+    const widthInput = document.createElement('input');
+    widthInput.className = 'preset-voicing-input';
+    widthInput.type = 'number';
+    widthInput.step = '0.01';
+    widthInput.value = Number.isFinite(Number(widthValue)) ? Number(widthValue).toFixed(2) : '';
+    widthInput.dataset.field = 'width';
+
+    const densityInput = document.createElement('input');
+    densityInput.className = 'preset-voicing-input';
+    densityInput.type = 'number';
+    densityInput.step = '0.01';
+    densityInput.value = Number.isFinite(Number(densityValue)) ? Number(densityValue).toFixed(2) : '';
+    densityInput.dataset.field = 'density';
+
+    const transientInput = document.createElement('input');
+    transientInput.className = 'preset-voicing-input';
+    transientInput.type = 'number';
+    transientInput.step = '0.01';
+    transientInput.value = Number.isFinite(Number(transientValue)) ? Number(transientValue).toFixed(2) : '';
+    transientInput.dataset.field = 'transient_focus';
+
+    const smoothInput = document.createElement('input');
+    smoothInput.className = 'preset-voicing-input';
+    smoothInput.type = 'number';
+    smoothInput.step = '0.01';
+    smoothInput.value = Number.isFinite(Number(smoothValue)) ? Number(smoothValue).toFixed(2) : '';
+    smoothInput.dataset.field = 'smoothness';
+
+    voicingEditor.appendChild(makeVoicingRow('Width', widthInput));
+    voicingEditor.appendChild(makeVoicingRow('Density', densityInput));
+    voicingEditor.appendChild(makeVoicingRow('Transient', transientInput));
+    voicingEditor.appendChild(makeVoicingRow('Smoothness', smoothInput));
+    if(voicingSaveBtn) voicingSaveBtn.disabled = item.origin !== 'user';
   }
 
   async function saveProfileEdits(){
@@ -319,23 +354,6 @@
     }
     fields.tpp = tpp;
 
-    const category = sanitizeInputValue(profileEditor.querySelector('[data-field=\"category\"]')?.value || '');
-    fields.category = category;
-
-    const orderRaw = profileEditor.querySelector('[data-field=\"order\"]')?.value || '';
-    if(orderRaw){
-      const order = Number(orderRaw);
-      if(!Number.isFinite(order) || order < 0 || order > 9999){
-        addStatusLine('Order must be between 0 and 9999.');
-        return;
-      }
-      fields.order = Math.round(order);
-    }else{
-      fields.order = null;
-    }
-
-    fields.manual = Boolean(profileEditor.querySelector('[data-field=\"manual\"]')?.checked);
-
     try{
       const res = await fetch('/api/library/item/update', {
         method: 'POST',
@@ -360,6 +378,64 @@
     }
   }
 
+  async function saveVoicingEdits(){
+    if(!selectedItem || selectedItem.kind !== 'voicing' || selectedItem.origin !== 'user') return;
+    if(!voicingEditor) return;
+    const readNum = (field) => {
+      const raw = voicingEditor.querySelector(`[data-field="${field}"]`)?.value || '';
+      if(!raw) return null;
+      const num = Number(raw);
+      return Number.isFinite(num) ? num : NaN;
+    };
+    const width = readNum('width');
+    if(width !== null && (!Number.isFinite(width) || width < 0.5 || width > 2.0)){
+      addStatusLine('Width must be between 0.50 and 2.00.');
+      return;
+    }
+    const density = readNum('density');
+    if(density !== null && (!Number.isFinite(density) || density < 0 || density > 1)){
+      addStatusLine('Density must be between 0 and 1.');
+      return;
+    }
+    const transient = readNum('transient_focus');
+    if(transient !== null && (!Number.isFinite(transient) || transient < 0 || transient > 1)){
+      addStatusLine('Transient must be between 0 and 1.');
+      return;
+    }
+    const smoothness = readNum('smoothness');
+    if(smoothness !== null && (!Number.isFinite(smoothness) || smoothness < 0 || smoothness > 1)){
+      addStatusLine('Smoothness must be between 0 and 1.');
+      return;
+    }
+    try{
+      const res = await fetch('/api/library/item/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: selectedItem.id,
+          kind: 'voicing',
+          origin: 'user',
+          fields: {
+            width,
+            density,
+            transient_focus: transient,
+            smoothness,
+          },
+        }),
+      });
+      if(!res.ok){
+        const t = await res.text();
+        throw new Error(t || 'update_failed');
+      }
+      const data = await res.json();
+      setSelectedItem(data.item || null);
+      refreshPresetBrowser();
+      addStatusLine('Voicing saved.');
+    }catch(_err){
+      addStatusLine('Voicing save failed.');
+    }
+  }
+
   function updateDetail(){
     if(!detailTitle || !detailMeta) return;
     if(!selectedItem){
@@ -374,6 +450,7 @@
       if(detailProfile) detailProfile.hidden = true;
       if(voicingEq) voicingEq.innerHTML = '';
       renderProfileEditor(null);
+      renderVoicingEditor(null);
       if(downloadBtn) downloadBtn.disabled = true;
       if(moveBtn) moveBtn.disabled = true;
       if(duplicateBtn) duplicateBtn.disabled = true;
@@ -467,6 +544,7 @@
           });
         }
       }
+      renderVoicingEditor(selectedItem);
       renderEqPreview(selectedItem.meta?.eq || []);
     }else{
       const lufs = formatNumber(selectedItem.meta?.lufs, 1);
@@ -497,6 +575,7 @@
       }
       if(voicingEq) voicingEq.innerHTML = '';
       renderProfileEditor(selectedItem);
+      renderVoicingEditor(null);
       renderEqPreview([]);
     }
 
@@ -718,6 +797,7 @@
     if(duplicateBuiltinProfileBtn) duplicateBuiltinProfileBtn.addEventListener('click', ()=> duplicateBuiltin('profile'));
     if(duplicateBuiltinVoicingBtn) duplicateBuiltinVoicingBtn.addEventListener('click', ()=> duplicateBuiltin('voicing'));
     if(profileSaveBtn) profileSaveBtn.addEventListener('click', saveProfileEdits);
+    if(voicingSaveBtn) voicingSaveBtn.addEventListener('click', saveVoicingEdits);
     updateDetail();
     loadBuiltinPresets();
     scheduleStatusRender();

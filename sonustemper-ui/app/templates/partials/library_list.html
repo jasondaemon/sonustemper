@@ -1,6 +1,6 @@
 {% set has_groups = groups is defined and groups %}
 {% if (has_groups and (total_count is not none and total_count == 0)) or (not has_groups and items|length == 0) %}
-  <div class="muted">No items.</div>
+  <div class="file-browser-empty">No items.</div>
 {% else %}
   <div class="browser-list">
     {% if has_groups %}
