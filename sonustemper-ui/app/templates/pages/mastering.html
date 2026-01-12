@@ -675,6 +675,7 @@
   let previewSong = null;
   let previewIsBuilding = false;
   let previewLastStatus = null;
+  let previewAutoPlay = false;
 
   function setPreviewStatus(text){
     const msg = text || '';
@@ -808,6 +809,9 @@
             previewIsBuilding = false;
             setPreviewStatus('Ready');
             setPreviewPlayable(true);
+            if (previewAutoPlay && previewAudio) {
+              previewAudio.play().catch(() => {});
+            }
             closePreviewStream();
           } else if (msg.status === 'error') {
             previewIsBuilding = false;
@@ -1231,6 +1235,7 @@
     }
     syncOverrideInputs();
     updateSummary();
+    schedulePreview();
   }
   if (loudnessMode) {
     loudnessMode.addEventListener('change', applyLoudnessMode);
@@ -1330,21 +1335,33 @@
     });
   }
   if (width) width.addEventListener('input', updateSummary);
+  if (width) width.addEventListener('input', schedulePreview);
   if (guardrails) guardrails.addEventListener('change', updateSummary);
+  if (guardrails) guardrails.addEventListener('change', schedulePreview);
   if (ovTargetI) ovTargetI.addEventListener('change', () => { syncOverrideInputs(); updateSummary(); });
+  if (ovTargetI) ovTargetI.addEventListener('change', schedulePreview);
   if (ovTargetTp) ovTargetTp.addEventListener('change', () => { syncOverrideInputs(); updateSummary(); });
+  if (ovTargetTp) ovTargetTp.addEventListener('change', schedulePreview);
   if (targetIRange) targetIRange.addEventListener('input', () => { targetI.value = targetIRange.value; updateSummary(); });
+  if (targetIRange) targetIRange.addEventListener('input', schedulePreview);
   if (targetI) targetI.addEventListener('input', () => { targetIRange.value = targetI.value; updateSummary(); });
+  if (targetI) targetI.addEventListener('input', schedulePreview);
   if (targetTpRange) targetTpRange.addEventListener('input', () => { targetTp.value = targetTpRange.value; updateSummary(); });
+  if (targetTpRange) targetTpRange.addEventListener('input', schedulePreview);
   if (targetTp) targetTp.addEventListener('input', () => { targetTpRange.value = targetTp.value; updateSummary(); });
+  if (targetTp) targetTp.addEventListener('input', schedulePreview);
   if (convertOnly) convertOnly.addEventListener('change', () => { applyConvertOnly(); updateSummary(); });
 
   if (previewAudio) {
     previewAudio.addEventListener('play', () => {
+      previewAutoPlay = true;
       setPreviewStatus('Playing');
     });
     previewAudio.addEventListener('pause', () => {
       if (previewReadyUrl && !previewIsBuilding) {
+        if (!(previewAudio && previewAudio.ended)) {
+          previewAutoPlay = false;
+        }
         setPreviewStatus('Ready');
       }
     });
