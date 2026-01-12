@@ -6,8 +6,8 @@
     {% if has_groups %}
       {% for group in groups %}
         <div class="browser-group">
-          <div class="browser-group-title">{{ group.title }}</div>
-          {% for item in group.items %}
+          <div class="browser-group-title">{{ group["title"] }}</div>
+          {% for item in group["items"] %}
             {% set is_run = item.kind == "mastering_run" %}
             {% if item.action and item.action.hx_get %}
               <button class="btn ghost run-item browser-item"

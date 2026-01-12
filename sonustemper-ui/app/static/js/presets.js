@@ -45,6 +45,16 @@
 
   let statusLines = [];
   let statusRaf = null;
+  const EQ_TYPES = ['lowshelf', 'highshelf', 'peaking', 'highpass', 'lowpass', 'bandpass', 'notch'];
+  const EQ_LABELS = {
+    lowshelf: 'Low Shelf',
+    highshelf: 'High Shelf',
+    peaking: 'Peaking',
+    highpass: 'High Pass',
+    lowpass: 'Low Pass',
+    bandpass: 'Band Pass',
+    notch: 'Notch',
+  };
 
   function scheduleStatusRender(){
     if(statusRaf) cancelAnimationFrame(statusRaf);
@@ -218,6 +228,106 @@
     `;
   }
 
+  function normalizeEqType(value){
+    return String(value || '').toLowerCase().trim();
+  }
+
+  function eqTypeLabel(type){
+    return EQ_LABELS[type] || type || 'Band';
+  }
+
+  function renderVoicingEqEditor(bands){
+    if(!voicingEq) return;
+    const items = Array.isArray(bands) ? bands : [];
+    const byType = {};
+    const extra = [];
+    items.forEach((band) => {
+      const type = normalizeEqType(band?.type || band?.filter || 'peaking');
+      const row = {
+        type,
+        freq: band?.freq_hz ?? band?.freq,
+        gain: band?.gain_db ?? band?.gain,
+        q: band?.q,
+      };
+      if (EQ_TYPES.includes(type)) {
+        if(!byType[type]) byType[type] = [];
+        byType[type].push(row);
+      } else {
+        extra.push(row);
+      }
+    });
+    const ordered = [];
+    EQ_TYPES.forEach((type) => {
+      if (byType[type] && byType[type].length) {
+        ordered.push(...byType[type]);
+      } else {
+        ordered.push({ type });
+      }
+    });
+    ordered.push(...extra);
+
+    voicingEq.innerHTML = '';
+    const header = document.createElement('div');
+    header.className = 'preset-eq-row preset-eq-header';
+    ['Type', 'Freq', 'Gain', 'Q'].forEach(text => {
+      const cell = document.createElement('div');
+      cell.textContent = text;
+      header.appendChild(cell);
+    });
+    voicingEq.appendChild(header);
+
+    ordered.forEach((rowData) => {
+      const row = document.createElement('div');
+      row.className = 'preset-eq-row';
+      row.dataset.type = rowData.type;
+
+      const typeCell = document.createElement('div');
+      typeCell.textContent = eqTypeLabel(rowData.type);
+
+      const freqInput = document.createElement('input');
+      freqInput.className = 'preset-eq-input';
+      freqInput.type = 'number';
+      freqInput.step = '1';
+      freqInput.min = '10';
+      freqInput.max = '30000';
+      freqInput.placeholder = 'Hz';
+      if (Number.isFinite(Number(rowData.freq))) {
+        freqInput.value = Number(rowData.freq).toFixed(0);
+      }
+      freqInput.dataset.field = 'freq';
+
+      const gainInput = document.createElement('input');
+      gainInput.className = 'preset-eq-input';
+      gainInput.type = 'number';
+      gainInput.step = '0.1';
+      gainInput.min = '-24';
+      gainInput.max = '24';
+      gainInput.placeholder = 'dB';
+      if (Number.isFinite(Number(rowData.gain))) {
+        gainInput.value = Number(rowData.gain).toFixed(1);
+      }
+      gainInput.dataset.field = 'gain';
+
+      const qInput = document.createElement('input');
+      qInput.className = 'preset-eq-input';
+      qInput.type = 'number';
+      qInput.step = '0.01';
+      qInput.min = '0.1';
+      qInput.max = '10';
+      qInput.placeholder = 'Q';
+      if (Number.isFinite(Number(rowData.q))) {
+        qInput.value = Number(rowData.q).toFixed(2);
+      }
+      qInput.dataset.field = 'q';
+
+      row.appendChild(typeCell);
+      row.appendChild(freqInput);
+      row.appendChild(gainInput);
+      row.appendChild(qInput);
+      voicingEq.appendChild(row);
+    });
+  }
+
   function makeProfileRow(labelText, inputEl){
     const row = document.createElement('div');
     row.className = 'preset-profile-row';
@@ -381,6 +491,7 @@
   async function saveVoicingEdits(){
     if(!selectedItem || selectedItem.kind !== 'voicing' || selectedItem.origin !== 'user') return;
     if(!voicingEditor) return;
+    if(!voicingEq) return;
     const readNum = (field) => {
       const raw = voicingEditor.querySelector(`[data-field="${field}"]`)?.value || '';
       if(!raw) return null;
@@ -407,6 +518,45 @@
       addStatusLine('Smoothness must be between 0 and 1.');
       return;
     }
+    const eqBands = [];
+    const rows = voicingEq.querySelectorAll('.preset-eq-row[data-type]');
+    for (const row of rows) {
+      const type = normalizeEqType(row.dataset.type);
+      if (!type) continue;
+      const freqRaw = row.querySelector('[data-field="freq"]')?.value || '';
+      const gainRaw = row.querySelector('[data-field="gain"]')?.value || '';
+      const qRaw = row.querySelector('[data-field="q"]')?.value || '';
+      if (!freqRaw && !gainRaw && !qRaw) {
+        continue;
+      }
+      const freq = Number(freqRaw);
+      if (!Number.isFinite(freq) || freq < 10 || freq > 30000) {
+        addStatusLine(`EQ ${eqTypeLabel(type)} frequency must be 10-30000 Hz.`);
+        return;
+      }
+      let gain = 0;
+      if (gainRaw !== '') {
+        gain = Number(gainRaw);
+        if (!Number.isFinite(gain) || gain < -24 || gain > 24) {
+          addStatusLine(`EQ ${eqTypeLabel(type)} gain must be between -24 and 24 dB.`);
+          return;
+        }
+      }
+      let q = 1.0;
+      if (qRaw !== '') {
+        q = Number(qRaw);
+        if (!Number.isFinite(q) || q < 0.1 || q > 10) {
+          addStatusLine(`EQ ${eqTypeLabel(type)} Q must be between 0.1 and 10.`);
+          return;
+        }
+      }
+      eqBands.push({
+        type,
+        freq_hz: freq,
+        gain_db: gain,
+        q,
+      });
+    }
     try{
       const res = await fetch('/api/library/item/update', {
         method: 'POST',
@@ -420,6 +570,7 @@
             density,
             transient_focus: transient,
             smoothness,
+            eq: eqBands,
           },
         }),
       });
@@ -508,42 +659,7 @@
           voicingStats.appendChild(span);
         });
       }
-      if(voicingEq){
-        const bands = Array.isArray(selectedItem.meta?.eq) ? selectedItem.meta.eq : [];
-        voicingEq.innerHTML = '';
-        if(!bands.length){
-          const empty = document.createElement('div');
-          empty.className = 'preset-eq-row';
-          const msg = document.createElement('span');
-          msg.className = 'muted';
-          msg.textContent = 'No EQ bands defined.';
-          empty.appendChild(msg);
-          voicingEq.appendChild(empty);
-        }else{
-          const header = document.createElement('div');
-          header.className = 'preset-eq-row preset-eq-header';
-          ['Type', 'Freq', 'Gain', 'Q'].forEach(text => {
-            const cell = document.createElement('div');
-            cell.textContent = text;
-            header.appendChild(cell);
-          });
-          voicingEq.appendChild(header);
-          bands.forEach(band => {
-            const row = document.createElement('div');
-            row.className = 'preset-eq-row';
-            const type = String(band?.type || band?.filter || 'band');
-            const freq = Number.isFinite(Number(band?.freq_hz ?? band?.freq)) ? `${Number(band.freq_hz ?? band.freq).toFixed(0)} Hz` : '-';
-            const gain = Number.isFinite(Number(band?.gain_db ?? band?.gain)) ? `${Number(band.gain_db ?? band.gain).toFixed(1)} dB` : '0.0 dB';
-            const q = Number.isFinite(Number(band?.q)) ? Number(band.q).toFixed(2) : '1.00';
-            [type, freq, gain, q].forEach(text => {
-              const cell = document.createElement('div');
-              cell.textContent = text;
-              row.appendChild(cell);
-            });
-            voicingEq.appendChild(row);
-          });
-        }
-      }
+      renderVoicingEqEditor(selectedItem.meta?.eq || []);
       renderVoicingEditor(selectedItem);
       renderEqPreview(selectedItem.meta?.eq || []);
     }else{

@@ -2552,6 +2552,48 @@ def library_item_update(payload: dict = Body(...)):
         chain = data.get("chain") if isinstance(data.get("chain"), dict) else {}
         stereo = chain.get("stereo") if isinstance(chain.get("stereo"), dict) else {}
         dynamics = chain.get("dynamics") if isinstance(chain.get("dynamics"), dict) else {}
+        if "eq" in fields:
+            eq = fields.get("eq")
+            if not isinstance(eq, list):
+                raise HTTPException(status_code=400, detail="invalid_eq")
+            allowed_types = {"lowshelf", "highshelf", "peaking", "highpass", "lowpass", "bandpass", "notch"}
+            cleaned = []
+            for band in eq:
+                if not isinstance(band, dict):
+                    raise HTTPException(status_code=400, detail="invalid_eq")
+                band_type = str(band.get("type") or "").strip().lower()
+                if band_type not in allowed_types:
+                    raise HTTPException(status_code=400, detail="invalid_eq_type")
+                try:
+                    freq = float(band.get("freq_hz"))
+                except Exception as exc:
+                    raise HTTPException(status_code=400, detail="invalid_eq_freq") from exc
+                if freq < 10 or freq > 30000:
+                    raise HTTPException(status_code=400, detail="invalid_eq_freq")
+                gain_raw = band.get("gain_db", 0.0)
+                try:
+                    gain = float(gain_raw)
+                except Exception as exc:
+                    raise HTTPException(status_code=400, detail="invalid_eq_gain") from exc
+                if gain < -24 or gain > 24:
+                    raise HTTPException(status_code=400, detail="invalid_eq_gain")
+                q_raw = band.get("q", 1.0)
+                try:
+                    q = float(q_raw)
+                except Exception as exc:
+                    raise HTTPException(status_code=400, detail="invalid_eq_q") from exc
+                if q < 0.1 or q > 10:
+                    raise HTTPException(status_code=400, detail="invalid_eq_q")
+                cleaned.append({
+                    "type": band_type,
+                    "freq_hz": freq,
+                    "gain_db": gain,
+                    "q": q,
+                })
+            if cleaned:
+                chain["eq"] = cleaned
+            else:
+                chain.pop("eq", None)
         if "width" in fields:
             width = fields.get("width")
             if width is None or width == "":
