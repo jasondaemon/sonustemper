@@ -1071,6 +1071,10 @@ def _preset_meta_from_file(fp: Path, default_kind: str | None = None) -> dict:
         data = json.loads(fp.read_text(encoding="utf-8"))
         meta = data.get("meta", {}) if isinstance(data, dict) else {}
         kind = _detect_preset_kind(data) or (default_kind.lower() if default_kind else None)
+        tags = meta.get("tags")
+        if not isinstance(tags, list):
+            tags = []
+        tags = [str(tag) for tag in tags if tag is not None and str(tag).strip()]
         lufs = data.get("lufs")
         if lufs is None:
             lufs = data.get("target_lufs")
@@ -1090,6 +1094,7 @@ def _preset_meta_from_file(fp: Path, default_kind: str | None = None) -> dict:
             "lufs": lufs,
             "tp": tp,
             "manual": bool(manual) if manual is not None else False,
+            "tags": tags,
         }
     except Exception:
         return {"title": fp.stem, "kind": default_kind.lower() if default_kind else None}

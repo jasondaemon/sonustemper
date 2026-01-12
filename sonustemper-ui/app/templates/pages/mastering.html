@@ -150,17 +150,15 @@
 
           <div class="master-right">
             <div class="stage-card" id="voicingStage">
-              <div class="stage-title">Voicing</div>
+              <div class="stage-head">
+                <div class="stage-title">Voicing</div>
+                <div class="stage-actions stage-search">
+                  <input type="search" id="voicingFilter" placeholder="Search" aria-label="Search voicings" autocomplete="off">
+                </div>
+              </div>
               <div class="control-row">
                 <select id="voicingSelect" class="full-width-select">
                   <option value="universal">Universal</option>
-                  <option value="airlift">Airlift</option>
-                  <option value="ember">Ember</option>
-                  <option value="detail">Detail</option>
-                  <option value="glue">Glue</option>
-                  <option value="wide">Wide</option>
-                  <option value="cinematic">Cinematic</option>
-                  <option value="punch">Punch</option>
                 </select>
               </div>
               <div class="control-row compact-row">
@@ -277,6 +275,8 @@
     flac: 'FLAC',
   };
   let loudProfiles = {};
+  let voicingCatalog = [];
+  let voicingIndex = {};
 
   function setBusy(on){
     if(!indicator) return;
@@ -645,6 +645,7 @@
   const strength = document.getElementById('strength');
   const strengthVal = document.getElementById('strengthVal');
   const voicingSelect = document.getElementById('voicingSelect');
+  const voicingFilter = document.getElementById('voicingFilter');
   const loudnessMode = document.getElementById('loudnessMode');
   const ovTargetI = document.getElementById('ov_target_I');
   const ovTargetTp = document.getElementById('ov_target_TP');
@@ -825,6 +826,123 @@
     updatePreviewAvailability();
   }
 
+  function normalizeText(value){
+    return String(value || '').toLowerCase().trim();
+  }
+
+  function updateVoicingTooltip(){
+    if (!voicingSelect) return;
+    const entry = voicingIndex[voicingSelect.value];
+    if (entry && entry.tags && entry.tags.length) {
+      voicingSelect.title = `Tags: ${entry.tags.join(', ')}`;
+    } else {
+      voicingSelect.title = '';
+    }
+  }
+
+  function renderVoicingOptions(filterTerm, preferredId){
+    if (!voicingSelect) return;
+    const term = normalizeText(filterTerm);
+    const previousValue = voicingSelect.value;
+    const matches = voicingCatalog.filter(entry => {
+      if (!term) return true;
+      return entry.searchText.includes(term);
+    });
+
+    voicingSelect.innerHTML = '';
+    if (!matches.length) {
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = 'No matches';
+      option.disabled = true;
+      voicingSelect.appendChild(option);
+      voicingSelect.value = '';
+      updateSummary();
+      updateVoicingTooltip();
+      return;
+    }
+
+    const groups = { builtin: [], user: [] };
+    matches.forEach(entry => {
+      const origin = entry.origin === 'builtin' ? 'builtin' : 'user';
+      groups[origin].push(entry);
+    });
+    [
+      { key: 'builtin', label: 'Built-in' },
+      { key: 'user', label: 'Your Presets' },
+    ].forEach(group => {
+      if (!groups[group.key].length) return;
+      const optgroup = document.createElement('optgroup');
+      optgroup.label = group.label;
+      groups[group.key]
+        .sort((a, b) => a.title.localeCompare(b.title))
+        .forEach(entry => {
+          const option = document.createElement('option');
+          option.value = entry.id;
+          option.textContent = entry.title;
+          option.dataset.tags = entry.tags.join(' ');
+          optgroup.appendChild(option);
+        });
+      voicingSelect.appendChild(optgroup);
+    });
+
+    let nextValue = preferredId || previousValue;
+    if (!nextValue || !matches.some(entry => entry.id === nextValue)) {
+      const universal = matches.find(entry => entry.id === 'universal');
+      nextValue = universal ? universal.id : matches[0].id;
+    }
+    voicingSelect.value = nextValue;
+    if (previousValue !== voicingSelect.value) {
+      updateSummary();
+      schedulePreview();
+    } else {
+      updateSummary();
+    }
+    updateVoicingTooltip();
+  }
+
+  async function loadVoicings(){
+    if (!voicingSelect) return;
+    voicingCatalog = [];
+    voicingIndex = {};
+    try{
+      const res = await fetch('/api/voicings', { cache: 'no-store' });
+      if (!res.ok) throw new Error('voicings_failed');
+      const data = await res.json();
+      const items = data.items || [];
+      items.forEach(item => {
+        const meta = item.meta || {};
+        const rawTags = Array.isArray(meta.tags) ? meta.tags : [];
+        const tags = rawTags
+          .map(tag => String(tag || '').trim())
+          .filter(tag => tag.length);
+        const entry = {
+          id: item.name || item.filename || '',
+          title: meta.title || item.name || 'Voicing',
+          tags,
+          origin: item.origin || 'user',
+        };
+        if (!entry.id) return;
+        entry.searchText = normalizeText([entry.title, entry.id, tags.join(' ')].join(' '));
+        voicingCatalog.push(entry);
+        voicingIndex[entry.id] = entry;
+      });
+      renderVoicingOptions(voicingFilter?.value || '', state.voicing);
+    }catch(_err){
+      voicingSelect.innerHTML = '<option value="universal">Universal</option>';
+      voicingCatalog = [{
+        id: 'universal',
+        title: 'Universal',
+        tags: [],
+        origin: 'builtin',
+        searchText: 'universal',
+      }];
+      voicingIndex = { universal: voicingCatalog[0] };
+      updateSummary();
+      updateVoicingTooltip();
+    }
+  }
+
   async function loadLoudnessProfiles(){
     if (!loudnessMode) return;
     loudProfiles = {};
@@ -992,6 +1110,12 @@
   if (voicingSelect) {
     voicingSelect.addEventListener('change', updateSummary);
     voicingSelect.addEventListener('change', schedulePreview);
+    voicingSelect.addEventListener('change', updateVoicingTooltip);
+  }
+  if (voicingFilter) {
+    voicingFilter.addEventListener('input', () => {
+      renderVoicingOptions(voicingFilter.value, voicingSelect?.value);
+    });
   }
   if (width) width.addEventListener('input', updateSummary);
   if (guardrails) guardrails.addEventListener('change', updateSummary);
@@ -1030,6 +1154,7 @@
   updateSummary();
   applyConvertOnly();
   loadFiles();
+  loadVoicings();
   loadLoudnessProfiles();
 
   form.addEventListener('submit', async (e)=>{
