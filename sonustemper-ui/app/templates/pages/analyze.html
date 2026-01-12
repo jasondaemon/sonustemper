@@ -80,6 +80,7 @@
         <div class="playback-modes">
           <button class="btn ghost small is-active" data-track-mode="both" id="toggleBothBtn" type="button">Both</button>
           <button class="btn ghost small" data-track-mode="source" id="toggleSourceBtn" type="button">Source</button>
+          <button class="btn ghost small" id="toggleSwapBtn" type="button" aria-label="Swap Source/Processed" title="Swap Source/Processed">⇄</button>
           <button class="btn ghost small" data-track-mode="processed" id="toggleProcessedBtn" type="button">Processed</button>
         </div>
         <label class="analyze-toggle match-toggle" title="Applies gain so A/B is loudness-matched (playback only).">
@@ -136,6 +137,7 @@
   const soloProcessedBtn = document.getElementById('soloProcessedBtn');
   const toggleBothBtn = document.getElementById('toggleBothBtn');
   const toggleSourceBtn = document.getElementById('toggleSourceBtn');
+  const toggleSwapBtn = document.getElementById('toggleSwapBtn');
   const toggleProcessedBtn = document.getElementById('toggleProcessedBtn');
   const togglePeakRisk = document.getElementById('togglePeakRisk');
   const toggleHeatmap = document.getElementById('toggleHeatmap');
@@ -160,6 +162,7 @@
   const zoomSteps = [1, 2, 4, 8];
   let fitMinPxPerSec = 1;
   let trackMode = 'both';
+  let lastSoloMode = 'source';
 
   const metricLabels = [
     { key: 'I', label: 'LUFS-I', suffix: ' LUFS' },
@@ -509,6 +512,9 @@
       toggleBothBtn.disabled = !hasSource || !hasProcessed;
       toggleBothBtn.classList.toggle('is-active', trackMode === 'both');
     }
+    if (toggleSwapBtn) {
+      toggleSwapBtn.disabled = !hasSource || !hasProcessed;
+    }
     if (soloSourceBtn) {
       soloSourceBtn.disabled = !hasSource;
       soloSourceBtn.classList.toggle('is-active', trackMode === 'source');
@@ -535,6 +541,9 @@
       trackMode = sourceWave ? 'source' : (processedWave ? 'processed' : 'source');
     } else {
       trackMode = mode;
+    }
+    if (trackMode === 'source' || trackMode === 'processed') {
+      lastSoloMode = trackMode;
     }
     applyTrackState();
   }
@@ -1173,6 +1182,7 @@
     }
     updateFitBaseline();
     trackMode = processedWave ? 'both' : 'source';
+    lastSoloMode = trackMode === 'processed' ? 'processed' : 'source';
     applyTrackState();
     cleanupTransport();
     bindTransportEvents(sourceWave);
@@ -1320,25 +1330,29 @@
 
   if (toggleSourceBtn) {
     toggleSourceBtn.addEventListener('click', () => {
-      if (trackMode === 'source' && processedWave) {
-        setTrackMode('processed');
-      } else {
-        setTrackMode('source');
-      }
+      setTrackMode('source');
     });
   }
   if (toggleProcessedBtn) {
     toggleProcessedBtn.addEventListener('click', () => {
-      if (trackMode === 'processed' && sourceWave) {
-        setTrackMode('source');
-      } else {
-        setTrackMode('processed');
-      }
+      setTrackMode('processed');
     });
   }
   if (toggleBothBtn) {
     toggleBothBtn.addEventListener('click', () => {
       setTrackMode('both');
+    });
+  }
+  if (toggleSwapBtn) {
+    toggleSwapBtn.addEventListener('click', () => {
+      if (!sourceWave || !processedWave) return;
+      if (trackMode === 'processed') {
+        setTrackMode('source');
+      } else if (trackMode === 'source') {
+        setTrackMode('processed');
+      } else {
+        setTrackMode(lastSoloMode === 'processed' ? 'source' : 'processed');
+      }
     });
   }
 
