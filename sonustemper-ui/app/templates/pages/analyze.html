@@ -74,7 +74,6 @@
             <span class="value-pill" id="analysisZoomVal">1x</span>
           </div>
           <button class="btn ghost small" type="button" id="analysisFitBtn">Fit</button>
-          <button class="btn ghost small" type="button" id="analysisToNoise">Open Noise Cleanup</button>
           <span class="value-pill spectro-readout" id="analysisCursor">t=--  f=--</span>
         </div>
         <div class="spectro-viewport spectro-viewport--large" id="spectrogramViewport">
@@ -180,7 +179,6 @@
   const analysisZoomVal = document.getElementById('analysisZoomVal');
   const analysisFitBtn = document.getElementById('analysisFitBtn');
   const analysisCursor = document.getElementById('analysisCursor');
-  const analysisToNoise = document.getElementById('analysisToNoise');
   const noisePresetSelect = document.getElementById('noisePresetSelect');
   const noiseModeRemoveBtn = document.getElementById('noiseModeRemove');
   const noiseModeSoloBtn = document.getElementById('noiseModeSolo');
@@ -393,7 +391,6 @@
     zoomVal: analysisZoomVal,
     fitBtn: analysisFitBtn,
     cursor: analysisCursor,
-    toNoise: analysisToNoise,
     scaleKey: ANALYZE_SCALE_KEY,
     drangeKey: ANALYZE_DRANGE_KEY,
     heightKey: ANALYZE_HEIGHT_KEY,
@@ -467,13 +464,6 @@
         renderActiveSpectrogram(false);
       });
     }
-    if (spec.toNoise) {
-      spec.toNoise.addEventListener('click', () => {
-        if (noiseCleanupCard) {
-          noiseCleanupCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-      });
-    }
   }
 
   function bindSpectrogramCursor(spec){
@@ -534,9 +524,6 @@
     }
     if (analysisContext.duration) {
       addPill(`Duration: ${formatSeconds(analysisContext.duration)}`);
-    }
-    if (!payload?.processed_url && payload?.run_id) {
-      addPill('Tip: Run mastering to compare processed output.');
     }
     const isProcessed = active?.kind === 'processed';
     const base = isProcessed ? output : input;
