@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block page_title %}Analyze | SonusTemper{% endblock %}
 {% block title %}Analyze{% endblock %}
-{% block subtitle %}Inspect spectrograms and diagnostics (read-only).{% endblock %}
+{% block subtitle %}Analyze and clean up your audio.{% endblock %}
 {% block sidebar %}
   <div class="card">
     <div class="card-head">
@@ -32,7 +32,7 @@
     <div class="card-head">
       <div>
         <div class="card-title">Analyze</div>
-        <div class="muted" id="analysisSubtitle">Read-only diagnostics</div>
+        <div class="muted" id="analysisSubtitle">Analyze and clean up your audio.</div>
       </div>
       <div class="analyze-actions">
         <a class="btn ghost small" id="compareLink" href="/compare">Open Compare</a>
@@ -44,96 +44,47 @@
     </div>
 
     <div id="analysisLoaded" class="analyze-loaded" hidden>
-      <div class="metric-pills" id="analysisSummary"></div>
-
-      <div class="analysis-focus-bar">
-        <div class="pill-toggle">
-          <button class="btn ghost small is-active" type="button" id="analysisFocusProcessed">Processed</button>
-          <button class="btn ghost small" type="button" id="analysisFocusSource">Source</button>
-        </div>
-        <button class="btn ghost small" type="button" id="analysisShowBoth">Show both</button>
+      <div class="analysis-info">
+        <div class="analysis-file-title" id="analysisFileTitle">-</div>
+        <div class="metric-pills" id="analysisSummary"></div>
       </div>
 
-      <div class="analysis-focus">
-        <div class="analysis-panel analysis-panel-focus" id="analysisPanelProcessed">
-          <div class="analysis-panel-head">
-            <div class="wave-title">Processed</div>
-            <div class="wave-meta" id="analysisProcessedName">-</div>
+      <div class="analysis-panel analysis-panel-focus" id="analysisSpectrogramPanel">
+        <div class="spectrogram-toolbar">
+          <div class="pill-toggle">
+            <button class="btn ghost small is-active" type="button" id="analysisScaleLog">Log</button>
+            <button class="btn ghost small" type="button" id="analysisScaleLin">Linear</button>
           </div>
-          <div class="spectrogram-toolbar">
-            <div class="pill-toggle">
-              <button class="btn ghost small is-active" type="button" id="analysisProcessedScaleLog">Log</button>
-              <button class="btn ghost small" type="button" id="analysisProcessedScaleLin">Linear</button>
-            </div>
-            <div class="spectrogram-control">
-              <label for="analysisProcessedRange">Range</label>
-              <input type="range" id="analysisProcessedRange" min="80" max="160" step="5" value="120">
-              <span class="value-pill" id="analysisProcessedRangeVal">120</span>
-            </div>
-            <div class="spectrogram-control">
-              <label for="analysisProcessedHeight">Height</label>
-              <select id="analysisProcessedHeight" class="full-width-select">
-                <option value="256">256</option>
-                <option value="384" selected>384</option>
-                <option value="512">512</option>
-              </select>
-            </div>
-            <div class="spectrogram-control">
-              <label for="analysisProcessedZoom">Time Zoom</label>
-              <input type="range" id="analysisProcessedZoom" min="1" max="16" step="1" value="1">
-              <span class="value-pill" id="analysisProcessedZoomVal">1x</span>
-            </div>
-            <button class="btn ghost small" type="button" id="analysisProcessedFitBtn">Fit</button>
-            <button class="btn ghost small" type="button" id="analysisProcessedToNoise">Open Noise Cleanup</button>
-            <span class="value-pill spectro-readout" id="analysisProcessedCursor">t=--  f=--</span>
+          <div class="spectrogram-control">
+            <label for="analysisRange">Range</label>
+            <input type="range" id="analysisRange" min="80" max="160" step="5" value="120">
+            <span class="value-pill" id="analysisRangeVal">120</span>
           </div>
-          <div class="spectro-viewport spectro-viewport--large" id="analysisSpectrogramProcessedViewport">
-            <div class="spectro-inner" id="analysisSpectrogramProcessedInner">
-              <img id="analysisSpectrogramProcessedImg" alt="Processed spectrogram" />
-            </div>
+          <div class="spectrogram-control">
+            <label for="analysisHeight">Height</label>
+            <select id="analysisHeight" class="full-width-select">
+              <option value="256">256</option>
+              <option value="384" selected>384</option>
+              <option value="512">512</option>
+            </select>
           </div>
+          <div class="spectrogram-control">
+            <label for="analysisZoom">Time Zoom</label>
+            <input type="range" id="analysisZoom" min="1" max="16" step="1" value="1">
+            <span class="value-pill" id="analysisZoomVal">1x</span>
+          </div>
+          <button class="btn ghost small" type="button" id="analysisFitBtn">Fit</button>
+          <button class="btn ghost small" type="button" id="analysisToNoise">Open Noise Cleanup</button>
+          <span class="value-pill spectro-readout" id="analysisCursor">t=--  f=--</span>
         </div>
-        <div class="analysis-panel analysis-panel-secondary" id="analysisPanelSource" hidden>
-          <div class="analysis-panel-head">
-            <div class="wave-title">Source</div>
-            <div class="wave-meta" id="analysisSourceName">-</div>
-          </div>
-          <div class="spectrogram-toolbar">
-            <div class="pill-toggle">
-              <button class="btn ghost small is-active" type="button" id="analysisSourceScaleLog">Log</button>
-              <button class="btn ghost small" type="button" id="analysisSourceScaleLin">Linear</button>
-            </div>
-            <div class="spectrogram-control">
-              <label for="analysisSourceRange">Range</label>
-              <input type="range" id="analysisSourceRange" min="80" max="160" step="5" value="120">
-              <span class="value-pill" id="analysisSourceRangeVal">120</span>
-            </div>
-            <div class="spectrogram-control">
-              <label for="analysisSourceHeight">Height</label>
-              <select id="analysisSourceHeight" class="full-width-select">
-                <option value="256">256</option>
-                <option value="384" selected>384</option>
-                <option value="512">512</option>
-              </select>
-            </div>
-            <div class="spectrogram-control">
-              <label for="analysisSourceZoom">Time Zoom</label>
-              <input type="range" id="analysisSourceZoom" min="1" max="16" step="1" value="1">
-              <span class="value-pill" id="analysisSourceZoomVal">1x</span>
-            </div>
-            <button class="btn ghost small" type="button" id="analysisSourceFitBtn">Fit</button>
-            <button class="btn ghost small" type="button" id="analysisSourceToNoise">Open Noise Cleanup</button>
-            <span class="value-pill spectro-readout" id="analysisSourceCursor">t=--  f=--</span>
-          </div>
-          <div class="spectro-viewport spectro-viewport--large" id="analysisSpectrogramSourceViewport">
-            <div class="spectro-inner" id="analysisSpectrogramSourceInner">
-              <img id="analysisSpectrogramSourceImg" alt="Source spectrogram" />
-            </div>
+        <div class="spectro-viewport spectro-viewport--large" id="spectrogramViewport">
+          <div class="spectro-inner" id="spectrogramInner">
+            <img id="spectrogramImg" alt="Spectrogram" />
+            <div class="spectrogram-overlay" id="spectrogramOverlay"></div>
+            <div class="spectrogram-selection" id="spectrogramSelection" hidden></div>
           </div>
         </div>
       </div>
-
-      <div class="compare-grid analysis-metrics" id="analysisMetricsGrid"></div>
     </div>
   </div>
 
@@ -146,33 +97,9 @@
     </div>
     <div class="noise-cleanup">
       <div class="noise-left">
-        <div class="noise-source-toggle">
-          <label class="check"><input type="radio" name="noiseTarget" id="noiseTargetSource" value="source" checked> Source</label>
-          <label class="check"><input type="radio" name="noiseTarget" id="noiseTargetProcessed" value="processed"> Processed</label>
-        </div>
-        <div class="spectrogram-toolbar noise-toolbar">
-          <div class="spectrogram-control">
-            <label for="noiseSpectrogramHeight">Height</label>
-            <select id="noiseSpectrogramHeight" class="full-width-select">
-              <option value="256">256</option>
-              <option value="384" selected>384</option>
-              <option value="512">512</option>
-            </select>
-          </div>
-          <div class="spectrogram-control">
-            <label for="noiseZoomRange">Time Zoom</label>
-            <input type="range" id="noiseZoomRange" min="1" max="16" step="1" value="1">
-            <span class="value-pill" id="noiseZoomVal">1x</span>
-          </div>
-          <button class="btn ghost tiny" type="button" id="noiseFitBtn">Fit</button>
+        <div class="noise-selection-actions">
           <button class="btn ghost tiny" type="button" id="noiseClearBtn">Clear selection</button>
-        </div>
-        <div class="spectro-viewport" id="spectrogramViewport">
-          <div class="spectro-inner" id="spectrogramInner">
-            <img id="spectrogramImg" alt="Spectrogram" />
-            <div class="spectrogram-overlay" id="spectrogramOverlay"></div>
-            <div class="spectrogram-selection" id="spectrogramSelection" hidden></div>
-          </div>
+          <span class="muted">Select a region in the spectrogram above.</span>
         </div>
         <div class="noise-readouts">
           <div class="noise-readout"><span>t0</span><span id="noiseT0">-</span></div>
@@ -235,50 +162,25 @@
   const emptyState = document.getElementById('analysisEmpty');
   const loadedState = document.getElementById('analysisLoaded');
   const summaryPills = document.getElementById('analysisSummary');
-  const metricsGrid = document.getElementById('analysisMetricsGrid');
-  const sourceName = document.getElementById('analysisSourceName');
-  const processedName = document.getElementById('analysisProcessedName');
+  const fileTitle = document.getElementById('analysisFileTitle');
   const analyzeBrowser = document.getElementById('analysisBrowser');
   const compareLink = document.getElementById('compareLink');
   const noiseCleanupCard = document.getElementById('noiseCleanupCard');
-  const analysisPanelSource = document.getElementById('analysisPanelSource');
-  const analysisPanelProcessed = document.getElementById('analysisPanelProcessed');
-  const analysisFocusProcessedBtn = document.getElementById('analysisFocusProcessed');
-  const analysisFocusSourceBtn = document.getElementById('analysisFocusSource');
-  const analysisShowBothBtn = document.getElementById('analysisShowBoth');
-  const analysisSpectrogramSourceImg = document.getElementById('analysisSpectrogramSourceImg');
-  const analysisSpectrogramProcessedImg = document.getElementById('analysisSpectrogramProcessedImg');
-  const analysisSpectrogramSourceViewport = document.getElementById('analysisSpectrogramSourceViewport');
-  const analysisSpectrogramSourceInner = document.getElementById('analysisSpectrogramSourceInner');
-  const analysisSpectrogramProcessedViewport = document.getElementById('analysisSpectrogramProcessedViewport');
-  const analysisSpectrogramProcessedInner = document.getElementById('analysisSpectrogramProcessedInner');
-  const analysisSourceScaleLog = document.getElementById('analysisSourceScaleLog');
-  const analysisSourceScaleLin = document.getElementById('analysisSourceScaleLin');
-  const analysisProcessedScaleLog = document.getElementById('analysisProcessedScaleLog');
-  const analysisProcessedScaleLin = document.getElementById('analysisProcessedScaleLin');
-  const analysisSourceRange = document.getElementById('analysisSourceRange');
-  const analysisSourceRangeVal = document.getElementById('analysisSourceRangeVal');
-  const analysisProcessedRange = document.getElementById('analysisProcessedRange');
-  const analysisProcessedRangeVal = document.getElementById('analysisProcessedRangeVal');
-  const analysisSourceHeight = document.getElementById('analysisSourceHeight');
-  const analysisProcessedHeight = document.getElementById('analysisProcessedHeight');
-  const analysisSourceZoom = document.getElementById('analysisSourceZoom');
-  const analysisSourceZoomVal = document.getElementById('analysisSourceZoomVal');
-  const analysisSourceFitBtn = document.getElementById('analysisSourceFitBtn');
-  const analysisProcessedZoom = document.getElementById('analysisProcessedZoom');
-  const analysisProcessedZoomVal = document.getElementById('analysisProcessedZoomVal');
-  const analysisProcessedFitBtn = document.getElementById('analysisProcessedFitBtn');
-  const analysisSourceCursor = document.getElementById('analysisSourceCursor');
-  const analysisProcessedCursor = document.getElementById('analysisProcessedCursor');
-  const analysisSourceToNoise = document.getElementById('analysisSourceToNoise');
-  const analysisProcessedToNoise = document.getElementById('analysisProcessedToNoise');
   const spectrogramViewport = document.getElementById('spectrogramViewport');
   const spectrogramInner = document.getElementById('spectrogramInner');
   const spectrogramImg = document.getElementById('spectrogramImg');
   const spectrogramOverlay = document.getElementById('spectrogramOverlay');
   const spectrogramSelection = document.getElementById('spectrogramSelection');
-  const noiseTargetSource = document.getElementById('noiseTargetSource');
-  const noiseTargetProcessed = document.getElementById('noiseTargetProcessed');
+  const analysisScaleLog = document.getElementById('analysisScaleLog');
+  const analysisScaleLin = document.getElementById('analysisScaleLin');
+  const analysisRange = document.getElementById('analysisRange');
+  const analysisRangeVal = document.getElementById('analysisRangeVal');
+  const analysisHeight = document.getElementById('analysisHeight');
+  const analysisZoom = document.getElementById('analysisZoom');
+  const analysisZoomVal = document.getElementById('analysisZoomVal');
+  const analysisFitBtn = document.getElementById('analysisFitBtn');
+  const analysisCursor = document.getElementById('analysisCursor');
+  const analysisToNoise = document.getElementById('analysisToNoise');
   const noisePresetSelect = document.getElementById('noisePresetSelect');
   const noiseModeRemoveBtn = document.getElementById('noiseModeRemove');
   const noiseModeSoloBtn = document.getElementById('noiseModeSolo');
@@ -295,10 +197,6 @@
   const noisePreviewBtn = document.getElementById('noisePreviewBtn');
   const noiseRenderBtn = document.getElementById('noiseRenderBtn');
   const noiseSaveBtn = document.getElementById('noiseSaveBtn');
-  const noiseSpectrogramHeight = document.getElementById('noiseSpectrogramHeight');
-  const noiseZoomRange = document.getElementById('noiseZoomRange');
-  const noiseZoomVal = document.getElementById('noiseZoomVal');
-  const noiseFitBtn = document.getElementById('noiseFitBtn');
   const noiseClearBtn = document.getElementById('noiseClearBtn');
   const noiseT0 = document.getElementById('noiseT0');
   const noiseT1 = document.getElementById('noiseT1');
@@ -307,20 +205,14 @@
   const noiseCenter = document.getElementById('noiseCenter');
   const noiseBandwidth = document.getElementById('noiseBandwidth');
   let statusLines = [];
-  let analysisContext = { source: null, processed: null, duration: null };
-  let analysisFocus = 'processed';
-  let analysisShowBoth = false;
+  let analysisContext = { source: null, processed: null, active: null, duration: null, run_id: null };
   let noiseSelection = null;
   let noiseMode = 'remove';
   let noisePresets = new Map();
   let lastNoiseTargetRel = null;
-  const ANALYZE_SOURCE_SCALE_KEY = 'sonustemper.analyzeSpecScale.source';
-  const ANALYZE_SOURCE_DRANGE_KEY = 'sonustemper.analyzeSpecDrange.source';
-  const ANALYZE_SOURCE_HEIGHT_KEY = 'sonustemper.analyzeSpecHeight.source';
-  const ANALYZE_PROCESSED_SCALE_KEY = 'sonustemper.analyzeSpecScale.processed';
-  const ANALYZE_PROCESSED_DRANGE_KEY = 'sonustemper.analyzeSpecDrange.processed';
-  const ANALYZE_PROCESSED_HEIGHT_KEY = 'sonustemper.analyzeSpecHeight.processed';
-  const NOISE_HEIGHT_KEY = 'sonustemper.noiseSpectrogramHeight';
+  const ANALYZE_SCALE_KEY = 'sonustemper.analyzeSpecScale';
+  const ANALYZE_DRANGE_KEY = 'sonustemper.analyzeSpecDrange';
+  const ANALYZE_HEIGHT_KEY = 'sonustemper.analyzeSpecHeight';
 
   const metricLabels = [
     { key: 'I', label: 'LUFS-I', suffix: ' LUFS' },
@@ -466,19 +358,10 @@
   }
 
   function getActiveNoiseTarget(){
-    if (noiseTargetProcessed && noiseTargetProcessed.checked && analysisContext.processed?.rel) {
-      return analysisContext.processed;
-    }
-    return analysisContext.source;
+    return analysisContext.active;
   }
 
-  function updateNoiseTargets(){
-    const hasProcessed = Boolean(analysisContext.processed?.rel);
-    if (noiseTargetProcessed) noiseTargetProcessed.disabled = !hasProcessed;
-    if (!hasProcessed && noiseTargetSource) noiseTargetSource.checked = true;
-  }
-
-  function renderNoiseSpectrogram(preserveCenter){
+  function renderActiveSpectrogram(preserveCenter){
     if (!spectrogramImg || !spectrogramViewport || !spectrogramInner) return;
     const target = getActiveNoiseTarget();
     if (!target || !target.rel) {
@@ -493,69 +376,31 @@
       updateNoiseReadouts(null);
     }
     lastNoiseTargetRel = target.rel;
-    const heightPx = parseInt(
-      (noiseSpectrogramHeight?.value || loadSetting(NOISE_HEIGHT_KEY, '384')),
-      10
-    ) || 384;
-    const zoom = noiseZoomRange ? parseInt(noiseZoomRange.value || '1', 10) || 1 : 1;
-    if (noiseZoomVal) noiseZoomVal.textContent = `${zoom}x`;
-    const spec = {
-      img: spectrogramImg,
-      viewport: spectrogramViewport,
-      inner: spectrogramInner,
-      zoom: zoom,
-      scale: 'log',
-      drange: 120,
-    };
-    renderSpectrogramViewer(spec, target.rel, heightPx, preserveCenter, true);
+    renderSpectrogramViewer(analysisSpectrogram, target.rel, analysisSpectrogram.height, preserveCenter, true);
     renderNoiseSelectionBox();
   }
 
-  const analyzeSpectrograms = {
-    source: {
-      img: analysisSpectrogramSourceImg,
-      viewport: analysisSpectrogramSourceViewport,
-      inner: analysisSpectrogramSourceInner,
-      scaleLog: analysisSourceScaleLog,
-      scaleLin: analysisSourceScaleLin,
-      range: analysisSourceRange,
-      rangeVal: analysisSourceRangeVal,
-      heightSelect: analysisSourceHeight,
-      zoomRange: analysisSourceZoom,
-      zoomVal: analysisSourceZoomVal,
-      fitBtn: analysisSourceFitBtn,
-      cursor: analysisSourceCursor,
-      toNoise: analysisSourceToNoise,
-      scaleKey: ANALYZE_SOURCE_SCALE_KEY,
-      drangeKey: ANALYZE_SOURCE_DRANGE_KEY,
-      heightKey: ANALYZE_SOURCE_HEIGHT_KEY,
-      scale: 'log',
-      drange: 120,
-      height: 384,
-      zoom: 1,
-    },
-    processed: {
-      img: analysisSpectrogramProcessedImg,
-      viewport: analysisSpectrogramProcessedViewport,
-      inner: analysisSpectrogramProcessedInner,
-      scaleLog: analysisProcessedScaleLog,
-      scaleLin: analysisProcessedScaleLin,
-      range: analysisProcessedRange,
-      rangeVal: analysisProcessedRangeVal,
-      heightSelect: analysisProcessedHeight,
-      zoomRange: analysisProcessedZoom,
-      zoomVal: analysisProcessedZoomVal,
-      fitBtn: analysisProcessedFitBtn,
-      cursor: analysisProcessedCursor,
-      toNoise: analysisProcessedToNoise,
-      scaleKey: ANALYZE_PROCESSED_SCALE_KEY,
-      drangeKey: ANALYZE_PROCESSED_DRANGE_KEY,
-      heightKey: ANALYZE_PROCESSED_HEIGHT_KEY,
-      scale: 'log',
-      drange: 120,
-      height: 384,
-      zoom: 1,
-    },
+  const analysisSpectrogram = {
+    img: spectrogramImg,
+    viewport: spectrogramViewport,
+    inner: spectrogramInner,
+    scaleLog: analysisScaleLog,
+    scaleLin: analysisScaleLin,
+    range: analysisRange,
+    rangeVal: analysisRangeVal,
+    heightSelect: analysisHeight,
+    zoomRange: analysisZoom,
+    zoomVal: analysisZoomVal,
+    fitBtn: analysisFitBtn,
+    cursor: analysisCursor,
+    toNoise: analysisToNoise,
+    scaleKey: ANALYZE_SCALE_KEY,
+    drangeKey: ANALYZE_DRANGE_KEY,
+    heightKey: ANALYZE_HEIGHT_KEY,
+    scale: 'log',
+    drange: 120,
+    height: 384,
+    zoom: 1,
   };
 
   function loadAnalyzeSpectrogramState(spec){
@@ -572,94 +417,14 @@
     if (spec.scaleLin) spec.scaleLin.classList.toggle('is-active', spec.scale === 'lin');
   }
 
-  function effectiveAnalyzeHeight(kind, spec){
-    const hasFocus = analysisFocus === kind;
-    if (!analysisShowBoth && !hasFocus) return null;
-    if (analysisShowBoth && !hasFocus) {
-      return Math.min(spec.height || 256, 256);
-    }
-    return spec.height;
-  }
-
-  function renderAnalyzeSpectrogram(spec, relPath, heightPx, preserveCenter){
-    if (!spec || !spec.img || !spec.viewport || !spec.inner) return;
-    if (!relPath || !heightPx) {
-      spec.img.removeAttribute('src');
-      return;
-    }
-    renderSpectrogramViewer(spec, relPath, heightPx, preserveCenter, true);
-  }
-
-  function renderAnalyzeSpectrograms(preserveCenter){
-    renderAnalyzeSpectrogram(
-      analyzeSpectrograms.source,
-      analysisContext.source?.rel,
-      effectiveAnalyzeHeight('source', analyzeSpectrograms.source),
-      preserveCenter
-    );
-    renderAnalyzeSpectrogram(
-      analyzeSpectrograms.processed,
-      analysisContext.processed?.rel,
-      effectiveAnalyzeHeight('processed', analyzeSpectrograms.processed),
-      preserveCenter
-    );
-  }
-
-  function syncAnalyzeFocusUI(){
-    const hasSource = Boolean(analysisContext.source?.rel);
-    const hasProcessed = Boolean(analysisContext.processed?.rel);
-    if (!hasProcessed && hasSource) {
-      analysisFocus = 'source';
-    } else if (!hasSource && hasProcessed) {
-      analysisFocus = 'processed';
-    }
-    if (!hasSource || !hasProcessed) {
-      analysisShowBoth = false;
-    }
-    if (analysisFocusProcessedBtn) {
-      analysisFocusProcessedBtn.disabled = !hasProcessed;
-      analysisFocusProcessedBtn.classList.toggle('is-active', analysisFocus === 'processed');
-    }
-    if (analysisFocusSourceBtn) {
-      analysisFocusSourceBtn.disabled = !hasSource;
-      analysisFocusSourceBtn.classList.toggle('is-active', analysisFocus === 'source');
-    }
-    if (analysisShowBothBtn) {
-      analysisShowBothBtn.disabled = !(hasSource && hasProcessed);
-      analysisShowBothBtn.classList.toggle('is-active', analysisShowBoth);
-      analysisShowBothBtn.textContent = analysisShowBoth ? 'Hide secondary' : 'Show both';
-    }
-    if (analysisPanelProcessed) {
-      const showProcessed = hasProcessed && (analysisShowBoth || analysisFocus === 'processed');
-      analysisPanelProcessed.hidden = !showProcessed;
-      analysisPanelProcessed.classList.toggle('analysis-panel-focus', analysisFocus === 'processed');
-      analysisPanelProcessed.classList.toggle('analysis-panel-secondary', analysisShowBoth && analysisFocus !== 'processed');
-    }
-    if (analysisPanelSource) {
-      const showSource = hasSource && (analysisShowBoth || analysisFocus === 'source');
-      analysisPanelSource.hidden = !showSource;
-      analysisPanelSource.classList.toggle('analysis-panel-focus', analysisFocus === 'source');
-      analysisPanelSource.classList.toggle('analysis-panel-secondary', analysisShowBoth && analysisFocus !== 'source');
-    }
-    if (analysisSourceToNoise) {
-      analysisSourceToNoise.disabled = !hasSource;
-    }
-    if (analysisProcessedToNoise) {
-      analysisProcessedToNoise.disabled = !hasProcessed;
-    }
-    if (metricsGrid) {
-      metricsGrid.dataset.focus = analysisFocus;
-    }
-  }
-
-  function bindAnalyzeSpectrogramControls(spec, kind){
+  function bindAnalyzeSpectrogramControls(spec){
     if (spec.scaleLog) {
       spec.scaleLog.addEventListener('click', () => {
         spec.scale = 'log';
         saveSetting(spec.scaleKey, spec.scale);
         if (spec.scaleLog) spec.scaleLog.classList.add('is-active');
         if (spec.scaleLin) spec.scaleLin.classList.remove('is-active');
-        renderAnalyzeSpectrogram(spec, analysisContext[kind]?.rel, effectiveAnalyzeHeight(kind, spec), false);
+        renderActiveSpectrogram(false);
       });
     }
     if (spec.scaleLin) {
@@ -668,7 +433,7 @@
         saveSetting(spec.scaleKey, spec.scale);
         if (spec.scaleLin) spec.scaleLin.classList.add('is-active');
         if (spec.scaleLog) spec.scaleLog.classList.remove('is-active');
-        renderAnalyzeSpectrogram(spec, analysisContext[kind]?.rel, effectiveAnalyzeHeight(kind, spec), false);
+        renderActiveSpectrogram(false);
       });
     }
     if (spec.range) {
@@ -676,21 +441,21 @@
         spec.drange = parseInt(spec.range.value || '120', 10) || 120;
         saveSetting(spec.drangeKey, spec.drange);
         if (spec.rangeVal) spec.rangeVal.textContent = String(spec.drange);
-        renderAnalyzeSpectrogram(spec, analysisContext[kind]?.rel, effectiveAnalyzeHeight(kind, spec), false);
+        renderActiveSpectrogram(false);
       });
     }
     if (spec.heightSelect) {
       spec.heightSelect.addEventListener('change', () => {
         spec.height = parseInt(spec.heightSelect.value || '384', 10) || 384;
         saveSetting(spec.heightKey, spec.height);
-        renderAnalyzeSpectrogram(spec, analysisContext[kind]?.rel, effectiveAnalyzeHeight(kind, spec), false);
+        renderActiveSpectrogram(false);
       });
     }
     if (spec.zoomRange) {
       spec.zoomRange.addEventListener('input', () => {
         spec.zoom = parseInt(spec.zoomRange.value || '1', 10) || 1;
         if (spec.zoomVal) spec.zoomVal.textContent = `${spec.zoom}x`;
-        renderAnalyzeSpectrogram(spec, analysisContext[kind]?.rel, effectiveAnalyzeHeight(kind, spec), true);
+        renderActiveSpectrogram(true);
       });
     }
     if (spec.fitBtn) {
@@ -699,17 +464,11 @@
         if (spec.zoomRange) spec.zoomRange.value = '1';
         if (spec.zoomVal) spec.zoomVal.textContent = '1x';
         if (spec.viewport) spec.viewport.scrollLeft = 0;
-        renderAnalyzeSpectrogram(spec, analysisContext[kind]?.rel, effectiveAnalyzeHeight(kind, spec), false);
+        renderActiveSpectrogram(false);
       });
     }
     if (spec.toNoise) {
       spec.toNoise.addEventListener('click', () => {
-        if (kind === 'processed' && noiseTargetProcessed && !noiseTargetProcessed.disabled) {
-          noiseTargetProcessed.checked = true;
-        } else if (noiseTargetSource) {
-          noiseTargetSource.checked = true;
-        }
-        renderNoiseSpectrogram(false);
         if (noiseCleanupCard) {
           noiseCleanupCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
@@ -717,7 +476,7 @@
     }
   }
 
-  function bindSpectrogramCursor(spec, kind){
+  function bindSpectrogramCursor(spec){
     if (!spec || !spec.viewport || !spec.inner || !spec.cursor) return;
     const updateCursor = (evt) => {
       if (!analysisContext.duration) {
@@ -765,57 +524,29 @@
       if (title) pill.title = title;
       summaryPills.appendChild(pill);
     };
-    if (payload?.source_name) {
-      addPill(`Source: ${payload.source_name}`, payload.source_name);
+    const active = analysisContext.active;
+    const activeName = active?.name || '';
+    if (fileTitle) {
+      fileTitle.textContent = payload?.run_id || activeName || 'Selected file';
     }
-    if (payload?.processed_name) {
-      addPill(`Processed: ${payload.processed_name}`, payload.processed_name);
+    if (activeName) {
+      addPill(activeName, activeName);
     }
     if (analysisContext.duration) {
       addPill(`Duration: ${formatSeconds(analysisContext.duration)}`);
     }
-    if (payload?.processed_label) {
-      addPill(`Output: ${String(payload.processed_label).toUpperCase()}`);
-    }
-    if (!payload?.processed_url) {
+    if (!payload?.processed_url && payload?.run_id) {
       addPill('Tip: Run mastering to compare processed output.');
     }
+    const isProcessed = active?.kind === 'processed';
+    const base = isProcessed ? output : input;
+    const reference = isProcessed ? input : null;
     metricLabels.forEach(meta => {
-      const outVal = output ? output[meta.key] : null;
-      if (outVal === null || outVal === undefined) return;
-      const delta = formatDelta(outVal, input ? input[meta.key] : null);
-      addPill(`${meta.label}: ${fmt(outVal, 1)}${meta.suffix}${delta}`);
+      const val = base ? base[meta.key] : null;
+      if (val === null || val === undefined) return;
+      const delta = reference ? formatDelta(val, reference[meta.key]) : '';
+      addPill(`${meta.label}: ${fmt(val, 1)}${meta.suffix}${delta}`);
     });
-  }
-
-  function renderMetrics(input, output){
-    if (!metricsGrid) return;
-    metricsGrid.innerHTML = '';
-    const headers = ['Metric', 'Source', 'Processed', 'Delta'];
-    const colKeys = ['metric', 'source', 'processed', 'delta'];
-    headers.forEach((label, idx) => {
-      const cell = document.createElement('div');
-      cell.className = `compare-cell compare-head col-${colKeys[idx]}`;
-      cell.textContent = label;
-      metricsGrid.appendChild(cell);
-    });
-    metricLabels.forEach(meta => {
-      const inVal = input ? input[meta.key] : null;
-      const outVal = output ? output[meta.key] : null;
-      const row = [
-        meta.label,
-        inVal === null || inVal === undefined ? '-' : `${fmt(inVal, 1)}${meta.suffix}`,
-        outVal === null || outVal === undefined ? '-' : `${fmt(outVal, 1)}${meta.suffix}`,
-        formatDelta(outVal, inVal).replace(/[()]/g, '') || '-',
-      ];
-      row.forEach((val, idx) => {
-        const cell = document.createElement('div');
-        cell.className = `compare-cell col-${colKeys[idx]}`;
-        cell.textContent = val;
-        metricsGrid.appendChild(cell);
-      });
-    });
-    metricsGrid.dataset.focus = analysisFocus;
   }
 
   function syncPreserveLinks(params){
@@ -887,6 +618,15 @@
     return yToFreq(y, height);
   }
 
+  function freqToYScaled(freq, height, scale){
+    const safe = Math.max(NOISE_FREQ_MIN, Math.min(NOISE_FREQ_MAX, freq));
+    if (scale === 'lin') {
+      const norm = (safe - NOISE_FREQ_MIN) / (NOISE_FREQ_MAX - NOISE_FREQ_MIN);
+      return (1 - norm) * height;
+    }
+    return freqToY(safe, height);
+  }
+
   function renderNoiseSelectionBox(){
     if (!spectrogramSelection || !spectrogramOverlay) return;
     if (!noiseSelection || !analysisContext.duration) {
@@ -901,8 +641,8 @@
     const f1 = Math.max(NOISE_FREQ_MIN, Math.max(noiseSelection.f0, noiseSelection.f1));
     const x0 = (t0 / analysisContext.duration) * rect.width;
     const x1 = (t1 / analysisContext.duration) * rect.width;
-    const y0 = freqToY(f1, rect.height);
-    const y1 = freqToY(f0, rect.height);
+    const y0 = freqToYScaled(f1, rect.height, analysisSpectrogram.scale);
+    const y1 = freqToYScaled(f0, rect.height, analysisSpectrogram.scale);
     spectrogramSelection.hidden = false;
     spectrogramSelection.style.left = `${x0}px`;
     spectrogramSelection.style.top = `${y0}px`;
@@ -942,8 +682,8 @@
         const bottom = top + Math.max(height, 2);
         const t0 = (left / rect.width) * analysisContext.duration;
         const t1 = (right / rect.width) * analysisContext.duration;
-        const f0 = yToFreq(bottom, rect.height);
-        const f1 = yToFreq(top, rect.height);
+        const f0 = yToFreqScaled(bottom, rect.height, analysisSpectrogram.scale);
+        const f1 = yToFreqScaled(top, rect.height, analysisSpectrogram.scale);
         noiseSelection = { t0, t1, f0, f1 };
         updateNoiseReadouts(noiseSelection);
       }
@@ -969,9 +709,7 @@
       }
       const duration = analysisContext.duration || 0;
       const toTime = (x) => (duration ? (x / rect.width) * duration : 0);
-      const toFreq = (y) => {
-        return yToFreq(y, rect.height);
-      };
+      const toFreq = (y) => yToFreqScaled(y, rect.height, analysisSpectrogram.scale);
       const t0 = toTime(left);
       const t1 = toTime(right);
       const f0 = toFreq(bottom);
@@ -1175,28 +913,21 @@
     if (!payload) return;
     const input = payload.metrics?.input || null;
     const output = payload.metrics?.output || null;
-    if (sourceName) sourceName.textContent = payload.source_name || 'Source';
-    if (processedName) processedName.textContent = payload.processed_name || '-';
     if (emptyState) emptyState.hidden = true;
     if (loadedState) loadedState.hidden = false;
     const durationFallback = payload.duration_s ?? output?.duration_sec ?? input?.duration_sec ?? null;
+    const sourceEntry = payload.source_rel ? { rel: payload.source_rel, name: payload.source_name || 'Source', kind: 'source' } : null;
+    const processedEntry = payload.processed_rel ? { rel: payload.processed_rel, name: payload.processed_name || 'Processed', kind: 'processed' } : null;
+    const activeEntry = processedEntry || sourceEntry || null;
     analysisContext = {
       duration: durationFallback,
-      source: payload.source_rel ? { rel: payload.source_rel, name: payload.source_name || 'Source' } : null,
-      processed: payload.processed_rel ? { rel: payload.processed_rel, name: payload.processed_name || 'Processed' } : null,
+      source: sourceEntry,
+      processed: processedEntry,
+      active: activeEntry,
+      run_id: payload.run_id || null,
     };
-    if (analysisContext.processed?.rel) {
-      analysisFocus = 'processed';
-    } else if (analysisContext.source?.rel) {
-      analysisFocus = 'source';
-    }
-    analysisShowBoth = false;
     renderPills(payload, input, output);
-    renderMetrics(input, output);
-    updateNoiseTargets();
-    syncAnalyzeFocusUI();
-    renderNoiseSpectrogram(false);
-    renderAnalyzeSpectrograms(false);
+    renderActiveSpectrogram(false);
   }
 
   async function selectAndLoad(item, node, shouldPush){
@@ -1303,41 +1034,12 @@
     });
   }
 
-  loadAnalyzeSpectrogramState(analyzeSpectrograms.source);
-  loadAnalyzeSpectrogramState(analyzeSpectrograms.processed);
-  bindAnalyzeSpectrogramControls(analyzeSpectrograms.source, 'source');
-  bindAnalyzeSpectrogramControls(analyzeSpectrograms.processed, 'processed');
-  bindSpectrogramCursor(analyzeSpectrograms.source, 'source');
-  bindSpectrogramCursor(analyzeSpectrograms.processed, 'processed');
-  if (analysisFocusProcessedBtn) {
-    analysisFocusProcessedBtn.addEventListener('click', () => {
-      analysisFocus = 'processed';
-      syncAnalyzeFocusUI();
-      renderAnalyzeSpectrograms(false);
-    });
-  }
-  if (analysisFocusSourceBtn) {
-    analysisFocusSourceBtn.addEventListener('click', () => {
-      analysisFocus = 'source';
-      syncAnalyzeFocusUI();
-      renderAnalyzeSpectrograms(false);
-    });
-  }
-  if (analysisShowBothBtn) {
-    analysisShowBothBtn.addEventListener('click', () => {
-      analysisShowBoth = !analysisShowBoth;
-      syncAnalyzeFocusUI();
-      renderAnalyzeSpectrograms(true);
-    });
-  }
-  makeResizeObserver(analysisSpectrogramSourceViewport, () => {
-    renderAnalyzeSpectrograms(true);
-  });
-  makeResizeObserver(analysisSpectrogramProcessedViewport, () => {
-    renderAnalyzeSpectrograms(true);
-  });
+  loadAnalyzeSpectrogramState(analysisSpectrogram);
+  bindAnalyzeSpectrogramControls(analysisSpectrogram);
+  bindSpectrogramCursor(analysisSpectrogram);
+  renderActiveSpectrogram(false);
   makeResizeObserver(spectrogramViewport, () => {
-    renderNoiseSpectrogram(true);
+    renderActiveSpectrogram(true);
   });
 
   if (noiseModeRemoveBtn) {
@@ -1356,42 +1058,12 @@
       if (noiseAfftdnVal) noiseAfftdnVal.textContent = noiseAfftdnRange.value;
     });
   }
-  if (noiseSpectrogramHeight) {
-    const savedHeight = parseInt(loadSetting(NOISE_HEIGHT_KEY, '384'), 10) || 384;
-    noiseSpectrogramHeight.value = String(savedHeight);
-    noiseSpectrogramHeight.addEventListener('change', () => {
-      const value = parseInt(noiseSpectrogramHeight.value || '384', 10) || 384;
-      saveSetting(NOISE_HEIGHT_KEY, value);
-      renderNoiseSpectrogram(true);
-    });
-  }
-  if (noiseZoomRange) {
-    noiseZoomRange.addEventListener('input', () => {
-      if (noiseZoomVal) noiseZoomVal.textContent = `${noiseZoomRange.value}x`;
-      renderNoiseSpectrogram(true);
-    });
-    if (noiseZoomVal) noiseZoomVal.textContent = `${noiseZoomRange.value}x`;
-  }
-  if (noiseFitBtn) {
-    noiseFitBtn.addEventListener('click', () => {
-      if (noiseZoomRange) noiseZoomRange.value = '1';
-      if (noiseZoomVal) noiseZoomVal.textContent = '1x';
-      if (spectrogramViewport) spectrogramViewport.scrollLeft = 0;
-      renderNoiseSpectrogram(false);
-    });
-  }
   if (noiseClearBtn) {
     noiseClearBtn.addEventListener('click', () => {
       noiseSelection = null;
       if (spectrogramSelection) spectrogramSelection.hidden = true;
       updateNoiseReadouts(null);
     });
-  }
-  if (noiseTargetSource) {
-    noiseTargetSource.addEventListener('change', () => renderNoiseSpectrogram(false));
-  }
-  if (noiseTargetProcessed) {
-    noiseTargetProcessed.addEventListener('change', () => renderNoiseSpectrogram(false));
   }
   if (noisePresetSelect) {
     noisePresetSelect.addEventListener('change', () => {
@@ -1404,7 +1076,6 @@
   if (noiseSaveBtn) noiseSaveBtn.addEventListener('click', saveNoisePreset);
 
   bindSpectrogramSelection();
-  syncAnalyzeFocusUI();
   setNoiseMode('remove');
   loadNoisePresets();
 })();
