@@ -122,6 +122,9 @@ uvicorn sonustemper.server:app --reload --port 8383
 - Defaults in `.env.example`: user `admin`, pass `CHANGEME`. You must change the password; proxy will refuse to start if unchanged.
 - All UI/API/SSE routes are behind Basic Auth.
 - The optional `API_KEY` is only for non-browser clients/CLI scripts; it is not embedded in the UI and is not required once Basic Auth succeeds. Proxy adds its own shared-secret header internally.
+- If `API_KEY`/`PROXY_SHARED_SECRET` are **not** set, the API only accepts localhost requests by default.
+  - Set `API_ALLOW_UNAUTH=1` to allow unauthenticated API access (local dev only).
+  - If `PROXY_SHARED_SECRET` is set, the proxy can still allow LAN/remote access by injecting `X-SonusTemper-Proxy`.
 - See `SECURITY.md` for the security posture and hardening notes (proxy perimeter, shared credentials, not Internet-facing without TLS/VPN).
 
 ## Images and tags

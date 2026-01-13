@@ -1922,9 +1922,10 @@ def _util_root(utility: str, section: str) -> Path:
     return root.resolve()
 
 def _safe_rel(root: Path, rel: str) -> Path:
-    rel = rel.strip().lstrip("/").replace("\\", "/")
-    candidate = (root / rel).resolve()
-    if root not in candidate.parents and candidate != root:
+    rel = (rel or "").strip().lstrip("/").replace("\\", "/")
+    root_resolved = root.resolve()
+    candidate = (root_resolved / rel).resolve()
+    if candidate != root_resolved and root_resolved not in candidate.parents:
         raise HTTPException(status_code=400, detail="invalid_path")
     return candidate
 

@@ -10,6 +10,10 @@
 - Shared proxy secret (`PROXY_SHARED_SECRET`) is used between proxy and app so API/UI calls don’t need an API key.
 - API key (`API_KEY`) is optional and intended only for CLI/scripts; the UI does not use it.
   - For the proxy secret, prefer long random strings using simple characters (letters/numbers/base64 without `=`) to avoid escaping edge cases in nginx configs.
+- Safe-by-default API behavior:
+  - If neither `API_KEY` nor `PROXY_SHARED_SECRET` is set, the API accepts **localhost only**.
+  - Set `API_ALLOW_UNAUTH=1` to allow unauthenticated access (local dev only).
+  - If `PROXY_SHARED_SECRET` is set, the proxy can allow LAN/remote users by injecting `X-SonusTemper-Proxy`.
 
 ## Deployment notes
 - Change default credentials before first run: `BASIC_AUTH_PASS` and `PROXY_SHARED_SECRET`.
