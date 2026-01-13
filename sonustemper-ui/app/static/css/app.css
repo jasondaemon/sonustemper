@@ -540,17 +540,54 @@ h1{margin:0;font-size:24px;}
   border-radius:12px;
   overflow:hidden;
   background:#0b1119;
-  min-height:220px;
+  min-height:320px;
+}
+.spectrogram-wrap--large{
+  min-height:420px;
+  max-height:520px;
 }
 .spectrogram-wrap img{
   display:block;
   width:100%;
-  height:auto;
+  height:100%;
+  object-fit:contain;
+  image-rendering:auto;
 }
 .spectrogram-overlay{
   position:absolute;
   inset:0;
   cursor:crosshair;
+}
+.spectrogram-overlay.is-hovering{
+  background:
+    linear-gradient(to right,
+      transparent calc(var(--cursor-x) - 0.5px),
+      rgba(255,255,255,0.15) calc(var(--cursor-x)),
+      transparent calc(var(--cursor-x) + 0.5px)),
+    linear-gradient(to bottom,
+      transparent calc(var(--cursor-y) - 0.5px),
+      rgba(255,255,255,0.15) calc(var(--cursor-y)),
+      transparent calc(var(--cursor-y) + 0.5px));
+}
+.spectrogram-toolbar{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:8px;
+  margin-bottom:8px;
+}
+.spectrogram-control{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  font-size:11px;
+  color:var(--muted);
+}
+.spectrogram-control input[type=range]{
+  width:120px;
+}
+.noise-toolbar{
+  margin-bottom:10px;
 }
 .spectrogram-selection{
   position:absolute;

@@ -3257,12 +3257,13 @@ async def analyze_upload(file: UploadFile = File(...)):
 
 
 @app.get("/api/analyze/spectrogram")
-def analyze_spectrogram(path: str, w: int = 1200, h: int = 256, mode: str = "log", drange: int = 120):
+def analyze_spectrogram(path: str, w: int = 1200, h: int = 256, mode: str = "log", drange: int = 120, scale: str | None = None):
     target = _resolve_analysis_path(path)
     width = max(320, min(2000, int(w)))
     height = max(128, min(1024, int(h)))
     drange = max(40, min(160, int(drange)))
-    scale = "log" if str(mode).strip().lower() == "log" else "lin"
+    requested = scale if scale is not None else mode
+    scale = "log" if str(requested).strip().lower() == "log" else "lin"
     cache_dir = ANALYSIS_TMP_DIR / "spectrograms"
     cache_dir.mkdir(parents=True, exist_ok=True)
     stat = target.stat()
