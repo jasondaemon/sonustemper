@@ -262,7 +262,7 @@
     selectedFiles: [],
     voicing: 'universal',
     strength: 80,
-    profile: 'apple',
+    profile: 'apple_music',
     lufsOverrideEnabled: true,
     lufsValue: -16.0,
     tpOverrideEnabled: true,
@@ -1145,6 +1145,7 @@
   async function loadLoudnessProfiles(){
     if (!loudnessMode) return;
     loudProfiles = {};
+    const preferredProfile = state.profile || loudnessMode.value || 'apple_music';
     loudnessMode.innerHTML = '';
     try{
       const res = await fetch('/api/profiles', { cache: 'no-store' });
@@ -1214,12 +1215,18 @@
         });
         loudnessMode.appendChild(optgroup);
       });
-      if (loudnessMode.value === 'manual') {
+      let targetProfile = preferredProfile;
+      if (!loudProfiles[targetProfile]) {
         if (loudProfiles.apple_music) {
-          loudnessMode.value = 'apple_music';
+          targetProfile = 'apple_music';
         } else if (loudProfiles.apple) {
-          loudnessMode.value = 'apple';
+          targetProfile = 'apple';
+        } else if (loudProfiles.manual) {
+          targetProfile = 'manual';
         }
+      }
+      if (targetProfile && loudProfiles[targetProfile]) {
+        loudnessMode.value = targetProfile;
       }
       applyLoudnessMode();
     }catch(_err){
