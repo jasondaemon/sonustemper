@@ -52,6 +52,9 @@ TAG_TMP_DIR = Path(os.getenv("TAG_TMP_DIR", str(DATA_DIR / "tagging" / "tmp")))
 ANALYSIS_IN_DIR = Path(os.getenv("ANALYSIS_IN_DIR", str(DATA_DIR / "analysis" / "in")))
 ANALYSIS_OUT_DIR = Path(os.getenv("ANALYSIS_OUT_DIR", str(DATA_DIR / "analysis" / "out")))
 ANALYSIS_TMP_DIR = Path(os.getenv("ANALYSIS_TMP_DIR", str(DATA_DIR / "analysis" / "tmp")))
+NOISE_PREVIEW_DIR = Path(os.getenv("NOISE_PREVIEW_DIR", str(DATA_DIR / "analysis" / "noise_preview")))
+NOISE_FILTER_DIR = PRESET_DIR / "noise_filters"
+STAGING_NOISE_FILTER_DIR = GEN_PRESET_DIR / "noise_filters"
 # Alias older variable names to new mastering locations for internal use
 IN_DIR = MASTER_IN_DIR
 OUT_DIR = MASTER_OUT_DIR
@@ -2384,6 +2387,41 @@ def library_profiles(origin: str = "user"):
         raise HTTPException(status_code=400, detail="invalid_origin")
     return {"items": _library_items(origin, "profile")}
 
+
+@app.get("/api/library/noise_filters")
+def library_noise_filters(origin: str = "user"):
+    origin = (origin or "user").strip().lower()
+    if origin == "generated":
+        origin = "staging"
+    root = _noise_filter_dir(origin)
+    items = []
+    if root.exists():
+        for fp in sorted(root.glob("*.json"), key=lambda p: p.name.lower()):
+            if not fp.is_file():
+                continue
+            try:
+                data = json.loads(fp.read_text(encoding="utf-8"))
+            except Exception:
+                data = {}
+            meta = data.get("meta") if isinstance(data, dict) else {}
+            title = _sanitize_label((meta or {}).get("title") or fp.stem, 80)
+            item_id = data.get("id") or fp.stem
+            items.append({
+                "id": item_id,
+                "name": item_id,
+                "origin": origin,
+                "readonly": origin != "user",
+                "kind": "noise_filter",
+                "meta": {
+                    "title": title,
+                    "kind": "noise_filter",
+                    "tags": (meta or {}).get("tags") or [],
+                    "created_at": (meta or {}).get("created_at"),
+                },
+                "noise": (data or {}).get("noise") if isinstance(data, dict) else None,
+            })
+    return {"items": items}
+
 @app.get("/api/library/staging")
 def library_staging():
     return {"items": _library_items("staging")}
@@ -2934,6 +2972,105 @@ def run_metrics(song: str):
         raise HTTPException(status_code=404, detail="metrics_not_found")
     m = fill_input_metrics(song, m, folder)
     return m
+def _analysis_path_roots() -> list[tuple[str, Path]]:
+    return [
+        ("in", IN_DIR),
+        ("analysis", ANALYSIS_IN_DIR),
+        ("out", OUT_DIR),
+        ("analysis_out", ANALYSIS_OUT_DIR),
+    ]
+
+def _resolve_analysis_path(rel: str) -> Path:
+    rel = (rel or "").strip().lstrip("/").replace("\\", "/")
+    if not rel:
+        raise HTTPException(status_code=400, detail="missing_path")
+    parts = rel.split("/", 1)
+    prefix_map = {key: root for key, root in _analysis_path_roots()}
+    if parts[0] in prefix_map:
+        root = prefix_map[parts[0]]
+        sub = parts[1] if len(parts) > 1 else ""
+        candidate = _safe_rel(root, sub)
+        if not candidate.exists() or not candidate.is_file():
+            raise HTTPException(status_code=404, detail="file_not_found")
+        return candidate
+    for _key, root in _analysis_path_roots():
+        try:
+            candidate = _safe_rel(root, rel)
+        except HTTPException:
+            continue
+        if candidate.exists() and candidate.is_file():
+            return candidate
+    raise HTTPException(status_code=404, detail="file_not_found")
+
+def _analysis_rel_for_path(path: Path) -> str | None:
+    for key, root in _analysis_path_roots():
+        try:
+            rel = path.relative_to(root)
+        except Exception:
+            continue
+        return f"{key}/{rel.as_posix()}"
+    return None
+
+def _noise_filter_dir(origin: str) -> Path:
+    origin = (origin or "user").strip().lower()
+    if origin in {"staging", "generated"}:
+        return STAGING_NOISE_FILTER_DIR
+    if origin == "user":
+        return NOISE_FILTER_DIR
+    raise HTTPException(status_code=400, detail="invalid_origin")
+
+def _noise_filter_chain(payload: dict) -> str:
+    mode = (payload.get("mode") or "remove").strip().lower()
+    f_low = payload.get("f_low")
+    f_high = payload.get("f_high")
+    if not isinstance(f_low, (int, float)) or not isinstance(f_high, (int, float)):
+        raise HTTPException(status_code=400, detail="missing_band")
+    f_low = max(20.0, min(20000.0, float(f_low)))
+    f_high = max(20.0, min(20000.0, float(f_high)))
+    if f_high <= f_low:
+        raise HTTPException(status_code=400, detail="invalid_band")
+    filters: list[str] = []
+    if mode == "solo":
+        filters.append(f"highpass=f={f_low:g}")
+        filters.append(f"lowpass=f={f_high:g}")
+    else:
+        center = (f_low + f_high) * 0.5
+        bandwidth = max(f_high - f_low, 1.0)
+        q_val = center / bandwidth
+        q_val = max(0.3, min(10.0, q_val))
+        depth = payload.get("band_depth_db")
+        if not isinstance(depth, (int, float)):
+            depth = -18.0
+        depth = -abs(float(depth))
+        filters.append(f"equalizer=f={center:g}:t=q:w={q_val:.3f}:g={depth:.1f}")
+    hp = payload.get("hp_hz")
+    if isinstance(hp, (int, float)) and hp > 0:
+        hp = max(20.0, min(20000.0, float(hp)))
+        filters.append(f"highpass=f={hp:g}")
+    lp = payload.get("lp_hz")
+    if isinstance(lp, (int, float)) and lp > 0:
+        lp = max(20.0, min(20000.0, float(lp)))
+        filters.append(f"lowpass=f={lp:g}")
+    strength = payload.get("afftdn_strength")
+    if isinstance(strength, (int, float)):
+        strength = max(0.0, min(1.0, float(strength)))
+        if strength > 0.01:
+            nr = 24.0 * strength
+            filters.append(f"afftdn=nr={nr:.2f}:nf=-25")
+    return ",".join(filters)
+
+def _unique_output_path(directory: Path, stem: str, suffix: str) -> Path:
+    safe_stem = _safe_slug(stem) or "cleaned"
+    candidate = directory / f"{safe_stem}{suffix}"
+    if not candidate.exists():
+        return candidate
+    idx = 1
+    while True:
+        candidate = directory / f"{safe_stem}-{idx}{suffix}"
+        if not candidate.exists():
+            return candidate
+        idx += 1
+
 @app.get("/api/analyze-source")
 def analyze_source(song: str):
     song = (song or "").strip()
@@ -2991,6 +3128,8 @@ def analyze_resolve(song: str, out: str = "", solo: bool = False):
             "source_name": processed.name,
             "processed_name": "",
             "processed_label": None,
+            "source_rel": f"out/{song}/{processed.name}",
+            "processed_rel": None,
             "available_outputs": [],
             "metrics": metrics,
         }
@@ -3001,6 +3140,7 @@ def analyze_resolve(song: str, out: str = "", solo: bool = False):
     source_name = source_path.name if source_path else song
     source_url = f"/api/analyze-source?song={quote(song)}" if source_path else ""
     processed_url = f"/out/{quote(song)}/{quote(processed.name)}"
+    processed_rel = f"out/{song}/{processed.name}"
     metrics = None
     output_metrics = _load_output_metrics(folder, processed)
     if output_metrics:
@@ -3024,6 +3164,8 @@ def analyze_resolve(song: str, out: str = "", solo: bool = False):
         "source_name": source_name,
         "processed_name": processed.name,
         "processed_label": processed.suffix.lower().lstrip("."),
+        "source_rel": _analysis_rel_for_path(source_path) if source_path else None,
+        "processed_rel": processed_rel,
         "available_outputs": _available_outputs(song, files, processed.stem),
         "metrics": metrics,
     }
@@ -3061,6 +3203,8 @@ def analyze_resolve_file(src: str = "", imp: str = ""):
         "source_name": path.name,
         "processed_name": "",
         "processed_label": None,
+        "source_rel": f"{'in' if kind == 'source' else 'analysis'}/{rel}",
+        "processed_rel": None,
         "available_outputs": [],
         "metrics": {"input": metrics, "output": None} if metrics else None,
     }
@@ -3110,6 +3254,203 @@ async def analyze_upload(file: UploadFile = File(...)):
     }
     payload.update(_analysis_overlay_data(dest, None))
     return payload
+
+
+@app.get("/api/analyze/spectrogram")
+def analyze_spectrogram(path: str, w: int = 1200, h: int = 256, mode: str = "log", drange: int = 120):
+    target = _resolve_analysis_path(path)
+    width = max(320, min(2000, int(w)))
+    height = max(128, min(1024, int(h)))
+    drange = max(40, min(160, int(drange)))
+    scale = "log" if str(mode).strip().lower() == "log" else "lin"
+    cache_dir = ANALYSIS_TMP_DIR / "spectrograms"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    stat = target.stat()
+    key_raw = f"{target.resolve()}::{stat.st_mtime}::{width}::{height}::{scale}::{drange}"
+    key = hashlib.sha256(key_raw.encode("utf-8")).hexdigest()
+    out_path = cache_dir / f"{key}.png"
+    if not out_path.exists():
+        filt = (
+            f"showspectrumpic=s={width}x{height}:mode=separate:"
+            f"scale={scale}:legend=disabled:color=viridis:drange={drange}"
+        )
+        cmd = [
+            FFMPEG_BIN, "-y", "-hide_banner", "-loglevel", "error",
+            "-i", str(target), "-lavfi", filt, "-frames:v", "1",
+            str(out_path),
+        ]
+        proc = run_cmd(cmd)
+        if proc.returncode != 0 or not out_path.exists():
+            err = (proc.stderr or proc.stdout or "").strip()
+            raise HTTPException(status_code=500, detail=err or "spectrogram_failed")
+    return FileResponse(out_path, media_type="image/png")
+
+
+@app.post("/api/analyze/noise/preview")
+def analyze_noise_preview(payload: dict = Body(...)):
+    path = payload.get("path")
+    target = _resolve_analysis_path(path)
+    start = payload.get("start_sec")
+    end = payload.get("end_sec")
+    if not isinstance(start, (int, float)) or not isinstance(end, (int, float)):
+        raise HTTPException(status_code=400, detail="missing_range")
+    start = float(start)
+    end = float(end)
+    if end <= start:
+        raise HTTPException(status_code=400, detail="invalid_range")
+    preview_len = payload.get("preview_len_sec")
+    if not isinstance(preview_len, (int, float)):
+        preview_len = 10.0
+    preview_len = max(4.0, min(20.0, float(preview_len)))
+    mid = (start + end) * 0.5
+    preview_start = max(0.0, mid - preview_len * 0.5)
+    af = _noise_filter_chain(payload)
+    NOISE_PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
+    preview_id = uuid.uuid4().hex
+    out_path = NOISE_PREVIEW_DIR / f"{preview_id}.mp3"
+    cmd = [
+        FFMPEG_BIN, "-y", "-hide_banner", "-loglevel", "error",
+        "-ss", f"{preview_start:.3f}",
+        "-t", f"{preview_len:.3f}",
+        "-i", str(target),
+        "-af", af,
+        "-vn", "-ac", "2", "-ar", str(PREVIEW_SAMPLE_RATE),
+        "-codec:a", "libmp3lame", "-b:a", f"{PREVIEW_BITRATE_KBPS}k",
+        str(out_path),
+    ]
+    proc = run_cmd(cmd)
+    if proc.returncode != 0 or not out_path.exists():
+        err = (proc.stderr or proc.stdout or "").strip()
+        raise HTTPException(status_code=500, detail=err or "preview_failed")
+    return {
+        "url": f"/api/analyze/noise/preview_audio?token={quote(preview_id)}",
+        "preview_start": preview_start,
+        "duration": preview_len,
+    }
+
+
+@app.get("/api/analyze/noise/preview_audio")
+def analyze_noise_preview_audio(token: str):
+    token = (token or "").strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="missing_token")
+    fp = NOISE_PREVIEW_DIR / f"{token}.mp3"
+    if NOISE_PREVIEW_DIR.resolve() not in fp.resolve().parents or not fp.exists():
+        raise HTTPException(status_code=404, detail="preview_not_found")
+    return FileResponse(fp, media_type="audio/mpeg", filename=f"noise-preview-{token}.mp3")
+
+
+@app.post("/api/analyze/noise/render")
+def analyze_noise_render(payload: dict = Body(...)):
+    path = payload.get("path")
+    target = _resolve_analysis_path(path)
+    af = _noise_filter_chain(payload)
+    ANALYSIS_OUT_DIR.mkdir(parents=True, exist_ok=True)
+    suffix = target.suffix.lower() if target.suffix else ".wav"
+    codec_map = {
+        ".wav": "pcm_s16le",
+        ".aiff": "pcm_s16be",
+        ".aif": "pcm_s16be",
+        ".flac": "flac",
+        ".mp3": "libmp3lame",
+        ".m4a": "aac",
+        ".aac": "aac",
+        ".ogg": "libvorbis",
+    }
+    codec = codec_map.get(suffix, "pcm_s16le")
+    out_path = _unique_output_path(ANALYSIS_OUT_DIR, f"{target.stem}.cleaned", suffix)
+    cmd = [
+        FFMPEG_BIN, "-y", "-hide_banner", "-loglevel", "error",
+        "-i", str(target),
+        "-af", af,
+        "-vn", "-ac", "2",
+        "-codec:a", codec,
+        str(out_path),
+    ]
+    proc = run_cmd(cmd)
+    if proc.returncode != 0 or not out_path.exists():
+        err = (proc.stderr or proc.stdout or "").strip()
+        raise HTTPException(status_code=500, detail=err or "render_failed")
+    return {
+        "output_rel": out_path.name,
+        "output_name": out_path.name,
+        "url": f"/api/analyze/noise/output?rel={quote(out_path.name)}",
+    }
+
+
+@app.get("/api/analyze/noise/output")
+def analyze_noise_output(rel: str):
+    rel = (rel or "").strip()
+    if not rel:
+        raise HTTPException(status_code=400, detail="missing_rel")
+    target = _safe_rel(ANALYSIS_OUT_DIR, rel)
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="not_found")
+    return FileResponse(target)
+
+
+@app.post("/api/analyze/noise/preset/save")
+def analyze_noise_preset_save(payload: dict = Body(...)):
+    title = _sanitize_label(payload.get("title") or "Noise Filter", 80)
+    settings = payload.get("settings") or {}
+    if not isinstance(settings, dict):
+        settings = {}
+    f_low = settings.get("f_low")
+    f_high = settings.get("f_high")
+    if not isinstance(f_low, (int, float)) or not isinstance(f_high, (int, float)):
+        raise HTTPException(status_code=400, detail="missing_band")
+    f_low = max(20.0, min(20000.0, float(f_low)))
+    f_high = max(20.0, min(20000.0, float(f_high)))
+    if f_high <= f_low:
+        raise HTTPException(status_code=400, detail="invalid_band")
+    origin_dir = _noise_filter_dir("user")
+    origin_dir.mkdir(parents=True, exist_ok=True)
+    slug = _safe_slug(title) or "noise_filter"
+    out_path = _unique_output_path(origin_dir, slug, ".json")
+    mode = (settings.get("mode") or "remove").strip().lower()
+    band_depth = settings.get("band_depth_db")
+    if not isinstance(band_depth, (int, float)):
+        band_depth = -18.0
+    band_depth = -abs(float(band_depth))
+    afftdn_strength = settings.get("afftdn_strength")
+    if not isinstance(afftdn_strength, (int, float)):
+        afftdn_strength = 0.35
+    afftdn_strength = max(0.0, min(1.0, float(afftdn_strength)))
+    hp_hz = settings.get("hp_hz")
+    lp_hz = settings.get("lp_hz")
+    preset = {
+        "id": out_path.stem,
+        "meta": {
+            "title": title,
+            "kind": "noise_filter",
+            "tags": [
+                "Generated from spectrogram selection.",
+                f"band: {f_low:.0f}-{f_high:.0f}Hz",
+                f"mode: {mode}",
+                f"afftdn: {afftdn_strength:.2f}",
+            ],
+            "created_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
+        },
+        "noise": {
+            "f_low": f_low,
+            "f_high": f_high,
+            "band_depth_db": band_depth,
+            "afftdn_strength": afftdn_strength,
+            "hp_hz": hp_hz,
+            "lp_hz": lp_hz,
+        },
+    }
+    out_path.write_text(json.dumps(preset, indent=2), encoding="utf-8")
+    return {
+        "item": {
+            "id": out_path.stem,
+            "name": out_path.stem,
+            "origin": "user",
+            "readonly": False,
+            "kind": "noise_filter",
+            "meta": preset.get("meta", {}),
+        }
+    }
 @app.get("/api/analyze-sources")
 def analyze_sources():
     items = []

@@ -145,6 +145,7 @@ uvicorn sonustemper.server:app --reload --port 8383
 - Multi-file run: two files, mixed formats, confirm a single SSE stream drives status and both appear in Previous Runs.
 - SSE reconnect: refresh the page mid-run; ensure status replays via `/api/run/<run_id>` and finishes cleanly.
 - Error path: intentionally bad preset/voicing to verify terminal `error` event stops the stream and UI doesn’t spin.
+- Analyze (Noise Cleanup): open Analyze, select a run/output, drag a spectrogram region, preview Solo/Remove, then render a cleaned copy and download the result.
 
 ## License
 - SonusTemper is licensed under the GNU General Public License v3.0 (GPL-3.0).

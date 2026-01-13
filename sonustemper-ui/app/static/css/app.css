@@ -516,6 +516,82 @@ h1{margin:0;font-size:24px;}
   flex-direction:column;
   gap:10px;
 }
+.noise-cleanup{
+  display:grid;
+  gap:12px;
+  grid-template-columns:minmax(0, 1.2fr) minmax(0, 0.8fr);
+}
+@media (max-width: 900px){
+  .noise-cleanup{
+    grid-template-columns:1fr;
+  }
+}
+.noise-source-toggle{
+  display:flex;
+  gap:12px;
+  align-items:center;
+  font-size:12px;
+  color:var(--muted);
+  margin-bottom:8px;
+}
+.spectrogram-wrap{
+  position:relative;
+  border:1px solid var(--line);
+  border-radius:12px;
+  overflow:hidden;
+  background:#0b1119;
+  min-height:220px;
+}
+.spectrogram-wrap img{
+  display:block;
+  width:100%;
+  height:auto;
+}
+.spectrogram-overlay{
+  position:absolute;
+  inset:0;
+  cursor:crosshair;
+}
+.spectrogram-selection{
+  position:absolute;
+  border:1px dashed rgba(255,255,255,0.7);
+  background:rgba(43,212,189,0.15);
+  pointer-events:none;
+  border-radius:4px;
+}
+.noise-readouts{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(120px, 1fr));
+  gap:6px;
+  font-size:11px;
+  color:var(--muted);
+  margin-top:8px;
+}
+.noise-readout{
+  display:flex;
+  justify-content:space-between;
+  gap:8px;
+  background:#0f151d;
+  border:1px solid var(--line);
+  border-radius:8px;
+  padding:4px 8px;
+}
+.noise-hp-lp{
+  gap:8px;
+  align-items:center;
+}
+.noise-hp-lp input[type=number]{
+  width:90px;
+}
+.pill-toggle{
+  display:flex;
+  gap:6px;
+  flex-wrap:wrap;
+}
+.pill-toggle .btn{
+  padding:4px 10px;
+  font-size:11px;
+}
 .analysis-panel-head{
   display:flex;
   align-items:center;

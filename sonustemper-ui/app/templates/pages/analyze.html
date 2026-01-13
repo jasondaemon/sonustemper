@@ -66,6 +66,77 @@
       <div class="compare-grid" id="analysisMetricsGrid"></div>
     </div>
   </div>
+
+  <div class="card analyze-card" id="noiseCleanupCard">
+    <div class="card-head">
+      <div>
+        <div class="card-title">Noise Cleanup</div>
+        <div class="muted">Select a time/frequency region and preview cleanup.</div>
+      </div>
+    </div>
+    <div class="noise-cleanup">
+      <div class="noise-left">
+        <div class="noise-source-toggle">
+          <label class="check"><input type="radio" name="noiseTarget" id="noiseTargetSource" value="source" checked> Source</label>
+          <label class="check"><input type="radio" name="noiseTarget" id="noiseTargetProcessed" value="processed"> Processed</label>
+        </div>
+        <div class="spectrogram-wrap" id="spectrogramWrap">
+          <img id="spectrogramImg" alt="Spectrogram" />
+          <div class="spectrogram-overlay" id="spectrogramOverlay"></div>
+          <div class="spectrogram-selection" id="spectrogramSelection" hidden></div>
+        </div>
+        <div class="noise-readouts">
+          <div class="noise-readout"><span>t0</span><span id="noiseT0">-</span></div>
+          <div class="noise-readout"><span>t1</span><span id="noiseT1">-</span></div>
+          <div class="noise-readout"><span>f0</span><span id="noiseF0">-</span></div>
+          <div class="noise-readout"><span>f1</span><span id="noiseF1">-</span></div>
+          <div class="noise-readout"><span>Center</span><span id="noiseCenter">-</span></div>
+          <div class="noise-readout"><span>Bandwidth</span><span id="noiseBandwidth">-</span></div>
+        </div>
+      </div>
+      <div class="noise-right">
+        <div class="control-row">
+          <label class="control-label">Noise Filter Preset</label>
+          <select id="noisePresetSelect" class="full-width-select">
+            <option value="">No preset</option>
+          </select>
+        </div>
+        <div class="control-row">
+          <label class="control-label">Preview Mode</label>
+          <div class="pill-toggle">
+            <button class="btn ghost small is-active" type="button" id="noiseModeRemove">Remove noise</button>
+            <button class="btn ghost small" type="button" id="noiseModeSolo">Solo noise</button>
+          </div>
+        </div>
+        <div class="control-row compact-row">
+          <div class="control-label">Filter depth (dB)</div>
+          <input type="range" id="noiseDepthRange" min="-30" max="-6" step="1" value="-18">
+          <div class="value-pill" id="noiseDepthVal">-18</div>
+        </div>
+        <div class="control-row compact-row">
+          <div class="control-label">Denoise strength</div>
+          <input type="range" id="noiseAfftdnRange" min="0" max="1" step="0.05" value="0.35">
+          <div class="value-pill" id="noiseAfftdnVal">0.35</div>
+        </div>
+        <div class="control-row noise-hp-lp">
+          <label class="check"><input type="checkbox" id="noiseHpToggle"> High-pass</label>
+          <input type="number" id="noiseHpValue" min="20" max="500" step="1" value="70">
+          <label class="check"><input type="checkbox" id="noiseLpToggle"> Low-pass</label>
+          <input type="number" id="noiseLpValue" min="1000" max="20000" step="10" value="16000">
+        </div>
+        <div class="control-row preview-row">
+          <div class="control-label small-label">Preview</div>
+          <audio id="noisePreviewAudio" class="preview-audio" controls preload="none"></audio>
+          <span class="muted" id="noisePreviewStatus">Preview idle</span>
+        </div>
+        <div class="preset-actions">
+          <button class="btn btn-primary small" type="button" id="noisePreviewBtn">Preview</button>
+          <button class="btn ghost small" type="button" id="noiseRenderBtn">Render Cleaned Copy</button>
+          <button class="btn ghost small" type="button" id="noiseSaveBtn">Save as Noise Filter Preset</button>
+        </div>
+      </div>
+    </div>
+  </div>
 {% endblock %}
 
 {% block extra_js %}
@@ -80,7 +151,38 @@
   const processedName = document.getElementById('analysisProcessedName');
   const analyzeBrowser = document.getElementById('analysisBrowser');
   const compareLink = document.getElementById('compareLink');
+  const spectrogramImg = document.getElementById('spectrogramImg');
+  const spectrogramOverlay = document.getElementById('spectrogramOverlay');
+  const spectrogramSelection = document.getElementById('spectrogramSelection');
+  const noiseTargetSource = document.getElementById('noiseTargetSource');
+  const noiseTargetProcessed = document.getElementById('noiseTargetProcessed');
+  const noisePresetSelect = document.getElementById('noisePresetSelect');
+  const noiseModeRemoveBtn = document.getElementById('noiseModeRemove');
+  const noiseModeSoloBtn = document.getElementById('noiseModeSolo');
+  const noiseDepthRange = document.getElementById('noiseDepthRange');
+  const noiseDepthVal = document.getElementById('noiseDepthVal');
+  const noiseAfftdnRange = document.getElementById('noiseAfftdnRange');
+  const noiseAfftdnVal = document.getElementById('noiseAfftdnVal');
+  const noiseHpToggle = document.getElementById('noiseHpToggle');
+  const noiseHpValue = document.getElementById('noiseHpValue');
+  const noiseLpToggle = document.getElementById('noiseLpToggle');
+  const noiseLpValue = document.getElementById('noiseLpValue');
+  const noisePreviewAudio = document.getElementById('noisePreviewAudio');
+  const noisePreviewStatus = document.getElementById('noisePreviewStatus');
+  const noisePreviewBtn = document.getElementById('noisePreviewBtn');
+  const noiseRenderBtn = document.getElementById('noiseRenderBtn');
+  const noiseSaveBtn = document.getElementById('noiseSaveBtn');
+  const noiseT0 = document.getElementById('noiseT0');
+  const noiseT1 = document.getElementById('noiseT1');
+  const noiseF0 = document.getElementById('noiseF0');
+  const noiseF1 = document.getElementById('noiseF1');
+  const noiseCenter = document.getElementById('noiseCenter');
+  const noiseBandwidth = document.getElementById('noiseBandwidth');
   let statusLines = [];
+  let analysisContext = { source: null, processed: null, duration: null };
+  let noiseSelection = null;
+  let noiseMode = 'remove';
+  let noisePresets = new Map();
 
   const metricLabels = [
     { key: 'I', label: 'LUFS-I', suffix: ' LUFS' },
@@ -102,6 +204,81 @@
     const delta = outVal - inVal;
     const sign = delta > 0 ? '+' : '';
     return ` (${sign}${fmt(delta, 1)})`;
+  }
+
+  function formatSeconds(val){
+    if (val === null || val === undefined || Number.isNaN(val)) return '-';
+    return `${val.toFixed(2)}s`;
+  }
+
+  function formatHz(val){
+    if (val === null || val === undefined || Number.isNaN(val)) return '-';
+    if (val >= 1000) return `${(val / 1000).toFixed(2)}k`;
+    return `${val.toFixed(0)} Hz`;
+  }
+
+  function setNoiseMode(mode){
+    noiseMode = mode === 'solo' ? 'solo' : 'remove';
+    if (noiseModeRemoveBtn) noiseModeRemoveBtn.classList.toggle('is-active', noiseMode === 'remove');
+    if (noiseModeSoloBtn) noiseModeSoloBtn.classList.toggle('is-active', noiseMode === 'solo');
+    if (noiseDepthRange) noiseDepthRange.disabled = noiseMode !== 'remove';
+  }
+
+  function setNoiseStatus(msg){
+    if (noisePreviewStatus) noisePreviewStatus.textContent = msg || '';
+  }
+
+  function updateNoiseReadouts(selection){
+    if (!noiseT0 || !noiseT1 || !noiseF0 || !noiseF1 || !noiseCenter || !noiseBandwidth) return;
+    if (!selection) {
+      noiseT0.textContent = '-';
+      noiseT1.textContent = '-';
+      noiseF0.textContent = '-';
+      noiseF1.textContent = '-';
+      noiseCenter.textContent = '-';
+      noiseBandwidth.textContent = '-';
+      return;
+    }
+    noiseT0.textContent = formatSeconds(selection.t0);
+    noiseT1.textContent = formatSeconds(selection.t1);
+    noiseF0.textContent = formatHz(selection.f0);
+    noiseF1.textContent = formatHz(selection.f1);
+    noiseCenter.textContent = formatHz((selection.f0 + selection.f1) * 0.5);
+    noiseBandwidth.textContent = formatHz(selection.f1 - selection.f0);
+  }
+
+  function getActiveNoiseTarget(){
+    if (noiseTargetProcessed && noiseTargetProcessed.checked && analysisContext.processed?.rel) {
+      return analysisContext.processed;
+    }
+    return analysisContext.source;
+  }
+
+  function updateNoiseTargets(){
+    const hasProcessed = Boolean(analysisContext.processed?.rel);
+    if (noiseTargetProcessed) noiseTargetProcessed.disabled = !hasProcessed;
+    if (!hasProcessed && noiseTargetSource) noiseTargetSource.checked = true;
+  }
+
+  function updateSpectrogram(){
+    if (!spectrogramImg) return;
+    const target = getActiveNoiseTarget();
+    if (!target || !target.rel) {
+      spectrogramImg.removeAttribute('src');
+      noiseSelection = null;
+      updateNoiseReadouts(null);
+      return;
+    }
+    const params = new URLSearchParams({
+      path: target.rel,
+      w: '1200',
+      h: '256',
+      mode: 'log',
+      drange: '120',
+    });
+    spectrogramImg.src = `/api/analyze/spectrogram?${params.toString()}`;
+    noiseSelection = null;
+    updateNoiseReadouts(null);
   }
 
   function renderStatus(){
@@ -207,6 +384,243 @@
     return res.json();
   }
 
+  function bindSpectrogramSelection(){
+    if (!spectrogramOverlay || !spectrogramSelection) return;
+    let dragging = false;
+    let startX = 0;
+    let startY = 0;
+    const fMin = 20;
+    const fMax = 20000;
+    const onMove = (evt) => {
+      if (!dragging) return;
+      const rect = spectrogramOverlay.getBoundingClientRect();
+      const x = Math.max(0, Math.min(rect.width, evt.clientX - rect.left));
+      const y = Math.max(0, Math.min(rect.height, evt.clientY - rect.top));
+      const left = Math.min(startX, x);
+      const top = Math.min(startY, y);
+      const width = Math.abs(x - startX);
+      const height = Math.abs(y - startY);
+      spectrogramSelection.hidden = false;
+      spectrogramSelection.style.left = `${left}px`;
+      spectrogramSelection.style.top = `${top}px`;
+      spectrogramSelection.style.width = `${Math.max(width, 2)}px`;
+      spectrogramSelection.style.height = `${Math.max(height, 2)}px`;
+    };
+    const onUp = (evt) => {
+      if (!dragging) return;
+      dragging = false;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      const rect = spectrogramOverlay.getBoundingClientRect();
+      const x1 = Math.max(0, Math.min(rect.width, evt.clientX - rect.left));
+      const y1 = Math.max(0, Math.min(rect.height, evt.clientY - rect.top));
+      const left = Math.min(startX, x1);
+      const right = Math.max(startX, x1);
+      const top = Math.min(startY, y1);
+      const bottom = Math.max(startY, y1);
+      if (right - left < 4 || bottom - top < 4) {
+        noiseSelection = null;
+        spectrogramSelection.hidden = true;
+        updateNoiseReadouts(null);
+        return;
+      }
+      const duration = analysisContext.duration || 0;
+      const toTime = (x) => (duration ? (x / rect.width) * duration : 0);
+      const toFreq = (y) => {
+        const norm = 1 - (y / rect.height);
+        return Math.exp(Math.log(fMin) + norm * Math.log(fMax / fMin));
+      };
+      const t0 = toTime(left);
+      const t1 = toTime(right);
+      const f0 = toFreq(bottom);
+      const f1 = toFreq(top);
+      noiseSelection = { t0, t1, f0, f1 };
+      updateNoiseReadouts(noiseSelection);
+    };
+    spectrogramOverlay.addEventListener('mousedown', (evt) => {
+      if (!analysisContext.duration || !spectrogramImg?.src) return;
+      const rect = spectrogramOverlay.getBoundingClientRect();
+      startX = Math.max(0, Math.min(rect.width, evt.clientX - rect.left));
+      startY = Math.max(0, Math.min(rect.height, evt.clientY - rect.top));
+      dragging = true;
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+
+  function collectNoisePayload(){
+    const target = getActiveNoiseTarget();
+    if (!target || !target.rel) return null;
+    if (!noiseSelection) return null;
+    const bandDepth = noiseDepthRange ? parseFloat(noiseDepthRange.value || '-18') : -18;
+    const strength = noiseAfftdnRange ? parseFloat(noiseAfftdnRange.value || '0') : 0;
+    const hp = noiseHpToggle?.checked ? parseFloat(noiseHpValue?.value || '') : null;
+    const lp = noiseLpToggle?.checked ? parseFloat(noiseLpValue?.value || '') : null;
+    return {
+      path: target.rel,
+      start_sec: noiseSelection.t0,
+      end_sec: noiseSelection.t1,
+      f_low: noiseSelection.f0,
+      f_high: noiseSelection.f1,
+      mode: noiseMode,
+      band_depth_db: bandDepth,
+      afftdn_strength: strength,
+      hp_hz: Number.isFinite(hp) ? hp : null,
+      lp_hz: Number.isFinite(lp) ? lp : null,
+      preview_len_sec: 10,
+    };
+  }
+
+  async function previewNoise(){
+    const payload = collectNoisePayload();
+    if (!payload) {
+      setNoiseStatus('Select a region to preview.');
+      return;
+    }
+    setNoiseStatus('Previewing...');
+    try {
+      const res = await fetch('/api/analyze/noise/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(err || 'preview_failed');
+      }
+      const data = await res.json();
+      if (noisePreviewAudio && data.url) {
+        noisePreviewAudio.src = data.url;
+        noisePreviewAudio.play().catch(() => {});
+      }
+      const startText = typeof data.preview_start === 'number' ? data.preview_start.toFixed(2) : '-';
+      setNoiseStatus(`Preview starts at ${startText}s`);
+    } catch (_err) {
+      setNoiseStatus('Preview failed.');
+    }
+  }
+
+  async function renderNoise(){
+    const payload = collectNoisePayload();
+    if (!payload) {
+      setNoiseStatus('Select a region to render.');
+      return;
+    }
+    setNoiseStatus('Rendering full file...');
+    try {
+      const res = await fetch('/api/analyze/noise/render', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(err || 'render_failed');
+      }
+      const data = await res.json();
+      if (typeof showToast === 'function') {
+        showToast(`Cleaned copy ready: ${data.output_name || 'output'}`);
+      }
+      setNoiseStatus('Render complete.');
+    } catch (_err) {
+      setNoiseStatus('Render failed.');
+    }
+  }
+
+  async function loadNoisePresets(){
+    if (!noisePresetSelect) return;
+    noisePresetSelect.innerHTML = '<option value="">No preset</option>';
+    noisePresets = new Map();
+    try {
+      const res = await fetch('/api/library/noise_filters?origin=user', { cache: 'no-store' });
+      if (!res.ok) throw new Error('preset_failed');
+      const data = await res.json();
+      const items = data.items || [];
+      items.forEach((item) => {
+        const title = item.meta?.title || item.id || 'Noise Filter';
+        const option = document.createElement('option');
+        option.value = item.id || '';
+        option.textContent = title;
+        noisePresetSelect.appendChild(option);
+        noisePresets.set(option.value, item);
+      });
+    } catch (_err) {
+      addStatusLine('Failed to load noise presets.');
+    }
+  }
+
+  function applyNoisePreset(id){
+    const item = noisePresets.get(id);
+    if (!item || !item.noise) return;
+    const noise = item.noise;
+    if (noiseDepthRange && typeof noise.band_depth_db === 'number') {
+      noiseDepthRange.value = String(noise.band_depth_db);
+      if (noiseDepthVal) noiseDepthVal.textContent = String(noise.band_depth_db);
+    }
+    if (noiseAfftdnRange && typeof noise.afftdn_strength === 'number') {
+      noiseAfftdnRange.value = String(noise.afftdn_strength);
+      if (noiseAfftdnVal) noiseAfftdnVal.textContent = String(noise.afftdn_strength);
+    }
+    if (noiseHpToggle && noiseHpValue) {
+      noiseHpToggle.checked = typeof noise.hp_hz === 'number';
+      if (typeof noise.hp_hz === 'number') noiseHpValue.value = String(noise.hp_hz);
+    }
+    if (noiseLpToggle && noiseLpValue) {
+      noiseLpToggle.checked = typeof noise.lp_hz === 'number';
+      if (typeof noise.lp_hz === 'number') noiseLpValue.value = String(noise.lp_hz);
+    }
+    if (noise.mode) setNoiseMode(noise.mode);
+    if (noise.f_low && noise.f_high && analysisContext.duration) {
+      noiseSelection = {
+        t0: noiseSelection?.t0 || 0,
+        t1: noiseSelection?.t1 || Math.min(analysisContext.duration, 2),
+        f0: noise.f_low,
+        f1: noise.f_high,
+      };
+      updateNoiseReadouts(noiseSelection);
+    }
+  }
+
+  async function saveNoisePreset(){
+    const payload = collectNoisePayload();
+    if (!payload) {
+      setNoiseStatus('Select a region to save.');
+      return;
+    }
+    const title = prompt('Noise filter name', 'Noise Cleanup');
+    if (!title) return;
+    setNoiseStatus('Saving preset...');
+    try {
+      const res = await fetch('/api/analyze/noise/preset/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          target_kind: 'noise_filter',
+          settings: {
+            f_low: payload.f_low,
+            f_high: payload.f_high,
+            band_depth_db: payload.band_depth_db,
+            afftdn_strength: payload.afftdn_strength,
+            hp_hz: payload.hp_hz,
+            lp_hz: payload.lp_hz,
+            mode: payload.mode,
+          },
+          source_hint: { from_file: getActiveNoiseTarget()?.name || '' },
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(err || 'save_failed');
+      }
+      await res.json();
+      setNoiseStatus('Preset saved.');
+      loadNoisePresets();
+    } catch (_err) {
+      setNoiseStatus('Preset save failed.');
+    }
+  }
+
   async function applyData(payload){
     if (!payload) return;
     const input = payload.metrics?.input || null;
@@ -217,6 +631,14 @@
     if (loadedState) loadedState.hidden = false;
     renderPills(input, output);
     renderMetrics(input, output);
+    const durationFallback = payload.duration_s ?? output?.duration_sec ?? input?.duration_sec ?? null;
+    analysisContext = {
+      duration: durationFallback,
+      source: payload.source_rel ? { rel: payload.source_rel, name: payload.source_name || 'Source' } : null,
+      processed: payload.processed_rel ? { rel: payload.processed_rel, name: payload.processed_name || 'Processed' } : null,
+    };
+    updateNoiseTargets();
+    updateSpectrogram();
   }
 
   async function selectAndLoad(item, node, shouldPush){
@@ -322,6 +744,42 @@
       selectAndLoad(item, itemNode, true);
     });
   }
+
+  if (noiseModeRemoveBtn) {
+    noiseModeRemoveBtn.addEventListener('click', () => setNoiseMode('remove'));
+  }
+  if (noiseModeSoloBtn) {
+    noiseModeSoloBtn.addEventListener('click', () => setNoiseMode('solo'));
+  }
+  if (noiseDepthRange) {
+    noiseDepthRange.addEventListener('input', () => {
+      if (noiseDepthVal) noiseDepthVal.textContent = noiseDepthRange.value;
+    });
+  }
+  if (noiseAfftdnRange) {
+    noiseAfftdnRange.addEventListener('input', () => {
+      if (noiseAfftdnVal) noiseAfftdnVal.textContent = noiseAfftdnRange.value;
+    });
+  }
+  if (noiseTargetSource) {
+    noiseTargetSource.addEventListener('change', updateSpectrogram);
+  }
+  if (noiseTargetProcessed) {
+    noiseTargetProcessed.addEventListener('change', updateSpectrogram);
+  }
+  if (noisePresetSelect) {
+    noisePresetSelect.addEventListener('change', () => {
+      const id = noisePresetSelect.value;
+      if (id) applyNoisePreset(id);
+    });
+  }
+  if (noisePreviewBtn) noisePreviewBtn.addEventListener('click', previewNoise);
+  if (noiseRenderBtn) noiseRenderBtn.addEventListener('click', renderNoise);
+  if (noiseSaveBtn) noiseSaveBtn.addEventListener('click', saveNoisePreset);
+
+  bindSpectrogramSelection();
+  setNoiseMode('remove');
+  loadNoisePresets();
 })();
 </script>
 {% endblock %}
