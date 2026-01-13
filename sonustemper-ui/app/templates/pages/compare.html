@@ -1325,6 +1325,17 @@
     return res.json();
   }
 
+  async function resolvePair(srcRel, procRel){
+    const params = new URLSearchParams();
+    params.set('src', srcRel);
+    params.set('proc', procRel);
+    const res = await fetch(`/api/analyze-resolve-pair?${params.toString()}`);
+    if (!res.ok) {
+      throw new Error('resolve_failed');
+    }
+    return res.json();
+  }
+
   function setActiveItem(node){
     if (!analyzeBrowser) return;
     analyzeBrowser.querySelectorAll('.browser-item.active').forEach(el => el.classList.remove('active'));
@@ -1537,12 +1548,22 @@
   const out = params.get('out');
   const solo = params.get('solo');
   const src = params.get('src');
+  const proc = params.get('proc');
   const imp = params.get('imp');
   if (song) {
     selectedItem = out
       ? { kind: 'mastering_output', id: `${song}::${out}`, song, out, solo: solo === '1' || solo === 'true' }
       : { kind: 'mastering_run', id: song, song };
     selectAndLoad(selectedItem, null, false);
+  } else if (src && proc) {
+    addStatusLine('Loading selection...');
+    resolvePair(src, proc).then((data) => {
+      applyData(data);
+      addStatusLine('Compare ready');
+    }).catch(() => {
+      addStatusLine('Compare failed');
+      if (typeof showToast === 'function') showToast('Compare data unavailable');
+    });
   } else if (src) {
     selectedItem = { kind: 'source', rel: src };
     selectAndLoad(selectedItem, null, false);

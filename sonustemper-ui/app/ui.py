@@ -375,6 +375,13 @@ async def analyze_page(request: Request):
         _page_context(request, current_page="analyze"),
     )
 
+@router.get("/ai", response_class=HTMLResponse)
+async def ai_toolkit_page(request: Request):
+    return TEMPLATES.TemplateResponse(
+        "pages/ai_toolkit.html",
+        _page_context(request, current_page="ai"),
+    )
+
 
 def _render_sections(request: Request, util: str) -> HTMLResponse:
     util = util if util in ("mastering", "tagging", "presets", "analysis") else "mastering"
@@ -498,7 +505,7 @@ def _list_mastering_sources(q: str, limit: int, context: str = "") -> list[dict]
                 "kind": "source",
                 "badges": [{"key": "format", "label": "Source", "title": "Source file"}],
                 "action": action,
-                "clickable": context == "files",
+                "clickable": context in ("files", "ai"),
                 "meta": {"rel": fp.name},
             }
         )
@@ -639,7 +646,7 @@ def _list_analysis_imports(q: str, limit: int, context: str = "") -> list[dict]:
                 "kind": "import",
                 "badges": badges,
                 "action": action,
-                "clickable": context in ("analyze", "compare", "files"),
+                "clickable": context in ("analyze", "compare", "files", "ai"),
                 "meta": {"rel": fp.name},
             }
         )

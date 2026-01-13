@@ -146,6 +146,17 @@ uvicorn sonustemper.server:app --reload --port 8383
 - SSE reconnect: refresh the page mid-run; ensure status replays via `/api/run/<run_id>` and finishes cleanly.
 - Error path: intentionally bad preset/voicing to verify terminal `error` event stops the stream and UI doesn’t spin.
 - Analyze (Noise Cleanup): open Analyze, select a run/output, drag a spectrogram region, preview Solo/Remove, then render a cleaned copy and download the result.
+- AI Music Toolkit: open AI Music Toolkit, pick a source/processed file, preview a cleanup tool, apply it, and open the result in Compare.
+
+## AI Music Toolkit
+The AI Music Toolkit provides one-click cleanup workflows for AI-generated music. Each tool has a strength slider, optional advanced controls, fast preview rendering, and full render output (never overwrites).
+
+Tools and defaults:
+- Reduce AI Hiss / Glass: gentle top-end softening + mild denoise (strength 35).
+- Smooth Harsh Vocals: 4.5 kHz presence cut with optional S-band notch (strength 30).
+- Tighten Bass / Remove Rumble: high-pass + low-mid cut, optional punch shelf (strength 40).
+- Reduce Pumping / Over-Transients: presence softening + optional gentle compression (strength 25).
+- Platform Ready (AI Safe Loudness): loudness normalization targets for streaming (strength 40, Streaming Safe preset).
 
 ## License
 - SonusTemper is licensed under the GNU General Public License v3.0 (GPL-3.0).

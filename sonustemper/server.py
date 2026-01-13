@@ -55,6 +55,8 @@ ANALYSIS_TMP_DIR = Path(os.getenv("ANALYSIS_TMP_DIR", str(DATA_DIR / "analysis" 
 NOISE_PREVIEW_DIR = Path(os.getenv("NOISE_PREVIEW_DIR", str(DATA_DIR / "analysis" / "noise_preview")))
 NOISE_FILTER_DIR = PRESET_DIR / "noise_filters"
 STAGING_NOISE_FILTER_DIR = GEN_PRESET_DIR / "noise_filters"
+AI_TOOL_PREVIEW_DIR = Path(os.getenv("AI_TOOL_PREVIEW_DIR", str(DATA_DIR / "analysis" / "ai_preview")))
+AI_TOOL_PRESET_DIR = PRESET_DIR / "ai_tools"
 # Alias older variable names to new mastering locations for internal use
 IN_DIR = MASTER_IN_DIR
 OUT_DIR = MASTER_OUT_DIR
@@ -3071,6 +3073,132 @@ def _unique_output_path(directory: Path, stem: str, suffix: str) -> Path:
             return candidate
         idx += 1
 
+AI_TOOL_IDS = {
+    "ai_deglass",
+    "ai_vocal_smooth",
+    "ai_bass_tight",
+    "ai_transient_soften",
+    "ai_platform_safe",
+}
+
+def _ai_tool_strength(raw: object, default: int = 30) -> int:
+    try:
+        value = int(float(raw))
+    except Exception:
+        return default
+    return max(0, min(100, value))
+
+def _ai_opt_bool(opts: dict, key: str, default: bool = False) -> bool:
+    raw = opts.get(key)
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, (int, float)):
+        return bool(raw)
+    if isinstance(raw, str):
+        return raw.strip().lower() in {"1", "true", "yes", "on"}
+    return default
+
+def _ai_opt_float(opts: dict, key: str, default: float | None = None) -> float | None:
+    raw = opts.get(key)
+    if isinstance(raw, (int, float)):
+        return float(raw)
+    return default
+
+def _ai_tool_filter_chain(tool_id: str, strength: int, options: dict | None) -> str:
+    tool = (tool_id or "").strip().lower()
+    if tool in {"original", "none", ""}:
+        return ""
+    if tool not in AI_TOOL_IDS:
+        raise HTTPException(status_code=400, detail="invalid_tool")
+    opts = options if isinstance(options, dict) else {}
+    filters: list[str] = []
+
+    if tool == "ai_deglass":
+        lp_enabled = _ai_opt_bool(opts, "lp_enabled", True)
+        preserve_air = _ai_opt_bool(opts, "preserve_air", False)
+        lp_hz = _ai_opt_float(opts, "lp_hz")
+        if lp_hz is None:
+            lp_hz = 18000.0 - (20.0 * strength)
+        lp_hz = max(14000.0, min(20000.0, float(lp_hz)))
+        if lp_enabled:
+            filters.append(f"lowpass=f={lp_hz:.0f}")
+        shelf_freq = _ai_opt_float(opts, "shelf_hz", 11000.0) or 11000.0
+        shelf_freq = max(6000.0, min(18000.0, shelf_freq))
+        cut_db = -0.5 - (3.5 * (strength / 100.0))
+        if preserve_air:
+            cut_db *= 0.6
+        filters.append(f"treble=g={cut_db:.2f}:f={shelf_freq:.0f}:w=0.7")
+        afftdn = _ai_opt_float(opts, "afftdn_strength")
+        if afftdn is None:
+            afftdn = min(0.6, 0.1 + (strength / 100.0) * 0.5)
+        afftdn = max(0.0, min(1.0, afftdn))
+        if afftdn > 0.01:
+            nr = 24.0 * afftdn
+            filters.append(f"afftdn=nr={nr:.2f}:nf=-25")
+
+    elif tool == "ai_vocal_smooth":
+        center = _ai_opt_float(opts, "center_hz", 4500.0) or 4500.0
+        center = max(2500.0, min(8000.0, center))
+        main_gain = -0.5 - (2.5 * (strength / 100.0))
+        filters.append(f"equalizer=f={center:.0f}:t=q:w=1.2:g={main_gain:.2f}")
+        s_cut = _ai_opt_bool(opts, "s_cut", False)
+        if s_cut:
+            s_freq = _ai_opt_float(opts, "s_hz", 7500.0) or 7500.0
+            s_freq = max(5500.0, min(11000.0, s_freq))
+            s_gain = -0.5 - (1.5 * (strength / 100.0))
+            filters.append(f"equalizer=f={s_freq:.0f}:t=q:w=2.0:g={s_gain:.2f}")
+        afftdn = _ai_opt_float(opts, "afftdn_strength", 0.0) or 0.0
+        afftdn = max(0.0, min(1.0, afftdn))
+        if afftdn > 0.01:
+            nr = 20.0 * afftdn
+            filters.append(f"afftdn=nr={nr:.2f}:nf=-30")
+
+    elif tool == "ai_bass_tight":
+        hp_hz = _ai_opt_float(opts, "hp_hz")
+        if hp_hz is None:
+            hp_hz = 30.0 + (20.0 * (strength / 100.0))
+        hp_hz = max(20.0, min(80.0, hp_hz))
+        filters.append(f"highpass=f={hp_hz:.0f}")
+        mud_freq = _ai_opt_float(opts, "mud_hz", 220.0) or 220.0
+        mud_freq = max(120.0, min(400.0, mud_freq))
+        mud_gain = -0.5 - (2.0 * (strength / 100.0))
+        filters.append(f"equalizer=f={mud_freq:.0f}:t=q:w=1.0:g={mud_gain:.2f}")
+        punch = _ai_opt_bool(opts, "punch", False)
+        if punch:
+            punch_gain = 0.5 + max(0.0, (45.0 - strength) / 45.0) * 1.0
+            punch_gain = max(0.5, min(1.5, punch_gain))
+            filters.append(f"bass=g={punch_gain:.2f}:f=90:w=0.7")
+
+    elif tool == "ai_transient_soften":
+        keep_punch = _ai_opt_bool(opts, "keep_punch", False)
+        presence_gain = -0.3 - (1.2 * (strength / 100.0))
+        shelf_gain = -0.3 - (1.5 * (strength / 100.0))
+        filters.append(f"equalizer=f=3200:t=q:w=1.0:g={presence_gain:.2f}")
+        filters.append(f"treble=g={shelf_gain:.2f}:f=8000:w=0.7")
+        if not keep_punch:
+            ratio = 1.4 + (1.6 * (strength / 100.0))
+            threshold = -18.0 - (6.0 * (strength / 100.0))
+            filters.append(f"acompressor=threshold={threshold:.1f}dB:ratio={ratio:.2f}:attack=20:release=250:makeup=0")
+
+    elif tool == "ai_platform_safe":
+        preset = (opts.get("preset") or "streaming").strip().lower()
+        if preset in {"dynamic", "dynamic_preserve", "preserve"}:
+            target_i = -16.0
+            tp = -1.2
+        elif preset in {"youtube", "yt"}:
+            target_i = -14.0
+            tp = -1.0
+        else:
+            target_i = -14.0
+            tp = -1.2
+        tp = max(-2.0, tp - (0.4 * (strength / 100.0)))
+        filters.append(f"loudnorm=I={target_i:.1f}:TP={tp:.1f}:LRA=11")
+        limit = math.pow(10.0, tp / 20.0)
+        limit = max(0.0625, min(1.0, limit))
+        filters.append(f"alimiter=limit={limit:.3f}")
+
+    return ",".join(filters)
+
 @app.get("/api/analyze-source")
 def analyze_source(song: str):
     song = (song or "").strip()
@@ -3098,6 +3226,11 @@ def analyze_file(kind: str, name: str):
         raise HTTPException(status_code=404, detail="file_not_found")
     mime, _ = mimetypes.guess_type(path.name)
     return FileResponse(path, media_type=mime or "application/octet-stream", filename=path.name)
+@app.get("/api/analyze/path")
+def analyze_path(path: str):
+    target = _resolve_analysis_path(path)
+    mime, _ = mimetypes.guess_type(target.name)
+    return FileResponse(target, media_type=mime or "application/octet-stream", filename=target.name)
 @app.get("/api/analyze-resolve")
 def analyze_resolve(song: str, out: str = "", solo: bool = False):
     song = (song or "").strip()
@@ -3170,6 +3303,36 @@ def analyze_resolve(song: str, out: str = "", solo: bool = False):
         "metrics": metrics,
     }
     payload.update(_analysis_overlay_data(source_path, processed))
+    return payload
+@app.get("/api/analyze-resolve-pair")
+def analyze_resolve_pair(src: str, proc: str):
+    src = (src or "").strip()
+    proc = (proc or "").strip()
+    if not src or not proc:
+        raise HTTPException(status_code=400, detail="missing_target")
+    source_path = _resolve_analysis_path(src)
+    processed_path = _resolve_analysis_path(proc)
+    metrics = None
+    try:
+        metrics = {
+            "input": basic_metrics(source_path),
+            "output": basic_metrics(processed_path),
+        }
+    except Exception:
+        metrics = None
+    payload = {
+        "run_id": None,
+        "source_url": f"/api/analyze/path?path={quote(src)}",
+        "processed_url": f"/api/analyze/path?path={quote(proc)}",
+        "source_name": source_path.name,
+        "processed_name": processed_path.name,
+        "processed_label": processed_path.suffix.lower().lstrip("."),
+        "source_rel": src,
+        "processed_rel": proc,
+        "available_outputs": [],
+        "metrics": metrics,
+    }
+    payload.update(_analysis_overlay_data(source_path, processed_path))
     return payload
 @app.get("/api/analyze-resolve-file")
 def analyze_resolve_file(src: str = "", imp: str = ""):
@@ -3452,6 +3615,201 @@ def analyze_noise_preset_save(payload: dict = Body(...)):
             "meta": preset.get("meta", {}),
         }
     }
+
+def _ai_tool_audio_info(target: Path) -> dict:
+    info = docker_ffprobe_json(target)
+    duration = None
+    try:
+        duration = float(info.get("format", {}).get("duration"))
+    except Exception:
+        duration = None
+    sample_rate = None
+    for stream in info.get("streams", []) if isinstance(info, dict) else []:
+        if stream.get("codec_type") != "audio":
+            continue
+        raw_sr = stream.get("sample_rate")
+        try:
+            sample_rate = int(raw_sr)
+        except Exception:
+            sample_rate = None
+        break
+    return {
+        "duration_s": duration,
+        "sample_rate": sample_rate,
+        "mtime": target.stat().st_mtime if target.exists() else None,
+    }
+
+@app.get("/api/ai-tool/info")
+def ai_tool_info(path: str):
+    target = _resolve_analysis_path(path)
+    payload = {
+        "name": target.name,
+        "path": _analysis_rel_for_path(target) or path,
+    }
+    payload.update(_ai_tool_audio_info(target))
+    return payload
+
+@app.post("/api/ai-tool/preview")
+def ai_tool_preview(payload: dict = Body(...)):
+    path = payload.get("path")
+    tool_id = payload.get("tool_id")
+    strength = _ai_tool_strength(payload.get("strength"), 30)
+    options = payload.get("options") if isinstance(payload.get("options"), dict) else {}
+    target = _resolve_analysis_path(path)
+    preview_len = payload.get("preview_len_sec")
+    if not isinstance(preview_len, (int, float)):
+        preview_len = 10.0
+    preview_len = max(4.0, min(20.0, float(preview_len)))
+    focus = payload.get("preview_focus_sec")
+    if isinstance(focus, (int, float)):
+        preview_start = max(0.0, float(focus) - preview_len * 0.5)
+    else:
+        preview_start = 0.0
+    chain = _ai_tool_filter_chain(tool_id, strength, options)
+    AI_TOOL_PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
+    preview_id = uuid.uuid4().hex
+    out_path = AI_TOOL_PREVIEW_DIR / f"{preview_id}.mp3"
+    cmd = [
+        FFMPEG_BIN, "-y", "-hide_banner", "-loglevel", "error",
+        "-ss", f"{preview_start:.3f}",
+        "-t", f"{preview_len:.3f}",
+        "-i", str(target),
+    ]
+    if chain:
+        cmd += ["-af", chain]
+    cmd += [
+        "-vn", "-ac", "2", "-ar", str(PREVIEW_SAMPLE_RATE),
+        "-codec:a", "libmp3lame", "-b:a", f"{PREVIEW_BITRATE_KBPS}k",
+        str(out_path),
+    ]
+    proc = run_cmd(cmd)
+    if proc.returncode != 0 or not out_path.exists():
+        err = (proc.stderr or proc.stdout or "").strip()
+        raise HTTPException(status_code=500, detail=err or "preview_failed")
+    return {
+        "url": f"/api/ai-tool/preview_audio?token={quote(preview_id)}",
+        "preview_start": preview_start,
+        "duration": preview_len,
+        "tool_id": tool_id,
+    }
+
+@app.get("/api/ai-tool/preview_audio")
+def ai_tool_preview_audio(token: str):
+    token = (token or "").strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="missing_token")
+    fp = AI_TOOL_PREVIEW_DIR / f"{token}.mp3"
+    if AI_TOOL_PREVIEW_DIR.resolve() not in fp.resolve().parents or not fp.exists():
+        raise HTTPException(status_code=404, detail="preview_not_found")
+    return FileResponse(fp, media_type="audio/mpeg", filename=f"ai-preview-{token}.mp3")
+
+@app.post("/api/ai-tool/render")
+def ai_tool_render(payload: dict = Body(...)):
+    path = payload.get("path")
+    tool_id = (payload.get("tool_id") or "").strip().lower()
+    strength = _ai_tool_strength(payload.get("strength"), 30)
+    options = payload.get("options") if isinstance(payload.get("options"), dict) else {}
+    target = _resolve_analysis_path(path)
+    chain = _ai_tool_filter_chain(tool_id, strength, options)
+    ANALYSIS_OUT_DIR.mkdir(parents=True, exist_ok=True)
+    suffix = target.suffix.lower() if target.suffix else ".wav"
+    codec_map = {
+        ".wav": "pcm_s16le",
+        ".aiff": "pcm_s16be",
+        ".aif": "pcm_s16be",
+        ".flac": "flac",
+        ".mp3": "libmp3lame",
+        ".m4a": "aac",
+        ".aac": "aac",
+        ".ogg": "libvorbis",
+    }
+    codec = codec_map.get(suffix, "pcm_s16le")
+    tool_suffix = _safe_slug(tool_id.replace("ai_", "ai-")) or _safe_slug(tool_id) or "ai"
+    out_path = _unique_output_path(ANALYSIS_OUT_DIR, f"{target.stem}.ai-{tool_suffix}", suffix)
+    cmd = [
+        FFMPEG_BIN, "-y", "-hide_banner", "-loglevel", "error",
+        "-i", str(target),
+    ]
+    if chain:
+        cmd += ["-af", chain]
+    cmd += [
+        "-vn", "-ac", "2",
+        "-codec:a", codec,
+        str(out_path),
+    ]
+    proc = run_cmd(cmd)
+    if proc.returncode != 0 or not out_path.exists():
+        err = (proc.stderr or proc.stdout or "").strip()
+        raise HTTPException(status_code=500, detail=err or "render_failed")
+    rel = _analysis_rel_for_path(out_path) or f"analysis_out/{out_path.name}"
+    return {
+        "output_rel": rel,
+        "output_name": out_path.name,
+        "url": f"/api/analyze/path?path={quote(rel)}",
+        "tool_id": tool_id,
+    }
+
+@app.get("/api/ai-tool/preset/list")
+def ai_tool_preset_list():
+    items = []
+    try:
+        AI_TOOL_PRESET_DIR.mkdir(parents=True, exist_ok=True)
+        for fp in sorted(AI_TOOL_PRESET_DIR.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
+            if not fp.is_file() or fp.suffix.lower() != ".json":
+                continue
+            try:
+                data = json.loads(fp.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            meta = data.get("meta") or {}
+            items.append({
+                "id": fp.stem,
+                "title": meta.get("title") or fp.stem,
+                "tool_id": data.get("tool_id"),
+                "strength": data.get("strength"),
+                "options": data.get("options") or {},
+                "meta": meta,
+            })
+    except Exception:
+        items = []
+    return {"items": items}
+
+@app.post("/api/ai-tool/preset/save")
+def ai_tool_preset_save(payload: dict = Body(...)):
+    title = _sanitize_label(payload.get("title") or "AI Tool Preset", 80)
+    tool_id = (payload.get("tool_id") or "").strip().lower()
+    if tool_id not in AI_TOOL_IDS:
+        raise HTTPException(status_code=400, detail="invalid_tool")
+    strength = _ai_tool_strength(payload.get("strength"), 30)
+    options = payload.get("options") if isinstance(payload.get("options"), dict) else {}
+    AI_TOOL_PRESET_DIR.mkdir(parents=True, exist_ok=True)
+    slug = _safe_slug(title) or "ai_tool"
+    out_path = _unique_output_path(AI_TOOL_PRESET_DIR, slug, ".json")
+    preset = {
+        "id": out_path.stem,
+        "meta": {
+            "title": title,
+            "kind": "ai_tool",
+            "tags": [f"tool: {tool_id}", f"strength: {strength}"],
+            "created_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
+        },
+        "tool_id": tool_id,
+        "strength": strength,
+        "options": options,
+    }
+    out_path.write_text(json.dumps(preset, indent=2), encoding="utf-8")
+    return {"item": preset}
+
+@app.delete("/api/ai-tool/preset/delete")
+def ai_tool_preset_delete(preset_id: str):
+    preset_id = (preset_id or "").strip()
+    if not preset_id:
+        raise HTTPException(status_code=400, detail="missing_id")
+    target = _safe_rel(AI_TOOL_PRESET_DIR, f"{preset_id}.json")
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="preset_not_found")
+    target.unlink(missing_ok=True)
+    return {"deleted": preset_id}
 @app.get("/api/analyze-sources")
 def analyze_sources():
     items = []
