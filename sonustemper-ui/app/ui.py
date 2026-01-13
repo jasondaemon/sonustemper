@@ -360,6 +360,13 @@ async def docs_page(request: Request):
         _page_context(request, current_page="docs"),
     )
 
+@router.get("/compare", response_class=HTMLResponse)
+async def compare_page(request: Request):
+    return TEMPLATES.TemplateResponse(
+        "pages/compare.html",
+        _page_context(request, current_page="compare"),
+    )
+
 
 @router.get("/analyze", response_class=HTMLResponse)
 async def analyze_page(request: Request):
@@ -632,7 +639,7 @@ def _list_analysis_imports(q: str, limit: int, context: str = "") -> list[dict]:
                 "kind": "import",
                 "badges": badges,
                 "action": action,
-                "clickable": context in ("analyze", "files"),
+                "clickable": context in ("analyze", "compare", "files"),
                 "meta": {"rel": fp.name},
             }
         )

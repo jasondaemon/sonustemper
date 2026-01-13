@@ -25,7 +25,8 @@
           <div class="divider"></div>
           <a href="/files" class="{% if current_page=='files' %}active{% endif %}">File Manager</a>
           <a href="/mastering" class="{% if current_page=='mastering' %}active{% endif %}">Mastering</a>
-          <a href="/analyze" class="{% if current_page=='analyze' %}active{% endif %}">Analyze</a>
+          <a href="/compare" class="{% if current_page=='compare' %}active{% endif %}" data-preserve-query="true">Compare</a>
+          <a href="/analyze" class="{% if current_page=='analyze' %}active{% endif %}" data-preserve-query="true">Analyze</a>
           <a href="/tagging" class="{% if current_page=='tagging' %}active{% endif %}">Tagging</a>
           <a href="/presets" class="{% if current_page=='presets' %}active{% endif %}">Voicing Profiles</a>
           <a href="/docs" class="{% if current_page=='docs' %}active{% endif %}">Documentation</a>
@@ -48,6 +49,20 @@
     document.addEventListener('DOMContentLoaded', function(){
       if (typeof setupUtilMenu === 'function') {
         setupUtilMenu('utilToggleGlobal','utilDropdownGlobal');
+      }
+      const search = window.location.search;
+      if (search) {
+        document.querySelectorAll('a[data-preserve-query="true"]').forEach((link) => {
+          const href = link.getAttribute('href');
+          if (!href) return;
+          try {
+            const url = new URL(href, window.location.origin);
+            url.search = search;
+            link.setAttribute('href', `${url.pathname}${url.search}`);
+          } catch (_err) {
+            return;
+          }
+        });
       }
     });
   </script>

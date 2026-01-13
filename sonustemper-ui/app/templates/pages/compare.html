@@ -1,0 +1,1637 @@
+{% extends "base.html" %}
+{% block page_title %}Compare | SonusTemper{% endblock %}
+{% block title %}Compare{% endblock %}
+{% block subtitle %}Compare source vs processed audio (metrics + waveform).{% endblock %}
+{% block sidebar %}
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <div class="card-title">Compare Status</div>
+        <div class="muted">Upload + analysis activity.</div>
+      </div>
+    </div>
+    <div class="status-list" id="analyzeStatusList">(waiting)</div>
+    <div class="status-progress" id="analyzeStatusProgress">
+      <div class="status-progress-bar" id="analyzeStatusProgressBar"></div>
+    </div>
+  </div>
+  <div class="card browse-card">
+    <div class="card-head">
+      <div>
+        <div class="card-title">Browse</div>
+        <div class="muted">Pick a source, run output, or import.</div>
+      </div>
+    </div>
+    {% set browser_id = "analyzeBrowser" %}
+    {% set sections = [
+      {"key": "analyze_uploads", "title": "Compare Uploads", "endpoint": "/partials/library_list?view=analysis_imports&context=compare"},
+      {"key": "mastering_outputs", "title": "Mastering Outputs", "endpoint": "/partials/library_list?view=mastering_outputs&context=compare"}
+    ] %}
+    {% include "partials/file_browser.html" %}
+  </div>
+{% endblock %}
+{% block content %}
+  <div class="card analyze-card">
+    <div class="card-head">
+      <div>
+        <div class="card-title">Compare</div>
+        <div class="muted" id="analyzeSubtitle">Source vs Processed</div>
+      </div>
+      <div class="analyze-actions">
+        <input type="file" id="analyzeUploadInput" accept=".wav,.mp3,.flac,.aiff,.aif,.m4a,.ogg,.aac" hidden>
+        <button class="btn ghost small" id="analyzeUploadBtn">Upload</button>
+      </div>
+    </div>
+
+    <div id="analyzeEmpty" class="analyze-empty">
+      <div class="muted">Upload a source file to compare or launch Compare from a mastering output.</div>
+    </div>
+
+    <div id="analyzeLoaded" class="analyze-loaded" hidden>
+      <div class="metric-pills" id="summaryPills"></div>
+
+      <div class="wave-panel" id="sourcePanel">
+        <div class="wave-head">
+          <div class="wave-title">Source</div>
+          <div class="wave-head-actions">
+            <button class="btn ghost tiny" id="soloSourceBtn" type="button">Solo</button>
+            <div class="wave-meta" id="sourceName">-</div>
+          </div>
+        </div>
+        <div class="wave-canvas" id="waveSource"></div>
+      </div>
+
+      <div class="wave-panel" id="processedPanel">
+        <div class="wave-head">
+          <div class="wave-title">Processed</div>
+          <div class="wave-head-actions">
+            <button class="btn ghost tiny" id="soloProcessedBtn" type="button">Solo</button>
+            <div class="wave-meta" id="processedName">-</div>
+          </div>
+        </div>
+        <div class="wave-canvas" id="waveProcessed"></div>
+        <div class="wave-empty muted" id="processedEmpty" hidden>No processed file selected.</div>
+      </div>
+
+      <div class="analyze-controls">
+        <button class="btn ghost small icon" id="playBtn" type="button" aria-label="Play" title="Play">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M8 6l10 6-10 6V6z"></path>
+          </svg>
+        </button>
+        <button class="btn ghost small icon" id="pauseBtn" type="button" aria-label="Pause" title="Pause">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M7 6h4v12H7zM13 6h4v12h-4z"></path>
+          </svg>
+        </button>
+        <button class="btn ghost small icon" id="stopBtn" type="button" aria-label="Stop" title="Stop">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M7 7h10v10H7z"></path>
+          </svg>
+        </button>
+        <div class="playback-modes">
+          <button class="btn ghost small is-active" data-track-mode="both" id="toggleBothBtn" type="button">Both</button>
+          <button class="btn ghost small" data-track-mode="source" id="toggleSourceBtn" type="button">Source</button>
+          <button class="btn ghost small" id="toggleFlipBtn" type="button" aria-label="A/B Flip" title="A/B Flip">⇄</button>
+          <button class="btn ghost small" data-track-mode="processed" id="toggleProcessedBtn" type="button">Processed</button>
+        </div>
+        <label class="analyze-toggle match-toggle" title="Applies gain so A/B is loudness-matched (playback only).">
+          <input type="checkbox" id="toggleMatchLoudness">
+          <span>Match Loudness</span>
+        </label>
+        <div class="zoom-control">
+          <span>Zoom</span>
+          <span class="zoom-label" id="zoomLabel">1x</span>
+          <input type="range" id="zoomRange" min="0" max="3" value="0" step="1">
+        </div>
+        <div class="analyze-toggles">
+          <label class="analyze-toggle is-active">
+            <input type="checkbox" id="togglePeakRisk" checked>
+            <span>Peak Risk</span>
+          </label>
+          <label class="analyze-toggle">
+            <input type="checkbox" id="toggleHeatmap">
+            <span>Loudness Heatmap</span>
+          </label>
+          <label class="analyze-toggle is-active">
+            <input type="checkbox" id="toggleDelta" checked>
+            <span>Δ Loudness</span>
+          </label>
+        </div>
+        <div class="analyze-legend" aria-label="Waveform legend">
+          <span class="legend-title">Legend</span>
+          <span class="legend-item"><span class="legend-swatch peak-warn"></span>Peak risk (warn)</span>
+          <span class="legend-item"><span class="legend-swatch peak-clip"></span>Peak risk (clip)</span>
+          <span class="legend-item"><span class="legend-swatch heatmap"></span>Loudness heatmap</span>
+          <span class="legend-item"><span class="legend-swatch delta-plus"></span>Δ Loudness +</span>
+          <span class="legend-item"><span class="legend-swatch delta-minus"></span>Δ Loudness -</span>
+        </div>
+      </div>
+
+      <div class="compare-grid" id="compareGrid"></div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/ui/static/vendor/wavesurfer.min.js"></script>
+<script>
+(() => {
+  const uploadBtn = document.getElementById('analyzeUploadBtn');
+  const uploadInput = document.getElementById('analyzeUploadInput');
+  const emptyState = document.getElementById('analyzeEmpty');
+  const loadedState = document.getElementById('analyzeLoaded');
+  const summaryPills = document.getElementById('summaryPills');
+  const compareGrid = document.getElementById('compareGrid');
+  const sourceName = document.getElementById('sourceName');
+  const processedName = document.getElementById('processedName');
+  const processedEmpty = document.getElementById('processedEmpty');
+  const analyzeSubtitle = document.getElementById('analyzeSubtitle');
+  const analyzeStatusList = document.getElementById('analyzeStatusList');
+  const analyzeStatusProgressBar = document.getElementById('analyzeStatusProgressBar');
+
+  const playBtn = document.getElementById('playBtn');
+  const pauseBtn = document.getElementById('pauseBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const zoomRange = document.getElementById('zoomRange');
+  const zoomLabel = document.getElementById('zoomLabel');
+  const soloSourceBtn = document.getElementById('soloSourceBtn');
+  const soloProcessedBtn = document.getElementById('soloProcessedBtn');
+  const toggleBothBtn = document.getElementById('toggleBothBtn');
+  const toggleSourceBtn = document.getElementById('toggleSourceBtn');
+  const toggleFlipBtn = document.getElementById('toggleFlipBtn');
+  const toggleProcessedBtn = document.getElementById('toggleProcessedBtn');
+  const togglePeakRisk = document.getElementById('togglePeakRisk');
+  const toggleHeatmap = document.getElementById('toggleHeatmap');
+  const toggleDelta = document.getElementById('toggleDelta');
+  const toggleMatchLoudness = document.getElementById('toggleMatchLoudness');
+
+  let sourceWave = null;
+  let processedWave = null;
+  let selectedItem = null;
+  let analysisData = null;
+  let overlayCleanup = [];
+  let transportCleanup = [];
+  let transportLock = false;
+  let zoomRaf = null;
+  let pendingZoom = null;
+  let analysisLufs = { source: null, processed: null };
+  let audioCtx = null;
+  const gainNodes = new Map();
+  const volumeRafs = new Map();
+  const analyzeBrowser = document.getElementById('analyzeBrowser');
+  let statusLines = [];
+  let statusRenderPending = false;
+
+  const zoomSteps = [1, 2, 4, 8];
+  let fitMinPxPerSec = 1;
+  let trackMode = 'both';
+
+  const metricLabels = [
+    { key: 'I', label: 'LUFS-I', suffix: ' LUFS' },
+    { key: 'TP', label: 'True Peak', suffix: ' dBTP' },
+    { key: 'LRA', label: 'LRA', suffix: ' LU' },
+    { key: 'rms_level', label: 'RMS', suffix: ' dB' },
+    { key: 'crest_factor', label: 'Crest', suffix: ' dB' },
+    { key: 'dynamic_range', label: 'DR', suffix: ' dB' },
+  ];
+
+  function fmt(num, decimals){
+    if (num === null || num === undefined || Number.isNaN(num)) return '-';
+    const fixed = (typeof decimals === 'number') ? num.toFixed(decimals) : num.toFixed(1);
+    return fixed.replace(/\.0$/, '');
+  }
+
+  function scheduleStatusRender(){
+    if (statusRenderPending) return;
+    statusRenderPending = true;
+    requestAnimationFrame(() => {
+      statusRenderPending = false;
+      if (!analyzeStatusList) return;
+      analyzeStatusList.textContent = statusLines.length ? statusLines.join('\n') : '(waiting)';
+      analyzeStatusList.scrollTop = analyzeStatusList.scrollHeight;
+    });
+  }
+
+  function addStatusLine(message){
+    if (!message) return;
+    const ts = new Date().toLocaleTimeString();
+    statusLines.push(`${ts} ${message}`);
+    if (statusLines.length > 200) statusLines = statusLines.slice(-200);
+    scheduleStatusRender();
+  }
+
+  function setStatusProgress(pct, active){
+    if (!analyzeStatusProgressBar) return;
+    if (pct === null || pct === undefined) {
+      analyzeStatusProgressBar.style.width = '0%';
+      analyzeStatusProgressBar.classList.remove('active');
+      return;
+    }
+    const clamped = Math.max(0, Math.min(100, pct));
+    analyzeStatusProgressBar.style.width = `${clamped}%`;
+    if (active) {
+      analyzeStatusProgressBar.classList.add('active');
+    } else {
+      analyzeStatusProgressBar.classList.remove('active');
+    }
+  }
+
+  function formatDelta(outVal, inVal){
+    if (typeof outVal !== 'number' || typeof inVal !== 'number') return '';
+    const delta = outVal - inVal;
+    const sign = delta > 0 ? '+' : '';
+    return ` (${sign}${fmt(delta, 1)})`;
+  }
+
+  function displayMetric(value, suffix){
+    if (value === null || value === undefined || Number.isNaN(value)) return '-';
+    return `${fmt(value, 1)}${suffix}`;
+  }
+
+  function currentZoomIndex(){
+    if (!zoomRange) return 0;
+    const raw = parseInt(zoomRange.value || '0', 10);
+    if (Number.isNaN(raw)) return 0;
+    return Math.max(0, Math.min(zoomSteps.length - 1, raw));
+  }
+
+  function setZoomLevel(level){
+    const idx = Math.max(0, Math.min(zoomSteps.length - 1, level));
+    const factor = zoomSteps[idx];
+    if (zoomLabel) zoomLabel.textContent = `${factor}x`;
+    const minPxPerSec = Math.max(1, fitMinPxPerSec) * factor;
+    if (sourceWave) sourceWave.zoom(minPxPerSec);
+    if (processedWave) processedWave.zoom(minPxPerSec);
+    updateZoomClasses(factor);
+    requestAnimationFrame(updateScrollHints);
+  }
+
+  function clamp(val, minVal, maxVal){
+    return Math.max(minVal, Math.min(maxVal, val));
+  }
+
+  const MATCH_GAIN_LIMIT_DB = 12;
+  const VOLUME_RAMP_MS = 40;
+
+  function getLufsValue(metrics){
+    if (!metrics) return null;
+    const candidates = [
+      metrics.I,
+      metrics.lufs_i,
+      metrics.lufsI,
+      metrics.lufs,
+    ];
+    for (const val of candidates) {
+      if (typeof val === 'number' && !Number.isNaN(val)) return val;
+    }
+    return null;
+  }
+
+  function updateAnalysisLufs(payload, input, output){
+    let source = getLufsValue(input);
+    let processed = getLufsValue(output);
+    const lufsObj = payload?.metrics?.lufs_i;
+    if (lufsObj && typeof lufsObj === 'object') {
+      if (source === null && typeof lufsObj.source === 'number') source = lufsObj.source;
+      if (processed === null && typeof lufsObj.processed === 'number') processed = lufsObj.processed;
+    }
+    analysisLufs = { source, processed };
+  }
+
+  function dbToGain(db){
+    return Math.pow(10, db / 20);
+  }
+
+  function computeMatchGains(){
+    const src = analysisLufs.source;
+    const proc = analysisLufs.processed;
+    if (typeof src !== 'number' || typeof proc !== 'number') {
+      return { source: 1, processed: 1 };
+    }
+    const target = Math.max(src, proc);
+    const sourceDb = clamp(target - src, -MATCH_GAIN_LIMIT_DB, MATCH_GAIN_LIMIT_DB);
+    const processedDb = clamp(target - proc, -MATCH_GAIN_LIMIT_DB, MATCH_GAIN_LIMIT_DB);
+    return {
+      source: dbToGain(sourceDb),
+      processed: dbToGain(processedDb),
+    };
+  }
+
+  function getAudioContext(){
+    if (audioCtx) return audioCtx;
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return null;
+    audioCtx = new Ctx();
+    return audioCtx;
+  }
+
+  function resumeAudioContext(){
+    if (!audioCtx || audioCtx.state !== 'suspended') return;
+    audioCtx.resume().catch(() => {});
+  }
+
+  function ensureGainNode(wave){
+    if (!wave || typeof wave.getMediaElement !== 'function') return null;
+    const existing = gainNodes.get(wave);
+    if (existing) return existing;
+    const media = wave.getMediaElement();
+    if (!media) return null;
+    const ctx = getAudioContext();
+    if (!ctx) return null;
+    let source = null;
+    try {
+      source = ctx.createMediaElementSource(media);
+    } catch (_err) {
+      return null;
+    }
+    if (typeof media.volume === 'number') {
+      media.volume = 1;
+    }
+    const gain = ctx.createGain();
+    gain.gain.value = 0;
+    source.connect(gain);
+    gain.connect(ctx.destination);
+    const state = { source, gain };
+    gainNodes.set(wave, state);
+    return state;
+  }
+
+  function rampGain(gainNode, target){
+    const ctx = gainNode.context;
+    const now = ctx.currentTime;
+    const clamped = Math.max(0, target);
+    gainNode.gain.cancelScheduledValues(now);
+    gainNode.gain.setValueAtTime(gainNode.gain.value, now);
+    gainNode.gain.linearRampToValueAtTime(clamped, now + VOLUME_RAMP_MS / 1000);
+  }
+
+  function rampMediaVolume(wave, target){
+    if (!wave || typeof wave.setVolume !== 'function') return;
+    const start = typeof wave.getVolume === 'function' ? wave.getVolume() : 1;
+    const clamped = Math.max(0, Math.min(1, target));
+    if (Math.abs(clamped - start) < 0.001) {
+      wave.setVolume(clamped);
+      return;
+    }
+    const startTime = performance.now();
+    const duration = VOLUME_RAMP_MS;
+    const prior = volumeRafs.get(wave);
+    if (prior) cancelAnimationFrame(prior);
+    const step = (now) => {
+      const t = Math.min(1, (now - startTime) / duration);
+      const next = start + (clamped - start) * t;
+      wave.setVolume(next);
+      if (t < 1) {
+        volumeRafs.set(wave, requestAnimationFrame(step));
+      } else {
+        volumeRafs.delete(wave);
+      }
+    };
+    volumeRafs.set(wave, requestAnimationFrame(step));
+  }
+
+  function setWaveGain(wave, gain, allowCreate){
+    if (!wave) return;
+    const node = allowCreate ? ensureGainNode(wave) : gainNodes.get(wave);
+    if (node && node.gain) {
+      rampGain(node.gain, gain);
+      return;
+    }
+    rampMediaVolume(wave, gain);
+  }
+
+  function applyMatchLoudness(options = {}){
+    const matchOn = toggleMatchLoudness && toggleMatchLoudness.checked;
+    const gains = matchOn ? computeMatchGains() : { source: 1, processed: 1 };
+    const sourceOn = trackMode === 'source' || trackMode === 'both';
+    const processedOn = trackMode === 'processed' || trackMode === 'both';
+    const sourceGain = (sourceOn ? 1 : 0) * gains.source;
+    const processedGain = (processedOn ? 1 : 0) * gains.processed;
+    const allowCreate = options.allowCreate || matchOn;
+    setWaveGain(sourceWave, sourceGain, allowCreate);
+    setWaveGain(processedWave, processedGain, allowCreate);
+  }
+
+  function waveHost(wave){
+    if (!wave || typeof wave.getWrapper !== 'function') return null;
+    const wrapper = wave.getWrapper();
+    if (!wrapper || !wrapper.getRootNode) return null;
+    const root = wrapper.getRootNode();
+    return root && root.host ? root.host : null;
+  }
+
+  function updateZoomClasses(factor){
+    const isZoomed = factor > 1;
+    const hosts = [waveHost(sourceWave), waveHost(processedWave)].filter(Boolean);
+    hosts.forEach((host) => {
+      host.classList.toggle('is-zoomed', isZoomed);
+    });
+  }
+
+  function ensureScrollHintEls(scrollEl){
+    if (!scrollEl) return null;
+    scrollEl.style.position = 'relative';
+    let left = scrollEl.querySelector('.scroll-hint-left');
+    if (!left) {
+      left = document.createElement('div');
+      left.className = 'scroll-hint-left';
+      left.style.position = 'absolute';
+      left.style.top = '0';
+      left.style.left = '0';
+      left.style.height = '100%';
+      left.style.width = '28px';
+      left.style.pointerEvents = 'none';
+      left.style.zIndex = '6';
+      left.style.background = 'linear-gradient(90deg, rgba(11,15,20,0.9), rgba(11,15,20,0))';
+      scrollEl.appendChild(left);
+    }
+    let right = scrollEl.querySelector('.scroll-hint-right');
+    if (!right) {
+      right = document.createElement('div');
+      right.className = 'scroll-hint-right';
+      right.style.position = 'absolute';
+      right.style.top = '0';
+      right.style.right = '0';
+      right.style.height = '100%';
+      right.style.width = '28px';
+      right.style.pointerEvents = 'none';
+      right.style.zIndex = '6';
+      right.style.background = 'linear-gradient(270deg, rgba(11,15,20,0.9), rgba(11,15,20,0))';
+      scrollEl.appendChild(right);
+    }
+    return { left, right };
+  }
+
+  function updateScrollHints(){
+    const zoomed = zoomSteps[currentZoomIndex()] > 1;
+    [sourceWave, processedWave].forEach((wave) => {
+      if (!wave || typeof wave.getWrapper !== 'function') return;
+      const wrapper = wave.getWrapper();
+      const scrollEl = wrapper ? wrapper.parentElement : null;
+      const host = waveHost(wave);
+      if (!wrapper || !scrollEl || !host) return;
+      const scrollable = wrapper.scrollWidth > scrollEl.clientWidth + 1;
+      host.classList.toggle('is-scrollable', scrollable);
+      const hints = ensureScrollHintEls(scrollEl);
+      if (!hints) return;
+      const maxScroll = Math.max(0, wrapper.scrollWidth - scrollEl.clientWidth);
+      const show = zoomed && scrollable && maxScroll > 1;
+      const atStart = scrollEl.scrollLeft <= 1;
+      const atEnd = scrollEl.scrollLeft >= maxScroll - 1;
+      hints.left.style.display = show && !atStart ? 'block' : 'none';
+      hints.right.style.display = show && !atEnd ? 'block' : 'none';
+    });
+  }
+
+  function fitPxPerSecFor(wave){
+    if (!wave || typeof wave.getWrapper !== 'function') return null;
+    const duration = wave.getDuration();
+    if (!duration || duration <= 0) return null;
+    const wrapper = wave.getWrapper();
+    const scrollEl = wrapper ? wrapper.parentElement : null;
+    const width = scrollEl?.clientWidth || wrapper?.clientWidth || 0;
+    if (!width) return null;
+    const fit = width / duration;
+    return clamp(fit, 1, 200);
+  }
+
+  function updateFitBaseline(){
+    const fits = [];
+    const sourceFit = fitPxPerSecFor(sourceWave);
+    if (sourceFit) fits.push(sourceFit);
+    const processedFit = fitPxPerSecFor(processedWave);
+    if (processedFit) fits.push(processedFit);
+    if (!fits.length) return;
+    const next = Math.min(...fits);
+    if (Math.abs(next - fitMinPxPerSec) < 0.01) return;
+    fitMinPxPerSec = next;
+    setZoomLevel(currentZoomIndex());
+  }
+
+  function cleanupTransport(){
+    transportCleanup.forEach((fn) => {
+      try {
+        fn();
+      } catch (_err) {
+        // ignore cleanup errors
+      }
+    });
+    transportCleanup = [];
+  }
+
+  function getMasterWave(){
+    return sourceWave || processedWave;
+  }
+
+  function getSlaveWave(){
+    const master = getMasterWave();
+    if (!master || !sourceWave || !processedWave) return null;
+    return master === sourceWave ? processedWave : sourceWave;
+  }
+
+  function seekBoth(time){
+    if (transportLock) return;
+    transportLock = true;
+    if (sourceWave) sourceWave.setTime(time);
+    if (processedWave) processedWave.setTime(time);
+    transportLock = false;
+  }
+
+  function playTransport(){
+    const master = getMasterWave();
+    if (!master) return;
+    if (toggleMatchLoudness && toggleMatchLoudness.checked) {
+      resumeAudioContext();
+    }
+    const time = master.getCurrentTime();
+    seekBoth(time);
+    if (sourceWave) sourceWave.play();
+    if (processedWave) processedWave.play();
+  }
+
+  function pauseTransport(){
+    if (sourceWave) sourceWave.pause();
+    if (processedWave) processedWave.pause();
+  }
+
+  function stopTransport(){
+    if (sourceWave) sourceWave.stop();
+    if (processedWave) processedWave.stop();
+  }
+
+  function updateTrackToggleUI(){
+    const hasSource = Boolean(sourceWave);
+    const hasProcessed = Boolean(processedWave);
+    const sourceOn = hasSource && (trackMode === 'source' || trackMode === 'both');
+    const processedOn = hasProcessed && (trackMode === 'processed' || trackMode === 'both');
+    if (toggleSourceBtn) {
+      toggleSourceBtn.disabled = !hasSource;
+      toggleSourceBtn.classList.toggle('is-active', trackMode === 'source');
+    }
+    if (toggleProcessedBtn) {
+      toggleProcessedBtn.disabled = !hasProcessed;
+      toggleProcessedBtn.classList.toggle('is-active', trackMode === 'processed');
+    }
+    if (toggleBothBtn) {
+      toggleBothBtn.disabled = !hasSource || !hasProcessed;
+      toggleBothBtn.classList.toggle('is-active', trackMode === 'both');
+    }
+    if (toggleFlipBtn) {
+      toggleFlipBtn.disabled = !hasSource || !hasProcessed;
+    }
+    if (soloSourceBtn) {
+      soloSourceBtn.disabled = !hasSource;
+      soloSourceBtn.classList.toggle('is-active', trackMode === 'source');
+    }
+    if (soloProcessedBtn) {
+      soloProcessedBtn.disabled = !hasProcessed;
+      soloProcessedBtn.classList.toggle('is-active', trackMode === 'processed');
+    }
+  }
+
+  function applyTrackState(){
+    if (sourceWave && typeof sourceWave.setMuted === 'function') sourceWave.setMuted(false);
+    if (processedWave && typeof processedWave.setMuted === 'function') processedWave.setMuted(false);
+    applyMatchLoudness();
+    updateTrackToggleUI();
+  }
+
+  function setTrackMode(mode){
+    if (mode === 'processed' && !processedWave) {
+      trackMode = 'source';
+    } else if (mode === 'both' && (!sourceWave || !processedWave)) {
+      trackMode = sourceWave ? 'source' : (processedWave ? 'processed' : 'source');
+    } else {
+      trackMode = mode;
+    }
+    applyTrackState();
+  }
+
+  function flipAudition(){
+    if (!sourceWave || !processedWave) return;
+    if (trackMode === 'processed') {
+      setTrackMode('source');
+    } else if (trackMode === 'source') {
+      setTrackMode('processed');
+    } else {
+      setTrackMode('source');
+    }
+    resumeAudioContext();
+  }
+
+  function ignoreShortcut(evt){
+    if (evt.repeat) return true;
+    const target = evt.target;
+    if (!target) return false;
+    const tag = target.tagName ? target.tagName.toLowerCase() : '';
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
+    return Boolean(target.isContentEditable);
+  }
+
+  function setSolo(kind){
+    if (kind === 'source' && sourceWave) {
+      setTrackMode('source');
+    }
+    if (kind === 'processed' && processedWave) {
+      setTrackMode('processed');
+    }
+  }
+
+  function bindTransportEvents(wave){
+    if (!wave) return;
+    transportCleanup.push(
+      wave.on('interaction', (time) => {
+        if (transportLock) return;
+        seekBoth(time);
+      })
+    );
+    transportCleanup.push(
+      wave.on('finish', () => {
+        pauseTransport();
+      })
+    );
+  }
+
+  function syncToggleStyles(){
+    [togglePeakRisk, toggleHeatmap, toggleDelta, toggleMatchLoudness].forEach((el) => {
+      if (!el) return;
+      const label = el.closest('.analyze-toggle');
+      if (label) label.classList.toggle('is-active', el.checked);
+    });
+  }
+
+  function overlayState(){
+    return {
+      peak: togglePeakRisk ? togglePeakRisk.checked : true,
+      heatmap: toggleHeatmap ? toggleHeatmap.checked : true,
+      delta: toggleDelta ? toggleDelta.checked : false,
+    };
+  }
+
+  function cleanupOverlays(){
+    overlayCleanup.forEach((fn) => {
+      try {
+        fn();
+      } catch (_err) {
+        // ignore cleanup errors
+      }
+    });
+    overlayCleanup = [];
+  }
+
+  function cleanupGainNodes(){
+    volumeRafs.forEach((rafId) => cancelAnimationFrame(rafId));
+    volumeRafs.clear();
+    gainNodes.forEach((state) => {
+      try {
+        state.source.disconnect();
+      } catch (_err) {
+        // ignore disconnect errors
+      }
+      try {
+        state.gain.disconnect();
+      } catch (_err) {
+        // ignore disconnect errors
+      }
+    });
+    gainNodes.clear();
+  }
+
+  function percentile(values, p){
+    if (!values.length) return null;
+    const sorted = [...values].sort((a, b) => a - b);
+    const idx = Math.max(0, Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * p)));
+    return sorted[idx];
+  }
+
+  function ensureOverlayCanvas(wave, kind, layer){
+    if (!wave || typeof wave.getWrapper !== 'function') return null;
+    const wrapper = wave.getWrapper();
+    if (!wrapper) return null;
+    const layerClass = `analysis-overlay-${kind}-${layer}`;
+    let canvas = wrapper.querySelector(`canvas.${layerClass}`);
+    if (!canvas) {
+      canvas = document.createElement('canvas');
+      canvas.className = `analysis-overlay analysis-overlay-${kind} ${layerClass}`;
+      canvas.style.position = 'absolute';
+      canvas.style.top = '0';
+      canvas.style.left = '0';
+      canvas.style.pointerEvents = 'none';
+      wrapper.style.position = 'relative';
+      if (layer === 'heatmap' && wrapper.firstChild) {
+        wrapper.insertBefore(canvas, wrapper.firstChild);
+      } else {
+        wrapper.appendChild(canvas);
+      }
+    }
+    canvas.style.zIndex = layer === 'heatmap' ? '1' : '3';
+    wrapper.querySelectorAll('canvas:not(.analysis-overlay)').forEach((node) => {
+      node.style.position = 'relative';
+      node.style.zIndex = '2';
+    });
+    const width = Math.max(wrapper.scrollWidth || wrapper.clientWidth || 0, 1);
+    const height = Math.max(wrapper.clientHeight || 1, 1);
+    const ratio = window.devicePixelRatio || 1;
+    canvas.width = Math.max(1, Math.round(width * ratio));
+    canvas.height = Math.max(1, Math.round(height * ratio));
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    return { canvas, ctx, wrapper, width, height };
+  }
+
+  function ensureReferenceLines(wave, kind){
+    if (!wave || typeof wave.getWrapper !== 'function') return null;
+    const wrapper = wave.getWrapper();
+    if (!wrapper) return null;
+    let box = wrapper.querySelector(`.wave-ref-lines-${kind}`);
+    if (!box) {
+      box = document.createElement('div');
+      box.className = `wave-ref-lines wave-ref-lines-${kind}`;
+      box.style.position = 'absolute';
+      box.style.top = '0';
+      box.style.left = '0';
+      box.style.pointerEvents = 'none';
+      box.style.zIndex = '4';
+      wrapper.style.position = 'relative';
+      wrapper.appendChild(box);
+      const center = document.createElement('div');
+      center.className = 'wave-ref-line center';
+      center.style.position = 'absolute';
+      center.style.left = '0';
+      center.style.right = '0';
+      center.style.height = '1px';
+      center.style.background = 'rgba(255,255,255,0.12)';
+      box.appendChild(center);
+      const clipTop = document.createElement('div');
+      clipTop.className = 'wave-ref-line clip';
+      clipTop.style.position = 'absolute';
+      clipTop.style.left = '0';
+      clipTop.style.right = '0';
+      clipTop.style.height = '1px';
+      clipTop.style.background = 'rgba(255,255,255,0.22)';
+      box.appendChild(clipTop);
+      const clipBottom = document.createElement('div');
+      clipBottom.className = 'wave-ref-line clip';
+      clipBottom.style.position = 'absolute';
+      clipBottom.style.left = '0';
+      clipBottom.style.right = '0';
+      clipBottom.style.height = '1px';
+      clipBottom.style.background = 'rgba(255,255,255,0.22)';
+      box.appendChild(clipBottom);
+      const safeTop = document.createElement('div');
+      safeTop.className = 'wave-ref-line safe';
+      safeTop.style.position = 'absolute';
+      safeTop.style.left = '0';
+      safeTop.style.right = '0';
+      safeTop.style.height = '0';
+      safeTop.style.borderTop = '1px dashed rgba(255,138,61,0.45)';
+      safeTop.style.opacity = '0';
+      box.appendChild(safeTop);
+      const safeBottom = document.createElement('div');
+      safeBottom.className = 'wave-ref-line safe';
+      safeBottom.style.position = 'absolute';
+      safeBottom.style.left = '0';
+      safeBottom.style.right = '0';
+      safeBottom.style.height = '0';
+      safeBottom.style.borderTop = '1px dashed rgba(255,138,61,0.45)';
+      safeBottom.style.opacity = '0';
+      box.appendChild(safeBottom);
+    }
+    return box;
+  }
+
+  function updateReferenceLines(wave, kind){
+    if (!wave || typeof wave.getWrapper !== 'function') return;
+    const wrapper = wave.getWrapper();
+    const box = ensureReferenceLines(wave, kind);
+    if (!wrapper || !box) return;
+    const height = Math.max(wrapper.clientHeight || 0, 1);
+    const width = Math.max(wrapper.scrollWidth || wrapper.clientWidth || 0, 1);
+    box.style.width = `${width}px`;
+    box.style.height = `${height}px`;
+    const lines = box.querySelectorAll('.wave-ref-line');
+    const center = lines[0];
+    const clipTop = lines[1];
+    const clipBottom = lines[2];
+    const safeTop = lines[3];
+    const safeBottom = lines[4];
+    const half = height * 0.5;
+    const padding = 2;
+    if (center) center.style.top = `${Math.round(half)}px`;
+    if (clipTop) clipTop.style.top = `${padding}px`;
+    if (clipBottom) clipBottom.style.top = `${Math.max(padding, height - padding - 1)}px`;
+    const amp = Math.pow(10, -1 / 20);
+    const safeOffset = amp * (half - padding);
+    if (safeTop) safeTop.style.top = `${Math.max(padding, Math.round(half - safeOffset))}px`;
+    if (safeBottom) safeBottom.style.top = `${Math.min(height - padding, Math.round(half + safeOffset))}px`;
+    if (togglePeakRisk) {
+      const showSafe = togglePeakRisk.checked;
+      box.classList.toggle('show-safe', showSafe);
+      if (safeTop) safeTop.style.opacity = showSafe ? '1' : '0';
+      if (safeBottom) safeBottom.style.opacity = showSafe ? '1' : '0';
+    }
+  }
+
+  function drawHeatmap(ctx, width, height, t, values, duration){
+    if (!t.length || !values.length || !duration) return;
+    const clean = values.filter((v) => typeof v === 'number' && !Number.isNaN(v));
+    if (clean.length < 2) return;
+    const minVal = percentile(clean, 0.1);
+    const maxVal = percentile(clean, 0.9);
+    if (minVal === null || maxVal === null || maxVal <= minVal) return;
+    const low = [24, 48, 76];
+    const high = [255, 138, 61];
+    const step = width / values.length;
+    for (let i = 0; i < values.length; i += 1) {
+      const val = values[i];
+      if (typeof val !== 'number' || Number.isNaN(val)) continue;
+      const norm = Math.max(0, Math.min(1, (val - minVal) / (maxVal - minVal)));
+      const r = Math.round(low[0] + (high[0] - low[0]) * norm);
+      const g = Math.round(low[1] + (high[1] - low[1]) * norm);
+      const b = Math.round(low[2] + (high[2] - low[2]) * norm);
+      const alpha = 0.08 + norm * 0.32;
+      const x = (t[i] / duration) * width;
+      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
+      ctx.fillRect(x - step * 0.5, 0, step, height);
+    }
+  }
+
+  function drawDelta(ctx, width, height, t, values, duration){
+    if (!t.length || !values.length || !duration) return;
+    const clean = values.filter((v) => typeof v === 'number' && !Number.isNaN(v));
+    if (!clean.length) return;
+    const absVals = clean.map((v) => Math.abs(v));
+    let maxAbs = percentile(absVals, 0.9) || Math.max(...absVals);
+    if (!maxAbs || maxAbs < 0.1) maxAbs = 0.1;
+    const mid = height * 0.5;
+    const scale = (height * 0.35) / maxAbs;
+    ctx.save();
+    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+    ctx.beginPath();
+    ctx.moveTo(0, mid);
+    ctx.lineTo(width, mid);
+    ctx.stroke();
+    const drawSign = (sign, color) => {
+      ctx.strokeStyle = color;
+      ctx.beginPath();
+      let started = false;
+      for (let i = 0; i < values.length; i += 1) {
+        const val = values[i];
+        if (typeof val !== 'number' || Number.isNaN(val) || val * sign <= 0) {
+          started = false;
+          continue;
+        }
+        const x = (t[i] / duration) * width;
+        const y = mid - (val * scale);
+        if (!started) {
+          ctx.moveTo(x, y);
+          started = true;
+        } else {
+          ctx.lineTo(x, y);
+        }
+      }
+      ctx.stroke();
+    };
+    drawSign(1, 'rgba(60, 214, 186, 0.9)');
+    drawSign(-1, 'rgba(255, 96, 96, 0.9)');
+    ctx.restore();
+  }
+
+  function drawMarkers(ctx, width, height, duration, markers){
+    if (!duration || !markers || !markers.length) return;
+    ctx.save();
+    markers.forEach((marker) => {
+      if (!marker || typeof marker.t !== 'number') return;
+      const x = (marker.t / duration) * width;
+      const isClip = marker.severity === 'clip';
+      ctx.strokeStyle = isClip ? 'rgba(255, 88, 88, 0.85)' : 'rgba(255, 184, 77, 0.45)';
+      ctx.lineWidth = isClip ? 1.4 : 1.0;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, height);
+      ctx.stroke();
+    });
+    ctx.restore();
+  }
+
+  function nearestIndex(arr, t){
+    if (!arr || !arr.length) return -1;
+    let lo = 0;
+    let hi = arr.length - 1;
+    while (lo <= hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      const val = arr[mid];
+      if (val === t) return mid;
+      if (val < t) lo = mid + 1;
+      else hi = mid - 1;
+    }
+    const idx = Math.max(0, Math.min(arr.length - 1, lo));
+    if (idx > 0 && Math.abs(arr[idx - 1] - t) < Math.abs(arr[idx] - t)) {
+      return idx - 1;
+    }
+    return idx;
+  }
+
+  function nearestMarker(markers, t, window){
+    if (!markers || !markers.length) return null;
+    let lo = 0;
+    let hi = markers.length - 1;
+    while (lo <= hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      const val = markers[mid].t;
+      if (val === t) return markers[mid];
+      if (val < t) lo = mid + 1;
+      else hi = mid - 1;
+    }
+    const idx = Math.max(0, Math.min(markers.length - 1, lo));
+    const candidates = [markers[idx], markers[idx - 1]].filter(Boolean);
+    let best = null;
+    let bestDist = window;
+    candidates.forEach((m) => {
+      const dist = Math.abs(m.t - t);
+      if (dist <= bestDist) {
+        best = m;
+        bestDist = dist;
+      }
+    });
+    return best;
+  }
+
+  function updateTooltip(evt, kind, scrollEl, wrapper){
+    if (!analysisData || !analysisData.series || !scrollEl || !wrapper) return;
+    const rect = scrollEl.getBoundingClientRect();
+    if (!rect.width) return;
+    const duration = analysisData.duration_s || (kind === 'source' ? sourceWave?.getDuration() : processedWave?.getDuration());
+    if (!duration) return;
+    const x = evt.clientX - rect.left;
+    const fullWidth = Math.max(wrapper.scrollWidth || rect.width, rect.width);
+    const scrollLeft = scrollEl.scrollLeft || 0;
+    const t = Math.max(0, Math.min(duration, ((x + scrollLeft) / fullWidth) * duration));
+    const seriesT = analysisData.series.t || [];
+    const idx = nearestIndex(seriesT, t);
+    const state = overlayState();
+    const lines = [];
+    if (state.heatmap && idx >= 0) {
+      const sVal = analysisData.series.lufs_st_source?.[idx];
+      const pVal = analysisData.series.lufs_st_processed?.[idx];
+      if (typeof sVal === 'number') lines.push(`Source ST: ${fmt(sVal, 1)} LUFS`);
+      if (typeof pVal === 'number') lines.push(`Processed ST: ${fmt(pVal, 1)} LUFS`);
+    }
+    if (state.delta && kind === 'processed' && idx >= 0) {
+      const dVal = analysisData.series.lufs_st_delta?.[idx];
+      if (typeof dVal === 'number') lines.push(`Δ Loudness: ${fmt(dVal, 1)} LU`);
+    }
+    if (state.peak) {
+      const markerList = analysisData.markers?.true_peak?.[kind === 'processed' ? 'processed' : 'source'] || [];
+      const marker = nearestMarker(markerList, t, 0.15);
+      if (marker) {
+        const label = kind === 'processed' ? 'Processed' : 'Source';
+        lines.push(`True Peak (${label}): ${fmt(marker.value, 1)} dBTP`);
+      }
+    }
+    wrapper.title = lines.join('\n');
+  }
+
+  function drawOverlay(wave, kind){
+    if (!wave) return;
+    updateReferenceLines(wave, kind);
+    const heatmap = ensureOverlayCanvas(wave, kind, 'heatmap');
+    const overlay = ensureOverlayCanvas(wave, kind, 'overlay');
+    if (!heatmap || !overlay) return;
+    const { ctx: heatCtx, width, height } = heatmap;
+    const { ctx: overlayCtx } = overlay;
+    heatCtx.clearRect(0, 0, width, height);
+    overlayCtx.clearRect(0, 0, width, height);
+    if (!analysisData || !analysisData.series) return;
+    const duration = analysisData.duration_s || wave.getDuration() || 0;
+    if (!duration) return;
+    const state = overlayState();
+    const t = analysisData.series.t || [];
+    if (!t.length) return;
+    const sourceVals = analysisData.series.lufs_st_source || [];
+    const processedVals = analysisData.series.lufs_st_processed || [];
+    const deltaVals = analysisData.series.lufs_st_delta || [];
+    if (state.heatmap) {
+      const values = (kind === 'processed' && processedVals.length) ? processedVals : sourceVals;
+      drawHeatmap(heatCtx, width, height, t, values, duration);
+    }
+    if (state.delta && kind === 'processed' && deltaVals.length) {
+      drawDelta(overlayCtx, width, height, t, deltaVals, duration);
+    }
+    if (state.peak) {
+      const markerList = analysisData.markers?.true_peak?.[kind === 'processed' ? 'processed' : 'source'] || [];
+      drawMarkers(overlayCtx, width, height, duration, markerList);
+    }
+  }
+
+  function drawOverlays(){
+    drawOverlay(sourceWave, 'source');
+    drawOverlay(processedWave, 'processed');
+  }
+
+  function bindDragScroll(wave){
+    if (!wave || typeof wave.getWrapper !== 'function') return () => {};
+    const wrapper = wave.getWrapper();
+    const scrollEl = wrapper ? wrapper.parentElement : null;
+    const host = waveHost(wave);
+    if (!scrollEl || !host) return () => {};
+    let dragging = false;
+    let dragged = false;
+    let startX = 0;
+    let startScroll = 0;
+    scrollEl.style.cursor = 'grab';
+
+    const onDown = (evt) => {
+      if (evt.button !== 0) return;
+      dragging = false;
+      dragged = false;
+      startX = evt.clientX;
+      startScroll = scrollEl.scrollLeft;
+      host.classList.add('is-dragging');
+      scrollEl.style.cursor = 'grabbing';
+    };
+    const onMove = (evt) => {
+      if (!host.classList.contains('is-dragging')) return;
+      const dx = evt.clientX - startX;
+      if (!dragging && Math.abs(dx) < 4) return;
+      dragging = true;
+      dragged = true;
+      scrollEl.scrollLeft = startScroll - dx;
+      evt.preventDefault();
+    };
+    const onUp = () => {
+      if (host.classList.contains('is-dragging')) {
+        host.classList.remove('is-dragging');
+        scrollEl.style.cursor = 'grab';
+      }
+      dragging = false;
+    };
+    const onClick = (evt) => {
+      if (!dragged) return;
+      evt.preventDefault();
+      evt.stopPropagation();
+      dragged = false;
+    };
+
+    host.addEventListener('pointerdown', onDown);
+    host.addEventListener('click', onClick, true);
+    window.addEventListener('pointermove', onMove, { passive: false });
+    window.addEventListener('pointerup', onUp);
+    return () => {
+      host.removeEventListener('pointerdown', onDown);
+      host.removeEventListener('click', onClick, true);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+  }
+
+  function bindOverlayEvents(wave, kind){
+    if (!wave) return () => {};
+    const cleanup = [];
+    const draw = () => {
+      drawOverlay(wave, kind);
+      updateScrollHints();
+    };
+    cleanup.push(wave.on('ready', draw));
+    cleanup.push(wave.on('redraw', draw));
+    cleanup.push(wave.on('zoom', draw));
+    cleanup.push(wave.on('resize', draw));
+    const onResize = () => drawOverlay(wave, kind);
+    window.addEventListener('resize', onResize);
+    cleanup.push(() => window.removeEventListener('resize', onResize));
+    const wrapper = typeof wave.getWrapper === 'function' ? wave.getWrapper() : null;
+    const scrollEl = wrapper ? wrapper.parentElement : null;
+    if (scrollEl && wrapper) {
+      const onMove = (evt) => updateTooltip(evt, kind, scrollEl, wrapper);
+      const onLeave = () => { scrollEl.title = ''; };
+      scrollEl.addEventListener('mousemove', onMove);
+      scrollEl.addEventListener('mouseleave', onLeave);
+      const onScroll = () => updateScrollHints();
+      scrollEl.addEventListener('scroll', onScroll, { passive: true });
+      cleanup.push(() => {
+        scrollEl.removeEventListener('mousemove', onMove);
+        scrollEl.removeEventListener('mouseleave', onLeave);
+        scrollEl.removeEventListener('scroll', onScroll);
+      });
+    }
+    cleanup.push(bindDragScroll(wave));
+    return () => cleanup.forEach((fn) => fn && fn());
+  }
+
+  function setupOverlays(){
+    cleanupOverlays();
+    if (sourceWave) overlayCleanup.push(bindOverlayEvents(sourceWave, 'source'));
+    if (processedWave) overlayCleanup.push(bindOverlayEvents(processedWave, 'processed'));
+    drawOverlays();
+  }
+
+  function clearWaves(){
+    cleanupOverlays();
+    cleanupTransport();
+    cleanupGainNodes();
+    if (sourceWave) {
+      sourceWave.destroy();
+      sourceWave = null;
+    }
+    if (processedWave) {
+      processedWave.destroy();
+      processedWave = null;
+    }
+  }
+
+  function initWave(containerId){
+    const el = document.getElementById(containerId);
+    if (!el || !window.WaveSurfer) return null;
+    const zoomIdx = currentZoomIndex();
+    return WaveSurfer.create({
+      container: el,
+      waveColor: '#2a3a4f',
+      progressColor: '#3b4f66',
+      cursorColor: '#6b829a',
+      height: 180,
+      barWidth: 2,
+      barGap: 1,
+      normalize: true,
+      backend: 'MediaElement',
+      minPxPerSec: Math.max(1, fitMinPxPerSec) * zoomSteps[zoomIdx],
+      fillParent: false,
+      autoScroll: false,
+      autoCenter: false,
+    });
+  }
+
+  async function loadWave(wave, url){
+    if (!wave || !url) return;
+    return new Promise((resolve) => {
+      const done = () => resolve();
+      wave.once('ready', done);
+      wave.once('error', () => {
+        done();
+        if (typeof showToast === 'function') {
+          showToast('Waveform failed to load');
+        }
+      });
+      wave.load(url);
+    });
+  }
+
+  function renderPills(input, output){
+    if (!summaryPills) return;
+    summaryPills.innerHTML = '';
+    metricLabels.forEach(meta => {
+      const outVal = output ? output[meta.key] : null;
+      if (outVal === null || outVal === undefined) return;
+      const pill = document.createElement('span');
+      pill.className = 'metric-pill';
+      const delta = formatDelta(outVal, input ? input[meta.key] : null);
+      pill.textContent = `${meta.label}: ${fmt(outVal, 1)}${meta.suffix}${delta}`;
+      summaryPills.appendChild(pill);
+    });
+  }
+
+  function renderCompare(input, output){
+    if (!compareGrid) return;
+    compareGrid.innerHTML = '';
+    const headers = ['Metric', 'Source', 'Processed', 'Delta'];
+    headers.forEach(label => {
+      const cell = document.createElement('div');
+      cell.className = 'compare-cell compare-head';
+      cell.textContent = label;
+      compareGrid.appendChild(cell);
+    });
+    metricLabels.forEach(meta => {
+      const inVal = input ? input[meta.key] : null;
+      const outVal = output ? output[meta.key] : null;
+      const row = [
+        meta.label,
+        displayMetric(inVal, meta.suffix),
+        displayMetric(outVal, meta.suffix),
+        formatDelta(outVal, inVal).replace(/[()]/g, '') || '-',
+      ];
+      row.forEach((value, idx) => {
+        const cell = document.createElement('div');
+        cell.className = idx === 0 ? 'compare-cell compare-metric' : 'compare-cell';
+        cell.textContent = value;
+        compareGrid.appendChild(cell);
+      });
+    });
+  }
+
+  function syncPreserveLinks(params){
+    const search = params.toString();
+    document.querySelectorAll('a[data-preserve-query="true"]').forEach((link) => {
+      const href = link.getAttribute('href');
+      if (!href) return;
+      try {
+        const url = new URL(href, window.location.origin);
+        url.search = search;
+        link.setAttribute('href', `${url.pathname}${url.search}`);
+      } catch (_err) {
+        return;
+      }
+    });
+  }
+
+  function updateUrl(params){
+    const next = new URL(window.location.href);
+    next.search = params.toString();
+    window.history.pushState({}, '', next.toString());
+    syncPreserveLinks(params);
+  }
+
+  function updateControls(){
+    const hasSource = sourceWave !== null;
+    const hasProcessed = processedWave !== null;
+    const processedCanvas = document.getElementById('waveProcessed');
+    if (processedCanvas) processedCanvas.style.display = hasProcessed ? '' : 'none';
+    if (playBtn) playBtn.disabled = !hasSource;
+    if (pauseBtn) pauseBtn.disabled = !hasSource;
+    if (stopBtn) stopBtn.disabled = !hasSource;
+    if (zoomRange) zoomRange.disabled = !hasSource;
+    if (processedEmpty) processedEmpty.hidden = hasProcessed;
+  }
+
+  async function applyData(payload){
+    if (!payload) return;
+    const input = payload.metrics?.input || null;
+    const output = payload.metrics?.output || null;
+    updateAnalysisLufs(payload, input, output);
+    const durationFallback = payload.duration_s ?? output?.duration_sec ?? input?.duration_sec ?? null;
+    analysisData = {
+      duration_s: durationFallback,
+      series: payload.series || null,
+      markers: payload.markers || null,
+    };
+
+    if (analyzeSubtitle) {
+      const name = payload.run_id ? `Run ${payload.run_id}` : 'Standalone analysis';
+      analyzeSubtitle.textContent = name;
+    }
+    if (sourceName) sourceName.textContent = payload.source_name || 'Source';
+    if (processedName) processedName.textContent = payload.processed_name || '-';
+
+    if (emptyState) emptyState.hidden = true;
+    if (loadedState) loadedState.hidden = false;
+
+    renderPills(input, output);
+    renderCompare(input, output);
+
+    clearWaves();
+    sourceWave = initWave('waveSource');
+    processedWave = payload.processed_url ? initWave('waveProcessed') : null;
+
+    await loadWave(sourceWave, payload.source_url);
+    if (processedWave) {
+      await loadWave(processedWave, payload.processed_url);
+    }
+    updateFitBaseline();
+    trackMode = processedWave ? 'both' : 'source';
+    applyTrackState();
+    cleanupTransport();
+    bindTransportEvents(sourceWave);
+    bindTransportEvents(processedWave);
+    updateControls();
+    setupOverlays();
+  }
+
+  async function resolveRun(song, out, solo){
+    const params = new URLSearchParams();
+    params.set('song', song);
+    if (out) params.set('out', out);
+    if (solo) params.set('solo', '1');
+    const res = await fetch(`/api/analyze-resolve?${params.toString()}`);
+    if (!res.ok) {
+      throw new Error('resolve_failed');
+    }
+    return res.json();
+  }
+
+  async function resolveFile(kind, rel){
+    const params = new URLSearchParams();
+    if (kind === 'source') {
+      params.set('src', rel);
+    } else if (kind === 'import') {
+      params.set('imp', rel);
+    }
+    const res = await fetch(`/api/analyze-resolve-file?${params.toString()}`);
+    if (!res.ok) {
+      throw new Error('resolve_failed');
+    }
+    return res.json();
+  }
+
+  function setActiveItem(node){
+    if (!analyzeBrowser) return;
+    analyzeBrowser.querySelectorAll('.browser-item.active').forEach(el => el.classList.remove('active'));
+    if (node) node.classList.add('active');
+  }
+
+  async function selectAndLoad(item, node, shouldPush){
+    if (!item) return;
+    selectedItem = item;
+    setActiveItem(node);
+    try {
+      if (item.kind === 'mastering_output') {
+        addStatusLine(`Loading run ${item.song}...`);
+        const params = new URLSearchParams();
+        params.set('song', item.song || item.id || '');
+        if (item.out) params.set('out', item.out);
+        if (item.solo) params.set('solo', '1');
+        if (shouldPush) updateUrl(params);
+        const data = await resolveRun(item.song || item.id, item.out || '', item.solo);
+        await applyData(data);
+        addStatusLine('Compare ready');
+      } else if (item.kind === 'mastering_run') {
+        addStatusLine(`Loading run ${item.song || item.id}...`);
+        const params = new URLSearchParams();
+        params.set('song', item.song || item.id || '');
+        if (shouldPush) updateUrl(params);
+        const data = await resolveRun(item.song || item.id, item.out || '', false);
+        await applyData(data);
+        addStatusLine('Compare ready');
+      } else if (item.kind === 'source' || item.kind === 'import') {
+        addStatusLine(`Loading ${item.kind}...`);
+        const params = new URLSearchParams();
+        params.set(item.kind === 'source' ? 'src' : 'imp', item.rel);
+        if (shouldPush) updateUrl(params);
+        const data = await resolveFile(item.kind, item.rel);
+        await applyData(data);
+        addStatusLine('Compare ready');
+      }
+    } catch (_err) {
+      addStatusLine('Compare failed');
+      if (typeof showToast === 'function') showToast('Compare data unavailable');
+    }
+  }
+
+  async function uploadFile(file){
+    return new Promise((resolve, reject) => {
+      const fd = new FormData();
+      fd.append('file', file, file.name);
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/analyze-upload', true);
+      xhr.responseType = 'json';
+      xhr.upload.addEventListener('progress', (evt) => {
+        if (!evt.lengthComputable) return;
+        const pct = (evt.loaded / evt.total) * 100;
+        setStatusProgress(pct, true);
+      });
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(xhr.response || {});
+        } else {
+          reject(new Error('upload_failed'));
+        }
+      });
+      xhr.addEventListener('error', () => reject(new Error('upload_failed')));
+      xhr.send(fd);
+    });
+  }
+
+  if (uploadBtn && uploadInput) {
+    uploadBtn.addEventListener('click', () => uploadInput.click());
+    uploadInput.addEventListener('change', async () => {
+      const file = (uploadInput.files || [])[0];
+      if (!file) return;
+      try {
+        addStatusLine(`Uploading ${file.name}...`);
+        setStatusProgress(0, true);
+        if (typeof showToast === 'function') showToast('Uploading...');
+        const data = await uploadFile(file);
+        addStatusLine('Upload complete');
+        addStatusLine('Analyzing...');
+        const payload = {
+          source_url: data.source_url,
+          source_name: data.source_name || file.name,
+          processed_url: null,
+          processed_name: '',
+          metrics: { input: data.metrics, output: null },
+          duration_s: data.duration_s,
+          series: data.series,
+          markers: data.markers,
+        };
+        await applyData(payload);
+        addStatusLine('Compare ready');
+        setStatusProgress(100, false);
+        if (data.rel) {
+          const item = { kind: 'import', rel: data.rel };
+          selectedItem = item;
+          const params = new URLSearchParams();
+          params.set('imp', data.rel);
+          updateUrl(params);
+        }
+        if (typeof showToast === 'function') showToast('Compare ready');
+      } catch (_err) {
+        addStatusLine('Upload or analysis failed');
+        setStatusProgress(0, false);
+        if (typeof showToast === 'function') showToast('Upload failed');
+      } finally {
+        uploadInput.value = '';
+      }
+    });
+  }
+
+  if (playBtn) {
+    playBtn.addEventListener('click', () => {
+      playTransport();
+    });
+  }
+  if (pauseBtn) {
+    pauseBtn.addEventListener('click', () => {
+      pauseTransport();
+    });
+  }
+  if (stopBtn) {
+    stopBtn.addEventListener('click', () => {
+      stopTransport();
+    });
+  }
+  if (zoomRange) {
+    zoomRange.addEventListener('input', () => {
+      const val = parseInt(zoomRange.value || '0', 10);
+      const next = Number.isNaN(val) ? 0 : val;
+      pendingZoom = next;
+      if (zoomRaf !== null) return;
+      zoomRaf = requestAnimationFrame(() => {
+        zoomRaf = null;
+        if (pendingZoom === null) return;
+        setZoomLevel(pendingZoom);
+        pendingZoom = null;
+      });
+    });
+  }
+
+  window.addEventListener('resize', () => {
+    if (zoomRaf !== null) return;
+    zoomRaf = requestAnimationFrame(() => {
+      zoomRaf = null;
+      updateFitBaseline();
+    });
+  });
+
+  if (toggleSourceBtn) {
+    toggleSourceBtn.addEventListener('click', () => {
+      setTrackMode('source');
+    });
+  }
+  if (toggleProcessedBtn) {
+    toggleProcessedBtn.addEventListener('click', () => {
+      setTrackMode('processed');
+    });
+  }
+  if (toggleBothBtn) {
+    toggleBothBtn.addEventListener('click', () => {
+      setTrackMode('both');
+    });
+  }
+  if (toggleFlipBtn) {
+    toggleFlipBtn.addEventListener('click', () => {
+      flipAudition();
+    });
+  }
+  window.addEventListener('keydown', (evt) => {
+    if (ignoreShortcut(evt)) return;
+    if (evt.key && evt.key.toLowerCase() === 'a') {
+      evt.preventDefault();
+      flipAudition();
+    }
+  });
+
+  if (soloSourceBtn) {
+    soloSourceBtn.addEventListener('click', () => {
+      setSolo('source');
+    });
+  }
+
+  if (soloProcessedBtn) {
+    soloProcessedBtn.addEventListener('click', () => {
+      setSolo('processed');
+    });
+  }
+
+  [togglePeakRisk, toggleHeatmap, toggleDelta].forEach((el) => {
+    if (!el) return;
+    el.addEventListener('change', () => {
+      syncToggleStyles();
+      drawOverlays();
+    });
+  });
+  if (toggleMatchLoudness) {
+    toggleMatchLoudness.addEventListener('change', () => {
+      syncToggleStyles();
+      applyMatchLoudness();
+      resumeAudioContext();
+    });
+  }
+  syncToggleStyles();
+  updateFitBaseline();
+  updateTrackToggleUI();
+
+  const params = new URLSearchParams(window.location.search);
+  const song = params.get('song');
+  const out = params.get('out');
+  const solo = params.get('solo');
+  const src = params.get('src');
+  const imp = params.get('imp');
+  if (song) {
+    selectedItem = out
+      ? { kind: 'mastering_output', id: `${song}::${out}`, song, out, solo: solo === '1' || solo === 'true' }
+      : { kind: 'mastering_run', id: song, song };
+    selectAndLoad(selectedItem, null, false);
+  } else if (src) {
+    selectedItem = { kind: 'source', rel: src };
+    selectAndLoad(selectedItem, null, false);
+  } else if (imp) {
+    selectedItem = { kind: 'import', rel: imp };
+    selectAndLoad(selectedItem, null, false);
+  }
+
+  if (analyzeBrowser) {
+    analyzeBrowser.addEventListener('click', (evt) => {
+      const itemNode = evt.target.closest('.browser-item');
+      if (!itemNode || itemNode.disabled) return;
+      const kind = itemNode.dataset.kind || '';
+      const id = itemNode.dataset.id || '';
+      let meta = {};
+      if (itemNode.dataset.meta) {
+        try {
+          meta = JSON.parse(itemNode.dataset.meta || '{}');
+        } catch (_err) {
+          meta = {};
+        }
+      }
+      if (kind === 'mastering_output') {
+        const song = meta.song || '';
+        if (!song) return;
+        evt.preventDefault();
+        evt.stopPropagation();
+        const item = { kind, id, song, out: meta.out || '', solo: Boolean(meta.solo) };
+        selectAndLoad(item, itemNode, true);
+        return;
+      }
+      if (kind === 'import') {
+        const rel = meta.rel || id;
+        if (!rel) return;
+        evt.preventDefault();
+        evt.stopPropagation();
+        const item = { kind, id, rel };
+        selectAndLoad(item, itemNode, true);
+        return;
+      }
+      if (kind !== 'mastering_run') return;
+      evt.preventDefault();
+      evt.stopPropagation();
+      const item = { kind, id, song: id };
+      selectAndLoad(item, itemNode, true);
+    });
+    document.addEventListener('htmx:afterSwap', (evt) => {
+      if (!analyzeBrowser.contains(evt.target)) return;
+      const params = new URLSearchParams(window.location.search);
+      const currentSong = params.get('song');
+      const currentOut = params.get('out');
+      if (currentSong && currentOut) {
+        const nodes = analyzeBrowser.querySelectorAll('.browser-item[data-kind="mastering_output"]');
+        for (const node of nodes) {
+          if (!node.dataset.meta) continue;
+          try {
+            const meta = JSON.parse(node.dataset.meta || '{}');
+            if (meta.song === currentSong && meta.out === currentOut) {
+              setActiveItem(node);
+              break;
+            }
+          } catch (_err) {
+            continue;
+          }
+        }
+        return;
+      }
+      const currentImp = params.get('imp');
+      if (currentImp) {
+        const nodes = analyzeBrowser.querySelectorAll('.browser-item[data-kind="import"]');
+        for (const node of nodes) {
+          if (!node.dataset.meta) continue;
+          try {
+            const meta = JSON.parse(node.dataset.meta || '{}');
+            if (meta.rel === currentImp) {
+              setActiveItem(node);
+              break;
+            }
+          } catch (_err) {
+            continue;
+          }
+        }
+        return;
+      }
+      if (!currentSong) return;
+      const node = analyzeBrowser.querySelector(`.browser-item[data-song="${currentSong}"]`);
+      if (node) setActiveItem(node);
+    });
+  }
+})();
+</script>
+{% endblock %}

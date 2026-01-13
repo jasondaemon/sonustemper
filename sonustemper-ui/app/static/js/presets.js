@@ -358,7 +358,9 @@
     browser.querySelectorAll('.file-browser-list[data-endpoint]').forEach(list => {
       const endpoint = list.dataset.endpoint;
       if(endpoint){
-        window.htmx.ajax('GET', endpoint, { target: list, swap: 'innerHTML' });
+        const separator = endpoint.includes('?') ? '&' : '?';
+        const url = `${endpoint}${separator}cb=${Date.now()}`;
+        window.htmx.ajax('GET', url, { target: list, swap: 'innerHTML' });
       }
     });
   }
