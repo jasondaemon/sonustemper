@@ -51,6 +51,10 @@
   const aiPresetSaveBtn = document.getElementById('aiPresetSaveBtn');
   const aiPresetStatus = document.getElementById('aiPresetStatus');
   const aiPresetList = document.getElementById('aiPresetList');
+  const aiDetectorScan = document.getElementById('aiDetectorScan');
+  const aiDetectorRunAll = document.getElementById('aiDetectorRunAll');
+  const aiDetectorStatus = document.getElementById('aiDetectorStatus');
+  const aiDetectorList = document.getElementById('aiDetectorList');
 
   const modeRadios = Array.from(document.querySelectorAll('input[name="aiSourceMode"]'));
 
@@ -68,6 +72,7 @@
       len: 10,
       path: null,
     },
+    findings: [],
   };
 
   function formatSeconds(raw) {
@@ -118,6 +123,9 @@
       state.preview.original = null;
       state.preview.focus = null;
       state.preview.path = null;
+      state.findings = [];
+      renderFindings([]);
+      setDetectorStatus('Select a file to scan.');
       if (aiPreviewOriginal) aiPreviewOriginal.disabled = true;
       if (aiPreviewProcessed) aiPreviewProcessed.disabled = true;
       updateToolButtons();
@@ -127,6 +135,9 @@
     aiSelectedAudio.hidden = false;
     aiSelectedAudio.src = `/api/analyze/path?path=${encodeURIComponent(selected.rel)}`;
     updateFileInfo(selected.rel);
+    state.findings = [];
+    renderFindings([]);
+    setDetectorStatus('Ready to scan.');
     updateToolButtons();
   }
 
@@ -166,6 +177,117 @@
         btn.disabled = !state.selected;
       });
     });
+  }
+
+  function recommendedStrength(severity) {
+    const value = Math.round(25 + (severity || 0) * 60);
+    return Math.min(85, Math.max(20, value));
+  }
+
+  function getToolCard(toolId) {
+    return toolCards.find((card) => card.dataset.toolId === toolId) || null;
+  }
+
+  function setToolStrength(card, strength) {
+    if (!card) return;
+    const input = card.querySelector('[data-role="strength"]');
+    if (!input) return;
+    input.value = String(strength);
+    updateStrengthDisplay(card);
+  }
+
+  function setDetectorStatus(message) {
+    if (!aiDetectorStatus) return;
+    aiDetectorStatus.textContent = message || '';
+  }
+
+  function renderFindings(findings) {
+    if (!aiDetectorList) return;
+    aiDetectorList.innerHTML = '';
+    if (!findings.length) {
+      aiDetectorList.innerHTML = '<div class="muted">No findings yet.</div>';
+      if (aiDetectorRunAll) aiDetectorRunAll.disabled = true;
+      return;
+    }
+    findings.forEach((finding) => {
+      const toolId = finding.suggested_tool_id || '';
+      const toolName = toolLabels[toolId] || toolId;
+      const row = document.createElement('div');
+      row.className = 'ai-detector-row';
+      row.innerHTML = `
+        <div class="ai-detector-main">
+          <span class="ai-confidence ${finding.confidence || 'low'}">${(finding.confidence || 'low').toUpperCase()}</span>
+          <div class="ai-detector-summary">${finding.summary || ''}</div>
+          <div class="ai-detector-tool">Try: ${toolName}</div>
+        </div>
+        <div class="ai-detector-actions-row">
+          <button class="btn ghost tiny" type="button" data-action="preview">Preview Suggested Fix</button>
+          <button class="btn ghost tiny" type="button" data-action="open">Open Tool</button>
+        </div>
+      `;
+      const previewBtn = row.querySelector('[data-action="preview"]');
+      const openBtn = row.querySelector('[data-action="open"]');
+      if (previewBtn) {
+        previewBtn.addEventListener('click', () => previewSuggested(finding));
+      }
+      if (openBtn) {
+        openBtn.addEventListener('click', () => openSuggested(finding));
+      }
+      aiDetectorList.appendChild(row);
+    });
+    if (aiDetectorRunAll) aiDetectorRunAll.disabled = false;
+  }
+
+  async function previewSuggested(finding) {
+    const toolId = finding.suggested_tool_id;
+    const card = getToolCard(toolId);
+    if (!card) return;
+    const strength = recommendedStrength(finding.severity);
+    setToolStrength(card, strength);
+    await runPreview(card);
+  }
+
+  function openSuggested(finding) {
+    const toolId = finding.suggested_tool_id;
+    const card = getToolCard(toolId);
+    if (!card) return;
+    const strength = recommendedStrength(finding.severity);
+    setToolStrength(card, strength);
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  async function runDetector() {
+    if (!state.selected?.rel) {
+      setDetectorStatus('Select a file to scan.');
+      renderFindings([]);
+      return;
+    }
+    setDetectorStatus('Scanning track...');
+    renderFindings([]);
+    try {
+      const url = `/api/ai-tool/detect?path=${encodeURIComponent(state.selected.rel)}&mode=fast`;
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) throw new Error('scan_failed');
+      const data = await res.json();
+      const findings = Array.isArray(data.findings) ? data.findings : [];
+      state.findings = findings;
+      renderFindings(findings);
+      setDetectorStatus(findings.length ? 'Scan complete.' : 'No obvious artifacts detected.');
+    } catch (_err) {
+      setDetectorStatus('Scan failed.');
+      if (typeof showToast === 'function') showToast('Scan failed');
+    }
+  }
+
+  async function runAllSuggestedPreviews() {
+    if (!state.findings.length) return;
+    if (aiDetectorRunAll) aiDetectorRunAll.disabled = true;
+    setDetectorStatus('Running suggested previews...');
+    for (const finding of state.findings) {
+      await previewSuggested(finding);
+    }
+    setDetectorStatus('Suggested previews complete.');
+    if (aiDetectorRunAll) aiDetectorRunAll.disabled = false;
   }
 
   async function resolveRun(song, out, solo) {
@@ -657,6 +779,13 @@
       aiPreviewAudio.src = state.preview.processed;
       aiPreviewAudio.play().catch(() => {});
     });
+  }
+
+  if (aiDetectorScan) {
+    aiDetectorScan.addEventListener('click', runDetector);
+  }
+  if (aiDetectorRunAll) {
+    aiDetectorRunAll.addEventListener('click', runAllSuggestedPreviews);
   }
 
   if (aiPresetTool) {

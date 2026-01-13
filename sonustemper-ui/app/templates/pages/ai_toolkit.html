@@ -46,6 +46,23 @@
 {% endblock %}
 
 {% block content %}
+  <div class="card ai-detector-card">
+    <div class="card-head">
+      <div>
+        <div class="card-title">AI Artifact Detector</div>
+        <div class="muted">Quick scan using audio statistics (no uploads).</div>
+      </div>
+      <div class="ai-detector-actions">
+        <button class="btn ghost small" type="button" id="aiDetectorScan">Scan Track</button>
+        <button class="btn ghost small" type="button" id="aiDetectorRunAll" disabled>Run suggested previews</button>
+      </div>
+    </div>
+    <div class="ai-detector-body">
+      <div class="muted" id="aiDetectorStatus">Select a file to scan.</div>
+      <div class="ai-detector-results" id="aiDetectorList"></div>
+    </div>
+  </div>
+
   <div class="ai-toolkit-layout">
     <div class="ai-tool-grid">
       <div class="card ai-tool-card" data-tool-id="ai_deglass">

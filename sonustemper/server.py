@@ -3199,6 +3199,103 @@ def _ai_tool_filter_chain(tool_id: str, strength: int, options: dict | None) -> 
 
     return ",".join(filters)
 
+def _ai_db_ratio(band_db: float | None, full_db: float | None) -> float | None:
+    if band_db is None or full_db is None:
+        return None
+    if not math.isfinite(band_db) or not math.isfinite(full_db):
+        return None
+    return math.pow(10.0, (band_db - full_db) / 20.0)
+
+def _ai_severity_from_ratio(ratio: float | None, low: float, high: float) -> float:
+    if ratio is None:
+        return 0.0
+    if ratio <= low:
+        return 0.0
+    if ratio >= high:
+        return 1.0
+    return (ratio - low) / max(0.0001, (high - low))
+
+def _ai_confidence(severity: float) -> str:
+    if severity >= 0.75:
+        return "high"
+    if severity >= 0.45:
+        return "med"
+    return "low"
+
+def _ai_astats_segment(path: Path, start: float, duration: float, pre_filters: list[str] | None = None) -> dict:
+    want = "Peak_level+RMS_level+RMS_peak+Number_of_clipped_samples+Number_of_samples"
+    filters = list(pre_filters or [])
+    filters.append(f"astats=measure_overall={want}:measure_perchannel=none:reset=0")
+    filt = ",".join(filters)
+    cmd = [
+        FFMPEG_BIN, "-hide_banner", "-v", "verbose", "-nostats",
+        "-ss", f"{start:.3f}",
+        "-t", f"{duration:.3f}",
+        "-i", str(path),
+        "-af", filt,
+        "-f", "null", "-",
+    ]
+    r = run_cmd(cmd)
+    if r.returncode != 0:
+        return {}
+    txt = (r.stderr or "") + "\n" + (r.stdout or "")
+    out = {
+        "peak_level": None,
+        "rms_level": None,
+        "rms_peak": None,
+        "clipped_samples": 0,
+        "samples": None,
+    }
+    section = None
+    for raw in txt.splitlines():
+        line = raw.strip()
+        if "]" in line and line.startswith("["):
+            line = line.split("]", 1)[1].strip()
+        if not line:
+            continue
+        low = line.lower()
+        if low == "overall":
+            section = "overall"
+            continue
+        if low.startswith("channel:") or low.startswith("channel "):
+            section = "channel"
+            continue
+        if section != "overall":
+            continue
+        if ":" not in line:
+            continue
+        k, v = line.split(":", 1)
+        key = k.strip().lower().replace(" ", "_")
+        if key.endswith("_db"):
+            key = key[:-3]
+        m = re.match(r"^([-0-9\\.]+)", v.strip())
+        if not m:
+            continue
+        try:
+            num = float(m.group(1))
+        except Exception:
+            continue
+        if key == "rms_peak":
+            out["rms_peak"] = num
+            continue
+        if key in ("peak_level", "rms_level") and out.get(key) is None:
+            out[key] = num
+            continue
+        if key in {"number_of_clipped_samples", "clipped_samples", "number_of_clips"}:
+            try:
+                out["clipped_samples"] = int(num)
+            except Exception:
+                out["clipped_samples"] = 0
+            continue
+        if key in {"number_of_samples", "samples"}:
+            try:
+                out["samples"] = int(num)
+            except Exception:
+                out["samples"] = None
+    if out.get("peak_level") is not None and out.get("rms_level") is not None:
+        out["crest_factor"] = out["peak_level"] - out["rms_level"]
+    return out
+
 @app.get("/api/analyze-source")
 def analyze_source(song: str):
     song = (song or "").strip()
@@ -3624,6 +3721,7 @@ def _ai_tool_audio_info(target: Path) -> dict:
     except Exception:
         duration = None
     sample_rate = None
+    channels = None
     for stream in info.get("streams", []) if isinstance(info, dict) else []:
         if stream.get("codec_type") != "audio":
             continue
@@ -3632,10 +3730,15 @@ def _ai_tool_audio_info(target: Path) -> dict:
             sample_rate = int(raw_sr)
         except Exception:
             sample_rate = None
+        try:
+            channels = int(stream.get("channels"))
+        except Exception:
+            channels = None
         break
     return {
         "duration_s": duration,
         "sample_rate": sample_rate,
+        "channels": channels,
         "mtime": target.stat().st_mtime if target.exists() else None,
     }
 
@@ -3810,6 +3913,119 @@ def ai_tool_preset_delete(preset_id: str):
         raise HTTPException(status_code=404, detail="preset_not_found")
     target.unlink(missing_ok=True)
     return {"deleted": preset_id}
+
+@app.get("/api/ai-tool/detect")
+def ai_tool_detect(path: str, mode: str = "fast"):
+    target = _resolve_analysis_path(path)
+    mode = (mode or "fast").strip().lower()
+    mode = "full" if mode == "full" else "fast"
+    duration = _duration_seconds(target) or 0.0
+    seg = 30.0 if mode == "fast" else 60.0
+    if duration and duration < seg:
+        seg = max(5.0, duration)
+    start = 0.0
+    if duration and duration > seg:
+        start = min(30.0, duration / 3.0)
+        if start + seg > duration:
+            start = max(0.0, duration - seg)
+
+    full = _ai_astats_segment(target, start, seg, [])
+    hf = _ai_astats_segment(target, start, seg, ["highpass=f=8000"])
+    lf = _ai_astats_segment(target, start, seg, ["lowpass=f=80"])
+    lowmid = _ai_astats_segment(target, start, seg, ["highpass=f=150", "lowpass=f=350"])
+    presence = _ai_astats_segment(target, start, seg, ["highpass=f=2500", "lowpass=f=6000"])
+
+    full_rms = full.get("rms_level") if isinstance(full, dict) else None
+    peak = full.get("peak_level") if isinstance(full, dict) else None
+    crest = full.get("crest_factor") if isinstance(full, dict) else None
+    clipped = full.get("clipped_samples") if isinstance(full, dict) else 0
+
+    hf_ratio = _ai_db_ratio(hf.get("rms_level") if isinstance(hf, dict) else None, full_rms)
+    lf_ratio = _ai_db_ratio(lf.get("rms_level") if isinstance(lf, dict) else None, full_rms)
+    lowmid_ratio = _ai_db_ratio(lowmid.get("rms_level") if isinstance(lowmid, dict) else None, full_rms)
+    presence_ratio = _ai_db_ratio(presence.get("rms_level") if isinstance(presence, dict) else None, full_rms)
+
+    metrics = {
+        "segment_start": start,
+        "segment_duration": seg,
+        "fullband": full,
+        "ratios": {
+            "hf": hf_ratio,
+            "low": lf_ratio,
+            "lowmid": lowmid_ratio,
+            "presence": presence_ratio,
+        },
+    }
+
+    findings: list[dict] = []
+
+    hiss_sev = _ai_severity_from_ratio(hf_ratio, 0.12, 0.3)
+    if hiss_sev > 0:
+        findings.append({
+            "id": "hiss_glass",
+            "severity": round(hiss_sev, 3),
+            "confidence": _ai_confidence(hiss_sev),
+            "summary": "High-end hiss/glass likely (8–16 kHz energy elevated).",
+            "suggested_tool_id": "ai_deglass",
+        })
+
+    rumble_sev = max(
+        _ai_severity_from_ratio(lf_ratio, 0.12, 0.3),
+        _ai_severity_from_ratio(lowmid_ratio, 0.14, 0.28),
+    )
+    if rumble_sev > 0:
+        findings.append({
+            "id": "rumble_mud",
+            "severity": round(rumble_sev, 3),
+            "confidence": _ai_confidence(rumble_sev),
+            "summary": "Low-end rumble or mud likely (sub/low-mid energy elevated).",
+            "suggested_tool_id": "ai_bass_tight",
+        })
+
+    presence_sev = _ai_severity_from_ratio(presence_ratio, 0.16, 0.28)
+    if presence_sev > 0:
+        findings.append({
+            "id": "harsh_presence",
+            "severity": round(presence_sev, 3),
+            "confidence": _ai_confidence(presence_sev),
+            "summary": "Harsh presence region elevated (2.5–6 kHz).",
+            "suggested_tool_id": "ai_vocal_smooth",
+        })
+
+    clip_sev = 0.0
+    if isinstance(clipped, int) and clipped > 0:
+        clip_sev = 0.95
+    if isinstance(peak, (int, float)):
+        if peak > -0.2:
+            clip_sev = max(clip_sev, 0.7)
+        elif peak > -0.8:
+            clip_sev = max(clip_sev, 0.4)
+    if isinstance(crest, (int, float)):
+        if crest < 6.0:
+            clip_sev = max(clip_sev, 0.85)
+        elif crest < 7.5:
+            clip_sev = max(clip_sev, 0.65)
+        elif crest < 9.0:
+            clip_sev = max(clip_sev, 0.4)
+    if clip_sev > 0:
+        findings.append({
+            "id": "limited_clipping",
+            "severity": round(clip_sev, 3),
+            "confidence": _ai_confidence(clip_sev),
+            "summary": "Likely clipping or over-limited dynamics.",
+            "suggested_tool_id": "ai_platform_safe",
+        })
+
+    findings.sort(key=lambda f: f.get("severity", 0), reverse=True)
+    findings = findings[:3]
+
+    info = _ai_tool_audio_info(target)
+    track = {
+        "duration": info.get("duration_s"),
+        "sr": info.get("sample_rate"),
+        "channels": info.get("channels"),
+    }
+    return {"track": track, "metrics": metrics, "findings": findings}
 @app.get("/api/analyze-sources")
 def analyze_sources():
     items = []
