@@ -101,6 +101,10 @@ def _legacy_corruption_signature(value: str, max_len: int = 80) -> str:
     stripped = raw.translate(str.maketrans("", "", "\\rnts"))
     return _sanitize_label(stripped, max_len)
 
+def _norm_for_legacy_compare(value: str, max_len: int = 80) -> str:
+    cleaned = _sanitize_label(value, max_len)
+    return re.sub(r"[\s_\-]+", "", cleaned).lower()
+
 def _repair_legacy_label(label: str, fallback: str | None, max_len: int = 80) -> str:
     cleaned = _sanitize_label(label, max_len)
     if not fallback:
@@ -108,7 +112,13 @@ def _repair_legacy_label(label: str, fallback: str | None, max_len: int = 80) ->
     fallback_clean = _sanitize_label(fallback, max_len)
     if not fallback_clean:
         return cleaned
-    if _legacy_corruption_signature(fallback_clean, max_len).lower() == cleaned.lower():
+    cleaned_norm = _norm_for_legacy_compare(cleaned, max_len)
+    fallback_norm = _norm_for_legacy_compare(fallback_clean, max_len)
+    fallback_sig_norm = _norm_for_legacy_compare(
+        _legacy_corruption_signature(fallback_clean, max_len),
+        max_len,
+    )
+    if fallback_sig_norm == cleaned_norm:
         return fallback_clean
     return cleaned
 
@@ -155,12 +165,12 @@ def _load_builtin_voicings() -> list[dict]:
             if not isinstance(raw_tags, list):
                 raw_tags = []
             tags = []
-            legacy_generated = _legacy_corruption_signature("Generated from reference audio.")
+            legacy_generated_norm = _norm_for_legacy_compare("Generated from reference audio.", 60)
             for tag in raw_tags:
                 if tag is None or not str(tag).strip():
                     continue
                 cleaned = _sanitize_label(tag, 60)
-                if cleaned.lower() == legacy_generated.lower():
+                if _norm_for_legacy_compare(cleaned, 60) == legacy_generated_norm:
                     cleaned = "Generated from reference audio."
                 if cleaned:
                     tags.append(cleaned)
@@ -1039,12 +1049,12 @@ def _preset_meta_from_file(fp: Path) -> dict:
         if not isinstance(tags, list):
             tags = []
         cleaned_tags = []
-        legacy_generated = _legacy_corruption_signature("Generated from reference audio.")
+        legacy_generated_norm = _norm_for_legacy_compare("Generated from reference audio.", 60)
         for tag in tags:
             if tag is None or not str(tag).strip():
                 continue
             cleaned = _sanitize_label(tag, 60)
-            if cleaned.lower() == legacy_generated.lower():
+            if _norm_for_legacy_compare(cleaned, 60) == legacy_generated_norm:
                 cleaned = "Generated from reference audio."
             if cleaned:
                 cleaned_tags.append(cleaned)
