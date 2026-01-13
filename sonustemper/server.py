@@ -149,6 +149,7 @@ if UI_TEMPLATES:
 # Security: API key protection (for CLI/scripts); set API_AUTH_DISABLED=1 to bypass explicitly.
 API_KEY = os.getenv("API_KEY")
 API_AUTH_DISABLED = os.getenv("API_AUTH_DISABLED") == "1"
+API_ALLOW_UNAUTH = os.getenv("API_ALLOW_UNAUTH") == "1"
 PROXY_SHARED_SECRET = (os.getenv("PROXY_SHARED_SECRET", "") or "").strip()
 # Basic logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -486,8 +487,12 @@ OUTLIST_CACHE_TTL = int(os.getenv("OUTLIST_CACHE_TTL", "30"))
 OUTLIST_CACHE: dict = {}
 # Startup debug for security context
 logger.info(f"[startup] API_KEY set? {bool(API_KEY)} API_AUTH_DISABLED={API_AUTH_DISABLED} PROXY_SHARED_SECRET set? {bool(PROXY_SHARED_SECRET)}")
-if not API_AUTH_DISABLED and not API_KEY and not PROXY_SHARED_SECRET:
-    logger.warning("WARNING [auth] No API_KEY or PROXY_SHARED_SECRET set; /api endpoints are unauthenticated on this interface.")
+if API_KEY or PROXY_SHARED_SECRET:
+    logger.info("INFO [auth] API auth enabled.")
+elif API_AUTH_DISABLED or API_ALLOW_UNAUTH:
+    logger.warning("WARNING [auth] API running unauthenticated (API_ALLOW_UNAUTH=1).")
+else:
+    logger.warning("WARNING [auth] API running unauthenticated (localhost-only).")
 FFMPEG_BIN = resolve_tool("ffmpeg")
 FFPROBE_BIN = resolve_tool("ffprobe")
 logger.debug("[startup] ffmpeg=%s ffprobe=%s", FFMPEG_BIN, FFPROBE_BIN)
@@ -742,6 +747,16 @@ async def api_key_guard(request: Request, call_next):
     if request.url.path.startswith("/api/"):
         if API_AUTH_DISABLED:
             return await call_next(request)
+        if not API_KEY and not PROXY_SHARED_SECRET:
+            if API_ALLOW_UNAUTH:
+                return await call_next(request)
+            client_host = request.client.host if request.client else ""
+            if client_host in {"127.0.0.1", "::1"}:
+                return await call_next(request)
+            return JSONResponse(
+                {"detail": "API auth not configured. Set API_KEY or PROXY_SHARED_SECRET, or set API_ALLOW_UNAUTH=1 for local dev."},
+                status_code=401,
+            )
         proxy_mark = request.headers.get("X-SonusTemper-Proxy") or ""
         key = request.headers.get("X-API-Key") or ""
         if PROXY_SHARED_SECRET:
