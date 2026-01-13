@@ -1145,7 +1145,7 @@
   async function loadLoudnessProfiles(){
     if (!loudnessMode) return;
     loudProfiles = {};
-    const preferredProfile = state.profile || loudnessMode.value || 'apple_music';
+    const preferredProfile = state.profile || loudnessMode.value || '';
     loudnessMode.innerHTML = '';
     try{
       const res = await fetch('/api/profiles', { cache: 'no-store' });
@@ -1215,7 +1215,7 @@
         });
         loudnessMode.appendChild(optgroup);
       });
-      let targetProfile = preferredProfile;
+      let targetProfile = preferredProfile && preferredProfile !== 'manual' ? preferredProfile : '';
       if (!loudProfiles[targetProfile]) {
         if (loudProfiles.apple_music) {
           targetProfile = 'apple_music';
