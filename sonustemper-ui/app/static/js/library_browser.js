@@ -40,6 +40,34 @@
     return span;
   }
 
+  function isLossy(format) {
+    const fmt = String(format || '').toLowerCase();
+    return ['mp3', 'ogg', 'aac', 'm4a'].includes(fmt);
+  }
+
+  function primaryRendition(renditions) {
+    const list = Array.isArray(renditions) ? renditions : [];
+    if (!list.length) return null;
+    const prefer = ['wav', 'flac', 'aiff', 'aif', 'm4a', 'aac', 'mp3', 'ogg'];
+    for (const fmt of prefer) {
+      const hit = list.find((item) => String(item.format || '').toLowerCase() === fmt);
+      if (hit) return hit;
+    }
+    return list[0];
+  }
+
+  function metricsTooltip(metrics) {
+    if (!metrics || typeof metrics !== 'object') return '';
+    const parts = [];
+    const lufs = metrics.lufs_i ?? metrics.lufs;
+    const tp = metrics.true_peak_db ?? metrics.true_peak;
+    const crest = metrics.crest_db ?? metrics.crest;
+    if (typeof lufs === 'number') parts.push(`LUFS: ${lufs.toFixed(1)}`);
+    if (typeof tp === 'number') parts.push(`TP: ${tp.toFixed(1)} dBTP`);
+    if (typeof crest === 'number') parts.push(`Crest: ${crest.toFixed(1)} dB`);
+    return parts.join(' · ');
+  }
+
   function renderLibrary(container, options = {}) {
     const module = options.module || container.dataset.module || 'generic';
     const state = {
@@ -104,7 +132,7 @@
         if (normalizeText(tag).includes(text)) return true;
       }
       for (const version of song.versions || []) {
-        if (normalizeText(version.label).includes(text)) return true;
+        if (normalizeText(version.title || version.label).includes(text)) return true;
         for (const tag of version.tags || []) {
           if (normalizeText(tag).includes(text)) return true;
         }
@@ -156,19 +184,42 @@
       meta.className = 'library-song-meta';
       const duration = formatDuration(song.source?.duration_sec);
       if (duration) meta.appendChild(makeBadge(duration, 'badge-format'));
-      if (song.source?.format) meta.appendChild(makeBadge(song.source.format.toUpperCase(), 'badge-format'));
-      if ((song.versions || []).length) meta.appendChild(makeBadge('Latest', 'badge-tag'));
+      if (song.source?.format && isLossy(song.source.format)) {
+        meta.appendChild(makeBadge(song.source.format.toUpperCase(), 'badge-format'));
+      }
       header.appendChild(caret);
       header.appendChild(title);
       header.appendChild(meta);
+      const songTooltip = metricsTooltip(song.source?.metrics);
+      if (songTooltip) {
+        header.title = songTooltip;
+      }
       header.addEventListener('click', () => {
         if (disabled) return;
-        const latest = song.latest_version || (song.versions || []).slice(-1)[0];
-        if (latest) {
+        if (module === 'mastering' && song.source?.rel) {
           emit('library:select', {
             song_id: song.song_id,
             song,
-            track: { kind: 'version', version_id: latest.version_id, rel: latest.rel, label: latest.label, summary: latest.summary, metrics: latest.metrics },
+            track: { kind: 'source', rel: song.source.rel, label: song.title },
+          });
+          return;
+        }
+        const latest = song.latest_version || (song.versions || []).slice(-1)[0];
+        if (latest) {
+          const primary = primaryRendition(latest.renditions);
+          emit('library:select', {
+            song_id: song.song_id,
+            song,
+            track: {
+              kind: 'version',
+              version_id: latest.version_id,
+              rel: primary?.rel || latest.rel,
+              format: primary?.format,
+              title: latest.title || latest.label,
+              summary: latest.summary,
+              metrics: latest.metrics,
+              renditions: latest.renditions || [],
+            },
           });
         } else if (song.source?.rel) {
           emit('library:select', {
@@ -179,29 +230,12 @@
         }
       });
 
-      const actions = document.createElement('div');
-      actions.className = 'library-song-actions';
-      const renameBtn = document.createElement('button');
-      renameBtn.type = 'button';
-      renameBtn.className = 'btn ghost tiny';
-      renameBtn.textContent = 'Rename';
-      renameBtn.addEventListener('click', (evt) => {
-        evt.stopPropagation();
-        emit('library:action', { action: 'rename-song', song });
-      });
-      actions.appendChild(renameBtn);
-
       row.appendChild(header);
-      row.appendChild(actions);
 
       const showVersions = state.view === 'extended' || state.expanded[song.song_id];
       if (showVersions) {
         const list = document.createElement('div');
         list.className = 'library-version-list';
-        if (song.source?.rel) {
-          const sourceRow = renderVersionRow(song, { kind: 'source', label: 'Source', rel: song.source.rel });
-          list.appendChild(sourceRow);
-        }
         (song.versions || []).forEach((version) => {
           list.appendChild(renderVersionRow(song, { kind: 'version', ...version }));
         });
@@ -215,17 +249,11 @@
       row.className = 'library-version';
       const label = document.createElement('div');
       label.className = 'library-version-label';
-      label.textContent = version.label || version.kind || 'Version';
+      label.textContent = version.title || version.label || version.kind || 'Version';
       const meta = document.createElement('div');
       meta.className = 'library-version-meta';
-      if (version.kind && version.kind !== 'version') {
-        meta.appendChild(makeBadge(version.kind.toUpperCase(), 'badge-container'));
-      }
       if (version.summary?.voicing) meta.appendChild(makeBadge(version.summary.voicing, 'badge-voicing'));
       if (version.summary?.loudness_profile) meta.appendChild(makeBadge(version.summary.loudness_profile, 'badge-profile'));
-      if (version.summary?.aitk) meta.appendChild(makeBadge('AITK', 'badge-param'));
-      if (version.summary?.noise) meta.appendChild(makeBadge('Noise', 'badge-param'));
-      if (version.summary?.eq) meta.appendChild(makeBadge('EQ', 'badge-param'));
 
       const actions = document.createElement('div');
       actions.className = 'library-version-actions';
@@ -251,13 +279,37 @@
         });
         actions.appendChild(useSource);
       }
-      if (version.rel) {
+      const renditions = Array.isArray(version.renditions) ? version.renditions : [];
+      const primary = primaryRendition(renditions);
+      if (primary?.rel || version.rel) {
         const download = document.createElement('a');
         download.className = 'btn ghost tiny';
-        download.href = `/api/analyze/path?path=${encodeURIComponent(version.rel)}`;
+        download.href = `/api/analyze/path?path=${encodeURIComponent(primary?.rel || version.rel)}`;
         download.textContent = 'Download';
         download.setAttribute('download', '');
         actions.appendChild(download);
+        if (renditions.length > 1) {
+          const menu = document.createElement('details');
+          menu.className = 'library-download-menu';
+          const summary = document.createElement('summary');
+          summary.className = 'btn ghost tiny';
+          summary.textContent = 'More';
+          menu.appendChild(summary);
+          const list = document.createElement('div');
+          list.className = 'library-download-list';
+          renditions.forEach((rendition) => {
+            const rel = rendition.rel;
+            if (!rel) return;
+            const fmt = String(rendition.format || '').toUpperCase() || 'FILE';
+            const link = document.createElement('a');
+            link.href = `/api/analyze/path?path=${encodeURIComponent(rel)}`;
+            link.textContent = fmt;
+            link.setAttribute('download', '');
+            list.appendChild(link);
+          });
+          menu.appendChild(list);
+          actions.appendChild(menu);
+        }
 
         const openCompare = document.createElement('button');
         openCompare.type = 'button';
@@ -285,15 +337,29 @@
       row.appendChild(label);
       row.appendChild(meta);
       row.appendChild(actions);
+      const versionTooltip = metricsTooltip(version.metrics);
+      if (versionTooltip) {
+        row.title = versionTooltip;
+      }
       row.addEventListener('click', () => {
         if (version.kind === 'source') {
           emit('library:select', { song_id: song.song_id, song, track: { kind: 'source', rel: version.rel, label: song.title } });
           return;
         }
+        const primary = primaryRendition(version.renditions);
         emit('library:select', {
           song_id: song.song_id,
           song,
-          track: { kind: 'version', version_id: version.version_id, rel: version.rel, label: version.label, summary: version.summary, metrics: version.metrics },
+          track: {
+            kind: 'version',
+            version_id: version.version_id,
+            rel: primary?.rel || version.rel,
+            format: primary?.format,
+            title: version.title || version.label,
+            summary: version.summary,
+            metrics: version.metrics,
+            renditions: version.renditions || [],
+          },
         });
       });
       return row;

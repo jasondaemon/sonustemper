@@ -399,11 +399,11 @@ h1{margin:0;font-size:24px;}
 .library-song{
   border:1px solid var(--line);
   border-radius:12px;
-  padding:8px 10px;
+  padding:6px 8px;
   background:#0f151d;
   display:flex;
   flex-direction:column;
-  gap:6px;
+  gap:4px;
 }
 .library-song-head{
   display:flex;
@@ -425,6 +425,7 @@ h1{margin:0;font-size:24px;}
 }
 .library-song-title{
   font-weight:600;
+  font-size:12px;
   flex:1 1 auto;
   min-width:0;
   white-space:nowrap;
@@ -452,7 +453,7 @@ h1{margin:0;font-size:24px;}
   display:flex;
   flex-direction:column;
   gap:4px;
-  padding:6px 8px;
+  padding:5px 8px;
   border-radius:10px;
   border:1px solid rgba(255,255,255,0.05);
   background:#101722;
@@ -471,6 +472,42 @@ h1{margin:0;font-size:24px;}
   display:flex;
   gap:6px;
   flex-wrap:wrap;
+}
+.library-song.is-disabled{
+  opacity:0.45;
+}
+.library-song.is-disabled .library-song-head{
+  cursor:not-allowed;
+}
+.library-download-menu{
+  position:relative;
+}
+.library-download-menu > summary{
+  list-style:none;
+}
+.library-download-menu > summary::-webkit-details-marker{
+  display:none;
+}
+.library-download-list{
+  position:absolute;
+  right:0;
+  top:110%;
+  background:#0f151d;
+  border:1px solid var(--line);
+  border-radius:10px;
+  padding:6px;
+  display:flex;
+  gap:6px;
+  z-index:5;
+}
+.library-download-list a{
+  font-size:11px;
+  color:var(--text);
+  text-decoration:none;
+  padding:2px 6px;
+  border-radius:999px;
+  border:1px solid var(--line);
+  background:#101722;
 }
 .library-unsorted{
   border-top:1px solid var(--line);

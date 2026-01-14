@@ -37,6 +37,8 @@ from .storage import (
     ensure_data_roots,
     allocate_source_path,
     allocate_version_path,
+    version_dir,
+    new_version_id,
     safe_filename,
     rel_from_path,
     resolve_rel,
@@ -533,29 +535,49 @@ def _import_master_outputs(song_id: str, run_dir: Path, summary: dict | None = N
     song = _library_find_song(song_id)
     if not song:
         return outputs
+    version_id = new_version_id("master")
+    dest_dir = version_dir(song_id, version_id)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    renditions = []
+    metrics = {}
     for fp in _list_audio_files(run_dir):
+        ext = fp.suffix.lower().lstrip(".")
+        if not ext:
+            continue
+        out_name = f"master.{ext}"
+        dest = dest_dir / out_name
         try:
-            version_id, dest = allocate_version_path(song_id, "master", fp.suffix.lower())
-            dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(fp), dest)
         except Exception:
             continue
-        metrics = {}
         metrics_path = run_dir / f"{fp.stem}.metrics.json"
         if metrics_path.exists():
             metrics = read_metrics_file(metrics_path) or {}
         rel = rel_from_path(dest)
-        label = fp.stem or "Master"
+        renditions.append({"format": ext, "rel": rel})
+    if renditions:
+        title_parts = []
+        if summary:
+            if summary.get("voicing"):
+                title_parts.append(summary.get("voicing"))
+            if summary.get("loudness_profile"):
+                title_parts.append(summary.get("loudness_profile"))
+        if title_parts:
+            title = f"Master: {' / '.join(title_parts)}"
+        else:
+            title = "Master"
         entry = library_store.add_version(
             lib,
             song_id,
             "master",
-            label,
-            rel,
+            title,
+            renditions[0].get("rel"),
             summary or {},
             metrics,
             [],
             version_id=version_id,
+            renditions=renditions,
+            title=title,
         )
         outputs.append(entry)
     library_store.save_library(lib)
@@ -569,7 +591,7 @@ def _start_master_jobs(song_ids, presets, strength, lufs, tp, width, mono_bass, 
                        out_ogg, ogg_quality,
                        out_flac, flac_level, flac_bit_depth, flac_sample_rate,
                        wav_bit_depth, wav_sample_rate,
-                       voicing_mode, voicing_name):
+                       voicing_mode, voicing_name, loudness_profile):
     """Kick off mastering jobs and immediately seed the SSE bus so the UI reacts without polling."""
     global RUNS_IN_FLIGHT
     RUNS_IN_FLIGHT = max(0, RUNS_IN_FLIGHT) + 1
@@ -678,6 +700,7 @@ def _start_master_jobs(song_ids, presets, strength, lufs, tp, width, mono_bass, 
                     run_dir,
                     summary={
                         "voicing": voicing_name or presets,
+                        "loudness_profile": loudness_profile,
                         "target_lufs": lufs,
                         "target_tp": tp,
                     },
@@ -2343,17 +2366,27 @@ def delete_output(song: str, name: str):
         if Path(v.get("rel") or "").stem == stem:
             version = v
             break
+        for rendition in v.get("renditions") or []:
+            if Path(rendition.get("rel") or "").stem == stem:
+                version = v
+                break
+        if version:
+            break
     if not version:
         raise HTTPException(status_code=404, detail="version_not_found")
     lib = library_store.load_library()
     removed = library_store.delete_version(lib, song_entry.get("song_id"), version.get("version_id"))
-    if removed and removed.get("rel"):
-        try:
-            target = resolve_rel(removed["rel"])
+    if removed:
+        for rendition in removed.get("renditions") or []:
+            rel = rendition.get("rel")
+            if not rel:
+                continue
+            try:
+                target = resolve_rel(rel)
+            except ValueError:
+                continue
             if target.exists():
                 target.unlink()
-        except ValueError:
-            pass
     library_store.save_library(lib)
     return {"message": f"Deleted {stem}"}
 @app.delete("/api/upload/{name}")
@@ -2374,8 +2407,8 @@ def outlist(song: str):
     items = []
     for version in song_entry.get("versions") or []:
         items.append({
-            "name": version.get("label") or version.get("version_id"),
-            "rel": version.get("rel"),
+            "name": version.get("title") or version.get("label") or version.get("version_id"),
+            "renditions": version.get("renditions") or [],
             "kind": version.get("kind"),
             "metrics": version.get("metrics"),
         })
@@ -2469,6 +2502,9 @@ def _library_lookup_rel(rel: str) -> tuple[dict | None, dict | None]:
         for version in song.get("versions") or []:
             if version.get("rel") == rel:
                 return song, version
+            for rendition in version.get("renditions") or []:
+                if rendition.get("rel") == rel:
+                    return song, version
     return None, None
 
 
@@ -2499,8 +2535,11 @@ def _library_find_version(song: dict, token: str | None) -> dict | None:
     for version in song.get("versions") or []:
         if version.get("rel") == token:
             return version
+        for rendition in version.get("renditions") or []:
+            if rendition.get("rel") == token:
+                return version
     for version in song.get("versions") or []:
-        if (version.get("label") or "").strip().lower() == token.lower():
+        if (version.get("title") or version.get("label") or "").strip().lower() == token.lower():
             return version
     return library_store.latest_version(song)
 
@@ -2588,24 +2627,58 @@ def library_add_version(payload: dict = Body(...)):
     song_id = (payload.get("song_id") or "").strip()
     kind = (payload.get("kind") or "").strip()
     label = (payload.get("label") or "").strip() or kind or "Version"
+    title = (payload.get("title") or "").strip() or label
     rel = (payload.get("rel") or "").strip()
     version_id = (payload.get("version_id") or "").strip() or None
     summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
     metrics = payload.get("metrics") if isinstance(payload.get("metrics"), dict) else {}
     tags = payload.get("tags") if isinstance(payload.get("tags"), list) else []
-    if not song_id or not rel or not kind:
+    renditions = payload.get("renditions") if isinstance(payload.get("renditions"), list) else []
+    if not song_id or not kind:
         raise HTTPException(status_code=400, detail="missing_fields")
-    try:
-        target = resolve_rel(rel)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="invalid_path")
-    if not target.exists():
-        raise HTTPException(status_code=404, detail="file_not_found")
-    rel_path = rel_from_path(target)
+    normalized_renditions = []
+    if rel:
+        try:
+            target = resolve_rel(rel)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="invalid_path")
+        if not target.exists():
+            raise HTTPException(status_code=404, detail="file_not_found")
+        rel = rel_from_path(target)
+        fmt = Path(rel).suffix.lower().lstrip(".")
+        normalized_renditions.append({"format": fmt, "rel": rel})
+    for rendition in renditions:
+        if not isinstance(rendition, dict):
+            continue
+        rend_rel = (rendition.get("rel") or "").strip()
+        if not rend_rel:
+            continue
+        try:
+            target = resolve_rel(rend_rel)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="invalid_path")
+        if not target.exists():
+            raise HTTPException(status_code=404, detail="file_not_found")
+        rel_path = rel_from_path(target)
+        fmt = (rendition.get("format") or Path(rel_path).suffix.lower().lstrip(".") or "").lower()
+        normalized_renditions.append({"format": fmt, "rel": rel_path})
+    if not normalized_renditions:
+        raise HTTPException(status_code=400, detail="missing_fields")
+    primary_rel = normalized_renditions[0].get("rel")
     lib = library_store.load_library()
     try:
         version = library_store.add_version(
-            lib, song_id, kind, label, rel_path, summary, metrics, tags, version_id=version_id
+            lib,
+            song_id,
+            kind,
+            label,
+            primary_rel,
+            summary,
+            metrics,
+            tags,
+            version_id=version_id,
+            renditions=normalized_renditions,
+            title=title,
         )
     except ValueError:
         raise HTTPException(status_code=404, detail="song_not_found")
@@ -2637,14 +2710,16 @@ def library_delete_version(payload: dict = Body(...)):
     if not removed:
         raise HTTPException(status_code=404, detail="version_not_found")
     library_store.save_library(lib)
-    rel = removed.get("rel")
-    if rel:
+    for rendition in removed.get("renditions") or []:
+        rel = rendition.get("rel")
+        if not rel:
+            continue
         try:
             target = resolve_rel(rel)
-            if target.exists() and target.is_file():
-                target.unlink()
         except ValueError:
-            pass
+            continue
+        if target.exists() and target.is_file():
+            target.unlink()
     return {"deleted": version_id}
 
 
@@ -3946,7 +4021,7 @@ def analyze_noise_render(payload: dict = Body(...)):
         ".ogg": "libvorbis",
     }
     codec = codec_map.get(suffix, "pcm_s16le")
-    version_id, out_path = allocate_version_path(song_id, "noise_clean", suffix)
+    version_id, out_path = allocate_version_path(song_id, "noise_clean", suffix, filename="cleaned")
     cmd = [
         FFMPEG_BIN, "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(target),
@@ -4162,7 +4237,12 @@ def ai_tool_render(payload: dict = Body(...)):
     }
     codec = codec_map.get(suffix, "pcm_s16le")
     tool_suffix = _safe_slug(tool_id.replace("ai_", "ai-")) or _safe_slug(tool_id) or "ai"
-    version_id, out_path = allocate_version_path(song_id, f"aitk-{tool_suffix}", suffix)
+    version_id, out_path = allocate_version_path(
+        song_id,
+        f"aitk-{tool_suffix}",
+        suffix,
+        filename=tool_suffix,
+    )
     cmd = [
         FFMPEG_BIN, "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(target),
@@ -4208,7 +4288,7 @@ def ai_tool_render_combo(payload: dict = Body(...)):
         ".ogg": "libvorbis",
     }
     codec = codec_map.get(suffix, "pcm_s16le")
-    version_id, out_path = allocate_version_path(song_id, "aitk", suffix)
+    version_id, out_path = allocate_version_path(song_id, "aitk", suffix, filename="ai-cleaned")
     cmd = [
         FFMPEG_BIN, "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(target),
@@ -4540,6 +4620,7 @@ def master_pack(
     wav_sample_rate: str | None = Form(None),
     voicing_mode: str = Form("presets"),
     voicing_name: str | None = Form(None),
+    loudness_profile: str | None = Form(None),
     presets: str | None = Form(None),
 ):
     safe_in = _validate_input_file(infile)
@@ -4647,7 +4728,7 @@ def start_run(
         out_ogg, ogg_quality,
         out_flac, flac_level, flac_bit_depth, flac_sample_rate,
         wav_bit_depth, wav_sample_rate,
-        voicing_mode, voicing_name
+        voicing_mode, voicing_name, loudness_profile
     )
     primary = run_ids[0] if run_ids else None
     return JSONResponse({
@@ -4696,6 +4777,7 @@ def master_bulk(
     wav_sample_rate: str | None = Form(None),
     voicing_mode: str = Form("presets"),
     voicing_name: str | None = Form(None),
+    loudness_profile: str | None = Form(None),
     presets: str | None = Form(None),
 ):
     raw_ids = song_ids or infiles
@@ -4712,7 +4794,7 @@ def master_bulk(
         out_ogg, ogg_quality,
         out_flac, flac_level, flac_bit_depth, flac_sample_rate,
         wav_bit_depth, wav_sample_rate,
-        voicing_mode, voicing_name
+        voicing_mode, voicing_name, loudness_profile
     )
     primary = run_ids[0] if run_ids else None
     return JSONResponse({

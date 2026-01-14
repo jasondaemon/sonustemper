@@ -1341,6 +1341,17 @@
     return { kind: 'any', rel: raw };
   }
 
+  function primaryRendition(renditions){
+    const list = Array.isArray(renditions) ? renditions : [];
+    if (!list.length) return null;
+    const prefer = ['wav', 'flac', 'aiff', 'aif', 'm4a', 'aac', 'mp3', 'ogg'];
+    for (const fmt of prefer) {
+      const hit = list.find(item => String(item.format || '').toLowerCase() === fmt);
+      if (hit) return hit;
+    }
+    return list[0];
+  }
+
   async function loadLibrarySelection(song, track, shouldPush){
     if (!track?.rel) return;
     const sourceRel = song?.source?.rel || null;
@@ -1627,18 +1638,22 @@
     });
     analyzeBrowser.addEventListener('library:action', async (evt) => {
       const { action, song, version, item } = evt.detail || {};
-      if (action === 'set-processed' && song?.source?.rel && version?.rel) {
+      if (action === 'set-processed' && song?.source?.rel) {
+        const rel = primaryRendition(version?.renditions)?.rel || version?.rel;
+        if (!rel) return;
         try {
-          await loadLibrarySelection(song, { kind: 'version', rel: version.rel }, true);
+          await loadLibrarySelection(song, { kind: 'version', rel }, true);
         } catch (_err) {
           addStatusLine('Compare failed');
         }
         return;
       }
-      if (action === 'open-compare' && version?.rel) {
+      if (action === 'open-compare') {
+        const rel = primaryRendition(version?.renditions)?.rel || version?.rel;
+        if (!rel) return;
         const url = new URL('/compare', window.location.origin);
         if (song?.source?.rel) url.searchParams.set('src', song.source.rel);
-        url.searchParams.set('proc', version.rel);
+        url.searchParams.set('proc', rel);
         window.location.assign(`${url.pathname}${url.search}`);
         return;
       }

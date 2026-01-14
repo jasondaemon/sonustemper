@@ -51,6 +51,9 @@ def song_source_dir(song_id: str) -> Path:
 def song_versions_dir(song_id: str) -> Path:
     return song_root(song_id) / "versions"
 
+def version_dir(song_id: str, version_id: str) -> Path:
+    return song_versions_dir(song_id) / version_id
+
 
 def safe_filename(name: str) -> str:
     raw = Path(name or "").name
@@ -80,12 +83,18 @@ def allocate_source_path(song_id: str, original_filename: str) -> Path:
         idx += 1
 
 
-def allocate_version_path(song_id: str, kind: str, ext: str) -> tuple[str, Path]:
-    version_dir = song_versions_dir(song_id)
-    version_dir.mkdir(parents=True, exist_ok=True)
+def allocate_version_path(
+    song_id: str,
+    kind: str,
+    ext: str,
+    filename: str | None = None,
+) -> tuple[str, Path]:
     suffix = ext if ext.startswith(".") else f".{ext}"
     version_id = new_version_id(kind)
-    return version_id, version_dir / f"{version_id}{suffix}"
+    target_dir = version_dir(song_id, version_id)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    base = safe_filename(filename or kind or "output") or "output"
+    return version_id, target_dir / f"{base}{suffix}"
 
 
 def rel_from_path(path: Path) -> str:

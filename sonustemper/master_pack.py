@@ -1272,12 +1272,6 @@ def _run_with_args(args, event_cb=None) -> dict:
         else:
             song_dir = OUT_DIR / infile.stem
             song_dir.mkdir(parents=True, exist_ok=True)
-        source_copy = song_dir / infile.name
-        if not source_copy.exists():
-            try:
-                shutil.copy2(infile, source_copy)
-            except Exception:
-                pass
         presets = [p.strip() for p in args.presets.split(",") if p.strip()]
         outputs = []
 

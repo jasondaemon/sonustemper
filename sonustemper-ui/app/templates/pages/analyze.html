@@ -791,6 +791,17 @@
     return { kind: 'any', rel: raw };
   }
 
+  function primaryRendition(renditions){
+    const list = Array.isArray(renditions) ? renditions : [];
+    if (!list.length) return null;
+    const prefer = ['wav', 'flac', 'aiff', 'aif', 'm4a', 'aac', 'mp3', 'ogg'];
+    for (const fmt of prefer) {
+      const hit = list.find(item => String(item.format || '').toLowerCase() === fmt);
+      if (hit) return hit;
+    }
+    return list[0];
+  }
+
   async function loadLibrarySelection(song, track, shouldPush){
     if (!track?.rel) return;
     const sourceRel = song?.source?.rel || null;
@@ -1044,7 +1055,8 @@
       const data = await res.json();
       const songId = await ensureSongId();
       if (songId && data.output_rel) {
-        const rel = data.output_rel.includes('/') ? data.output_rel : `analysis_out/${data.output_rel}`;
+        const rel = data.output_rel;
+        const format = (rel.split('.').pop() || '').toLowerCase();
         await fetch('/api/library/add_version', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1052,9 +1064,11 @@
             song_id: songId,
             kind: 'noise_clean',
             label: 'Noise Clean',
-            rel,
+            title: 'Noise Clean',
+            renditions: [{ format, rel }],
             summary: { noise: 'Noise Clean' },
             tags: [],
+            version_id: data.version_id,
           }),
         });
         if (libraryBrowser) libraryBrowser.reload();
@@ -1376,10 +1390,12 @@
     });
     analyzeBrowser.addEventListener('library:action', async (evt) => {
       const { action, song, version, item } = evt.detail || {};
-      if (action === 'open-compare' && version?.rel) {
+      if (action === 'open-compare') {
+        const rel = primaryRendition(version?.renditions)?.rel || version?.rel;
+        if (!rel) return;
         const url = new URL('/compare', window.location.origin);
         if (song?.source?.rel) url.searchParams.set('src', song.source.rel);
-        url.searchParams.set('proc', version.rel);
+        url.searchParams.set('proc', rel);
         window.location.assign(`${url.pathname}${url.search}`);
         return;
       }

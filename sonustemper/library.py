@@ -24,6 +24,19 @@ def _new_id(prefix: str) -> str:
 def _default_library() -> dict:
     return {"version": LIBRARY_VERSION, "songs": []}
 
+def _clean_title(raw: str) -> str:
+    cleaned = (raw or "").strip()
+    if not cleaned:
+        return "Untitled"
+    cleaned = cleaned.replace("_", " ").replace("-", " ")
+    cleaned = " ".join(cleaned.split())
+    return cleaned or "Untitled"
+
+def _format_from_rel(rel: str | None) -> str | None:
+    if not rel:
+        return None
+    return Path(rel).suffix.lower().lstrip(".") or None
+
 
 def create_empty_library_if_missing() -> dict:
     ensure_data_roots()
@@ -59,6 +72,29 @@ def load_library() -> dict:
             source.setdefault("analyzed", False)
             source.setdefault("kind", "source")
             song["source"] = source
+            title = song.get("title") or "Untitled"
+            song["title"] = _clean_title(title)
+            for version in song.get("versions") or []:
+                if "title" not in version:
+                    version["title"] = _clean_title(version.get("label") or version.get("name") or version.get("kind") or "Version")
+                renditions = version.get("renditions")
+                if not isinstance(renditions, list):
+                    renditions = []
+                if not renditions:
+                    rel = version.get("rel")
+                    if rel:
+                        fmt = _format_from_rel(rel)
+                        renditions = [{"format": fmt, "rel": rel}]
+                version["renditions"] = renditions
+                if version.get("kind") == "master":
+                    summary = version.get("summary") or {}
+                    title_parts = []
+                    if summary.get("voicing"):
+                        title_parts.append(summary.get("voicing"))
+                    if summary.get("loudness_profile"):
+                        title_parts.append(summary.get("loudness_profile"))
+                    if title_parts:
+                        version["title"] = f"Master: {' / '.join(title_parts)}"
         return data
 
 
@@ -103,7 +139,7 @@ def ensure_song_for_source(
     analyzed: bool | None = None,
 ) -> dict:
     rel_norm = (rel_path or "").strip()
-    title = (title_hint or Path(rel_norm).stem).strip() or "Untitled"
+    title = _clean_title(title_hint or Path(rel_norm).stem)
     song = find_song_by_source(lib, rel_norm)
     if song:
         source = song.get("source") or {}
@@ -148,31 +184,66 @@ def add_version(
     song_id: str,
     kind: str,
     label: str,
-    rel: str,
+    rel: str | None,
     summary: dict | None = None,
     metrics: dict | None = None,
     tags: list | None = None,
     version_id: str | None = None,
+    renditions: list | None = None,
+    title: str | None = None,
 ) -> dict:
     song = next((s for s in lib.get("songs", []) if s.get("song_id") == song_id), None)
     if not song:
         raise ValueError("song_not_found")
     for existing in song.get("versions", []):
-        if existing.get("rel") == rel:
+        if rel and existing.get("rel") == rel:
             return existing
+        for rendition in existing.get("renditions") or []:
+            if rel and rendition.get("rel") == rel:
+                return existing
+        if renditions:
+            existing_rels = {r.get("rel") for r in existing.get("renditions") or []}
+            for rendition in renditions:
+                if rendition.get("rel") in existing_rels:
+                    return existing
+    title_value = _clean_title(title or label or kind or "Version")
+    if renditions is None:
+        renditions = []
+    if not renditions and rel:
+        fmt = _format_from_rel(rel)
+        renditions = [{"format": fmt, "rel": rel}]
     entry = {
         "version_id": version_id or _new_id("v"),
         "kind": kind,
-        "label": label,
-        "rel": rel,
+        "title": title_value,
+        "label": label or title_value,
         "created_at": _now_iso(),
         "summary": summary or {},
         "metrics": metrics or {},
         "tags": tags or [],
+        "renditions": renditions,
     }
+    if rel:
+        entry["rel"] = rel
     song.setdefault("versions", []).append(entry)
     song["last_used_at"] = _now_iso()
     return entry
+
+
+def version_primary_rendition(version: dict) -> dict | None:
+    renditions = version.get("renditions") or []
+    if not renditions:
+        rel = version.get("rel")
+        if rel:
+            fmt = _format_from_rel(rel)
+            return {"format": fmt, "rel": rel}
+        return None
+    prefer = ["wav", "flac", "aiff", "aif", "m4a", "aac", "mp3", "ogg"]
+    for fmt in prefer:
+        for rendition in renditions:
+            if (rendition.get("format") or "").lower() == fmt:
+                return rendition
+    return renditions[0]
 
 
 def update_last_used(lib: dict, song_id: str) -> None:

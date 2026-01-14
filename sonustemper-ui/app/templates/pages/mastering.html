@@ -449,7 +449,13 @@
         badge.textContent = formatDuration(item.duration);
         badges.appendChild(badge);
       }
-      if (item.format) {
+      if (item.voicing) {
+        const badge = document.createElement('span');
+        badge.className = 'badge badge-voicing';
+        badge.textContent = item.voicing;
+        badges.appendChild(badge);
+      }
+      if (item.format && isLossyFormat(item.format)) {
         const badge = document.createElement('span');
         badge.className = 'badge badge-format';
         badge.textContent = String(item.format).toUpperCase();
@@ -487,14 +493,17 @@
     renderInputList();
   }
 
-  function addInputItemFromSong(song){
-    const rel = song?.source?.rel || '';
+  function addInputItemFromSelection(song, track){
+    const rel = track?.rel || song?.source?.rel || '';
     if (!song?.song_id || !rel) return;
+    const format = track?.format || song?.source?.format;
+    const voicing = track?.summary?.voicing || null;
     addInputItem({
       rel,
       title: song?.title || rel,
       duration: song?.source?.duration_sec,
-      format: song?.source?.format,
+      format,
+      voicing,
       song_id: song?.song_id || null,
     });
   }
@@ -514,7 +523,7 @@
     addStatusLine('Saving to Library…');
     const data = await res.json();
     const songs = Array.isArray(data.songs) ? data.songs : [];
-    songs.forEach(song => addInputItemFromSong(song));
+    songs.forEach(song => addInputItemFromSelection(song, { kind: 'source', rel: song?.source?.rel }));
     addStatusLine('Ready');
     if (libraryBrowser) libraryBrowser.reload();
   }
@@ -561,6 +570,22 @@
     const mins = Math.floor((totalSeconds % 3600) / 60);
     const mm = String(mins).padStart(2, '0');
     return hrs > 0 ? `${hrs}:${mm}` : `0:${mm}`;
+  }
+
+  function isLossyFormat(format){
+    const fmt = String(format || '').toLowerCase();
+    return ['mp3', 'ogg', 'aac', 'm4a'].includes(fmt);
+  }
+
+  function primaryRendition(renditions){
+    const list = Array.isArray(renditions) ? renditions : [];
+    if (!list.length) return null;
+    const prefer = ['wav', 'flac', 'aiff', 'aif', 'm4a', 'aac', 'mp3', 'ogg'];
+    for (const fmt of prefer) {
+      const hit = list.find(item => String(item.format || '').toLowerCase() === fmt);
+      if (hit) return hit;
+    }
+    return list[0];
   }
 
   function updateSelectionState(){
@@ -610,9 +635,9 @@
     const browser = window.LibraryBrowser.init(masteringBrowser, { module: 'mastering' });
     libraryBrowser = browser;
     masteringBrowser.addEventListener('library:select', (evt) => {
-      const { song } = evt.detail || {};
-      if (!song?.source?.rel) return;
-      addInputItemFromSong(song);
+      const { song, track } = evt.detail || {};
+      if (!song) return;
+      addInputItemFromSelection(song, track);
     });
     masteringBrowser.addEventListener('library:action', async (evt) => {
       const { action, song, version, item } = evt.detail || {};
@@ -640,23 +665,27 @@
         browser.reload();
         return;
       }
-      if (action === 'open-compare' && version?.rel) {
+      if (action === 'open-compare') {
+        const rel = primaryRendition(version?.renditions)?.rel || version?.rel;
+        if (!rel) return;
         const url = new URL('/compare', window.location.origin);
         if (song?.source?.rel) url.searchParams.set('src', song.source.rel);
-        url.searchParams.set('proc', version.rel);
+        url.searchParams.set('proc', rel);
         window.location.assign(`${url.pathname}${url.search}`);
         return;
       }
-      if (action === 'use-as-source' && version?.rel) {
+      if (action === 'use-as-source') {
+        const rel = primaryRendition(version?.renditions)?.rel || version?.rel;
+        if (!rel) return;
         const title = song?.title ? `${song.title} (Derived)` : version.label || 'Derived Source';
         const res = await fetch('/api/library/use_as_source', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path: version.rel, title }),
+          body: JSON.stringify({ path: rel, title }),
         });
         if (res.ok) {
           const data = await res.json();
-          addInputItemFromSong(data.song);
+          addInputItemFromSelection(data.song, { kind: 'source', rel: data.song?.source?.rel });
           browser.reload();
         }
         return;
@@ -1493,6 +1522,9 @@
       // loudness
       const activeProfile = loudProfiles[loudnessMode?.value || 'manual'];
       const useProfileTargets = activeProfile && !activeProfile.manual;
+      if (activeProfile && activeProfile.id && !activeProfile.manual) {
+        fd.append('loudness_profile', activeProfile.title || activeProfile.id);
+      }
       if (useProfileTargets || ovTargetI?.checked) {
         fd.append('lufs', targetI?.value || '');
       }

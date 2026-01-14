@@ -225,6 +225,17 @@
     return false;
   }
 
+  function primaryRendition(renditions) {
+    const list = Array.isArray(renditions) ? renditions : [];
+    if (!list.length) return null;
+    const prefer = ['wav', 'flac', 'aiff', 'aif', 'm4a', 'aac', 'mp3', 'ogg'];
+    for (const fmt of prefer) {
+      const hit = list.find(item => String(item.format || '').toLowerCase() === fmt);
+      if (hit) return hit;
+    }
+    return list[0];
+  }
+
   function updateSelectedSummary(selected) {
     if (!aiSelectedName || !aiSelectedMeta) return;
     if (!selected) {
@@ -233,7 +244,7 @@
       setClipRisk(false);
       return;
     }
-    aiSelectedName.textContent = selected.name || selected.rel || 'Selected';
+    aiSelectedName.textContent = selected.name || selected.title || selected.rel || 'Selected';
   }
 
   async function updateFileInfo(rel) {
@@ -732,7 +743,11 @@
       const res = await fetch('/api/ai-tool/render_combo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: state.selected.rel, settings }),
+        body: JSON.stringify({
+          path: state.selected.rel,
+          song_id: state.selectedSongId,
+          settings,
+        }),
       });
       if (!res.ok) throw new Error('render_failed');
       const data = await res.json();
@@ -740,6 +755,8 @@
         const activeTools = toolDefs
           .filter((tool) => (state.strengths[tool.id] || 0) > 0)
           .map((tool) => tool.title);
+        const rel = data.output_rel;
+        const format = (rel.split('.').pop() || '').toLowerCase();
         await fetch('/api/library/add_version', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -747,9 +764,11 @@
             song_id: state.selectedSongId,
             kind: 'aitk',
             label: 'AI Toolkit',
-            rel: data.output_rel,
+            title: 'AI Toolkit',
+            renditions: [{ format, rel }],
             summary: { aitk: 'AI Toolkit' },
             tags: activeTools,
+            version_id: data.version_id,
           }),
         });
         if (libraryBrowser) libraryBrowser.reload();
@@ -859,7 +878,7 @@
       if (!track?.rel) return;
       setSelectedFile({
         rel: track.rel,
-        name: track.label || song?.title || track.rel,
+        name: track.title || track.label || song?.title || track.rel,
         song_id: song?.song_id || null,
       });
     });
@@ -889,10 +908,12 @@
         browser.reload();
         return;
       }
-      if (action === 'open-compare' && version?.rel) {
+      if (action === 'open-compare') {
+        const rel = primaryRendition(version?.renditions)?.rel || version?.rel;
+        if (!rel) return;
         const url = new URL('/compare', window.location.origin);
         if (song?.source?.rel) url.searchParams.set('src', song.source.rel);
-        if (version.rel) url.searchParams.set('proc', version.rel);
+        url.searchParams.set('proc', rel);
         window.location.assign(`${url.pathname}${url.search}`);
         return;
       }
@@ -907,6 +928,8 @@
         const idx = parseInt(choice, 10);
         if (!Number.isNaN(idx) && songs[idx - 1]) {
           const song = songs[idx - 1];
+          const rel = item.rel;
+          const format = (rel.split('.').pop() || '').toLowerCase();
           await fetch('/api/library/add_version', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -914,7 +937,8 @@
               song_id: song.song_id,
               kind: 'manual',
               label: item.name || 'Output',
-              rel: item.rel,
+              title: item.name || 'Output',
+              renditions: [{ format, rel }],
               summary: {},
               tags: [],
             }),
