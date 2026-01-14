@@ -615,6 +615,13 @@ h1{margin:0;font-size:24px;}
   min-height:420px;
   max-height:520px;
 }
+.spectro-viewport--mini{
+  margin-top:8px;
+  min-height:90px;
+  max-height:120px;
+  cursor:pointer;
+  overflow:hidden;
+}
 .spectro-inner{
   position:relative;
   width:100%;
@@ -626,6 +633,15 @@ h1{margin:0;font-size:24px;}
   height:100%;
   object-fit:fill;
   image-rendering:auto;
+}
+.spectro-window{
+  position:absolute;
+  top:2px;
+  bottom:2px;
+  border:1px solid rgba(255,255,255,0.55);
+  background:rgba(255,255,255,0.08);
+  border-radius:6px;
+  pointer-events:none;
 }
 .spectro-readout{
   font-size:12px;

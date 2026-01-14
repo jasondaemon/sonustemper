@@ -55,6 +55,10 @@
             <button class="btn ghost small is-active" type="button" id="analysisScaleLog">Log</button>
             <button class="btn ghost small" type="button" id="analysisScaleLin">Linear</button>
           </div>
+          <div class="pill-toggle" id="analysisFocusToggle" hidden>
+            <button class="btn ghost small is-active" type="button" id="analysisFocusProcessed">Processed</button>
+            <button class="btn ghost small" type="button" id="analysisFocusSource">Source</button>
+          </div>
           <div class="spectrogram-control">
             <label for="analysisRange">Range</label>
             <input type="range" id="analysisRange" min="80" max="160" step="5" value="120">
@@ -73,6 +77,10 @@
             <input type="range" id="analysisZoom" min="1" max="16" step="1" value="1">
             <span class="value-pill" id="analysisZoomVal">1x</span>
           </div>
+          <div class="pill-toggle">
+            <button class="btn ghost small is-active" type="button" id="analysisStereoCombined">Combined</button>
+            <button class="btn ghost small" type="button" id="analysisStereoSplit">Split</button>
+          </div>
           <button class="btn ghost small" type="button" id="analysisFitBtn">Fit</button>
           <span class="value-pill spectro-readout" id="analysisCursor">t=--  f=--</span>
         </div>
@@ -81,6 +89,12 @@
             <img id="spectrogramImg" alt="Spectrogram" />
             <div class="spectrogram-overlay" id="spectrogramOverlay"></div>
             <div class="spectrogram-selection" id="spectrogramSelection" hidden></div>
+          </div>
+        </div>
+        <div class="spectro-viewport spectro-viewport--mini" id="spectrogramMiniViewport">
+          <div class="spectro-inner" id="spectrogramMiniInner">
+            <img id="spectrogramMiniImg" alt="Spectrogram overview" />
+            <div class="spectro-window" id="spectrogramMiniWindow"></div>
           </div>
         </div>
       </div>
@@ -165,11 +179,18 @@
   const analyzeBrowser = document.getElementById('analysisBrowser');
   const compareLink = document.getElementById('compareLink');
   const noiseCleanupCard = document.getElementById('noiseCleanupCard');
+  const analysisFocusToggle = document.getElementById('analysisFocusToggle');
+  const analysisFocusProcessedBtn = document.getElementById('analysisFocusProcessed');
+  const analysisFocusSourceBtn = document.getElementById('analysisFocusSource');
   const spectrogramViewport = document.getElementById('spectrogramViewport');
   const spectrogramInner = document.getElementById('spectrogramInner');
   const spectrogramImg = document.getElementById('spectrogramImg');
   const spectrogramOverlay = document.getElementById('spectrogramOverlay');
   const spectrogramSelection = document.getElementById('spectrogramSelection');
+  const spectrogramMiniViewport = document.getElementById('spectrogramMiniViewport');
+  const spectrogramMiniInner = document.getElementById('spectrogramMiniInner');
+  const spectrogramMiniImg = document.getElementById('spectrogramMiniImg');
+  const spectrogramMiniWindow = document.getElementById('spectrogramMiniWindow');
   const analysisScaleLog = document.getElementById('analysisScaleLog');
   const analysisScaleLin = document.getElementById('analysisScaleLin');
   const analysisRange = document.getElementById('analysisRange');
@@ -177,6 +198,8 @@
   const analysisHeight = document.getElementById('analysisHeight');
   const analysisZoom = document.getElementById('analysisZoom');
   const analysisZoomVal = document.getElementById('analysisZoomVal');
+  const analysisStereoCombinedBtn = document.getElementById('analysisStereoCombined');
+  const analysisStereoSplitBtn = document.getElementById('analysisStereoSplit');
   const analysisFitBtn = document.getElementById('analysisFitBtn');
   const analysisCursor = document.getElementById('analysisCursor');
   const noisePresetSelect = document.getElementById('noisePresetSelect');
@@ -204,6 +227,7 @@
   const noiseBandwidth = document.getElementById('noiseBandwidth');
   let statusLines = [];
   let analysisContext = { source: null, processed: null, active: null, duration: null, run_id: null };
+  let analysisPayload = null;
   let noiseSelection = null;
   let noiseMode = 'remove';
   let noisePresets = new Map();
@@ -211,6 +235,8 @@
   const ANALYZE_SCALE_KEY = 'sonustemper.analyzeSpecScale';
   const ANALYZE_DRANGE_KEY = 'sonustemper.analyzeSpecDrange';
   const ANALYZE_HEIGHT_KEY = 'sonustemper.analyzeSpecHeight';
+  const ANALYZE_STEREO_KEY = 'sonustemper.analyzeSpecStereo';
+  const ANALYZE_MINI_HEIGHT = 90;
 
   const metricLabels = [
     { key: 'I', label: 'LUFS-I', suffix: ' LUFS' },
@@ -270,7 +296,7 @@
     }
   }
 
-  function spectrogramUrl(relPath, w, h, scale, drange){
+  function spectrogramUrl(relPath, w, h, scale, drange, stereo){
     const params = new URLSearchParams({
       path: relPath,
       w: String(w),
@@ -278,6 +304,7 @@
       scale: scale,
       drange: String(drange),
     });
+    if (stereo) params.set('stereo', stereo);
     return `/api/analyze/spectrogram?${params.toString()}`;
   }
 
@@ -304,7 +331,7 @@
     const dpr = window.devicePixelRatio || 1;
     const width = Math.max(300, Math.round(innerWidth * dpr));
     const height = Math.max(200, Math.round(heightPx * dpr));
-    spec.img.src = spectrogramUrl(relPath, width, height, spec.scale, spec.drange);
+    spec.img.src = spectrogramUrl(relPath, width, height, spec.scale, spec.drange, spec.stereo);
     if (preserveCenter && prevInnerWidth > 0) {
       const centerRatio = (prevScroll + baseWidth * 0.5) / prevInnerWidth;
       const nextScroll = Math.max(0, centerRatio * innerWidth - baseWidth * 0.5);
@@ -312,6 +339,44 @@
     } else if (!preserveCenter) {
       viewport.scrollLeft = Math.min(viewport.scrollLeft, Math.max(0, innerWidth - baseWidth));
     }
+  }
+
+  function renderMiniSpectrogram(){
+    if (!spectrogramMiniViewport || !spectrogramMiniInner || !spectrogramMiniImg) return;
+    const target = getActiveNoiseTarget();
+    if (!target || !target.rel) {
+      spectrogramMiniImg.removeAttribute('src');
+      return;
+    }
+    const widthPx = Math.max(1, spectrogramMiniViewport.clientWidth);
+    setSpectrogramViewport(spectrogramMiniViewport, ANALYZE_MINI_HEIGHT, true);
+    spectrogramMiniInner.style.width = `${widthPx}px`;
+    spectrogramMiniInner.style.height = `${ANALYZE_MINI_HEIGHT}px`;
+    const dpr = window.devicePixelRatio || 1;
+    const width = Math.max(300, Math.round(widthPx * dpr));
+    const height = Math.max(80, Math.round(ANALYZE_MINI_HEIGHT * dpr));
+    spectrogramMiniImg.src = spectrogramUrl(
+      target.rel,
+      width,
+      height,
+      analysisSpectrogram.scale,
+      analysisSpectrogram.drange,
+      analysisSpectrogram.stereo
+    );
+    updateMiniWindow();
+  }
+
+  function updateMiniWindow(){
+    if (!spectrogramMiniWindow || !spectrogramMiniViewport || !spectrogramViewport || !spectrogramInner) return;
+    const innerWidth = spectrogramInner.getBoundingClientRect().width || 0;
+    const viewportWidth = spectrogramViewport.clientWidth || 0;
+    if (!innerWidth || !viewportWidth) return;
+    const maxScroll = Math.max(0, innerWidth - viewportWidth);
+    const scrollLeft = Math.min(Math.max(0, spectrogramViewport.scrollLeft), maxScroll);
+    const windowWidth = Math.max(0, Math.min(1, viewportWidth / innerWidth));
+    const leftRatio = maxScroll > 0 ? scrollLeft / innerWidth : 0;
+    spectrogramMiniWindow.style.width = `${Math.max(4, windowWidth * 100)}%`;
+    spectrogramMiniWindow.style.left = `${Math.max(0, leftRatio * 100)}%`;
   }
 
   function makeResizeObserver(containerEl, callback){
@@ -367,6 +432,11 @@
       noiseSelection = null;
       lastNoiseTargetRel = null;
       updateNoiseReadouts(null);
+      if (spectrogramMiniImg) spectrogramMiniImg.removeAttribute('src');
+      if (spectrogramMiniWindow) {
+        spectrogramMiniWindow.style.width = '0';
+        spectrogramMiniWindow.style.left = '0';
+      }
       return;
     }
     if (lastNoiseTargetRel && lastNoiseTargetRel !== target.rel) {
@@ -375,7 +445,32 @@
     }
     lastNoiseTargetRel = target.rel;
     renderSpectrogramViewer(analysisSpectrogram, target.rel, analysisSpectrogram.height, preserveCenter, true);
+    renderMiniSpectrogram();
     renderNoiseSelectionBox();
+  }
+
+  function clearNoiseSelection(){
+    noiseSelection = null;
+    lastNoiseTargetRel = null;
+    if (spectrogramSelection) spectrogramSelection.hidden = true;
+    updateNoiseReadouts(null);
+  }
+
+  function setActive(kind){
+    const next = kind === 'source' ? analysisContext.source : analysisContext.processed;
+    if (!next) return;
+    analysisContext.active = next;
+    if (analysisFocusProcessedBtn) {
+      analysisFocusProcessedBtn.classList.toggle('is-active', kind === 'processed');
+    }
+    if (analysisFocusSourceBtn) {
+      analysisFocusSourceBtn.classList.toggle('is-active', kind === 'source');
+    }
+    clearNoiseSelection();
+    if (analysisPayload) {
+      renderPills(analysisPayload, analysisPayload.metrics?.input || null, analysisPayload.metrics?.output || null);
+    }
+    renderActiveSpectrogram(true);
   }
 
   const analysisSpectrogram = {
@@ -394,16 +489,22 @@
     scaleKey: ANALYZE_SCALE_KEY,
     drangeKey: ANALYZE_DRANGE_KEY,
     heightKey: ANALYZE_HEIGHT_KEY,
+    stereoKey: ANALYZE_STEREO_KEY,
+    stereoCombinedBtn: analysisStereoCombinedBtn,
+    stereoSplitBtn: analysisStereoSplitBtn,
     scale: 'log',
     drange: 120,
     height: 384,
     zoom: 1,
+    stereo: 'combined',
   };
 
   function loadAnalyzeSpectrogramState(spec){
     spec.scale = loadSetting(spec.scaleKey, 'log');
     spec.drange = parseInt(loadSetting(spec.drangeKey, '120'), 10) || 120;
     spec.height = parseInt(loadSetting(spec.heightKey, '384'), 10) || 384;
+    spec.stereo = loadSetting(spec.stereoKey, 'combined');
+    if (spec.stereo !== 'separate') spec.stereo = 'combined';
     spec.zoom = 1;
     if (spec.range) spec.range.value = String(spec.drange);
     if (spec.rangeVal) spec.rangeVal.textContent = String(spec.drange);
@@ -412,6 +513,12 @@
     if (spec.zoomVal) spec.zoomVal.textContent = `${spec.zoom}x`;
     if (spec.scaleLog) spec.scaleLog.classList.toggle('is-active', spec.scale !== 'lin');
     if (spec.scaleLin) spec.scaleLin.classList.toggle('is-active', spec.scale === 'lin');
+    if (spec.stereoCombinedBtn) {
+      spec.stereoCombinedBtn.classList.toggle('is-active', spec.stereo !== 'separate');
+    }
+    if (spec.stereoSplitBtn) {
+      spec.stereoSplitBtn.classList.toggle('is-active', spec.stereo === 'separate');
+    }
   }
 
   function bindAnalyzeSpectrogramControls(spec){
@@ -438,6 +545,24 @@
         spec.drange = parseInt(spec.range.value || '120', 10) || 120;
         saveSetting(spec.drangeKey, spec.drange);
         if (spec.rangeVal) spec.rangeVal.textContent = String(spec.drange);
+        renderActiveSpectrogram(false);
+      });
+    }
+    if (spec.stereoCombinedBtn) {
+      spec.stereoCombinedBtn.addEventListener('click', () => {
+        spec.stereo = 'combined';
+        saveSetting(spec.stereoKey, spec.stereo);
+        spec.stereoCombinedBtn.classList.add('is-active');
+        if (spec.stereoSplitBtn) spec.stereoSplitBtn.classList.remove('is-active');
+        renderActiveSpectrogram(false);
+      });
+    }
+    if (spec.stereoSplitBtn) {
+      spec.stereoSplitBtn.addEventListener('click', () => {
+        spec.stereo = 'separate';
+        saveSetting(spec.stereoKey, spec.stereo);
+        spec.stereoSplitBtn.classList.add('is-active');
+        if (spec.stereoCombinedBtn) spec.stereoCombinedBtn.classList.remove('is-active');
         renderActiveSpectrogram(false);
       });
     }
@@ -900,21 +1025,31 @@
     if (!payload) return;
     const input = payload.metrics?.input || null;
     const output = payload.metrics?.output || null;
+    analysisPayload = payload;
     if (emptyState) emptyState.hidden = true;
     if (loadedState) loadedState.hidden = false;
     const durationFallback = payload.duration_s ?? output?.duration_sec ?? input?.duration_sec ?? null;
     const sourceEntry = payload.source_rel ? { rel: payload.source_rel, name: payload.source_name || 'Source', kind: 'source' } : null;
     const processedEntry = payload.processed_rel ? { rel: payload.processed_rel, name: payload.processed_name || 'Processed', kind: 'processed' } : null;
-    const activeEntry = processedEntry || sourceEntry || null;
     analysisContext = {
       duration: durationFallback,
       source: sourceEntry,
       processed: processedEntry,
-      active: activeEntry,
+      active: null,
       run_id: payload.run_id || null,
     };
-    renderPills(payload, input, output);
-    renderActiveSpectrogram(false);
+    if (analysisFocusToggle) {
+      analysisFocusToggle.hidden = !(sourceEntry && processedEntry);
+    }
+    if (processedEntry) {
+      setActive('processed');
+    } else if (sourceEntry) {
+      setActive('source');
+    } else {
+      analysisContext.active = null;
+      renderPills(payload, input, output);
+      renderActiveSpectrogram(false);
+    }
   }
 
   async function selectAndLoad(item, node, shouldPush){
@@ -1025,8 +1160,36 @@
   bindAnalyzeSpectrogramControls(analysisSpectrogram);
   bindSpectrogramCursor(analysisSpectrogram);
   renderActiveSpectrogram(false);
+  if (analysisFocusProcessedBtn) {
+    analysisFocusProcessedBtn.addEventListener('click', () => setActive('processed'));
+  }
+  if (analysisFocusSourceBtn) {
+    analysisFocusSourceBtn.addEventListener('click', () => setActive('source'));
+  }
+  if (spectrogramViewport) {
+    spectrogramViewport.addEventListener('scroll', () => updateMiniWindow());
+  }
+  if (spectrogramMiniViewport) {
+    spectrogramMiniViewport.addEventListener('click', (evt) => {
+      const rect = spectrogramMiniViewport.getBoundingClientRect();
+      if (!rect.width) return;
+      const innerWidth = spectrogramInner?.getBoundingClientRect().width || 0;
+      const viewportWidth = spectrogramViewport?.clientWidth || 0;
+      if (!innerWidth || !viewportWidth) return;
+      const ratio = Math.max(0, Math.min(1, (evt.clientX - rect.left) / rect.width));
+      const targetLeft = ratio * innerWidth - viewportWidth * 0.5;
+      const maxScroll = Math.max(0, innerWidth - viewportWidth);
+      if (spectrogramViewport) {
+        spectrogramViewport.scrollLeft = Math.max(0, Math.min(maxScroll, targetLeft));
+      }
+      updateMiniWindow();
+    });
+  }
   makeResizeObserver(spectrogramViewport, () => {
     renderActiveSpectrogram(true);
+  });
+  makeResizeObserver(spectrogramMiniViewport, () => {
+    renderMiniSpectrogram();
   });
 
   if (noiseModeRemoveBtn) {
