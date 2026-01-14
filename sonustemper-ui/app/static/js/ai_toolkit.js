@@ -84,7 +84,6 @@
     },
     strengths: {},
     resizing: null,
-    dryIsolation: null,
   };
 
   function formatTime(raw) {
@@ -129,13 +128,7 @@
     const ctx = state.audioCtx;
     if (state.nodes && ctx) {
       if (ctx.state === 'running') {
-        if (state.dryIsolation === true) {
-          aiEngineIndicator.textContent = 'Audio Engine: ON (isolated)';
-        } else if (state.dryIsolation === false) {
-          aiEngineIndicator.textContent = 'Audio Engine: ON (dry+wet)';
-        } else {
-          aiEngineIndicator.textContent = 'Audio Engine: ON';
-        }
+        aiEngineIndicator.textContent = 'Audio Engine: ON';
         aiEngineIndicator.classList.add('is-on');
         return;
       }
@@ -144,15 +137,9 @@
     aiEngineIndicator.classList.remove('is-on');
   }
 
-  function sampleSignalMax() {
-    if (!state.analyser) return 0;
-    const data = new Uint8Array(state.analyser.frequencyBinCount);
-    state.analyser.getByteFrequencyData(data);
-    let max = 0;
-    for (let i = 0; i < data.length; i += 1) {
-      if (data[i] > max) max = data[i];
-    }
-    return max;
+  function muteDryOutput() {
+    if (!aiAudio) return;
+    aiAudio.muted = true;
   }
 
   function drawScopeFrame() {
@@ -241,38 +228,6 @@
     drawScopeFrame();
   }
 
-  function applyDryIsolation() {
-    if (!aiAudio) return;
-    if (state.dryIsolation === true) {
-      aiAudio.muted = false;
-      aiAudio.volume = 0;
-      return;
-    }
-    aiAudio.muted = false;
-    aiAudio.volume = 1;
-  }
-
-  function probeDryIsolation() {
-    if (!aiAudio || !state.analyser || aiAudio.paused) return;
-    if (state.dryIsolation !== null) {
-      applyDryIsolation();
-      updateEngineIndicator();
-      return;
-    }
-    const prevVol = aiAudio.volume;
-    aiAudio.volume = 0;
-    setTimeout(() => {
-      const max = sampleSignalMax();
-      if (max > 2) {
-        state.dryIsolation = true;
-        aiAudio.volume = 0;
-      } else {
-        state.dryIsolation = false;
-        aiAudio.volume = prevVol || 1;
-      }
-      updateEngineIndicator();
-    }, 120);
-  }
 
   function setClipRisk(active) {
     if (!aiClipRiskPill) return;
@@ -372,8 +327,7 @@
     } catch (_err) {
       return;
     }
-    aiAudio.muted = false;
-    aiAudio.volume = 1;
+    muteDryOutput();
     const bassHp = ctx.createBiquadFilter();
     bassHp.type = 'highpass';
     bassHp.frequency.value = 25;
@@ -458,7 +412,7 @@
     state.scope.node = scope;
     state.scope.floatData = new Float32Array(scope.fftSize);
     state.scope.byteData = new Uint8Array(scope.fftSize);
-    applyDryIsolation();
+    muteDryOutput();
     updateEngineIndicator();
     if (ctx) {
       ctx.onstatechange = () => updateEngineIndicator();
@@ -722,7 +676,6 @@
 
   function setSelectedFile(selected) {
     state.selected = selected;
-    state.dryIsolation = null;
     updateSelectedSummary(selected);
     updateSaveState();
     if (!aiAudio || !selected?.rel) {
@@ -731,7 +684,7 @@
       stopSpectrum();
       return;
     }
-    applyDryIsolation();
+    muteDryOutput();
     const url = `/api/analyze/path?path=${encodeURIComponent(selected.rel)}`;
     aiAudio.src = url;
     aiAudio.load();
@@ -894,6 +847,15 @@
   if (aiAudio) {
     aiAudio.addEventListener('timeupdate', updateTimeLabel);
     aiAudio.addEventListener('durationchange', updateTimeLabel);
+    aiAudio.addEventListener('error', () => {
+      console.warn('AI Toolkit audio error', aiAudio.error);
+    });
+    aiAudio.addEventListener('stalled', () => {
+      console.warn('AI Toolkit audio stalled');
+    });
+    aiAudio.addEventListener('waiting', () => {
+      console.warn('AI Toolkit audio waiting');
+    });
     aiAudio.addEventListener('play', () => {
       setPlayState(true);
       buildAudioGraph();
@@ -916,14 +878,13 @@
     aiPlayBtn.addEventListener('click', () => {
       if (!state.selected || !aiAudio) return;
       buildAudioGraph();
-      applyDryIsolation();
+      muteDryOutput();
       const ctx = ensureAudioContext();
       if (ctx && ctx.state === 'suspended') {
         ctx.resume().catch(() => {});
       }
       if (aiAudio.paused) {
         aiAudio.play().catch(() => {});
-        setTimeout(probeDryIsolation, 200);
       } else {
         aiAudio.pause();
       }
