@@ -53,13 +53,26 @@
       </div>
     </div>
 
-    <div class="ai-waveform-block">
+    <div class="ai-waveform-block ai-waveform-block--overlay">
+      <div class="ai-waveform-overlay" aria-hidden="true">
+        <div class="ai-wave-danger ai-wave-danger--top"></div>
+        <div class="ai-wave-danger ai-wave-danger--bottom"></div>
+        <div class="ai-wave-line ai-wave-line--clip-top"></div>
+        <div class="ai-wave-line ai-wave-line--zero"></div>
+        <div class="ai-wave-line ai-wave-line--clip-bottom"></div>
+        <div class="ai-wave-label ai-wave-label--clip">CLIP</div>
+        <div class="ai-wave-label ai-wave-label--zero">0</div>
+      </div>
       <div id="aiWaveform" class="ai-waveform"></div>
+    </div>
+    <div class="muted ai-wave-legend">
+      <span><b>0</b> center</span> · <span><b>CLIP</b> near 0 dBFS</span> · <span>Top/Bottom tint = danger zone</span>
     </div>
 
     <div class="ai-transport">
       <button class="btn ghost small" type="button" id="aiPlayBtn">Play</button>
       <button class="btn ghost small" type="button" id="aiStopBtn">Stop</button>
+      <span class="value-pill ai-clip-pill" id="aiClipRiskPill" hidden>CLIP RISK</span>
       <div class="ai-time" id="aiTimeLabel">0:00 / 0:00</div>
     </div>
 

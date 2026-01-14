@@ -46,6 +46,7 @@
   const aiPlayBtn = document.getElementById('aiPlayBtn');
   const aiStopBtn = document.getElementById('aiStopBtn');
   const aiTimeLabel = document.getElementById('aiTimeLabel');
+  const aiClipRiskPill = document.getElementById('aiClipRiskPill');
   const aiSpectrumCanvas = document.getElementById('aiSpectrumCanvas');
   const aiSaveBtn = document.getElementById('aiSaveBtn');
   const aiSaveStatus = document.getElementById('aiSaveStatus');
@@ -112,11 +113,26 @@
     if (aiSaveBtn) aiSaveBtn.disabled = !state.selected;
   }
 
+  function setClipRisk(active) {
+    if (!aiClipRiskPill) return;
+    aiClipRiskPill.hidden = !active;
+  }
+
+  function hasClipRisk(metrics) {
+    if (!metrics || typeof metrics !== 'object') return false;
+    const clipped = Number(metrics.clipped_samples ?? 0);
+    const peak = Number(metrics.peak_level);
+    if (Number.isFinite(clipped) && clipped > 0) return true;
+    if (Number.isFinite(peak) && peak >= -0.2) return true;
+    return false;
+  }
+
   function updateSelectedSummary(selected) {
     if (!aiSelectedName || !aiSelectedMeta) return;
     if (!selected) {
       aiSelectedName.textContent = '-';
       aiSelectedMeta.textContent = 'No file selected.';
+      setClipRisk(false);
       return;
     }
     aiSelectedName.textContent = selected.name || selected.rel || 'Selected';
@@ -492,6 +508,7 @@
     };
 
     if (!rel) {
+      setClipRisk(false);
       applyDefaults();
       return;
     }
@@ -510,9 +527,13 @@
           const strength = Math.min(70, Math.max(0, Math.round(severity * 80)));
           defaults[toolId] = Math.max(defaults[toolId], strength);
         });
+        setClipRisk(hasClipRisk(data?.metrics?.fullband));
         applyDefaults();
       })
-      .catch(() => applyDefaults());
+      .catch(() => {
+        setClipRisk(false);
+        applyDefaults();
+      });
   }
 
   function setSelectedFile(selected) {
