@@ -4343,6 +4343,7 @@ def _safe_upload_name(name: str) -> str:
 async def upload(files: list[UploadFile] = File(...)):
     IN_DIR.mkdir(parents=True, exist_ok=True)
     saved = []
+    saved_paths = []
     for file in files:
         safe_name = _safe_upload_name(file.filename)
         dest = IN_DIR / safe_name
@@ -4358,7 +4359,18 @@ async def upload(files: list[UploadFile] = File(...)):
                     raise HTTPException(status_code=413, detail="file_too_large")
                 fout.write(chunk)
         saved.append(dest.name)
-    return JSONResponse({"message": f"Uploaded: {', '.join(saved)}"})
+        saved_paths.append(dest)
+    songs = []
+    if saved_paths:
+        lib = library_store.load_library()
+        for dest in saved_paths:
+            rel_path = _analysis_rel_for_path(dest) or f"in/{dest.name}"
+            duration = _duration_seconds(dest)
+            fmt = dest.suffix.lower().lstrip(".")
+            song = library_store.ensure_song_for_source(lib, rel_path, dest.stem, duration, fmt)
+            songs.append(song)
+        library_store.save_library(lib)
+    return JSONResponse({"message": f"Uploaded: {', '.join(saved)}", "songs": songs})
 @app.post("/api/master")
 def master(
     infile: str = Form(...),
