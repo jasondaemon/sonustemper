@@ -1881,3 +1881,47 @@ h1{margin:0;font-size:24px;}
   width:100%;
   max-width:100%;
 }
+
+/* UI cohesion: sliders, selects, and text fields */
+input[type="range"]{
+  accent-color: var(--accent);
+}
+select,
+.stage-card select,
+.format-row select,
+.form-row select,
+.pipeRow select,
+.preset-field select,
+.preset-voicing-macro-select,
+.format-options select,
+.ai-presets-save select{
+  border-radius:999px;
+  background:#0f151d;
+  border:1px solid var(--line);
+  box-shadow:inset 0 0 0 1px rgba(0,0,0,0.25);
+  color:var(--text);
+  padding:6px 10px;
+}
+input[type="text"],
+input[type="search"],
+input[type="number"],
+input[type="email"],
+input[type="url"],
+input[type="password"],
+textarea,
+.file-browser-search input,
+.form-row input[type="text"],
+.form-row input[type="number"],
+.preset-field input[type="text"],
+.preset-voicing-macro-input,
+.preset-eq-input,
+.preset-profile-input,
+.preset-voicing-input,
+.tag-album input[type="text"],
+.tag-table input{
+  padding:8px 10px;
+  border-radius:10px;
+  border:1px solid var(--line);
+  background:#0f151d;
+  color:var(--text);
+}
