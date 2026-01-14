@@ -76,6 +76,7 @@
     },
     strengths: {},
     resizing: null,
+    dryIsolation: null,
   };
 
   function formatTime(raw) {
@@ -120,13 +121,63 @@
     const ctx = state.audioCtx;
     if (state.nodes && ctx) {
       if (ctx.state === 'running') {
-        aiEngineIndicator.textContent = 'Audio Engine: ON';
+        if (state.dryIsolation === true) {
+          aiEngineIndicator.textContent = 'Audio Engine: ON (isolated)';
+        } else if (state.dryIsolation === false) {
+          aiEngineIndicator.textContent = 'Audio Engine: ON (dry+wet)';
+        } else {
+          aiEngineIndicator.textContent = 'Audio Engine: ON';
+        }
         aiEngineIndicator.classList.add('is-on');
         return;
       }
     }
     aiEngineIndicator.textContent = 'Audio Engine: click Play';
     aiEngineIndicator.classList.remove('is-on');
+  }
+
+  function sampleSignalMax() {
+    if (!state.analyser) return 0;
+    const data = new Uint8Array(state.analyser.frequencyBinCount);
+    state.analyser.getByteFrequencyData(data);
+    let max = 0;
+    for (let i = 0; i < data.length; i += 1) {
+      if (data[i] > max) max = data[i];
+    }
+    return max;
+  }
+
+  function applyDryIsolation() {
+    if (!aiAudio) return;
+    if (state.dryIsolation === true) {
+      aiAudio.muted = false;
+      aiAudio.volume = 0;
+      return;
+    }
+    aiAudio.muted = false;
+    aiAudio.volume = 1;
+  }
+
+  function probeDryIsolation() {
+    if (!aiAudio || !state.analyser || aiAudio.paused) return;
+    if (state.dryIsolation !== null) {
+      applyDryIsolation();
+      updateEngineIndicator();
+      return;
+    }
+    const prevVol = aiAudio.volume;
+    aiAudio.volume = 0;
+    setTimeout(() => {
+      const max = sampleSignalMax();
+      if (max > 2) {
+        state.dryIsolation = true;
+        aiAudio.volume = 0;
+      } else {
+        state.dryIsolation = false;
+        aiAudio.volume = prevVol || 1;
+      }
+      updateEngineIndicator();
+    }, 120);
   }
 
   function setClipRisk(active) {
@@ -227,7 +278,7 @@
     } catch (_err) {
       return;
     }
-    aiAudio.muted = true;
+    aiAudio.muted = false;
     aiAudio.volume = 1;
     const bassHp = ctx.createBiquadFilter();
     bassHp.type = 'highpass';
@@ -304,6 +355,7 @@
       outputGain,
     };
     state.analyser = analyser;
+    applyDryIsolation();
     updateEngineIndicator();
     if (ctx) {
       ctx.onstatechange = () => updateEngineIndicator();
@@ -567,6 +619,7 @@
 
   function setSelectedFile(selected) {
     state.selected = selected;
+    state.dryIsolation = null;
     updateSelectedSummary(selected);
     updateSaveState();
     if (!aiAudio || !selected?.rel) {
@@ -575,6 +628,7 @@
       stopSpectrum();
       return;
     }
+    applyDryIsolation();
     const url = `/api/analyze/path?path=${encodeURIComponent(selected.rel)}`;
     aiAudio.src = url;
     aiAudio.load();
@@ -756,12 +810,14 @@
     aiPlayBtn.addEventListener('click', () => {
       if (!state.selected || !aiAudio) return;
       buildAudioGraph();
+      applyDryIsolation();
       const ctx = ensureAudioContext();
       if (ctx && ctx.state === 'suspended') {
         ctx.resume().catch(() => {});
       }
       if (aiAudio.paused) {
         aiAudio.play().catch(() => {});
+        setTimeout(probeDryIsolation, 200);
       } else {
         aiAudio.pause();
       }
