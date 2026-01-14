@@ -42,6 +42,7 @@
   const aiSelectedName = document.getElementById('aiSelectedName');
   const aiSelectedMeta = document.getElementById('aiSelectedMeta');
   const aiWaveform = document.getElementById('aiWaveform');
+  const aiLiveScope = document.getElementById('aiLiveScope');
   const aiAudio = document.getElementById('aiAudio');
   const aiPlayBtn = document.getElementById('aiPlayBtn');
   const aiStopBtn = document.getElementById('aiStopBtn');
@@ -68,6 +69,13 @@
     audioCtx: null,
     nodes: null,
     analyser: null,
+    scope: {
+      node: null,
+      floatData: null,
+      byteData: null,
+      raf: null,
+      last: 0,
+    },
     spectrum: {
       data: null,
       smooth: null,
@@ -145,6 +153,92 @@
       if (data[i] > max) max = data[i];
     }
     return max;
+  }
+
+  function drawScopeFrame() {
+    if (!aiLiveScope || !state.scope.node) return;
+    const ctx = aiLiveScope.getContext('2d');
+    if (!ctx) return;
+    const now = performance.now();
+    if (now - state.scope.last < 16) {
+      state.scope.raf = requestAnimationFrame(drawScopeFrame);
+      return;
+    }
+    state.scope.last = now;
+    const width = aiLiveScope.clientWidth;
+    const height = aiLiveScope.clientHeight;
+    if (!width || !height) {
+      state.scope.raf = requestAnimationFrame(drawScopeFrame);
+      return;
+    }
+    const dpr = window.devicePixelRatio || 1;
+    if (aiLiveScope.width !== Math.round(width * dpr) || aiLiveScope.height !== Math.round(height * dpr)) {
+      aiLiveScope.width = Math.round(width * dpr);
+      aiLiveScope.height = Math.round(height * dpr);
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+
+    const scopeNode = state.scope.node;
+    let data = state.scope.floatData;
+    let useFloat = true;
+    if (!data || typeof scopeNode.getFloatTimeDomainData !== 'function') {
+      useFloat = false;
+      data = state.scope.byteData;
+    }
+    if (!data) {
+      state.scope.raf = requestAnimationFrame(drawScopeFrame);
+      return;
+    }
+    if (useFloat) {
+      scopeNode.getFloatTimeDomainData(data);
+    } else {
+      scopeNode.getByteTimeDomainData(data);
+    }
+
+    const rootStyle = getComputedStyle(document.documentElement);
+    const accent = rootStyle.getPropertyValue('--accent').trim() || '#ff8a3d';
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 1.5;
+    ctx.globalAlpha = aiAudio && !aiAudio.paused ? 0.85 : 0.5;
+    ctx.beginPath();
+    for (let i = 0; i < data.length; i += 1) {
+      const t = i / (data.length - 1);
+      const x = t * width;
+      const v = useFloat ? data[i] : (data[i] - 128) / 128;
+      const y = (1 - (v * 0.5 + 0.5)) * height;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    ctx.globalAlpha = aiAudio && !aiAudio.paused ? 0.12 : 0.08;
+    ctx.fillStyle = accent;
+    ctx.lineTo(width, height * 0.5);
+    ctx.lineTo(0, height * 0.5);
+    ctx.closePath();
+    ctx.fill();
+
+    state.scope.raf = requestAnimationFrame(drawScopeFrame);
+  }
+
+  function startScope() {
+    if (state.scope.raf) return;
+    state.scope.last = 0;
+    state.scope.raf = requestAnimationFrame(drawScopeFrame);
+  }
+
+  function stopScope() {
+    if (state.scope.raf) {
+      cancelAnimationFrame(state.scope.raf);
+      state.scope.raf = null;
+    }
+  }
+
+  function updateScopeOnce() {
+    stopScope();
+    state.scope.last = 0;
+    drawScopeFrame();
   }
 
   function applyDryIsolation() {
@@ -325,6 +419,10 @@
     const outputGain = ctx.createGain();
     outputGain.gain.value = 1;
 
+    const scope = ctx.createAnalyser();
+    scope.fftSize = 2048;
+    scope.smoothingTimeConstant = 0.85;
+
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 2048;
     analyser.smoothingTimeConstant = 0.8;
@@ -339,6 +437,7 @@
       .connect(transientComp)
       .connect(platformComp)
       .connect(outputGain)
+      .connect(scope)
       .connect(analyser)
       .connect(ctx.destination);
 
@@ -353,8 +452,12 @@
       transientComp,
       platformComp,
       outputGain,
+      scope,
     };
     state.analyser = analyser;
+    state.scope.node = scope;
+    state.scope.floatData = new Float32Array(scope.fftSize);
+    state.scope.byteData = new Uint8Array(scope.fftSize);
     applyDryIsolation();
     updateEngineIndicator();
     if (ctx) {
@@ -796,12 +899,15 @@
       buildAudioGraph();
       updateFilters();
       startSpectrum();
+      startScope();
       updateEngineIndicator();
     });
     aiAudio.addEventListener('pause', () => {
       setPlayState(false);
       stopSpectrum();
       updateSpectrumOnce();
+      stopScope();
+      updateScopeOnce();
       updateEngineIndicator();
     });
   }
@@ -933,6 +1039,7 @@
       if (state.resizing) clearTimeout(state.resizing);
       state.resizing = setTimeout(() => {
         updateSpectrumOnce();
+        updateScopeOnce();
       }, 80);
     });
     resizeObserver.observe(observerTarget);
@@ -942,6 +1049,7 @@
   updateAllStrengths();
   updateFilters();
   updateSpectrumOnce();
+  updateScopeOnce();
   updateSaveState();
   updateTimeLabel();
 })();

@@ -1647,7 +1647,16 @@ h1{margin:0;font-size:24px;}
   inset:8px;
   border-radius:10px;
   pointer-events:none;
-  z-index:2;
+  z-index:7;
+}
+.ai-live-scope{
+  position:absolute;
+  inset:8px;
+  width:calc(100% - 16px);
+  height:calc(100% - 16px);
+  pointer-events:none;
+  z-index:6;
+  opacity:0.9;
 }
 .ai-wave-danger{
   position:absolute;
@@ -1691,6 +1700,8 @@ h1{margin:0;font-size:24px;}
 .ai-waveform{
   width:100%;
   min-height:180px;
+  position:relative;
+  z-index:1;
 }
 .ai-transport{
   display:flex;
