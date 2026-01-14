@@ -97,6 +97,11 @@
             <div class="spectro-window" id="spectrogramMiniWindow"></div>
           </div>
         </div>
+        <div class="spectro-legend">
+          <span id="spectroLegendLow">Low energy (-120 dB)</span>
+          <div class="spectro-legend-bar" aria-hidden="true"></div>
+          <span id="spectroLegendHigh">High energy (0 dB)</span>
+        </div>
       </div>
     </div>
   </div>
@@ -202,6 +207,8 @@
   const analysisStereoSplitBtn = document.getElementById('analysisStereoSplit');
   const analysisFitBtn = document.getElementById('analysisFitBtn');
   const analysisCursor = document.getElementById('analysisCursor');
+  const spectroLegendLow = document.getElementById('spectroLegendLow');
+  const spectroLegendHigh = document.getElementById('spectroLegendHigh');
   const noisePresetSelect = document.getElementById('noisePresetSelect');
   const noiseModeRemoveBtn = document.getElementById('noiseModeRemove');
   const noiseModeSoloBtn = document.getElementById('noiseModeSolo');
@@ -519,6 +526,16 @@
     if (spec.stereoSplitBtn) {
       spec.stereoSplitBtn.classList.toggle('is-active', spec.stereo === 'separate');
     }
+    updateSpectroLegend(spec.drange);
+  }
+
+  function updateSpectroLegend(drange){
+    const spanLow = spectroLegendLow;
+    const spanHigh = spectroLegendHigh;
+    if (!spanLow || !spanHigh) return;
+    const rangeVal = Number.isFinite(drange) ? Math.max(40, Math.min(160, drange)) : 120;
+    spanLow.textContent = `Low energy (-${rangeVal} dB)`;
+    spanHigh.textContent = 'High energy (0 dB)';
   }
 
   function bindAnalyzeSpectrogramControls(spec){
@@ -545,6 +562,7 @@
         spec.drange = parseInt(spec.range.value || '120', 10) || 120;
         saveSetting(spec.drangeKey, spec.drange);
         if (spec.rangeVal) spec.rangeVal.textContent = String(spec.drange);
+        updateSpectroLegend(spec.drange);
         renderActiveSpectrogram(false);
       });
     }

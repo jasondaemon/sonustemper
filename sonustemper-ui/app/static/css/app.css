@@ -622,6 +622,21 @@ h1{margin:0;font-size:24px;}
   cursor:pointer;
   overflow:hidden;
 }
+.spectro-legend{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-size:11px;
+  color:var(--muted);
+  margin-top:6px;
+}
+.spectro-legend-bar{
+  flex:1;
+  height:8px;
+  border-radius:999px;
+  background:linear-gradient(90deg,#440154,#414487,#2a788e,#22a884,#7ad151,#fde725);
+  border:1px solid rgba(255,255,255,0.12);
+}
 .spectro-inner{
   position:relative;
   width:100%;
