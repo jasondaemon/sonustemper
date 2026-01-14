@@ -115,10 +115,16 @@
     </div>
     <div class="noise-cleanup">
       <div class="noise-left">
+        <div class="noise-steps">
+          <div>1) Drag a box on the spectrogram to select the noise (time + frequency)</div>
+          <div>2) Choose Remove or Solo + adjust strength</div>
+          <div>3) Preview, then Render a cleaned copy</div>
+        </div>
         <div class="noise-selection-actions">
           <button class="btn ghost tiny" type="button" id="noiseClearBtn">Clear selection</button>
           <span class="muted">Select a region in the spectrogram above.</span>
         </div>
+        <div class="muted noise-selection-hint" id="noiseSelectionHint">No selection yet — drag on the spectrogram above.</div>
         <div class="noise-readouts">
           <div class="noise-readout"><span>t0</span><span id="noiseT0">-</span></div>
           <div class="noise-readout"><span>t1</span><span id="noiseT1">-</span></div>
@@ -134,6 +140,7 @@
           <select id="noisePresetSelect" class="full-width-select">
             <option value="">No preset</option>
           </select>
+          <div class="muted noise-preset-hint" id="noisePresetHint" hidden></div>
         </div>
         <div class="control-row">
           <label class="control-label">Preview Mode</label>
@@ -210,6 +217,7 @@
   const spectroLegendLow = document.getElementById('spectroLegendLow');
   const spectroLegendHigh = document.getElementById('spectroLegendHigh');
   const noisePresetSelect = document.getElementById('noisePresetSelect');
+  const noisePresetHint = document.getElementById('noisePresetHint');
   const noiseModeRemoveBtn = document.getElementById('noiseModeRemove');
   const noiseModeSoloBtn = document.getElementById('noiseModeSolo');
   const noiseDepthRange = document.getElementById('noiseDepthRange');
@@ -232,10 +240,12 @@
   const noiseF1 = document.getElementById('noiseF1');
   const noiseCenter = document.getElementById('noiseCenter');
   const noiseBandwidth = document.getElementById('noiseBandwidth');
+  const noiseSelectionHint = document.getElementById('noiseSelectionHint');
   let statusLines = [];
   let analysisContext = { source: null, processed: null, active: null, duration: null, run_id: null };
   let analysisPayload = null;
   let noiseSelection = null;
+  let noiseSuggestedBand = null;
   let noiseMode = 'remove';
   let noisePresets = new Map();
   let lastNoiseTargetRel = null;
@@ -386,6 +396,17 @@
     spectrogramMiniWindow.style.left = `${Math.max(0, leftRatio * 100)}%`;
   }
 
+  function scrollMainToRatio(ratio){
+    const innerWidth = spectrogramInner?.getBoundingClientRect().width || 0;
+    const viewportWidth = spectrogramViewport?.clientWidth || 0;
+    if (!innerWidth || !viewportWidth) return;
+    const targetLeft = ratio * innerWidth - viewportWidth * 0.5;
+    const maxScroll = Math.max(0, innerWidth - viewportWidth);
+    if (spectrogramViewport) {
+      spectrogramViewport.scrollLeft = Math.max(0, Math.min(maxScroll, targetLeft));
+    }
+  }
+
   function makeResizeObserver(containerEl, callback){
     if (!containerEl || typeof ResizeObserver === 'undefined') return null;
     let timer = null;
@@ -417,6 +438,8 @@
       noiseF1.textContent = '-';
       noiseCenter.textContent = '-';
       noiseBandwidth.textContent = '-';
+      if (noiseSelectionHint) noiseSelectionHint.textContent = 'No selection yet — drag on the spectrogram above.';
+      updateNoiseButtonState();
       return;
     }
     noiseT0.textContent = formatSeconds(selection.t0);
@@ -425,6 +448,19 @@
     noiseF1.textContent = formatHz(selection.f1);
     noiseCenter.textContent = formatHz((selection.f0 + selection.f1) * 0.5);
     noiseBandwidth.textContent = formatHz(selection.f1 - selection.f0);
+    if (noiseSelectionHint) noiseSelectionHint.textContent = 'Selection ready.';
+    if (noisePresetHint && !noiseSuggestedBand) {
+      noisePresetHint.hidden = true;
+      noisePresetHint.textContent = '';
+    }
+    updateNoiseButtonState();
+  }
+
+  function updateNoiseButtonState(){
+    const ok = !!noiseSelection && noiseSelection.t1 > noiseSelection.t0 && noiseSelection.f1 > noiseSelection.f0;
+    if (noisePreviewBtn) noisePreviewBtn.disabled = !ok;
+    if (noiseRenderBtn) noiseRenderBtn.disabled = !ok;
+    if (noiseSaveBtn) noiseSaveBtn.disabled = !ok;
   }
 
   function getActiveNoiseTarget(){
@@ -459,6 +495,11 @@
   function clearNoiseSelection(){
     noiseSelection = null;
     lastNoiseTargetRel = null;
+    noiseSuggestedBand = null;
+    if (noisePresetHint) {
+      noisePresetHint.hidden = true;
+      noisePresetHint.textContent = '';
+    }
     if (spectrogramSelection) spectrogramSelection.hidden = true;
     updateNoiseReadouts(null);
   }
@@ -842,8 +883,17 @@
       const toFreq = (y) => yToFreqScaled(y, rect.height, analysisSpectrogram.scale);
       const t0 = toTime(left);
       const t1 = toTime(right);
-      const f0 = toFreq(bottom);
-      const f1 = toFreq(top);
+      let f0 = toFreq(bottom);
+      let f1 = toFreq(top);
+      if (noiseSuggestedBand) {
+        f0 = noiseSuggestedBand.f0;
+        f1 = noiseSuggestedBand.f1;
+        noiseSuggestedBand = null;
+        if (noisePresetHint) {
+          noisePresetHint.hidden = true;
+          noisePresetHint.textContent = '';
+        }
+      }
       noiseSelection = { t0, t1, f0, f1 };
       updateNoiseReadouts(noiseSelection);
     };
@@ -987,15 +1037,32 @@
       if (typeof noise.lp_hz === 'number') noiseLpValue.value = String(noise.lp_hz);
     }
     if (noise.mode) setNoiseMode(noise.mode);
-    if (noise.f_low && noise.f_high && analysisContext.duration) {
-      noiseSelection = {
-        t0: noiseSelection?.t0 || 0,
-        t1: noiseSelection?.t1 || Math.min(analysisContext.duration, 2),
-        f0: noise.f_low,
-        f1: noise.f_high,
-      };
-      updateNoiseReadouts(noiseSelection);
-      renderNoiseSelectionBox();
+    if (noisePresetHint) {
+      noisePresetHint.hidden = true;
+      noisePresetHint.textContent = '';
+    }
+    if (noise.f_low && noise.f_high) {
+      if (noiseSelection) {
+        noiseSelection = {
+          t0: noiseSelection.t0,
+          t1: noiseSelection.t1,
+          f0: noise.f_low,
+          f1: noise.f_high,
+        };
+        updateNoiseReadouts(noiseSelection);
+        renderNoiseSelectionBox();
+        noiseSuggestedBand = null;
+      } else {
+        noiseSuggestedBand = { f0: noise.f_low, f1: noise.f_high };
+        if (noisePresetHint) {
+          noisePresetHint.textContent = `Preset suggests ${formatHz(noise.f_low)}–${formatHz(noise.f_high)}. Drag a box to choose the time region.`;
+          noisePresetHint.hidden = false;
+        }
+        updateNoiseButtonState();
+      }
+    } else {
+      noiseSuggestedBand = null;
+      updateNoiseButtonState();
     }
   }
 
@@ -1188,19 +1255,32 @@
     spectrogramViewport.addEventListener('scroll', () => updateMiniWindow());
   }
   if (spectrogramMiniViewport) {
-    spectrogramMiniViewport.addEventListener('click', (evt) => {
+    let miniDragging = false;
+    const onMiniMove = (evt) => {
+      if (!spectrogramMiniViewport) return;
       const rect = spectrogramMiniViewport.getBoundingClientRect();
       if (!rect.width) return;
-      const innerWidth = spectrogramInner?.getBoundingClientRect().width || 0;
-      const viewportWidth = spectrogramViewport?.clientWidth || 0;
-      if (!innerWidth || !viewportWidth) return;
       const ratio = Math.max(0, Math.min(1, (evt.clientX - rect.left) / rect.width));
-      const targetLeft = ratio * innerWidth - viewportWidth * 0.5;
-      const maxScroll = Math.max(0, innerWidth - viewportWidth);
-      if (spectrogramViewport) {
-        spectrogramViewport.scrollLeft = Math.max(0, Math.min(maxScroll, targetLeft));
-      }
+      scrollMainToRatio(ratio);
       updateMiniWindow();
+    };
+    const stopMiniDrag = () => {
+      if (!miniDragging) return;
+      miniDragging = false;
+      spectrogramMiniViewport.classList.remove('is-dragging');
+      document.removeEventListener('mousemove', onMiniMove);
+      document.removeEventListener('mouseup', stopMiniDrag);
+    };
+    spectrogramMiniViewport.addEventListener('mousedown', (evt) => {
+      miniDragging = true;
+      spectrogramMiniViewport.classList.add('is-dragging');
+      onMiniMove(evt);
+      document.addEventListener('mousemove', onMiniMove);
+      document.addEventListener('mouseup', stopMiniDrag);
+      evt.preventDefault();
+    });
+    spectrogramMiniViewport.addEventListener('mouseleave', () => {
+      stopMiniDrag();
     });
   }
   makeResizeObserver(spectrogramViewport, () => {
@@ -1245,6 +1325,7 @@
 
   bindSpectrogramSelection();
   setNoiseMode('remove');
+  updateNoiseButtonState();
   loadNoisePresets();
 })();
 </script>

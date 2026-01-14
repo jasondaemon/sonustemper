@@ -578,10 +578,21 @@ h1{margin:0;font-size:24px;}
   flex-direction:column;
   gap:10px;
 }
+.noise-steps{
+  font-size:12px;
+  color:var(--muted);
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
 .noise-selection-actions{
   display:flex;
   align-items:center;
   gap:8px;
+}
+.noise-preset-hint,
+.noise-selection-hint{
+  font-size:12px;
 }
 .spectrogram-wrap{
   position:relative;
@@ -619,8 +630,11 @@ h1{margin:0;font-size:24px;}
   margin-top:8px;
   min-height:90px;
   max-height:120px;
-  cursor:pointer;
+  cursor:grab;
   overflow:hidden;
+}
+.spectro-viewport--mini.is-dragging{
+  cursor:grabbing;
 }
 .spectro-legend{
   display:flex;

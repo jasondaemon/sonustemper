@@ -3527,7 +3527,7 @@ def analyze_spectrogram(
     stereo: str = "combined",
 ):
     target = _resolve_analysis_path(path)
-    width = max(320, min(2000, int(w)))
+    width = max(320, min(8192, int(w)))
     height = max(128, min(1024, int(h)))
     drange = max(40, min(160, int(drange)))
     requested = scale if scale is not None else mode
@@ -3536,7 +3536,7 @@ def analyze_spectrogram(
     cache_dir = ANALYSIS_TMP_DIR / "spectrograms"
     cache_dir.mkdir(parents=True, exist_ok=True)
     stat = target.stat()
-    key_raw = f"{target.resolve()}::{stat.st_mtime}::{width}::{height}::{scale}::{drange}"
+    key_raw = f"{target.resolve()}::{stat.st_mtime}::{width}::{height}::{scale}::{drange}::{stereo_mode}"
     key = hashlib.sha256(key_raw.encode("utf-8")).hexdigest()
     out_path = cache_dir / f"{key}.png"
     if not out_path.exists():
