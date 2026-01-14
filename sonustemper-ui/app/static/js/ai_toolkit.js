@@ -47,6 +47,8 @@
   const aiStopBtn = document.getElementById('aiStopBtn');
   const aiTimeLabel = document.getElementById('aiTimeLabel');
   const aiClipRiskPill = document.getElementById('aiClipRiskPill');
+  const aiEngineIndicator = document.getElementById('aiEngineIndicator');
+  const aiEngineDebug = document.getElementById('aiEngineDebug');
   const aiSpectrumCanvas = document.getElementById('aiSpectrumCanvas');
   const aiSaveBtn = document.getElementById('aiSaveBtn');
   const aiSaveStatus = document.getElementById('aiSaveStatus');
@@ -111,6 +113,20 @@
 
   function updateSaveState() {
     if (aiSaveBtn) aiSaveBtn.disabled = !state.selected;
+  }
+
+  function updateEngineIndicator() {
+    if (!aiEngineIndicator) return;
+    const ctx = state.audioCtx;
+    if (state.nodes && ctx) {
+      if (ctx.state === 'running') {
+        aiEngineIndicator.textContent = 'Audio Engine: ON';
+        aiEngineIndicator.classList.add('is-on');
+        return;
+      }
+    }
+    aiEngineIndicator.textContent = 'Audio Engine: click Play';
+    aiEngineIndicator.classList.remove('is-on');
   }
 
   function setClipRisk(active) {
@@ -211,6 +227,8 @@
     } catch (_err) {
       return;
     }
+    aiAudio.muted = true;
+    aiAudio.volume = 1;
     const bassHp = ctx.createBiquadFilter();
     bassHp.type = 'highpass';
     bassHp.frequency.value = 25;
@@ -286,11 +304,18 @@
       outputGain,
     };
     state.analyser = analyser;
+    updateEngineIndicator();
+    if (ctx) {
+      ctx.onstatechange = () => updateEngineIndicator();
+    }
     resetSpectrumBuffers();
   }
 
   function updateFilters() {
-    if (!state.nodes) return;
+    if (!state.nodes) {
+      if (aiEngineDebug) aiEngineDebug.textContent = '';
+      return;
+    }
     const ctx = state.audioCtx;
     if (!ctx) return;
     const s = state.strengths;
@@ -325,6 +350,10 @@
     const gainDb = -3 * platform;
     const gain = Math.pow(10, gainDb / 20);
     setParam(state.nodes.outputGain.gain, gain);
+    if (aiEngineDebug) {
+      const deglassDb = -4 * deglass;
+      aiEngineDebug.textContent = `Deglass shelf: ${deglassDb.toFixed(2)} dB`;
+    }
   }
 
   function computeEffectCurve(width, height) {
@@ -713,11 +742,13 @@
       buildAudioGraph();
       updateFilters();
       startSpectrum();
+      updateEngineIndicator();
     });
     aiAudio.addEventListener('pause', () => {
       setPlayState(false);
       stopSpectrum();
       updateSpectrumOnce();
+      updateEngineIndicator();
     });
   }
 
