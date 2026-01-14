@@ -25,7 +25,7 @@ from fastapi.responses import JSONResponse, FileResponse, StreamingResponse, Res
 from sonustemper.tools import bundle_root, is_frozen, resolve_tool
 from fastapi.templating import Jinja2Templates
 from .tagger import TaggerService
-from . import library as library_index
+from . import library as library_store
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
@@ -2387,8 +2387,8 @@ def _library_scan_unsorted(used: set[str]) -> list[dict]:
 
 
 @app.get("/api/library")
-def library_index():
-    lib = library_index.load_library()
+def library_index_endpoint():
+    lib = library_store.load_library()
     payload = {
         "version": lib.get("version", 1),
         "songs": [],
@@ -2397,7 +2397,7 @@ def library_index():
     used = _library_used_rels(lib)
     for song in lib.get("songs", []):
         entry = dict(song)
-        entry["latest_version"] = library_index.latest_version(song)
+        entry["latest_version"] = library_store.latest_version(song)
         payload["songs"].append(entry)
     payload["unsorted"] = _library_scan_unsorted(used)
     return payload
@@ -2411,9 +2411,9 @@ def library_import_source(payload: dict = Body(...)):
     rel_path = _analysis_rel_for_path(target) or rel
     duration = _duration_seconds(target)
     fmt = target.suffix.lower().lstrip(".")
-    lib = library_index.load_library()
-    song = library_index.ensure_song_for_source(lib, rel_path, title, duration, fmt)
-    library_index.save_library(lib)
+    lib = library_store.load_library()
+    song = library_store.ensure_song_for_source(lib, rel_path, title, duration, fmt)
+    library_store.save_library(lib)
     return {"song": song}
 
 
@@ -2436,9 +2436,9 @@ def library_use_as_source(payload: dict = Body(...)):
     rel_path = _analysis_rel_for_path(dest) or f"in/{dest.name}"
     duration = _duration_seconds(dest)
     fmt = dest.suffix.lower().lstrip(".")
-    lib = library_index.load_library()
-    song = library_index.ensure_song_for_source(lib, rel_path, title, duration, fmt)
-    library_index.save_library(lib)
+    lib = library_store.load_library()
+    song = library_store.ensure_song_for_source(lib, rel_path, title, duration, fmt)
+    library_store.save_library(lib)
     return {"song": song, "rel": rel_path}
 
 
@@ -2455,12 +2455,12 @@ def library_add_version(payload: dict = Body(...)):
         raise HTTPException(status_code=400, detail="missing_fields")
     target = _resolve_analysis_path(rel)
     rel_path = _analysis_rel_for_path(target) or rel
-    lib = library_index.load_library()
+    lib = library_store.load_library()
     try:
-        version = library_index.add_version(lib, song_id, kind, label, rel_path, summary, metrics, tags)
+        version = library_store.add_version(lib, song_id, kind, label, rel_path, summary, metrics, tags)
     except ValueError:
         raise HTTPException(status_code=404, detail="song_not_found")
-    library_index.save_library(lib)
+    library_store.save_library(lib)
     return {"version": version}
 
 
@@ -2470,10 +2470,10 @@ def library_rename_song(payload: dict = Body(...)):
     title = payload.get("title") or ""
     if not song_id:
         raise HTTPException(status_code=400, detail="missing_song_id")
-    lib = library_index.load_library()
-    if not library_index.rename_song(lib, song_id, title):
+    lib = library_store.load_library()
+    if not library_store.rename_song(lib, song_id, title):
         raise HTTPException(status_code=404, detail="song_not_found")
-    library_index.save_library(lib)
+    library_store.save_library(lib)
     return {"ok": True}
 
 
@@ -2483,11 +2483,11 @@ def library_delete_version(payload: dict = Body(...)):
     version_id = (payload.get("version_id") or "").strip()
     if not song_id or not version_id:
         raise HTTPException(status_code=400, detail="missing_fields")
-    lib = library_index.load_library()
-    removed = library_index.delete_version(lib, song_id, version_id)
+    lib = library_store.load_library()
+    removed = library_store.delete_version(lib, song_id, version_id)
     if not removed:
         raise HTTPException(status_code=404, detail="version_not_found")
-    library_index.save_library(lib)
+    library_store.save_library(lib)
     rel = removed.get("rel")
     if rel:
         try:
@@ -2507,10 +2507,10 @@ def library_delete_song(payload: dict = Body(...)):
     song_id = (payload.get("song_id") or "").strip()
     if not song_id:
         raise HTTPException(status_code=400, detail="missing_song_id")
-    lib = library_index.load_library()
-    if not library_index.delete_song(lib, song_id):
+    lib = library_store.load_library()
+    if not library_store.delete_song(lib, song_id):
         raise HTTPException(status_code=404, detail="song_not_found")
-    library_index.save_library(lib)
+    library_store.save_library(lib)
     return {"deleted": song_id}
 
 def _preset_name_list() -> list[str]:
