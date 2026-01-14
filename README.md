@@ -72,10 +72,13 @@ SonusTemper is a one-page mastering workstation: drop in a song, choose a voicin
 ![taggin ui](images/tagging.png)
 
 ## Data paths
-- Mastering inputs: `./data/mastering/in`
-- Mastering outputs: `./data/mastering/out`
-- Voicing previews (session temp): `./data/previews` (TTL-cleaned, non-persistent)
-- Presets: `./data/presets/user/*.json` (starter examples in `./example-presets/`)
+- Root defaults to `/data`. For local dev, set `DATA_DIR=./data` (or `SONUSTEMPER_DATA_ROOT`) if `/data` is not writable.
+- Library index: `./data/library/library.json`
+- Song audio:
+  - Sources: `./data/library/songs/<song_id>/source/`
+  - Versions: `./data/library/songs/<song_id>/versions/`
+- Presets: `./data/presets/{builtin,user,generated}/`
+- Previews (session temp): `./data/previews/` (TTL-cleaned, non-persistent)
 
 ## Install & run
 ### Docker (recommended)
@@ -88,7 +91,7 @@ docker compose up -d
 # open http://localhost:${PORT:-8383}
 ```
 Mounts (defaults):
-- `./data` -> `/data` (all app data: mastering, tagging, presets, analysis)
+- `./data` -> `/data` (all app data: library, presets, previews)
 
 ### Docker (dev build)
 ```bash
@@ -98,7 +101,7 @@ docker compose -f docker-compose.dev.yml up --build
 
 ### Local (no Docker)
 - Requires Python 3.11+ and ffmpeg/ffprobe on PATH.
-- Env defaults: `DATA_DIR=/data` with mastering under `/data/mastering/{in,out,tmp}`, tagging under `/data/tagging/{in,tmp}`, presets under `/data/presets/{user,generated}`
+- Env defaults: `DATA_DIR=/data` (override with `SONUSTEMPER_DATA_ROOT` or `DATA_DIR` if needed).
 ```bash
 uvicorn sonustemper.server:app --reload --port 8383
 ```

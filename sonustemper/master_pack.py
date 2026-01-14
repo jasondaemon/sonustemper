@@ -203,11 +203,13 @@ def _parse_astats_overall(text: str) -> dict:
         "dynamic_range": dr,
         "crest_factor": cf,
     }
-DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
-IN_DIR = Path(os.getenv("IN_DIR", os.getenv("MASTER_IN_DIR", str(DATA_DIR / "mastering" / "in"))))
-OUT_DIR = Path(os.getenv("OUT_DIR", os.getenv("MASTER_OUT_DIR", str(DATA_DIR / "mastering" / "out"))))
-PRESET_DIR = Path(os.getenv("PRESET_DIR", os.getenv("PRESET_USER_DIR", str(DATA_DIR / "presets" / "user"))))
-ANALYSIS_TMP = Path(os.getenv("ANALYSIS_TMP_DIR", str(DATA_DIR / "analysis" / "tmp")))
+from .storage import DATA_ROOT
+
+DATA_DIR = Path(os.getenv("DATA_DIR") or os.getenv("SONUSTEMPER_DATA_ROOT") or str(DATA_ROOT))
+IN_DIR = Path(os.getenv("IN_DIR", str(DATA_DIR / "library" / "songs")))
+OUT_DIR = Path(os.getenv("OUT_DIR", str(DATA_DIR / "previews" / "master_runs")))
+PRESET_DIR = Path(os.getenv("PRESET_DIR", str(DATA_DIR / "presets" / "user")))
+ANALYSIS_TMP = Path(os.getenv("ANALYSIS_TMP_DIR", str(DATA_DIR / "previews" / "analysis_tmp")))
 GEN_PRESET_DIR = Path(os.getenv("GEN_PRESET_DIR", str(DATA_DIR / "presets" / "generated")))
 ASSET_PRESET_DIR = (bundle_root() / "assets" / "presets") if is_frozen() else (Path(__file__).resolve().parents[1] / "assets" / "presets")
 BUILTIN_PROFILE_DIR = ASSET_PRESET_DIR / "profiles"
@@ -1240,8 +1242,9 @@ def _run_with_args(args, event_cb=None) -> dict:
             args.guardrails = False
             args.mono_bass = None
 
-        IN_DIR.mkdir(parents=True, exist_ok=True)
-        OUT_DIR.mkdir(parents=True, exist_ok=True)
+        if not args.output_dir:
+            IN_DIR.mkdir(parents=True, exist_ok=True)
+            OUT_DIR.mkdir(parents=True, exist_ok=True)
 
         # Clamp user-provided overrides centrally
         if args.lufs is not None:
@@ -1255,16 +1258,20 @@ def _run_with_args(args, event_cb=None) -> dict:
 
         strength = clamp(args.strength, 0, 100) / 100.0
 
-        infile = Path(args.infile)
-        if infile.is_absolute() and server_mode:
+        infile = Path(args.input_path) if args.input_path else Path(args.infile)
+        if infile.is_absolute() and server_mode and not args.input_path:
             raise RuntimeError(f"Absolute paths are disallowed in server mode: {infile}")
         if not infile.is_absolute():
             infile = IN_DIR / infile
         if not infile.exists():
             raise RuntimeError(f"Input not found: {infile}")
 
-        song_dir = OUT_DIR / infile.stem
-        song_dir.mkdir(parents=True, exist_ok=True)
+        if args.output_dir:
+            song_dir = Path(args.output_dir)
+            song_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            song_dir = OUT_DIR / infile.stem
+            song_dir.mkdir(parents=True, exist_ok=True)
         source_copy = song_dir / infile.name
         if not source_copy.exists():
             try:
@@ -1645,6 +1652,8 @@ def _run_with_args(args, event_cb=None) -> dict:
 def run_master_job(
     infile: str,
     *,
+    input_path: str | None = None,
+    output_dir: str | None = None,
     strength: int = 80,
     presets: str | None = None,
     lufs: float | None = None,
@@ -1687,6 +1696,8 @@ def run_master_job(
             ogg_quality = 5.0
     args = argparse.Namespace(
         infile=infile,
+        input_path=input_path,
+        output_dir=output_dir,
         strength=int(strength),
         presets=presets,
         lufs=lufs,

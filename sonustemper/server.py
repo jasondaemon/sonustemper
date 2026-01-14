@@ -26,13 +26,34 @@ from sonustemper.tools import bundle_root, is_frozen, resolve_tool
 from fastapi.templating import Jinja2Templates
 from .tagger import TaggerService
 from . import library as library_store
+from . import storage as storage
+from .storage import (
+    DATA_ROOT,
+    PRESETS_DIR,
+    LIBRARY_DIR,
+    SONGS_DIR,
+    PREVIEWS_DIR,
+    LIBRARY_FILE,
+    ensure_data_roots,
+    allocate_source_path,
+    allocate_version_path,
+    safe_filename,
+    rel_from_path,
+    resolve_rel,
+    new_song_id,
+)
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
-DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
-MASTER_IN_DIR = Path(os.getenv("IN_DIR", os.getenv("MASTER_IN_DIR", str(DATA_DIR / "mastering" / "in"))))
-MASTER_OUT_DIR = Path(os.getenv("OUT_DIR", os.getenv("MASTER_OUT_DIR", str(DATA_DIR / "mastering" / "out"))))
-MASTER_TMP_DIR = Path(os.getenv("MASTER_TMP_DIR", str(DATA_DIR / "mastering" / "tmp")))
-PREVIEW_DIR = Path(os.getenv("PREVIEW_DIR", str(DATA_DIR / "previews")))
+DATA_DIR = DATA_ROOT
+MASTER_IN_DIR = SONGS_DIR
+MASTER_OUT_DIR = SONGS_DIR
+MASTER_TMP_DIR = PREVIEWS_DIR / "master_tmp"
+IN_DIR = SONGS_DIR
+OUT_DIR = SONGS_DIR
+ANALYSIS_IN_DIR = SONGS_DIR
+ANALYSIS_OUT_DIR = SONGS_DIR
+PREVIEW_DIR = PREVIEWS_DIR / "voicing"
+MASTER_RUN_DIR = PREVIEWS_DIR / "master_runs"
 PREVIEW_TTL_SEC = int(os.getenv("PREVIEW_TTL_SEC", "600"))
 PREVIEW_SESSION_CAP = int(os.getenv("PREVIEW_SESSION_CAP", "5"))
 PREVIEW_SEGMENT_START = int(os.getenv("PREVIEW_SEGMENT_START", "30"))
@@ -42,25 +63,20 @@ PREVIEW_GUARD_MAX_WIDTH = float(os.getenv("PREVIEW_GUARD_MAX_WIDTH", "1.1"))
 PREVIEW_SESSION_COOKIE = "st_preview_session"
 PREVIEW_BITRATE_KBPS = int(os.getenv("PREVIEW_BITRATE_KBPS", "128"))
 PREVIEW_SAMPLE_RATE = int(os.getenv("PREVIEW_SAMPLE_RATE", "44100"))
-PRESET_DIR = Path(os.getenv("PRESET_DIR", os.getenv("PRESET_USER_DIR", str(DATA_DIR / "presets" / "user"))))
-GEN_PRESET_DIR = Path(os.getenv("GEN_PRESET_DIR", str(DATA_DIR / "presets" / "generated")))
+PRESET_DIR = PRESETS_DIR / "user"
+GEN_PRESET_DIR = PRESETS_DIR / "generated"
 USER_VOICING_DIR = PRESET_DIR / "voicings"
 USER_PROFILE_DIR = PRESET_DIR / "profiles"
 STAGING_VOICING_DIR = GEN_PRESET_DIR / "voicings"
 STAGING_PROFILE_DIR = GEN_PRESET_DIR / "profiles"
-TAG_IN_DIR = Path(os.getenv("TAG_IN_DIR", str(DATA_DIR / "tagging" / "in")))
-TAG_TMP_DIR = Path(os.getenv("TAG_TMP_DIR", str(DATA_DIR / "tagging" / "tmp")))
-ANALYSIS_IN_DIR = Path(os.getenv("ANALYSIS_IN_DIR", str(DATA_DIR / "analysis" / "in")))
-ANALYSIS_OUT_DIR = Path(os.getenv("ANALYSIS_OUT_DIR", str(DATA_DIR / "analysis" / "out")))
-ANALYSIS_TMP_DIR = Path(os.getenv("ANALYSIS_TMP_DIR", str(DATA_DIR / "analysis" / "tmp")))
-NOISE_PREVIEW_DIR = Path(os.getenv("NOISE_PREVIEW_DIR", str(DATA_DIR / "analysis" / "noise_preview")))
+TAG_IN_DIR = PREVIEWS_DIR / "tagging"
+TAG_TMP_DIR = PREVIEWS_DIR / "tagging_tmp"
+ANALYSIS_TMP_DIR = PREVIEWS_DIR / "analysis_tmp"
+NOISE_PREVIEW_DIR = PREVIEWS_DIR / "noise_preview"
 NOISE_FILTER_DIR = PRESET_DIR / "noise_filters"
 STAGING_NOISE_FILTER_DIR = GEN_PRESET_DIR / "noise_filters"
-AI_TOOL_PREVIEW_DIR = Path(os.getenv("AI_TOOL_PREVIEW_DIR", str(DATA_DIR / "analysis" / "ai_preview")))
+AI_TOOL_PREVIEW_DIR = PREVIEWS_DIR / "ai_preview"
 AI_TOOL_PRESET_DIR = PRESET_DIR / "ai_tools"
-# Alias older variable names to new mastering locations for internal use
-IN_DIR = MASTER_IN_DIR
-OUT_DIR = MASTER_OUT_DIR
 APP_DIR = Path(__file__).resolve().parent
 REPO_ROOT = APP_DIR.parent
 UI_APP_DIR = (bundle_root() / "sonustemper-ui" / "app") if is_frozen() else (REPO_ROOT / "sonustemper-ui" / "app")
@@ -194,22 +210,26 @@ _default_pack = REPO_ROOT / "sonustemper" / "master_pack.py"
 # Use master_pack.py as the unified mastering script (handles single or multiple presets/files)
 MASTER_SCRIPT = Path(os.getenv("MASTER_SCRIPT", str(_default_pack)))
 app = FastAPI(docs_url=None, redoc_url=None)
+ensure_data_roots()
 for p in [
-    MASTER_IN_DIR,
-    MASTER_OUT_DIR,
-    MASTER_TMP_DIR,
     PREVIEW_DIR,
+    MASTER_RUN_DIR,
     TAG_IN_DIR,
     TAG_TMP_DIR,
     PRESET_DIR,
     GEN_PRESET_DIR,
-    ANALYSIS_IN_DIR,
-    ANALYSIS_OUT_DIR,
+    USER_VOICING_DIR,
+    USER_PROFILE_DIR,
+    STAGING_VOICING_DIR,
+    STAGING_PROFILE_DIR,
+    NOISE_PREVIEW_DIR,
+    NOISE_FILTER_DIR,
+    STAGING_NOISE_FILTER_DIR,
+    AI_TOOL_PREVIEW_DIR,
+    AI_TOOL_PRESET_DIR,
     ANALYSIS_TMP_DIR,
 ]:
     p.mkdir(parents=True, exist_ok=True)
-app.mount("/out", StaticFiles(directory=str(MASTER_OUT_DIR), html=True), name="out")
-app.mount("/analysis", StaticFiles(directory=str(ANALYSIS_IN_DIR), html=False), name="analysis")
 # Mount new UI static assets if present
 UI_STATIC_DIR = UI_APP_DIR / "static"
 if UI_STATIC_DIR.exists():
@@ -481,8 +501,8 @@ def _render_preview(preview_id: str) -> None:
 
 # Utility roots for file manager
 UTILITY_ROOTS = {
-    ("mastering", "source"): MASTER_IN_DIR,
-    ("mastering", "output"): MASTER_OUT_DIR,
+    ("mastering", "source"): SONGS_DIR,
+    ("mastering", "output"): SONGS_DIR,
     ("tagging", "library"): TAG_IN_DIR,
     ("presets", "user"): PRESET_DIR,
     ("presets", "generated"): GEN_PRESET_DIR,
@@ -505,7 +525,44 @@ logger.debug("[startup] ffmpeg=%s ffprobe=%s", FFMPEG_BIN, FFPROBE_BIN)
 MAX_CONCURRENT_RUNS = int(os.getenv("MAX_CONCURRENT_RUNS", "2"))
 RUNS_IN_FLIGHT = 0
 
-def _start_master_jobs(files, presets, strength, lufs, tp, width, mono_bass, guardrails,
+def _import_master_outputs(song_id: str, run_dir: Path, summary: dict | None = None) -> list[dict]:
+    outputs = []
+    if not run_dir.exists():
+        return outputs
+    lib = library_store.load_library()
+    song = _library_find_song(song_id)
+    if not song:
+        return outputs
+    for fp in _list_audio_files(run_dir):
+        try:
+            version_id, dest = allocate_version_path(song_id, "master", fp.suffix.lower())
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(fp), dest)
+        except Exception:
+            continue
+        metrics = {}
+        metrics_path = run_dir / f"{fp.stem}.metrics.json"
+        if metrics_path.exists():
+            metrics = read_metrics_file(metrics_path) or {}
+        rel = rel_from_path(dest)
+        label = fp.stem or "Master"
+        entry = library_store.add_version(
+            lib,
+            song_id,
+            "master",
+            label,
+            rel,
+            summary or {},
+            metrics,
+            [],
+            version_id=version_id,
+        )
+        outputs.append(entry)
+    library_store.save_library(lib)
+    return outputs
+
+
+def _start_master_jobs(song_ids, presets, strength, lufs, tp, width, mono_bass, guardrails,
                        stage_analyze, stage_master, stage_loudness, stage_stereo, stage_output,
                        out_wav, out_mp3, mp3_bitrate, mp3_vbr,
                        out_aac, aac_bitrate, aac_codec, aac_container,
@@ -517,7 +574,7 @@ def _start_master_jobs(files, presets, strength, lufs, tp, width, mono_bass, gua
     global RUNS_IN_FLIGHT
     RUNS_IN_FLIGHT = max(0, RUNS_IN_FLIGHT) + 1
     target_loop = getattr(status_bus, "loop", None) or MAIN_LOOP
-    run_ids = [Path(f).stem or f for f in files]
+    run_ids = [str(s) for s in song_ids]
     def _is_enabled(val):
         if val is None:
             return False
@@ -549,53 +606,85 @@ def _start_master_jobs(files, presets, strength, lufs, tp, width, mono_bass, gua
             _emit(run_id, event.get("stage", ""), event.get("detail", ""), event.get("preset"))
         return _cb
     def run_all():
-        for f, rid in zip(files, run_ids):
+        for song_id, rid in zip(song_ids, run_ids):
             do_analyze  = _is_enabled(stage_analyze)
             do_master   = _is_enabled(stage_master)
             do_loudness = _is_enabled(stage_loudness)
             do_stereo   = _is_enabled(stage_stereo)
             do_output   = _is_enabled(stage_output)
-        try:
-            print(f"[master-bulk] start file={f} presets={presets}", file=sys.stderr)
-            _emit(rid, "queued", f)
-            _mark_direct(rid)
-            mastering_pack.run_master_job(
-                f,
-                strength=strength,
-                presets=presets,
-                lufs=lufs if do_loudness else None,
-                tp=tp if do_loudness else None,
-                width=width if do_stereo else None,
-                mono_bass=mono_bass if do_stereo else None,
-                guardrails=bool(guardrails) if do_stereo else False,
-                no_analyze=not do_analyze,
-                no_master=not do_master,
-                no_loudness=not do_loudness,
-                no_stereo=not do_stereo,
-                no_output=not do_output,
-                out_wav=out_wav,
-                out_mp3=out_mp3,
-                mp3_bitrate=mp3_bitrate if mp3_bitrate is not None else 320,
-                mp3_vbr=mp3_vbr if mp3_vbr is not None else "none",
-                out_aac=out_aac,
-                aac_bitrate=aac_bitrate if aac_bitrate is not None else 256,
-                aac_codec=aac_codec if aac_codec is not None else "aac",
-                aac_container=aac_container if aac_container is not None else "m4a",
-                out_ogg=out_ogg,
-                ogg_quality=ogg_quality if ogg_quality is not None else 5.0,
-                out_flac=out_flac,
-                flac_level=flac_level if flac_level is not None else 5,
-                flac_bit_depth=flac_bit_depth,
-                flac_sample_rate=flac_sample_rate,
-                wav_bit_depth=wav_bit_depth if wav_bit_depth is not None else 24,
-                wav_sample_rate=wav_sample_rate if wav_sample_rate is not None else 48000,
-                voicing_mode=voicing_mode or "presets",
-                voicing_name=voicing_name,
-                event_cb=_make_event_cb(rid),
-            )
-            print(f"[master-bulk] done file={f}", file=sys.stderr)
-        except Exception as e:
-            print(f"[master-bulk] failed file={f}: {e}", file=sys.stderr)
+            song_entry = _library_find_song(song_id)
+            if not song_entry or not song_entry.get("source", {}).get("rel"):
+                _emit(rid, "error", "Song source not found")
+                continue
+            src_rel = song_entry["source"]["rel"]
+            try:
+                src_path = resolve_rel(src_rel)
+            except ValueError:
+                _emit(rid, "error", "Invalid source path")
+                continue
+            run_dir = MASTER_RUN_DIR / rid
+            try:
+                if run_dir.exists():
+                    shutil.rmtree(run_dir)
+            except Exception:
+                pass
+            try:
+                run_dir.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                _emit(rid, "error", "Run directory unavailable")
+                continue
+            try:
+                print(f"[master-bulk] start song={song_id} presets={presets}", file=sys.stderr)
+                _emit(rid, "queued", src_path.name)
+                _mark_direct(rid)
+                mastering_pack.run_master_job(
+                    src_path.name,
+                    input_path=str(src_path),
+                    output_dir=str(run_dir),
+                    strength=strength,
+                    presets=presets,
+                    lufs=lufs if do_loudness else None,
+                    tp=tp if do_loudness else None,
+                    width=width if do_stereo else None,
+                    mono_bass=mono_bass if do_stereo else None,
+                    guardrails=bool(guardrails) if do_stereo else False,
+                    no_analyze=not do_analyze,
+                    no_master=not do_master,
+                    no_loudness=not do_loudness,
+                    no_stereo=not do_stereo,
+                    no_output=not do_output,
+                    out_wav=out_wav,
+                    out_mp3=out_mp3,
+                    mp3_bitrate=mp3_bitrate if mp3_bitrate is not None else 320,
+                    mp3_vbr=mp3_vbr if mp3_vbr is not None else "none",
+                    out_aac=out_aac,
+                    aac_bitrate=aac_bitrate if aac_bitrate is not None else 256,
+                    aac_codec=aac_codec if aac_codec is not None else "aac",
+                    aac_container=aac_container if aac_container is not None else "m4a",
+                    out_ogg=out_ogg,
+                    ogg_quality=ogg_quality if ogg_quality is not None else 5.0,
+                    out_flac=out_flac,
+                    flac_level=flac_level if flac_level is not None else 5,
+                    flac_bit_depth=flac_bit_depth,
+                    flac_sample_rate=flac_sample_rate,
+                    wav_bit_depth=wav_bit_depth if wav_bit_depth is not None else 24,
+                    wav_sample_rate=wav_sample_rate if wav_sample_rate is not None else 48000,
+                    voicing_mode=voicing_mode or "presets",
+                    voicing_name=voicing_name,
+                    event_cb=_make_event_cb(rid),
+                )
+                _import_master_outputs(
+                    song_id,
+                    run_dir,
+                    summary={
+                        "voicing": voicing_name or presets,
+                        "target_lufs": lufs,
+                        "target_tp": tp,
+                    },
+                )
+                print(f"[master-bulk] done song={song_id}", file=sys.stderr)
+            except Exception as e:
+                print(f"[master-bulk] failed song={song_id}: {e}", file=sys.stderr)
     def _run_wrapper():
         global RUNS_IN_FLIGHT
         try:
@@ -710,7 +799,7 @@ class StatusBus:
                 st["task"] = None
 
     async def _watch_file(self, run_id: str):
-        path = OUT_DIR / run_id / ".status.json"
+        path = MASTER_RUN_DIR / run_id / ".status.json"
         last_len = 0
         # seed existing
         if path.exists():
@@ -986,6 +1075,83 @@ def _duration_seconds(path: Path) -> float | None:
     except Exception:
         return None
 
+
+def _ffprobe_audio_info(path: Path) -> dict:
+    info = docker_ffprobe_json(path)
+    duration = None
+    sample_rate = None
+    channels = None
+    fmt = None
+    try:
+        duration = float(info.get("format", {}).get("duration"))
+    except Exception:
+        duration = None
+    fmt = info.get("format", {}).get("format_name") or None
+    for stream in info.get("streams", []) or []:
+        if stream.get("codec_type") != "audio":
+            continue
+        try:
+            sample_rate = int(stream.get("sample_rate")) if stream.get("sample_rate") else None
+        except Exception:
+            sample_rate = None
+        try:
+            channels = int(stream.get("channels")) if stream.get("channels") else None
+        except Exception:
+            channels = None
+        break
+    return {
+        "duration_sec": duration,
+        "sample_rate": sample_rate,
+        "channels": channels,
+        "format_name": fmt,
+    }
+
+
+def _analyze_audio_metrics(path: Path) -> dict:
+    metrics: dict[str, object] = {}
+    info = _ffprobe_audio_info(path)
+    for key in ("duration_sec", "sample_rate", "channels"):
+        val = info.get(key)
+        if val is not None:
+            metrics[key] = val
+    loud = measure_loudness(path)
+    if loud:
+        if loud.get("I") is not None:
+            metrics["lufs_i"] = loud.get("I")
+        if loud.get("TP") is not None:
+            metrics["true_peak_db"] = loud.get("TP")
+        if loud.get("LRA") is not None:
+            metrics["lra"] = loud.get("LRA")
+    stats = calc_cf_corr(path)
+    if stats:
+        if stats.get("peak_level") is not None:
+            metrics["peak_db"] = stats.get("peak_level")
+        if stats.get("rms_level") is not None:
+            metrics["rms_db"] = stats.get("rms_level")
+        if stats.get("crest_factor") is not None:
+            metrics["crest_db"] = stats.get("crest_factor")
+        if stats.get("dynamic_range") is not None:
+            metrics["dynamic_range_db"] = stats.get("dynamic_range")
+        if stats.get("noise_floor") is not None:
+            metrics["noise_floor_db"] = stats.get("noise_floor")
+    duration = info.get("duration_sec")
+    try:
+        seg_dur = float(duration) if duration else 0.0
+    except Exception:
+        seg_dur = 0.0
+    if seg_dur <= 0:
+        seg_dur = 30.0
+    astats = _ai_astats_segment(path, 0.0, seg_dur)
+    if astats:
+        metrics["clipped_samples"] = astats.get("clipped_samples")
+        if astats.get("peak_level") is not None and "peak_db" not in metrics:
+            metrics["peak_db"] = astats.get("peak_level")
+        if astats.get("rms_level") is not None and "rms_db" not in metrics:
+            metrics["rms_db"] = astats.get("rms_level")
+        if astats.get("rms_peak") is not None:
+            metrics["rms_peak_db"] = astats.get("rms_peak")
+    return metrics
+
 def _run_ebur128_framelog(path: Path) -> str | None:
     r = run_cmd([
         FFMPEG_BIN, "-hide_banner", "-nostats", "-loglevel", "verbose", "-i", str(path),
@@ -1138,28 +1304,46 @@ def _seed_demo_inputs() -> None:
         return
     if DEMO_SEED_MARKER.exists():
         return
-    try:
-        MASTER_IN_DIR.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        return
     demo_dir = _demo_asset_dir()
     if not demo_dir.exists():
         return
+    lib = library_store.load_library()
+    if lib.get("songs"):
+        return
     copied = 0
-    found_existing = False
     for fp in demo_dir.iterdir():
         if not fp.is_file() or fp.suffix.lower() not in ANALYZE_AUDIO_EXTS:
             continue
-        dest = MASTER_IN_DIR / fp.name
-        if dest.exists():
-            found_existing = True
-            continue
         try:
+            song_id = new_song_id()
+            dest = allocate_source_path(song_id, fp.name)
             shutil.copy2(fp, dest)
+            metrics = {}
+            analyzed = False
+            try:
+                metrics = _analyze_audio_metrics(dest)
+                analyzed = bool(metrics)
+            except Exception:
+                metrics = {}
+                analyzed = False
+            rel_path = rel_from_path(dest)
+            duration = metrics.get("duration_sec")
+            fmt = dest.suffix.lower().lstrip(".")
+            library_store.ensure_song_for_source(
+                lib,
+                rel_path,
+                song_id,
+                dest.stem,
+                duration,
+                fmt,
+                metrics,
+                analyzed,
+            )
             copied += 1
         except Exception:
             continue
-    if copied or found_existing:
+    if copied:
+        library_store.save_library(lib)
         try:
             DEMO_SEED_MARKER.write_text("seeded", encoding="utf-8")
         except Exception:
@@ -1500,18 +1684,14 @@ def _sanitize_label(value: str, max_len: int = 80) -> str:
         cleaned = cleaned[:max_len].strip()
     return cleaned
 def find_input_file(song: str) -> Path | None:
-    candidates: list[Path] = []
+    entry = _library_find_song(song)
+    if not entry or not entry.get("source", {}).get("rel"):
+        return None
     try:
-        candidates.extend([p for p in IN_DIR.iterdir() if p.is_file() and p.stem == song])
-    except Exception:
-        pass
-    try:
-        out_folder = OUT_DIR / song
-        candidates.extend([p for p in out_folder.iterdir() if p.is_file() and p.stem == song])
-    except Exception:
-        pass
-    candidates = sorted(candidates)
-    return candidates[0] if candidates else None
+        target = resolve_rel(entry["source"]["rel"])
+    except ValueError:
+        return None
+    return target if target.exists() else None
 ANALYZE_AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".aac", ".ogg", ".flac", ".aif", ".aiff"}
 ANALYZE_PREF_ORDER = [".wav", ".flac", ".m4a", ".aac", ".mp3", ".ogg"]
 def _list_audio_files(folder: Path) -> list[Path]:
@@ -2109,9 +2289,13 @@ def tagger_album_download(ids: str, name: str = "album", background_tasks: Backg
 
 @app.get("/api/files")
 def list_files():
-    IN_DIR.mkdir(parents=True, exist_ok=True)
-    files = sorted([p.name for p in IN_DIR.iterdir()
-                    if p.is_file() and p.suffix.lower() in [".wav",".mp3",".flac",".aiff",".aif"]])
+    lib = library_store.load_library()
+    files = []
+    for song in lib.get("songs", []):
+        rel = (song.get("source") or {}).get("rel")
+        if rel:
+            files.append(rel)
+    files = sorted(set(files))
     presets = _preset_name_list()
     return {"files": files, "presets": presets}
 @app.get("/api/presets")
@@ -2120,160 +2304,82 @@ def presets():
     return _preset_name_list()
 @app.get("/api/recent")
 def recent(limit: int = 30):
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    folders = [d for d in OUT_DIR.iterdir() if d.is_dir()]
-    folders.sort(key=lambda d: d.stat().st_mtime, reverse=True)
+    lib = library_store.load_library()
     items = []
-    for d in folders[:limit]:
-        audio_exts = [".mp3",".m4a",".aac",".ogg",".flac",".wav"]
-        preview = None
-        for ext in audio_exts:
-            found = sorted([f.name for f in d.iterdir() if f.is_file() and f.suffix.lower()==ext])
-            if found:
-                preview = f"/out/{d.name}/{found[0]}"
-                if ext == ".mp3":
-                    break
-        metrics = wrap_metrics(d.name, read_run_metrics(d) or read_first_wav_metrics(d))
+    songs = sorted(
+        lib.get("songs", []),
+        key=lambda s: s.get("last_used_at") or s.get("created_at") or "",
+        reverse=True,
+    )
+    for song in songs[:limit]:
+        latest = library_store.latest_version(song)
         items.append({
-            "song": d.name,
-            "folder": f"/out/{d.name}/",
-            "ab": f"/out/{d.name}/index.html",
-            "mp3": preview,  # legacy key; may be other formats
-            "metrics": metrics,
+            "song": song.get("title") or song.get("song_id"),
+            "song_id": song.get("song_id"),
+            "latest": latest,
         })
     return {"items": items}
 @app.delete("/api/song/{song}")
 def delete_song(song: str):
-    # Safety: only delete direct child folders in OUT_DIR
-    target = (OUT_DIR / song).resolve()
-    if OUT_DIR.resolve() not in target.parents:
-        raise HTTPException(status_code=400, detail="Invalid path")
-    if not target.exists():
-        return {"message": f"Nothing to delete for {song}."}
-    shutil.rmtree(target)
-    return {"message": f"Deleted outputs for {song}."}
+    song_entry = _library_find_song(song)
+    if not song_entry:
+        raise HTTPException(status_code=404, detail="song_not_found")
+    lib = library_store.load_library()
+    if not library_store.delete_song(lib, song_entry.get("song_id")):
+        raise HTTPException(status_code=404, detail="song_not_found")
+    library_store.save_library(lib)
+    return {"message": f"Deleted song {song_entry.get('title') or song_entry.get('song_id')}."}
 @app.delete("/api/output/{song}/{name}")
 def delete_output(song: str, name: str):
-    """Delete an individual mastered output (WAV/MP3/metrics) within a run folder."""
-    folder = (OUT_DIR / song).resolve()
-    if OUT_DIR.resolve() not in folder.parents:
-        raise HTTPException(status_code=400, detail="Invalid path")
-    if not folder.exists() or not folder.is_dir():
-        raise HTTPException(status_code=404, detail="run_not_found")
-
-    # Only allow deletion of direct children; treat name as stem
+    """Delete a version by stem match under a song entry."""
     stem = Path(name).stem
     if not stem:
         raise HTTPException(status_code=400, detail="invalid_name")
-
-    removed = []
-    candidates = []
-    # direct filename targets
-    for suffix in [".wav", ".mp3", ".m4a", ".aac", ".ogg", ".flac", ".metrics.json", ".run.json"]:
-        candidates.append(folder / f"{stem}{suffix}")
-    # any file in folder whose stem matches or name startswith stem (safer for minor differences)
-    try:
-        for f in folder.iterdir():
-            if not f.is_file():
-                continue
-            if f.stem == stem or f.name.startswith(stem):
-                candidates.append(f)
-    except Exception:
-        pass
-    seen = set()
-    for fp in candidates:
-        fp = fp.resolve()
-        if fp in seen:
-            continue
-        seen.add(fp)
-        if folder not in fp.parents or fp == folder:
-            continue
-        if fp.exists():
-            fp.unlink()
-            removed.append(fp.name)
-
-    if not removed:
-        return {"message": f"Nothing to delete for {stem}"}
-    return {"message": f"Deleted {', '.join(removed)}"}
+    song_entry = _library_find_song(song)
+    if not song_entry:
+        raise HTTPException(status_code=404, detail="song_not_found")
+    version = None
+    for v in song_entry.get("versions") or []:
+        if Path(v.get("rel") or "").stem == stem:
+            version = v
+            break
+    if not version:
+        raise HTTPException(status_code=404, detail="version_not_found")
+    lib = library_store.load_library()
+    removed = library_store.delete_version(lib, song_entry.get("song_id"), version.get("version_id"))
+    if removed and removed.get("rel"):
+        try:
+            target = resolve_rel(removed["rel"])
+            if target.exists():
+                target.unlink()
+        except ValueError:
+            pass
+    library_store.save_library(lib)
+    return {"message": f"Deleted {stem}"}
 @app.delete("/api/upload/{name}")
 def delete_upload(name: str):
-    target = (IN_DIR / name).resolve()
-    if IN_DIR.resolve() not in target.parents:
-        raise HTTPException(status_code=400, detail="Invalid path")
-    if not target.exists():
-        return {"message": f"Nothing to delete for {name}."}
-    target.unlink()
-    return {"message": f"Deleted upload {name}."}
+    song_entry = _library_find_song(name)
+    if not song_entry:
+        raise HTTPException(status_code=404, detail="song_not_found")
+    lib = library_store.load_library()
+    if not library_store.delete_song(lib, song_entry.get("song_id")):
+        raise HTTPException(status_code=404, detail="song_not_found")
+    library_store.save_library(lib)
+    return {"message": f"Deleted song {song_entry.get('title') or song_entry.get('song_id')}."}
 @app.get("/api/outlist")
 def outlist(song: str):
-    now = time.time()
-    cached = OUTLIST_CACHE.get(song)
-    if cached and (now - cached["ts"] < OUTLIST_CACHE_TTL):
-        return cached["data"]
-
-    folder = OUT_DIR / song
-    items: list[dict] = []
-    input_m = None
-
-    # Prefer existing metrics; avoid expensive recomputation
-    try:
-        m_full = wrap_metrics(song, read_run_metrics(folder))
-        if not m_full:
-            m_full = wrap_metrics(song, read_first_wav_metrics(folder))
-        if m_full:
-            m_full = fill_input_metrics(song, m_full, folder)
-            input_m = m_full.get("input")
-    except Exception:
-        pass
-
-    if folder.exists() and folder.is_dir():
-        audio_exts = {".wav": "WAV", ".mp3": "MP3", ".m4a": "M4A", ".aac": "AAC", ".ogg": "OGG", ".flac": "FLAC"}
-        audio_files = [p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in audio_exts]
-        stems = sorted(set(p.stem for p in audio_files))
-        pref = [".mp3", ".m4a", ".aac", ".ogg", ".flac", ".wav"]
-        for stem in stems:
-            try:
-                display_title, badges = TAGGER._parse_badges(stem, "out")
-            except Exception:
-                display_title, badges = (stem, [])
-
-            links = []
-            primary = None
-            wav_url = None
-            mp3_url = None
-            for ext in pref:
-                fp = folder / f"{stem}{ext}"
-                if not fp.exists():
-                    continue
-                url = f"/out/{song}/{fp.name}"
-                links.append({"label": audio_exts[ext], "url": url, "ext": ext})
-                if not primary:
-                    primary = url
-                if ext == ".wav":
-                    wav_url = url
-                if ext == ".mp3":
-                    mp3_url = url
-
-            m = read_metrics_for_wav(folder / f"{stem}.wav")
-            if not m:
-                m = read_metrics_file(folder / f"{stem}.metrics.json")
-
-            items.append({
-                "name": stem,
-                "display_title": display_title,
-                "badges": badges,
-                "wav": wav_url,
-                "mp3": mp3_url,
-                "audio": primary,
-                "downloads": links,
-                "ab": f"/out/{song}/index.html",
-                "metrics": fmt_metrics(m),
-                "metrics_obj": m,
-            })
-
-    resp = {"items": items, "input": input_m}
-    OUTLIST_CACHE[song] = {"ts": now, "data": resp}
-    return resp
+    song_entry = _library_find_song(song)
+    if not song_entry:
+        raise HTTPException(status_code=404, detail="song_not_found")
+    items = []
+    for version in song_entry.get("versions") or []:
+        items.append({
+            "name": version.get("label") or version.get("version_id"),
+            "rel": version.get("rel"),
+            "kind": version.get("kind"),
+            "metrics": version.get("metrics"),
+        })
+    return {"items": items}
 
 def _preset_reserved_names() -> set[str]:
     names = set()
@@ -2350,41 +2456,53 @@ def _preset_items(kind: str | None = None, include_staging: bool = True, include
             })
     return items
 
-def _library_used_rels(lib: dict) -> set[str]:
-    used = set()
+
+def _library_lookup_rel(rel: str) -> tuple[dict | None, dict | None]:
+    rel = (rel or "").strip()
+    if not rel:
+        return None, None
+    lib = library_store.load_library()
     for song in lib.get("songs", []):
-        src = song.get("source") or {}
-        rel = src.get("rel")
-        if rel:
-            used.add(rel)
+        source = song.get("source") or {}
+        if source.get("rel") == rel:
+            return song, None
         for version in song.get("versions") or []:
-            vrel = version.get("rel")
-            if vrel:
-                used.add(vrel)
-    return used
+            if version.get("rel") == rel:
+                return song, version
+    return None, None
 
 
-def _library_scan_unsorted(used: set[str]) -> list[dict]:
-    items = []
-    for root, prefix in ((OUT_DIR, "out"), (ANALYSIS_OUT_DIR, "analysis_out")):
-        if not root.exists():
-            continue
-        for fp in sorted(root.rglob("*")):
-            if not fp.is_file() or fp.suffix.lower() not in ANALYZE_AUDIO_EXTS:
-                continue
-            rel = _analysis_rel_for_path(fp)
-            if not rel or rel in used:
-                continue
-            items.append(
-                {
-                    "rel": rel,
-                    "name": fp.name,
-                    "format": fp.suffix.lower().lstrip("."),
-                    "kind": "output",
-                }
-            )
-    return items
+def _library_find_song(song_key: str) -> dict | None:
+    key = (song_key or "").strip()
+    if not key:
+        return None
+    lib = library_store.load_library()
+    for song in lib.get("songs", []):
+        if song.get("song_id") == key:
+            return song
+    key_lower = key.lower()
+    for song in lib.get("songs", []):
+        if (song.get("title") or "").strip().lower() == key_lower:
+            return song
+    return None
 
+
+def _library_find_version(song: dict, token: str | None) -> dict | None:
+    if not song:
+        return None
+    if not token:
+        return library_store.latest_version(song)
+    token = token.strip()
+    for version in song.get("versions") or []:
+        if version.get("version_id") == token:
+            return version
+    for version in song.get("versions") or []:
+        if version.get("rel") == token:
+            return version
+    for version in song.get("versions") or []:
+        if (version.get("label") or "").strip().lower() == token.lower():
+            return version
+    return library_store.latest_version(song)
 
 @app.get("/api/library")
 def library_index_endpoint():
@@ -2392,14 +2510,11 @@ def library_index_endpoint():
     payload = {
         "version": lib.get("version", 1),
         "songs": [],
-        "unsorted": [],
     }
-    used = _library_used_rels(lib)
     for song in lib.get("songs", []):
         entry = dict(song)
         entry["latest_version"] = library_store.latest_version(song)
         payload["songs"].append(entry)
-    payload["unsorted"] = _library_scan_unsorted(used)
     return payload
 
 
@@ -2407,12 +2522,29 @@ def library_index_endpoint():
 def library_import_source(payload: dict = Body(...)):
     rel = (payload.get("path") or "").strip()
     title = payload.get("title")
-    target = _resolve_analysis_path(rel)
-    rel_path = _analysis_rel_for_path(target) or rel
-    duration = _duration_seconds(target)
+    if not rel:
+        raise HTTPException(status_code=400, detail="missing_path")
+    try:
+        target = resolve_rel(rel)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid_path")
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="file_not_found")
+    metrics = _analyze_audio_metrics(target)
+    duration = metrics.get("duration_sec")
     fmt = target.suffix.lower().lstrip(".")
+    rel_path = rel_from_path(target)
     lib = library_store.load_library()
-    song = library_store.ensure_song_for_source(lib, rel_path, title, duration, fmt)
+    song = library_store.ensure_song_for_source(
+        lib,
+        rel_path,
+        new_song_id(),
+        title,
+        duration,
+        fmt,
+        metrics,
+        bool(metrics),
+    )
     library_store.save_library(lib)
     return {"song": song}
 
@@ -2421,23 +2553,32 @@ def library_import_source(payload: dict = Body(...)):
 def library_use_as_source(payload: dict = Body(...)):
     rel = (payload.get("path") or "").strip()
     title = payload.get("title")
-    target = _resolve_analysis_path(rel)
-    IN_DIR.mkdir(parents=True, exist_ok=True)
-    stem = target.stem
-    suffix = target.suffix
-    candidate = f"{stem}{suffix}"
-    dest = _safe_rel(IN_DIR, candidate)
-    idx = 1
-    while dest.exists():
-        candidate = f"{stem}-source-{idx}{suffix}"
-        dest = _safe_rel(IN_DIR, candidate)
-        idx += 1
+    if not rel:
+        raise HTTPException(status_code=400, detail="missing_path")
+    try:
+        target = resolve_rel(rel)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid_path")
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="file_not_found")
+    song_id = new_song_id()
+    dest = allocate_source_path(song_id, target.name)
     shutil.copy2(target, dest)
-    rel_path = _analysis_rel_for_path(dest) or f"in/{dest.name}"
-    duration = _duration_seconds(dest)
+    rel_path = rel_from_path(dest)
+    metrics = _analyze_audio_metrics(dest)
+    duration = metrics.get("duration_sec")
     fmt = dest.suffix.lower().lstrip(".")
     lib = library_store.load_library()
-    song = library_store.ensure_song_for_source(lib, rel_path, title, duration, fmt)
+    song = library_store.ensure_song_for_source(
+        lib,
+        rel_path,
+        song_id,
+        title,
+        duration,
+        fmt,
+        metrics,
+        bool(metrics),
+    )
     library_store.save_library(lib)
     return {"song": song, "rel": rel_path}
 
@@ -2448,16 +2589,24 @@ def library_add_version(payload: dict = Body(...)):
     kind = (payload.get("kind") or "").strip()
     label = (payload.get("label") or "").strip() or kind or "Version"
     rel = (payload.get("rel") or "").strip()
+    version_id = (payload.get("version_id") or "").strip() or None
     summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
     metrics = payload.get("metrics") if isinstance(payload.get("metrics"), dict) else {}
     tags = payload.get("tags") if isinstance(payload.get("tags"), list) else []
     if not song_id or not rel or not kind:
         raise HTTPException(status_code=400, detail="missing_fields")
-    target = _resolve_analysis_path(rel)
-    rel_path = _analysis_rel_for_path(target) or rel
+    try:
+        target = resolve_rel(rel)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid_path")
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="file_not_found")
+    rel_path = rel_from_path(target)
     lib = library_store.load_library()
     try:
-        version = library_store.add_version(lib, song_id, kind, label, rel_path, summary, metrics, tags)
+        version = library_store.add_version(
+            lib, song_id, kind, label, rel_path, summary, metrics, tags, version_id=version_id
+        )
     except ValueError:
         raise HTTPException(status_code=404, detail="song_not_found")
     library_store.save_library(lib)
@@ -2491,14 +2640,11 @@ def library_delete_version(payload: dict = Body(...)):
     rel = removed.get("rel")
     if rel:
         try:
-            target = _resolve_analysis_path(rel)
-        except HTTPException:
-            target = None
-        if target and target.exists():
-            try:
-                target.unlink(missing_ok=True)
-            except Exception:
-                pass
+            target = resolve_rel(rel)
+            if target.exists() and target.is_file():
+                target.unlink()
+        except ValueError:
+            pass
     return {"deleted": version_id}
 
 
@@ -3112,8 +3258,8 @@ def health():
     ffprobe_ok = Path(FFPROBE_BIN).exists() if Path(FFPROBE_BIN).is_absolute() else (shutil.which(FFPROBE_BIN) is not None)
     preset_exists = PRESET_DIR.exists()
     preset_count = len(list(PRESET_DIR.glob("*.json"))) if preset_exists else 0
-    in_w = _writable(IN_DIR)
-    out_w = _writable(OUT_DIR)
+    in_w = _writable(SONGS_DIR)
+    out_w = _writable(PREVIEWS_DIR)
     ok = ffmpeg_ok and ffprobe_ok and preset_exists and preset_count >= 0
     payload = {
         "ffmpeg_ok": ffmpeg_ok,
@@ -3128,54 +3274,36 @@ def health():
     return JSONResponse(payload, status_code=200 if ok else 503)
 @app.get("/api/metrics")
 def run_metrics(song: str):
-    folder = OUT_DIR / song
-    if not folder.exists() or not folder.is_dir():
-        raise HTTPException(status_code=404, detail="run_not_found")
-    m = wrap_metrics(song, read_run_metrics(folder))
-    if not m:
-        m = wrap_metrics(song, read_first_wav_metrics(folder))
-    if not m:
+    song_entry = _library_find_song(song)
+    if not song_entry:
+        raise HTTPException(status_code=404, detail="song_not_found")
+    src_metrics = song_entry.get("source", {}).get("metrics")
+    if not src_metrics:
         raise HTTPException(status_code=404, detail="metrics_not_found")
-    m = fill_input_metrics(song, m, folder)
-    return m
+    return {"input": src_metrics, "output": None}
 def _analysis_path_roots() -> list[tuple[str, Path]]:
     return [
-        ("in", IN_DIR),
-        ("analysis", ANALYSIS_IN_DIR),
-        ("out", OUT_DIR),
-        ("analysis_out", ANALYSIS_OUT_DIR),
+        ("library", LIBRARY_DIR),
+        ("previews", PREVIEWS_DIR),
     ]
 
 def _resolve_analysis_path(rel: str) -> Path:
     rel = (rel or "").strip().lstrip("/").replace("\\", "/")
     if not rel:
         raise HTTPException(status_code=400, detail="missing_path")
-    parts = rel.split("/", 1)
-    prefix_map = {key: root for key, root in _analysis_path_roots()}
-    if parts[0] in prefix_map:
-        root = prefix_map[parts[0]]
-        sub = parts[1] if len(parts) > 1 else ""
-        candidate = _safe_rel(root, sub)
-        if not candidate.exists() or not candidate.is_file():
-            raise HTTPException(status_code=404, detail="file_not_found")
-        return candidate
-    for _key, root in _analysis_path_roots():
-        try:
-            candidate = _safe_rel(root, rel)
-        except HTTPException:
-            continue
-        if candidate.exists() and candidate.is_file():
-            return candidate
-    raise HTTPException(status_code=404, detail="file_not_found")
+    try:
+        candidate = resolve_rel(rel)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid_path")
+    if not candidate.exists() or not candidate.is_file():
+        raise HTTPException(status_code=404, detail="file_not_found")
+    return candidate
 
 def _analysis_rel_for_path(path: Path) -> str | None:
-    for key, root in _analysis_path_roots():
-        try:
-            rel = path.relative_to(root)
-        except Exception:
-            continue
-        return f"{key}/{rel.as_posix()}"
-    return None
+    try:
+        return rel_from_path(path)
+    except Exception:
+        return None
 
 def _noise_filter_dir(origin: str) -> Path:
     origin = (origin or "user").strip().lower()
@@ -3486,27 +3614,29 @@ def _ai_astats_segment(path: Path, start: float, duration: float, pre_filters: l
 
 @app.get("/api/analyze-source")
 def analyze_source(song: str):
-    song = (song or "").strip()
-    if not song:
+    song_key = (song or "").strip()
+    if not song_key:
         raise HTTPException(status_code=400, detail="missing_song")
-    path = find_input_file(song)
-    if not path or not path.exists():
+    song_entry = _library_find_song(song_key)
+    if not song_entry or not song_entry.get("source", {}).get("rel"):
+        raise HTTPException(status_code=404, detail="source_not_found")
+    try:
+        path = resolve_rel(song_entry["source"]["rel"])
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid_path")
+    if not path.exists():
         raise HTTPException(status_code=404, detail="source_not_found")
     mime, _ = mimetypes.guess_type(path.name)
     return FileResponse(path, media_type=mime or "application/octet-stream", filename=path.name)
 @app.get("/api/analyze-file")
 def analyze_file(kind: str, name: str):
-    kind = (kind or "").strip().lower()
     name = (name or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="missing_name")
-    if kind == "source":
-        root = IN_DIR
-    elif kind in {"import", "imported"}:
-        root = ANALYSIS_IN_DIR
-    else:
-        raise HTTPException(status_code=400, detail="invalid_kind")
-    path = _safe_rel(root, name)
+    try:
+        path = resolve_rel(name)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid_path")
     if not path.exists() or not path.is_file():
         raise HTTPException(status_code=404, detail="file_not_found")
     mime, _ = mimetypes.guess_type(path.name)
@@ -3518,76 +3648,58 @@ def analyze_path(path: str):
     return FileResponse(target, media_type=mime or "application/octet-stream", filename=target.name)
 @app.get("/api/analyze-resolve")
 def analyze_resolve(song: str, out: str = "", solo: bool = False):
-    song = (song or "").strip()
-    if not song:
+    song_key = (song or "").strip()
+    if not song_key:
         raise HTTPException(status_code=400, detail="missing_song")
-    folder = (OUT_DIR / song).resolve()
-    if OUT_DIR.resolve() not in folder.parents:
-        raise HTTPException(status_code=400, detail="invalid_path")
-    if not folder.exists() or not folder.is_dir():
-        raise HTTPException(status_code=404, detail="run_not_found")
-    processed, files = _resolve_processed_file(folder, out)
-    if not processed:
-        raise HTTPException(status_code=404, detail="output_not_found")
-    if solo:
-        metrics = None
-        output_metrics = _load_output_metrics(folder, processed)
-        if output_metrics:
-            metrics = {"input": output_metrics, "output": None, "version": 1, "run_id": song}
-        else:
-            try:
-                metrics = {"input": basic_metrics(processed), "output": None, "version": 1, "run_id": song}
-            except Exception:
-                metrics = None
+    song_entry = _library_find_song(song_key)
+    if not song_entry:
+        raise HTTPException(status_code=404, detail="song_not_found")
+    source_rel = song_entry.get("source", {}).get("rel")
+    if not source_rel:
+        raise HTTPException(status_code=404, detail="source_not_found")
+    source_path = _resolve_analysis_path(source_rel)
+    version = _library_find_version(song_entry, out) if out or song_entry.get("versions") else None
+    processed_path = _resolve_analysis_path(version["rel"]) if version else None
+    metrics_input = song_entry.get("source", {}).get("metrics") or None
+    metrics_output = version.get("metrics") if version else None
+    if not metrics_input:
+        try:
+            metrics_input = basic_metrics(source_path)
+        except Exception:
+            metrics_input = None
+    if version and not metrics_output:
+        try:
+            metrics_output = basic_metrics(processed_path) if processed_path else None
+        except Exception:
+            metrics_output = None
+    if solo and processed_path:
         payload = {
-            "run_id": song,
-            "source_url": f"/out/{quote(song)}/{quote(processed.name)}",
+            "run_id": song_entry.get("song_id"),
+            "source_url": f"/api/analyze/path?path={quote(version['rel'])}",
             "processed_url": None,
-            "source_name": processed.name,
+            "source_name": processed_path.name,
             "processed_name": "",
             "processed_label": None,
-            "source_rel": f"out/{song}/{processed.name}",
+            "source_rel": version["rel"],
             "processed_rel": None,
             "available_outputs": [],
-            "metrics": metrics,
+            "metrics": {"input": metrics_output, "output": None} if metrics_output else None,
         }
-        payload.update(_analysis_overlay_data(processed, None))
+        payload.update(_analysis_overlay_data(processed_path, None))
         return payload
-
-    source_path = find_input_file(song)
-    source_name = source_path.name if source_path else song
-    source_url = f"/api/analyze-source?song={quote(song)}" if source_path else ""
-    processed_url = f"/out/{quote(song)}/{quote(processed.name)}"
-    processed_rel = f"out/{song}/{processed.name}"
-    metrics = None
-    output_metrics = _load_output_metrics(folder, processed)
-    if output_metrics:
-        metrics = wrap_metrics(song, output_metrics)
-        if metrics:
-            metrics = fill_input_metrics(song, metrics, folder)
-    elif source_path:
-        try:
-            metrics = {
-                "version": 1,
-                "run_id": song,
-                "input": basic_metrics(source_path),
-                "output": None,
-            }
-        except Exception:
-            metrics = None
     payload = {
-        "run_id": song,
-        "source_url": source_url,
-        "processed_url": processed_url,
-        "source_name": source_name,
-        "processed_name": processed.name,
-        "processed_label": processed.suffix.lower().lstrip("."),
-        "source_rel": _analysis_rel_for_path(source_path) if source_path else None,
-        "processed_rel": processed_rel,
-        "available_outputs": _available_outputs(song, files, processed.stem),
-        "metrics": metrics,
+        "run_id": song_entry.get("song_id"),
+        "source_url": f"/api/analyze/path?path={quote(source_rel)}",
+        "processed_url": f"/api/analyze/path?path={quote(version['rel'])}" if version else None,
+        "source_name": source_path.name,
+        "processed_name": processed_path.name if processed_path else "",
+        "processed_label": processed_path.suffix.lower().lstrip(".") if processed_path else None,
+        "source_rel": source_rel,
+        "processed_rel": version["rel"] if version else None,
+        "available_outputs": [],
+        "metrics": {"input": metrics_input, "output": metrics_output} if metrics_input or metrics_output else None,
     }
-    payload.update(_analysis_overlay_data(source_path, processed))
+    payload.update(_analysis_overlay_data(source_path, processed_path))
     return payload
 @app.get("/api/analyze-resolve-pair")
 def analyze_resolve_pair(src: str, proc: str):
@@ -3597,14 +3709,25 @@ def analyze_resolve_pair(src: str, proc: str):
         raise HTTPException(status_code=400, detail="missing_target")
     source_path = _resolve_analysis_path(src)
     processed_path = _resolve_analysis_path(proc)
-    metrics = None
-    try:
-        metrics = {
-            "input": basic_metrics(source_path),
-            "output": basic_metrics(processed_path),
-        }
-    except Exception:
-        metrics = None
+    metrics_input = None
+    metrics_output = None
+    song, _version = _library_lookup_rel(src)
+    if song and song.get("source", {}).get("metrics"):
+        metrics_input = song["source"]["metrics"]
+    if not metrics_input:
+        try:
+            metrics_input = basic_metrics(source_path)
+        except Exception:
+            metrics_input = None
+    _song2, version2 = _library_lookup_rel(proc)
+    if version2 and version2.get("metrics"):
+        metrics_output = version2["metrics"]
+    if not metrics_output:
+        try:
+            metrics_output = basic_metrics(processed_path)
+        except Exception:
+            metrics_output = None
+    metrics = {"input": metrics_input, "output": metrics_output} if (metrics_input or metrics_output) else None
     payload = {
         "run_id": None,
         "source_url": f"/api/analyze/path?path={quote(src)}",
@@ -3620,43 +3743,42 @@ def analyze_resolve_pair(src: str, proc: str):
     payload.update(_analysis_overlay_data(source_path, processed_path))
     return payload
 @app.get("/api/analyze-resolve-file")
-def analyze_resolve_file(src: str = "", imp: str = ""):
+def analyze_resolve_file(src: str = "", imp: str = "", path: str = ""):
     src = (src or "").strip()
     imp = (imp or "").strip()
+    rel = (path or "").strip()
+    if (src or imp) and rel:
+        raise HTTPException(status_code=400, detail="ambiguous_target")
     if src and imp:
         raise HTTPException(status_code=400, detail="ambiguous_target")
-    if not src and not imp:
+    if not src and not imp and not rel:
         raise HTTPException(status_code=400, detail="missing_target")
-    kind = "source" if src else "import"
-    rel = src if src else imp
-    root = IN_DIR if src else ANALYSIS_IN_DIR
-    path = _safe_rel(root, rel)
-    if not path.exists() or not path.is_file():
-        raise HTTPException(status_code=404, detail="file_not_found")
+    rel = rel or src or imp
+    target = _resolve_analysis_path(rel)
     metrics = None
-    metrics_path = None
-    if kind == "import":
-        metrics_path = ANALYSIS_OUT_DIR / f"{path.stem}.metrics.json"
-    if metrics_path and metrics_path.exists():
-        metrics = read_metrics_file(metrics_path)
+    song, version = _library_lookup_rel(rel)
+    if version and version.get("metrics"):
+        metrics = version.get("metrics")
+    elif song and song.get("source", {}).get("metrics"):
+        metrics = song["source"]["metrics"]
     if metrics is None:
         try:
-            metrics = basic_metrics(path)
+            metrics = basic_metrics(target)
         except Exception:
             metrics = None
     payload = {
         "run_id": None,
-        "source_url": f"/api/analyze-file?kind={kind}&name={quote(rel)}",
+        "source_url": f"/api/analyze/path?path={quote(rel)}",
         "processed_url": None,
-        "source_name": path.name,
+        "source_name": target.name,
         "processed_name": "",
         "processed_label": None,
-        "source_rel": f"{'in' if kind == 'source' else 'analysis'}/{rel}",
+        "source_rel": rel,
         "processed_rel": None,
         "available_outputs": [],
         "metrics": {"input": metrics, "output": None} if metrics else None,
     }
-    payload.update(_analysis_overlay_data(path, None))
+    payload.update(_analysis_overlay_data(target, None))
     return payload
 @app.post("/api/analyze-upload")
 async def analyze_upload(file: UploadFile = File(...)):
@@ -3666,9 +3788,9 @@ async def analyze_upload(file: UploadFile = File(...)):
     allowed = {".wav", ".mp3", ".flac", ".aiff", ".aif", ".m4a", ".aac", ".ogg"}
     if suffix not in allowed:
         raise HTTPException(status_code=400, detail="unsupported_type")
-    safe_stem = _safe_slug(Path(file.filename).stem) or "analysis"
-    stamp = int(time.time())
-    dest = ANALYSIS_IN_DIR / f"{safe_stem}-{stamp}{suffix}"
+    safe_name = _safe_upload_name(file.filename)
+    song_id = new_song_id()
+    dest = allocate_source_path(song_id, safe_name)
     size = 0
     with dest.open("wb") as fout:
         while True:
@@ -3680,28 +3802,34 @@ async def analyze_upload(file: UploadFile = File(...)):
                 dest.unlink(missing_ok=True)
                 raise HTTPException(status_code=413, detail="file_too_large")
             fout.write(chunk)
-    metrics = None
+    metrics = {}
+    analyzed = False
     try:
-        metrics = basic_metrics(dest)
+        metrics = _analyze_audio_metrics(dest)
+        analyzed = bool(metrics)
     except Exception:
-        metrics = None
-    if metrics:
-        try:
-            ANALYSIS_OUT_DIR.mkdir(parents=True, exist_ok=True)
-            (ANALYSIS_OUT_DIR / f"{dest.stem}.metrics.json").write_text(
-                json.dumps(metrics, indent=2), encoding="utf-8"
-            )
-        except Exception:
-            pass
-    payload = {
-        "id": dest.stem,
-        "source_url": f"/analysis/{quote(dest.name)}",
+        metrics = {}
+        analyzed = False
+    rel_path = rel_from_path(dest)
+    fmt = dest.suffix.lower().lstrip(".")
+    duration = metrics.get("duration_sec")
+    lib = library_store.load_library()
+    song = library_store.ensure_song_for_source(
+        lib,
+        rel_path,
+        song_id,
+        dest.stem,
+        duration,
+        fmt,
+        metrics,
+        analyzed,
+    )
+    library_store.save_library(lib)
+    return {
+        "song": song,
+        "rel": rel_path,
         "metrics": metrics,
-        "source_name": file.filename,
-        "rel": dest.name,
     }
-    payload.update(_analysis_overlay_data(dest, None))
-    return payload
 
 
 @app.get("/api/analyze/spectrogram")
@@ -3801,9 +3929,11 @@ def analyze_noise_preview_audio(token: str):
 @app.post("/api/analyze/noise/render")
 def analyze_noise_render(payload: dict = Body(...)):
     path = payload.get("path")
+    song_id = (payload.get("song_id") or "").strip()
     target = _resolve_analysis_path(path)
     af = _noise_filter_chain(payload)
-    ANALYSIS_OUT_DIR.mkdir(parents=True, exist_ok=True)
+    if not song_id:
+        raise HTTPException(status_code=400, detail="missing_song_id")
     suffix = target.suffix.lower() if target.suffix else ".wav"
     codec_map = {
         ".wav": "pcm_s16le",
@@ -3816,7 +3946,7 @@ def analyze_noise_render(payload: dict = Body(...)):
         ".ogg": "libvorbis",
     }
     codec = codec_map.get(suffix, "pcm_s16le")
-    out_path = _unique_output_path(ANALYSIS_OUT_DIR, f"{target.stem}.cleaned", suffix)
+    version_id, out_path = allocate_version_path(song_id, "noise_clean", suffix)
     cmd = [
         FFMPEG_BIN, "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(target),
@@ -3829,10 +3959,12 @@ def analyze_noise_render(payload: dict = Body(...)):
     if proc.returncode != 0 or not out_path.exists():
         err = (proc.stderr or proc.stdout or "").strip()
         raise HTTPException(status_code=500, detail=err or "render_failed")
+    rel = rel_from_path(out_path)
     return {
-        "output_rel": out_path.name,
+        "output_rel": rel,
         "output_name": out_path.name,
-        "url": f"/api/analyze/noise/output?rel={quote(out_path.name)}",
+        "version_id": version_id,
+        "url": f"/api/analyze/path?path={quote(rel)}",
     }
 
 
@@ -3841,7 +3973,10 @@ def analyze_noise_output(rel: str):
     rel = (rel or "").strip()
     if not rel:
         raise HTTPException(status_code=400, detail="missing_rel")
-    target = _safe_rel(ANALYSIS_OUT_DIR, rel)
+    try:
+        target = resolve_rel(rel)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid_path")
     if not target.exists() or not target.is_file():
         raise HTTPException(status_code=404, detail="not_found")
     return FileResponse(target)
@@ -4006,12 +4141,14 @@ def ai_tool_preview_audio(token: str):
 @app.post("/api/ai-tool/render")
 def ai_tool_render(payload: dict = Body(...)):
     path = payload.get("path")
+    song_id = (payload.get("song_id") or "").strip()
     tool_id = (payload.get("tool_id") or "").strip().lower()
     strength = _ai_tool_strength(payload.get("strength"), 30)
     options = payload.get("options") if isinstance(payload.get("options"), dict) else {}
     target = _resolve_analysis_path(path)
     chain = _ai_tool_filter_chain(tool_id, strength, options)
-    ANALYSIS_OUT_DIR.mkdir(parents=True, exist_ok=True)
+    if not song_id:
+        raise HTTPException(status_code=400, detail="missing_song_id")
     suffix = target.suffix.lower() if target.suffix else ".wav"
     codec_map = {
         ".wav": "pcm_s16le",
@@ -4025,7 +4162,7 @@ def ai_tool_render(payload: dict = Body(...)):
     }
     codec = codec_map.get(suffix, "pcm_s16le")
     tool_suffix = _safe_slug(tool_id.replace("ai_", "ai-")) or _safe_slug(tool_id) or "ai"
-    out_path = _unique_output_path(ANALYSIS_OUT_DIR, f"{target.stem}.ai-{tool_suffix}", suffix)
+    version_id, out_path = allocate_version_path(song_id, f"aitk-{tool_suffix}", suffix)
     cmd = [
         FFMPEG_BIN, "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(target),
@@ -4041,10 +4178,11 @@ def ai_tool_render(payload: dict = Body(...)):
     if proc.returncode != 0 or not out_path.exists():
         err = (proc.stderr or proc.stdout or "").strip()
         raise HTTPException(status_code=500, detail=err or "render_failed")
-    rel = _analysis_rel_for_path(out_path) or f"analysis_out/{out_path.name}"
+    rel = rel_from_path(out_path)
     return {
         "output_rel": rel,
         "output_name": out_path.name,
+        "version_id": version_id,
         "url": f"/api/analyze/path?path={quote(rel)}",
         "tool_id": tool_id,
     }
@@ -4052,10 +4190,12 @@ def ai_tool_render(payload: dict = Body(...)):
 @app.post("/api/ai-tool/render_combo")
 def ai_tool_render_combo(payload: dict = Body(...)):
     path = payload.get("path")
+    song_id = (payload.get("song_id") or "").strip()
     settings = payload.get("settings") if isinstance(payload.get("settings"), dict) else {}
     target = _resolve_analysis_path(path)
     chain = _ai_tool_combo_chain(settings)
-    ANALYSIS_OUT_DIR.mkdir(parents=True, exist_ok=True)
+    if not song_id:
+        raise HTTPException(status_code=400, detail="missing_song_id")
     suffix = target.suffix.lower() if target.suffix else ".wav"
     codec_map = {
         ".wav": "pcm_s16le",
@@ -4068,7 +4208,7 @@ def ai_tool_render_combo(payload: dict = Body(...)):
         ".ogg": "libvorbis",
     }
     codec = codec_map.get(suffix, "pcm_s16le")
-    out_path = _unique_output_path(ANALYSIS_OUT_DIR, f"{target.stem}.ai-cleaned", suffix)
+    version_id, out_path = allocate_version_path(song_id, "aitk", suffix)
     cmd = [
         FFMPEG_BIN, "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(target),
@@ -4084,10 +4224,11 @@ def ai_tool_render_combo(payload: dict = Body(...)):
     if proc.returncode != 0 or not out_path.exists():
         err = (proc.stderr or proc.stdout or "").strip()
         raise HTTPException(status_code=500, detail=err or "render_failed")
-    rel = _analysis_rel_for_path(out_path) or f"analysis_out/{out_path.name}"
+    rel = rel_from_path(out_path)
     return {
         "output_rel": rel,
         "output_name": out_path.name,
+        "version_id": version_id,
         "url": f"/api/analyze/path?path={quote(rel)}",
     }
 
@@ -4267,64 +4408,25 @@ def ai_tool_detect(path: str, mode: str = "fast"):
     return {"track": track, "metrics": metrics, "findings": findings}
 @app.get("/api/analyze-sources")
 def analyze_sources():
+    lib = library_store.load_library()
     items = []
-    try:
-        for fp in sorted(IN_DIR.iterdir(), key=lambda p: p.name.lower()):
-            if not fp.is_file() or fp.suffix.lower() not in ANALYZE_AUDIO_EXTS:
-                continue
-            items.append({
-                "kind": "source",
-                "label": fp.name,
-                "rel": fp.name,
-                "meta": {"size": fp.stat().st_size},
-            })
-    except Exception:
-        pass
+    for song in lib.get("songs", []):
+        rel = (song.get("source") or {}).get("rel")
+        if not rel:
+            continue
+        items.append({
+            "kind": "source",
+            "label": song.get("title") or Path(rel).name,
+            "rel": rel,
+            "meta": {"song_id": song.get("song_id")},
+        })
     return {"items": items}
 @app.get("/api/analyze-imports")
 def analyze_imports():
-    items = []
-    try:
-        for fp in sorted(ANALYSIS_IN_DIR.iterdir(), key=lambda p: p.name.lower()):
-            if not fp.is_file() or fp.suffix.lower() not in ANALYZE_AUDIO_EXTS:
-                continue
-            items.append({
-                "kind": "import",
-                "label": fp.name,
-                "rel": fp.name,
-                "meta": {"size": fp.stat().st_size},
-            })
-    except Exception:
-        pass
-    return {"items": items}
+    return {"items": []}
 @app.get("/api/analyze-runs")
 def analyze_runs(limit: int = 30):
-    items = []
-    try:
-        runs = [d for d in OUT_DIR.iterdir() if d.is_dir()]
-        runs.sort(key=lambda d: d.stat().st_mtime, reverse=True)
-        for run in runs[:limit]:
-            files = [p for p in _list_audio_files(run) if not (p.stem == run.name and "__" not in p.stem)]
-            if not files:
-                continue
-            stems = {}
-            for fp in files:
-                stems.setdefault(fp.stem, []).append(fp)
-            for stem, stem_files in stems.items():
-                formats = sorted({p.suffix.lower().lstrip(".") for p in stem_files})
-                base = stem.split("__", 1)[0] if "__" in stem else stem
-                label = f"{base} ({', '.join([f.upper() for f in formats])})" if formats else base
-                items.append({
-                    "kind": "run",
-                    "label": label,
-                    "rel": stem,
-                    "runId": run.name,
-                    "out": stem,
-                    "meta": {"formats": formats, "run": run.name, "detail": run.name},
-                })
-    except Exception:
-        pass
-    return {"items": items}
+    return {"items": []}
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(250 * 1024 * 1024)))  # default 250MB
 ALLOWED_UPLOAD_EXT = {".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg"}
 CHUNK_SIZE = 4 * 1024 * 1024
@@ -4341,12 +4443,12 @@ def _safe_upload_name(name: str) -> str:
 
 @app.post("/api/upload")
 async def upload(files: list[UploadFile] = File(...)):
-    IN_DIR.mkdir(parents=True, exist_ok=True)
     saved = []
-    saved_paths = []
+    saved_songs = []
     for file in files:
         safe_name = _safe_upload_name(file.filename)
-        dest = IN_DIR / safe_name
+        song_id = new_song_id()
+        dest = allocate_source_path(song_id, safe_name)
         size = 0
         with dest.open("wb") as fout:
             while True:
@@ -4359,18 +4461,31 @@ async def upload(files: list[UploadFile] = File(...)):
                     raise HTTPException(status_code=413, detail="file_too_large")
                 fout.write(chunk)
         saved.append(dest.name)
-        saved_paths.append(dest)
-    songs = []
-    if saved_paths:
+        metrics = {}
+        analyzed = False
+        try:
+            metrics = _analyze_audio_metrics(dest)
+            analyzed = bool(metrics)
+        except Exception:
+            metrics = {}
+            analyzed = False
         lib = library_store.load_library()
-        for dest in saved_paths:
-            rel_path = _analysis_rel_for_path(dest) or f"in/{dest.name}"
-            duration = _duration_seconds(dest)
-            fmt = dest.suffix.lower().lstrip(".")
-            song = library_store.ensure_song_for_source(lib, rel_path, dest.stem, duration, fmt)
-            songs.append(song)
+        rel_path = rel_from_path(dest)
+        duration = metrics.get("duration_sec")
+        fmt = dest.suffix.lower().lstrip(".")
+        song = library_store.ensure_song_for_source(
+            lib,
+            rel_path,
+            song_id,
+            dest.stem,
+            duration,
+            fmt,
+            metrics,
+            analyzed,
+        )
         library_store.save_library(lib)
-    return JSONResponse({"message": f"Uploaded: {', '.join(saved)}", "songs": songs})
+        saved_songs.append(song)
+    return JSONResponse({"message": f"Uploaded: {', '.join(saved)}", "songs": saved_songs})
 @app.post("/api/master")
 def master(
     infile: str = Form(...),
@@ -4485,7 +4600,8 @@ def master_pack(
 
 @app.post("/api/run")
 def start_run(
-    infiles: str = Form(...),
+    infiles: str = Form(""),
+    song_ids: str = Form(""),
     strength: int = Form(80),
     lufs: float | None = Form(None),
     tp: float | None = Form(None),
@@ -4517,16 +4633,14 @@ def start_run(
     voicing_name: str | None = Form(None),
     presets: str | None = Form(None),
 ):
-    files = []
-    for f in [x.strip() for x in infiles.split(",") if x.strip()]:
-        safe = _validate_input_file(f)
-        files.append(str(safe.name))
-    if not files:
-        raise HTTPException(status_code=400, detail="no_files")
+    raw_ids = song_ids or infiles
+    song_list = [x.strip() for x in raw_ids.split(",") if x.strip()]
+    if not song_list:
+        raise HTTPException(status_code=400, detail="no_songs")
     if RUNS_IN_FLIGHT >= MAX_CONCURRENT_RUNS:
         raise HTTPException(status_code=429, detail="too_many_runs")
     run_ids = _start_master_jobs(
-        files, presets, strength, lufs, tp, width, mono_bass, guardrails,
+        song_list, presets, strength, lufs, tp, width, mono_bass, guardrails,
         stage_analyze, stage_master, stage_loudness, stage_stereo, stage_output,
         out_wav, out_mp3, mp3_bitrate, mp3_vbr,
         out_aac, aac_bitrate, aac_codec, aac_container,
@@ -4537,7 +4651,7 @@ def start_run(
     )
     primary = run_ids[0] if run_ids else None
     return JSONResponse({
-        "message": f"run started for {len(files)} file(s)",
+        "message": f"run started for {len(song_list)} song(s)",
         "script": str(MASTER_SCRIPT),
         "run_ids": run_ids,
         "primary_run_id": primary,
@@ -4551,7 +4665,8 @@ async def run_snapshot(run_id: str):
     return snap
 @app.post("/api/master-bulk")
 def master_bulk(
-    infiles: str = Form(...),
+    infiles: str = Form(""),
+    song_ids: str = Form(""),
     strength: int = Form(80),
     lufs: float | None = Form(None),
     tp: float | None = Form(None),
@@ -4583,16 +4698,14 @@ def master_bulk(
     voicing_name: str | None = Form(None),
     presets: str | None = Form(None),
 ):
-    files = []
-    for f in [x.strip() for x in infiles.split(",") if x.strip()]:
-        safe = _validate_input_file(f)
-        files.append(str(safe.name))
-    if not files:
-        raise HTTPException(status_code=400, detail="no_files")
+    raw_ids = song_ids or infiles
+    song_list = [x.strip() for x in raw_ids.split(",") if x.strip()]
+    if not song_list:
+        raise HTTPException(status_code=400, detail="no_songs")
     if RUNS_IN_FLIGHT >= MAX_CONCURRENT_RUNS:
         raise HTTPException(status_code=429, detail="too_many_runs")
     run_ids = _start_master_jobs(
-        files, presets, strength, lufs, tp, width, mono_bass, guardrails,
+        song_list, presets, strength, lufs, tp, width, mono_bass, guardrails,
         stage_analyze, stage_master, stage_loudness, stage_stereo, stage_output,
         out_wav, out_mp3, mp3_bitrate, mp3_vbr,
         out_aac, aac_bitrate, aac_codec, aac_container,
@@ -4603,25 +4716,21 @@ def master_bulk(
     )
     primary = run_ids[0] if run_ids else None
     return JSONResponse({
-        "message": f"bulk started for {len(files)} file(s)",
+        "message": f"bulk started for {len(song_list)} song(s)",
         "script": str(MASTER_SCRIPT),
         "run_ids": run_ids,
         "primary_run_id": primary,
     })
 def _validate_input_file(name: str) -> Path:
-    """Validate a user-supplied infile lives under IN_DIR."""
-    if not name or name.startswith("/") or ".." in name:
+    """Validate a user-supplied infile lives under /data library/presets/previews."""
+    if not name or ".." in name:
         raise HTTPException(status_code=400, detail="invalid_input_path")
-    candidate = (IN_DIR / name).resolve()
     try:
-        if IN_DIR.resolve() not in candidate.parents:
-            raise HTTPException(status_code=400, detail="invalid_input_path")
-        if not candidate.exists() or not candidate.is_file():
-            raise HTTPException(status_code=400, detail="input_not_found")
-    except HTTPException:
-        raise
-    except Exception:
+        candidate = resolve_rel(name)
+    except ValueError:
         raise HTTPException(status_code=400, detail="invalid_input_path")
+    if not candidate.exists() or not candidate.is_file():
+        raise HTTPException(status_code=400, detail="input_not_found")
     return candidate
 
 @app.post("/api/preview/start")

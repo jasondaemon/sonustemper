@@ -34,10 +34,8 @@ def _default_data_dir() -> Path:
 
 def _ensure_data_dirs(data_dir: Path) -> None:
     for rel in [
-        "mastering/in",
-        "mastering/out",
-        "tagging/in",
         "presets",
+        "library/songs",
         "previews",
     ]:
         (data_dir / rel).mkdir(parents=True, exist_ok=True)

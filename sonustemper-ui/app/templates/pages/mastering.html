@@ -44,13 +44,7 @@
                 <div>
                   <div class="stage-title" id="inputTitle">Input</div>
                 </div>
-                <div class="stage-search">
-                  <input type="search" id="inputSearch" placeholder="Search files" aria-label="Search files">
-                </div>
                 <div class="stage-actions">
-                  <input type="file" id="inputUpload" accept=".wav,.mp3,.flac,.aiff,.aif,.m4a,.ogg,.aac" multiple hidden>
-                  <button type="button" class="btn ghost small" id="uploadBtn">Upload</button>
-                  <button type="button" class="btn ghost small" id="selectAllBtn">Select All</button>
                   <button type="button" class="btn ghost small" id="clearBtn">Clear</button>
                 </div>
               </div>
@@ -257,7 +251,7 @@
   let statusStages = new Set();
   let libraryBrowser = null;
   const state = {
-    selectedFiles: [],
+    selectedSongs: [],
     inputItems: [],
     voicing: 'universal',
     strength: 80,
@@ -430,13 +424,6 @@
     };
   }
 
-  function normalizeInputRel(rel){
-    if (!rel) return null;
-    const raw = String(rel);
-    const parts = raw.split('/');
-    return parts[parts.length - 1];
-  }
-
   function renderInputList(){
     if (!inputList) return;
     inputList.innerHTML = '';
@@ -448,45 +435,61 @@
       updateSelectionState();
       return;
     }
-    const prevSelected = new Set(state.selectedFiles);
     state.inputItems.forEach((item) => {
-      const row = document.createElement('label');
+      const row = document.createElement('div');
       row.className = 'input-item';
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.name = 'infiles';
-      cb.value = item.rel;
-      cb.checked = prevSelected.size ? prevSelected.has(item.rel) : true;
-      if (Number.isFinite(item.duration)) {
-        cb.dataset.duration = String(item.duration);
-      }
       const text = document.createElement('span');
       text.className = 'input-name';
-      text.textContent = item.title || item.rel;
-      const duration = document.createElement('span');
-      duration.className = 'input-duration';
-      duration.textContent = item.duration ? formatDuration(item.duration) : '—';
-      row.appendChild(cb);
+      text.textContent = item.title || 'Untitled';
+      const badges = document.createElement('div');
+      badges.className = 'input-badges';
+      if (item.duration) {
+        const badge = document.createElement('span');
+        badge.className = 'badge badge-format';
+        badge.textContent = formatDuration(item.duration);
+        badges.appendChild(badge);
+      }
+      if (item.format) {
+        const badge = document.createElement('span');
+        badge.className = 'badge badge-format';
+        badge.textContent = String(item.format).toUpperCase();
+        badges.appendChild(badge);
+      }
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'btn ghost tiny input-remove';
+      removeBtn.textContent = '✕';
+      removeBtn.title = 'Remove';
+      removeBtn.addEventListener('click', (evt) => {
+        evt.stopPropagation();
+        removeInputItem(item.song_id);
+      });
       row.appendChild(text);
-      row.appendChild(duration);
+      row.appendChild(badges);
+      row.appendChild(removeBtn);
       inputList.appendChild(row);
     });
     updateSelectionState();
-    applyInputFilter();
   }
 
   function addInputItem(item){
-    if (!item?.rel) return;
-    if (state.inputItems.find((entry) => entry.rel === item.rel)) {
+    if (!item?.song_id) return;
+    if (state.inputItems.find((entry) => entry.song_id === item.song_id)) {
       return;
     }
     state.inputItems.push(item);
     renderInputList();
   }
 
-  function addInputItemFromSong(song, relOverride){
-    const rel = normalizeInputRel(relOverride || song?.source?.rel || '');
-    if (!rel) return;
+  function removeInputItem(songId){
+    if (!songId) return;
+    state.inputItems = state.inputItems.filter((entry) => entry.song_id !== songId);
+    renderInputList();
+  }
+
+  function addInputItemFromSong(song){
+    const rel = song?.source?.rel || '';
+    if (!song?.song_id || !rel) return;
     addInputItem({
       rel,
       title: song?.title || rel,
@@ -496,110 +499,61 @@
     });
   }
 
-  async function attachUnsortedOutput(item){
-    const res = await fetch('/api/library', { cache: 'no-store' });
-    if (!res.ok) return;
+  async function ingestFiles(files){
+    if (!files.length) return;
+    addStatusLine('Uploading…');
+    const fd = new FormData();
+    files.forEach(file => fd.append('files', file, file.name));
+    const res = await fetch('/api/upload', { method: 'POST', body: fd });
+    if (!res.ok) {
+      const msg = await res.text();
+      throw new Error(msg || 'Upload failed');
+    }
+    addStatusLine('Creating Song…');
+    addStatusLine('Analyzing source…');
+    addStatusLine('Saving to Library…');
     const data = await res.json();
     const songs = Array.isArray(data.songs) ? data.songs : [];
-    const list = songs.map((song, idx) => `${idx + 1}) ${song.title || 'Untitled'}`).join('\n');
-    const choice = prompt(`Add output to which song?\n${list}\n\nEnter number or type a new title.`, '');
-    if (!choice) return;
-    const idx = parseInt(choice, 10);
-    if (!Number.isNaN(idx) && songs[idx - 1]) {
-      const song = songs[idx - 1];
-      await fetch('/api/library/add_version', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          song_id: song.song_id,
-          kind: 'manual',
-          label: item.name || 'Output',
-          rel: item.rel,
-          summary: {},
-          tags: [],
-        }),
-      });
-    } else {
-      const title = choice.trim() || item.name || item.rel;
-      await fetch('/api/library/import_source', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: item.rel, title }),
-      });
+    songs.forEach(song => addInputItemFromSong(song));
+    addStatusLine('Ready');
+    if (libraryBrowser) libraryBrowser.reload();
+  }
+
+  function promptLibraryImport(){
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.wav,.mp3,.flac,.aiff,.aif,.m4a,.ogg,.aac';
+    input.multiple = true;
+    input.addEventListener('change', async () => {
+      const files = [...(input.files || [])];
+      if (!files.length) return;
+      try {
+        showToast('Uploading…');
+        await ingestFiles(files);
+        showToast('Upload complete');
+      } catch (_err) {
+        showToast('Upload failed');
+      }
+    });
+    input.click();
+  }
+
+  function updateDisabledSongs(){
+    if (libraryBrowser && libraryBrowser.setDisabledSongIds) {
+      libraryBrowser.setDisabledSongIds(state.inputItems.map(item => item.song_id).filter(Boolean));
     }
   }
 
-  const uploadBtn = document.getElementById('uploadBtn');
-  const uploadInput = document.getElementById('inputUpload');
-  const selectAllBtn = document.getElementById('selectAllBtn');
   const clearBtn = document.getElementById('clearBtn');
   const inputList = document.getElementById('inputList');
   const inputTitle = document.getElementById('inputTitle');
   const inputFooter = document.getElementById('inputFooter');
-  const inputSearch = document.getElementById('inputSearch');
   const masteringBrowser = document.getElementById('masteringBrowser');
   const runSummaryText = document.getElementById('runSummaryText');
   const voicingStage = document.getElementById('voicingStage');
   const loudnessStage = document.getElementById('loudnessStage');
   const stereoStage = document.getElementById('stereoStage');
   const convertOnly = document.getElementById('convertOnly');
-
-  function triggerUpload(){
-    if (uploadInput) uploadInput.click();
-  }
-
-  async function uploadFilesSequential(files){
-    addStatusLine('Uploading files...');
-    for (let i = 0; i < files.length; i++){
-      const f = files[i];
-      const fd = new FormData();
-      fd.append('files', f, f.name);
-      const res = await fetch('/api/upload', { method: 'POST', body: fd });
-      if (!res.ok){
-        const msg = await res.text();
-        throw new Error(msg || `Upload failed: ${f.name}`);
-      }
-      addStatusLine(`${f.name} uploaded...`);
-      const rel = `in/${f.name}`;
-      const libRes = await fetch('/api/library/import_source', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: rel, title: f.name }),
-      });
-      if (libRes.ok) {
-        const data = await libRes.json();
-        addInputItemFromSong(data.song, rel);
-      }
-    }
-    addStatusLine('Upload complete');
-    if (libraryBrowser) libraryBrowser.reload();
-  }
-
-  if (uploadBtn && uploadInput){
-    uploadBtn.addEventListener('click', triggerUpload);
-    uploadBtn.addEventListener('keydown', (e)=>{
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        triggerUpload();
-      }
-    });
-  }
-
-  if (uploadInput){
-    uploadInput.addEventListener('change', async ()=>{
-      const files = [...(uploadInput.files || [])];
-      if (!files.length) return;
-      try{
-        showToast('Uploading…');
-        await uploadFilesSequential(files);
-        showToast('Upload complete');
-      }catch(err){
-        showToast('Upload failed');
-      }finally{
-        uploadInput.value = '';
-      }
-    });
-  }
 
   function formatDuration(totalSeconds){
     if (!totalSeconds || totalSeconds <= 0) return '—';
@@ -610,17 +564,17 @@
   }
 
   function updateSelectionState(){
-    state.selectedFiles = [...document.querySelectorAll('#inputList input[name="infiles"]:checked')].map(cb => cb.value);
-    const count = state.selectedFiles.length;
-    const label = count === 1 ? 'file' : 'files';
+    state.selectedSongs = state.inputItems.map(item => item.song_id).filter(Boolean);
+    const count = state.selectedSongs.length;
+    const label = count === 1 ? 'song' : 'songs';
     if (inputTitle) {
       inputTitle.textContent = 'Input';
     }
     const totalDuration = (() => {
       let total = 0;
       let has = false;
-      document.querySelectorAll('#inputList input[name="infiles"]:checked').forEach(cb => {
-        const d = parseFloat(cb.dataset.duration || '');
+      state.inputItems.forEach(item => {
+        const d = parseFloat(item.duration || '');
         if (!Number.isNaN(d)) {
           total += d;
           has = true;
@@ -631,7 +585,7 @@
     if (inputFooter) {
       inputFooter.textContent = `Selected: ${count} ${label}, Total duration: ${formatDuration(totalDuration)}`;
     }
-    const first = state.selectedFiles[0] || null;
+    const first = state.selectedSongs[0] || null;
     if (first !== previewSong) {
       previewSong = first;
       resetPreview();
@@ -642,48 +596,14 @@
     updateSummary();
     updateRunButton();
     updatePreviewAvailability();
+    updateDisabledSongs();
   }
 
-  function applyInputFilter(){
-    if (!inputList || !inputSearch) return;
-    const term = inputSearch.value.trim().toLowerCase();
-    let visibleCount = 0;
-    inputList.querySelectorAll('.input-item').forEach(item => {
-      const name = item.querySelector('.input-name')?.textContent?.toLowerCase() || '';
-      const match = !term || name.includes(term);
-      item.style.display = match ? '' : 'none';
-      if (match) visibleCount += 1;
-    });
-    let empty = inputList.querySelector('.input-empty.filter-empty');
-    if (visibleCount === 0 && inputList.querySelectorAll('.input-item').length) {
-      if (!empty) {
-        empty = document.createElement('div');
-        empty.className = 'input-empty filter-empty muted';
-        empty.textContent = 'No matches';
-        inputList.appendChild(empty);
-      }
-    } else if (empty) {
-      empty.remove();
-    }
-  }
-
-  if (inputList) {
-    inputList.addEventListener('change', updateSelectionState);
-  }
-  if (selectAllBtn) {
-    selectAllBtn.addEventListener('click', () => {
-      document.querySelectorAll('#inputList input[name="infiles"]').forEach(cb => { cb.checked = true; });
-      updateSelectionState();
-    });
-  }
   if (clearBtn) {
     clearBtn.addEventListener('click', () => {
-      document.querySelectorAll('#inputList input[name="infiles"]').forEach(cb => { cb.checked = false; });
-      updateSelectionState();
+      state.inputItems = [];
+      renderInputList();
     });
-  }
-  if (inputSearch) {
-    inputSearch.addEventListener('input', applyInputFilter);
   }
 
   if (masteringBrowser && window.LibraryBrowser) {
@@ -696,8 +616,8 @@
     });
     masteringBrowser.addEventListener('library:action', async (evt) => {
       const { action, song, version, item } = evt.detail || {};
-      if (action === 'import-file' && uploadInput) {
-        uploadInput.click();
+      if (action === 'import-file') {
+        promptLibraryImport();
         return;
       }
       if (action === 'rename-song' && song?.song_id) {
@@ -736,14 +656,10 @@
         });
         if (res.ok) {
           const data = await res.json();
-          addInputItemFromSong(data.song, data.rel);
+          addInputItemFromSong(data.song);
           browser.reload();
         }
         return;
-      }
-      if (action === 'add-unsorted' && item?.rel) {
-        await attachUnsortedOutput(item);
-        browser.reload();
       }
     });
   }
@@ -852,13 +768,13 @@
   }
 
   function updatePreviewAvailability(){
-    const song = state.selectedFiles[0] || null;
+    const song = state.inputItems[0] || null;
     if (convertOnly?.checked) {
       setPreviewStatus('Preview disabled in Convert Only');
       resetPreview();
       return;
     }
-    if (!song) {
+    if (!song?.rel) {
       setPreviewStatus('Select a source file to preview');
       resetPreview();
       return;
@@ -883,12 +799,12 @@
   }
 
   function startPreview(){
-    const song = state.selectedFiles[0] || null;
+    const song = state.inputItems[0] || null;
     if (convertOnly?.checked) {
       updatePreviewAvailability();
       return;
     }
-    if (!song) {
+    if (!song?.rel) {
       updatePreviewAvailability();
       return;
     }
@@ -903,7 +819,7 @@
     resetPreview();
     previewIsBuilding = true;
     setPreviewStatus('Generating...');
-    const payload = { song, voicing, strength: strengthVal };
+    const payload = { song: song.rel, voicing, strength: strengthVal };
     if (!Number.isNaN(widthVal) && widthVal !== null) payload.width = widthVal;
     payload.guardrails = Boolean(guardrails?.checked);
     if (useProfileTargets || ovTargetI?.checked) {
@@ -928,7 +844,7 @@
         if (requestId !== previewRequestId) return;
         const id = data.preview_id;
         previewCurrentId = id;
-        previewSong = song;
+        previewSong = song.song_id || song.rel;
         const es = new EventSource(`/api/preview/stream?preview_id=${encodeURIComponent(id)}`);
         previewEventSource = es;
         es.onmessage = (ev) => {
@@ -1453,7 +1369,7 @@
     if (strengthVal) strengthVal.textContent = String(state.strength);
     if (widthVal) widthVal.textContent = state.widthValue.toFixed(2);
     updateOutputControls();
-    const count = state.selectedFiles.length;
+    const count = state.selectedSongs.length;
     const fileLabel = count === 1 ? 'file' : 'files';
     const outputs = Object.entries(state.outputs)
       .filter(([_, val]) => val.enabled)
@@ -1473,7 +1389,7 @@
   }
 
   function updateRunButton(){
-    if (runBtn) runBtn.disabled = state.selectedFiles.length === 0;
+    if (runBtn) runBtn.disabled = state.selectedSongs.length === 0;
   }
 
   if (strength) {
@@ -1555,8 +1471,8 @@
 
     const convertOnlyChecked = convertOnly?.checked;
     const fd = new FormData();
-    const files = state.selectedFiles;
-    fd.append('infiles', files.join(','));
+    const files = state.selectedSongs;
+    fd.append('song_ids', files.join(','));
     fd.append('strength', strength?.value || '80');
     // stages
     if (convertOnlyChecked) {

@@ -48,7 +48,7 @@
       expanded: loadJson(EXPAND_KEY, {}),
       search: localStorage.getItem(SEARCH_KEY) || '',
       songs: [],
-      unsorted: [],
+      disabledSongIds: new Set(),
     };
 
     container.innerHTML = `
@@ -67,10 +67,6 @@
           <button class="btn ghost tiny library-import-btn" type="button">Import file</button>
         </div>
         <div class="library-browser-list"></div>
-        <div class="library-unsorted" hidden>
-          <div class="library-section-title">Unsorted Outputs</div>
-          <div class="library-unsorted-list"></div>
-        </div>
       </div>
     `;
 
@@ -79,8 +75,8 @@
     const viewToggle = container.querySelector('.library-view-toggle');
     const importBtn = container.querySelector('.library-import-btn');
     const listEl = container.querySelector('.library-browser-list');
-    const unsortedWrap = container.querySelector('.library-unsorted');
-    const unsortedList = container.querySelector('.library-unsorted-list');
+    const unsortedWrap = null;
+    const unsortedList = null;
 
     function setView(view) {
       state.view = view === 'extended' ? 'extended' : 'simple';
@@ -141,6 +137,8 @@
     function renderSongRow(song) {
       const row = document.createElement('div');
       row.className = 'library-song';
+      const disabled = state.disabledSongIds.has(song.song_id);
+      if (disabled) row.classList.add('is-disabled');
       const header = document.createElement('div');
       header.className = 'library-song-head';
       const caret = document.createElement('button');
@@ -164,6 +162,7 @@
       header.appendChild(title);
       header.appendChild(meta);
       header.addEventListener('click', () => {
+        if (disabled) return;
         const latest = song.latest_version || (song.versions || []).slice(-1)[0];
         if (latest) {
           emit('library:select', {
@@ -300,40 +299,14 @@
       return row;
     }
 
-    function renderUnsorted() {
-      unsortedList.innerHTML = '';
-      if (!state.unsorted.length) {
-        unsortedWrap.hidden = true;
-        return;
-      }
-      unsortedWrap.hidden = false;
-      state.unsorted.forEach((item) => {
-        const row = document.createElement('div');
-        row.className = 'library-unsorted-row';
-        const label = document.createElement('div');
-        label.textContent = item.name || item.rel;
-        const actions = document.createElement('div');
-        actions.className = 'library-unsorted-actions';
-        const addBtn = document.createElement('button');
-        addBtn.type = 'button';
-        addBtn.className = 'btn ghost tiny';
-        addBtn.textContent = 'Add to Library';
-        addBtn.addEventListener('click', () => {
-          emit('library:action', { action: 'add-unsorted', item });
-        });
-        actions.appendChild(addBtn);
-        row.appendChild(label);
-        row.appendChild(actions);
-        unsortedList.appendChild(row);
-      });
-    }
-
     function renderList() {
       const filtered = state.songs.filter((song) => songMatches(song, state.search));
       filtered.sort(songSort);
       listEl.innerHTML = '';
       filtered.forEach((song) => listEl.appendChild(renderSongRow(song)));
-      renderUnsorted();
+      if (unsortedWrap) {
+        unsortedWrap.hidden = true;
+      }
       const buttons = viewToggle.querySelectorAll('button');
       buttons.forEach((btn) => {
         btn.classList.toggle('is-active', btn.dataset.view === state.view);
@@ -346,11 +319,16 @@
         if (!res.ok) throw new Error('library_failed');
         const data = await res.json();
         state.songs = Array.isArray(data.songs) ? data.songs : [];
-        state.unsorted = Array.isArray(data.unsorted) ? data.unsorted : [];
         renderList();
       } catch (_err) {
         listEl.innerHTML = '<div class="muted">Library unavailable.</div>';
       }
+    }
+
+    function setDisabledSongIds(ids) {
+      const next = new Set(Array.isArray(ids) ? ids : []);
+      state.disabledSongIds = next;
+      renderList();
     }
 
     searchInput.value = state.search;
@@ -369,6 +347,7 @@
 
     return {
       reload: loadLibrary,
+      setDisabledSongIds,
     };
   }
 
