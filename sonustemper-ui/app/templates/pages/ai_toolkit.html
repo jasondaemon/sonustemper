@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block page_title %}AI Music Toolkit | SonusTemper{% endblock %}
 {% block title %}AI Music Toolkit{% endblock %}
-{% block subtitle %}Guided cleanup workflows for AI-generated music.{% endblock %}
+{% block subtitle %}Beginner-friendly cleanup for AI-generated music.{% endblock %}
 
 {% block sidebar %}
   <div class="card">
@@ -40,276 +40,99 @@
       <div class="ai-selected-label">Selected File</div>
       <div class="ai-selected-name" id="aiSelectedName">-</div>
       <div class="ai-selected-meta" id="aiSelectedMeta">No file selected.</div>
-      <audio id="aiSelectedAudio" class="ai-selected-audio" controls hidden></audio>
     </div>
   </div>
 {% endblock %}
 
 {% block content %}
-  <div class="card ai-detector-card">
+  <div class="card ai-live-card">
     <div class="card-head">
       <div>
-        <div class="card-title">AI Artifact Detector</div>
-        <div class="muted">Quick scan using audio statistics (no uploads).</div>
-      </div>
-      <div class="ai-detector-actions">
-        <button class="btn ghost small" type="button" id="aiDetectorScan">Scan Track</button>
-        <button class="btn ghost small" type="button" id="aiDetectorRunAll" disabled>Run suggested previews</button>
+        <div class="card-title">Realtime Cleanup</div>
+        <div class="muted">Play the track, move sliders to hear changes, then Save Cleaned Copy.</div>
       </div>
     </div>
-    <div class="ai-detector-body">
-      <div class="muted" id="aiDetectorStatus">Select a file to scan.</div>
-      <div class="ai-detector-results" id="aiDetectorList"></div>
+
+    <div class="ai-waveform-block">
+      <div id="aiWaveform" class="ai-waveform"></div>
     </div>
-  </div>
 
-  <div class="ai-toolkit-layout">
-    <div class="ai-tool-grid">
-      <div class="card ai-tool-card" data-tool-id="ai_deglass">
-        <div class="card-head">
-          <div>
-            <div class="card-title">Reduce AI Hiss / Glass</div>
-            <div class="muted">Soften brittle top-end and reduce hiss from AI renders.</div>
-          </div>
+    <div class="ai-transport">
+      <button class="btn ghost small" type="button" id="aiPlayBtn">Play</button>
+      <button class="btn ghost small" type="button" id="aiStopBtn">Stop</button>
+      <div class="ai-time" id="aiTimeLabel">0:00 / 0:00</div>
+    </div>
+
+    <audio id="aiAudio" preload="metadata" hidden></audio>
+
+    <div class="ai-spectrum-block">
+      <div class="ai-spectrum-title">Track spectrum + effect curve</div>
+      <canvas id="aiSpectrumCanvas" class="ai-spectrum-canvas"></canvas>
+    </div>
+
+    <div class="ai-tools">
+      <div class="ai-tools-hint">Play the track, move sliders to hear changes, then Save Cleaned Copy.</div>
+      <div class="ai-tool-row" data-tool-id="ai_deglass">
+        <div class="ai-tool-meta">
+          <div class="ai-tool-title">Reduce AI Hiss / Glass</div>
+          <div class="ai-tool-sub">Soften brittle top-end and reduce hiss.</div>
         </div>
-        <div class="ai-tool-body">
-          <div class="ai-strength">
-            <label>Strength</label>
-            <div class="ai-strength-row">
-              <input type="range" min="0" max="100" value="35" data-role="strength">
-              <span class="value-pill" data-role="strength-value">35</span>
-            </div>
-          </div>
-          <details class="ai-tool-advanced">
-            <summary>Advanced</summary>
-            <div class="ai-tool-advanced-body">
-              <label class="ai-checkbox"><input type="checkbox" data-option="lp_enabled" checked> Gentle low-pass</label>
-              <label class="ai-checkbox"><input type="checkbox" data-option="preserve_air"> Preserve air</label>
-              <div class="ai-option-row">
-                <label>Denoise</label>
-                <input type="range" min="0" max="100" value="30" data-option="afftdn_strength" data-scale="0.01">
-              </div>
-            </div>
-          </details>
-          <div class="ai-tool-actions">
-            <button class="btn ghost small" type="button" data-action="preview">Preview</button>
-            <button class="btn ghost small" type="button" data-action="apply">Apply</button>
-            <button class="btn ghost small" type="button" data-action="reset">Reset</button>
-          </div>
-          <div class="muted ai-tool-status" data-role="status"></div>
+        <div class="ai-tool-control">
+          <input type="range" min="0" max="100" value="35" data-role="strength">
+          <span class="value-pill" data-role="strength-value">35</span>
         </div>
       </div>
-
-      <div class="card ai-tool-card" data-tool-id="ai_vocal_smooth">
-        <div class="card-head">
-          <div>
-            <div class="card-title">Smooth Harsh Vocals</div>
-            <div class="muted">Tame harsh presence and sibilant edges.</div>
-          </div>
+      <div class="ai-tool-row" data-tool-id="ai_vocal_smooth">
+        <div class="ai-tool-meta">
+          <div class="ai-tool-title">Smooth Harsh Vocals</div>
+          <div class="ai-tool-sub">Tame harsh presence and sibilant edges.</div>
         </div>
-        <div class="ai-tool-body">
-          <div class="ai-strength">
-            <label>Strength</label>
-            <div class="ai-strength-row">
-              <input type="range" min="0" max="100" value="30" data-role="strength">
-              <span class="value-pill" data-role="strength-value">30</span>
-            </div>
-          </div>
-          <details class="ai-tool-advanced">
-            <summary>Advanced</summary>
-            <div class="ai-tool-advanced-body">
-              <div class="ai-option-row">
-                <label>Center freq</label>
-                <select data-option="center_hz">
-                  <option value="3500">3.5 kHz</option>
-                  <option value="4500" selected>4.5 kHz</option>
-                  <option value="5500">5.5 kHz</option>
-                </select>
-              </div>
-              <label class="ai-checkbox"><input type="checkbox" data-option="s_cut"> Extra S-band cut</label>
-              <div class="ai-option-row">
-                <label>S-band freq</label>
-                <select data-option="s_hz">
-                  <option value="6500">6.5 kHz</option>
-                  <option value="7500" selected>7.5 kHz</option>
-                  <option value="9000">9 kHz</option>
-                </select>
-              </div>
-              <div class="ai-option-row">
-                <label>Denoise</label>
-                <input type="range" min="0" max="100" value="0" data-option="afftdn_strength" data-scale="0.01">
-              </div>
-            </div>
-          </details>
-          <div class="ai-tool-actions">
-            <button class="btn ghost small" type="button" data-action="preview">Preview</button>
-            <button class="btn ghost small" type="button" data-action="apply">Apply</button>
-            <button class="btn ghost small" type="button" data-action="reset">Reset</button>
-          </div>
-          <div class="muted ai-tool-status" data-role="status"></div>
+        <div class="ai-tool-control">
+          <input type="range" min="0" max="100" value="30" data-role="strength">
+          <span class="value-pill" data-role="strength-value">30</span>
         </div>
       </div>
-
-      <div class="card ai-tool-card" data-tool-id="ai_bass_tight">
-        <div class="card-head">
-          <div>
-            <div class="card-title">Tighten Bass / Remove Rumble</div>
-            <div class="muted">Clean low-end rumble and reduce mud.</div>
-          </div>
+      <div class="ai-tool-row" data-tool-id="ai_bass_tight">
+        <div class="ai-tool-meta">
+          <div class="ai-tool-title">Tighten Bass / Remove Rumble</div>
+          <div class="ai-tool-sub">Clean sub rumble and low-mid mud.</div>
         </div>
-        <div class="ai-tool-body">
-          <div class="ai-strength">
-            <label>Strength</label>
-            <div class="ai-strength-row">
-              <input type="range" min="0" max="100" value="40" data-role="strength">
-              <span class="value-pill" data-role="strength-value">40</span>
-            </div>
-          </div>
-          <details class="ai-tool-advanced">
-            <summary>Advanced</summary>
-            <div class="ai-tool-advanced-body">
-              <div class="ai-option-row">
-                <label>High-pass</label>
-                <input type="range" min="30" max="50" step="1" value="40" data-option="hp_hz">
-              </div>
-              <div class="ai-option-row">
-                <label>Mud cut</label>
-                <select data-option="mud_hz">
-                  <option value="180">180 Hz</option>
-                  <option value="220" selected>220 Hz</option>
-                  <option value="300">300 Hz</option>
-                </select>
-              </div>
-              <label class="ai-checkbox"><input type="checkbox" data-option="punch"> Add punch shelf</label>
-            </div>
-          </details>
-          <div class="ai-tool-actions">
-            <button class="btn ghost small" type="button" data-action="preview">Preview</button>
-            <button class="btn ghost small" type="button" data-action="apply">Apply</button>
-            <button class="btn ghost small" type="button" data-action="reset">Reset</button>
-          </div>
-          <div class="muted ai-tool-status" data-role="status"></div>
+        <div class="ai-tool-control">
+          <input type="range" min="0" max="100" value="40" data-role="strength">
+          <span class="value-pill" data-role="strength-value">40</span>
         </div>
       </div>
-
-      <div class="card ai-tool-card" data-tool-id="ai_transient_soften">
-        <div class="card-head">
-          <div>
-            <div class="card-title">Reduce Pumping / Over-Transients</div>
-            <div class="muted">Soften clicky transients and harsh bite.</div>
-          </div>
+      <div class="ai-tool-row" data-tool-id="ai_transient_soften">
+        <div class="ai-tool-meta">
+          <div class="ai-tool-title">Reduce Pumping / Over-Transients</div>
+          <div class="ai-tool-sub">Soften clicky transients and harsh bite.</div>
         </div>
-        <div class="ai-tool-body">
-          <div class="ai-strength">
-            <label>Strength</label>
-            <div class="ai-strength-row">
-              <input type="range" min="0" max="100" value="25" data-role="strength">
-              <span class="value-pill" data-role="strength-value">25</span>
-            </div>
-          </div>
-          <details class="ai-tool-advanced">
-            <summary>Advanced</summary>
-            <div class="ai-tool-advanced-body">
-              <label class="ai-checkbox"><input type="checkbox" data-option="keep_punch"> Keep punch</label>
-            </div>
-          </details>
-          <div class="ai-tool-actions">
-            <button class="btn ghost small" type="button" data-action="preview">Preview</button>
-            <button class="btn ghost small" type="button" data-action="apply">Apply</button>
-            <button class="btn ghost small" type="button" data-action="reset">Reset</button>
-          </div>
-          <div class="muted ai-tool-status" data-role="status"></div>
+        <div class="ai-tool-control">
+          <input type="range" min="0" max="100" value="25" data-role="strength">
+          <span class="value-pill" data-role="strength-value">25</span>
         </div>
       </div>
-
-      <div class="card ai-tool-card" data-tool-id="ai_platform_safe">
-        <div class="card-head">
-          <div>
-            <div class="card-title">Platform Ready (AI Safe Loudness)</div>
-            <div class="muted">Normalize loudness for streaming without harsh clipping.</div>
-          </div>
+      <div class="ai-tool-row" data-tool-id="ai_platform_safe">
+        <div class="ai-tool-meta">
+          <div class="ai-tool-title">Platform Ready (AI Safe Loudness)</div>
+          <div class="ai-tool-sub">Safer loudness for streaming without harsh clipping.</div>
         </div>
-        <div class="ai-tool-body">
-          <div class="ai-strength">
-            <label>Strength</label>
-            <div class="ai-strength-row">
-              <input type="range" min="0" max="100" value="40" data-role="strength">
-              <span class="value-pill" data-role="strength-value">40</span>
-            </div>
-          </div>
-          <details class="ai-tool-advanced">
-            <summary>Advanced</summary>
-            <div class="ai-tool-advanced-body">
-              <div class="ai-option-row">
-                <label>Target</label>
-                <select data-option="preset">
-                  <option value="streaming" selected>Streaming Safe (-14 / -1.2)</option>
-                  <option value="youtube">YouTube Safe (-14 / -1.0)</option>
-                  <option value="dynamic">Dynamic Preserve (-16 / -1.2)</option>
-                </select>
-              </div>
-            </div>
-          </details>
-          <div class="ai-tool-actions">
-            <button class="btn ghost small" type="button" data-action="preview">Preview</button>
-            <button class="btn ghost small" type="button" data-action="apply">Apply</button>
-            <button class="btn ghost small" type="button" data-action="reset">Reset</button>
-          </div>
-          <div class="muted ai-tool-status" data-role="status"></div>
+        <div class="ai-tool-control">
+          <input type="range" min="0" max="100" value="0" data-role="strength">
+          <span class="value-pill" data-role="strength-value">0</span>
         </div>
       </div>
     </div>
 
-    <div class="ai-toolkit-side">
-      <div class="card ai-preview-card">
-        <div class="card-head">
-          <div>
-            <div class="card-title">Quick Preview</div>
-            <div class="muted" id="aiPreviewStatus">Select a file and preview a tool.</div>
-          </div>
-        </div>
-        <div class="ai-preview-actions">
-          <button class="btn ghost small" type="button" id="aiPreviewOriginal" disabled>Original</button>
-          <button class="btn ghost small" type="button" id="aiPreviewProcessed" disabled>Processed</button>
-        </div>
-        <audio id="aiPreviewAudio" class="ai-preview-audio" controls></audio>
-      </div>
-
-      <div class="card ai-results-card">
-        <div class="card-head">
-          <div>
-            <div class="card-title">Quick Results</div>
-            <div class="muted">Recent renders (download or compare).</div>
-          </div>
-        </div>
-        <div class="ai-results-list" id="aiResultsList">
-          <div class="muted">No renders yet.</div>
-        </div>
-      </div>
-
-      <div class="card ai-presets-card">
-        <div class="card-head">
-          <div>
-            <div class="card-title">My AI Fix Presets</div>
-            <div class="muted">Save and reuse your favorite cleanup settings.</div>
-          </div>
-        </div>
-        <div class="ai-presets-save">
-          <label>Preset name</label>
-          <input type="text" id="aiPresetName" placeholder="My cleanup preset">
-          <label>Tool</label>
-          <select id="aiPresetTool"></select>
-          <button class="btn ghost small" type="button" id="aiPresetSaveBtn">Save preset</button>
-          <div class="muted" id="aiPresetStatus"></div>
-        </div>
-        <div class="ai-presets-list" id="aiPresetList">
-          <div class="muted">No presets yet.</div>
-        </div>
-      </div>
+    <div class="ai-save">
+      <button class="btn btn-primary" type="button" id="aiSaveBtn">Save Cleaned Copy</button>
+      <div class="muted" id="aiSaveStatus"></div>
+      <div class="ai-save-result" id="aiSaveResult"></div>
     </div>
   </div>
 {% endblock %}
 
 {% block extra_js %}
+<script src="/ui/static/vendor/wavesurfer.min.js"></script>
 <script defer src="/static/js/ai_toolkit.js"></script>
 {% endblock %}

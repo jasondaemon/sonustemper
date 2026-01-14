@@ -1627,9 +1627,114 @@ h1{margin:0;font-size:24px;}
 .ai-selected-name{font-weight:600;}
 .ai-selected-meta{font-size:12px;color:var(--muted);}
 .ai-selected-audio{width:100%;}
+.ai-live-card{
+  display:flex;
+  flex-direction:column;
+  gap:16px;
+}
+.ai-waveform-block{
+  border:1px solid var(--line);
+  border-radius:12px;
+  padding:8px;
+  background:#0f151d;
+}
+.ai-waveform{
+  width:100%;
+  min-height:180px;
+}
+.ai-transport{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.ai-time{
+  margin-left:auto;
+  font-size:12px;
+  color:var(--muted);
+}
+.ai-spectrum-block{
+  border:1px solid var(--line);
+  border-radius:12px;
+  padding:10px;
+  background:#0f151d;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+.ai-spectrum-title{
+  font-size:12px;
+  color:var(--muted);
+}
+.ai-spectrum-canvas{
+  width:100%;
+  height:140px;
+  display:block;
+}
+.ai-tools{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.ai-tools-hint{
+  font-size:12px;
+  color:var(--muted);
+}
+.ai-tool-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  border:1px solid var(--line);
+  border-radius:10px;
+  padding:10px;
+  background:#0f151d;
+}
+.ai-tool-meta{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  min-width:0;
+}
+.ai-tool-title{font-weight:600;font-size:13px;}
+.ai-tool-sub{font-size:12px;color:var(--muted);}
+.ai-tool-control{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-width:200px;
+}
+.ai-tool-control input[type="range"]{
+  width:180px;
+}
+.ai-save{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex-wrap:wrap;
+}
+.ai-save-result{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+}
+.ai-save-name{font-weight:600;}
+.ai-save-actions{display:flex;gap:6px;flex-wrap:wrap;}
 @media (max-width: 1100px){
   .ai-toolkit-layout{
     grid-template-columns:1fr;
+  }
+}
+@media (max-width: 900px){
+  .ai-tool-row{
+    flex-direction:column;
+    align-items:flex-start;
+  }
+  .ai-tool-control{
+    width:100%;
+  }
+  .ai-tool-control input[type="range"]{
+    width:100%;
   }
 }
 .doc-subtitle{font-weight:700;font-size:13px;}

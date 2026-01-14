@@ -1,35 +1,36 @@
 (() => {
-  const toolCards = Array.from(document.querySelectorAll('.ai-tool-card'));
-  const toolLabels = {
-    ai_deglass: 'Reduce AI Hiss / Glass',
-    ai_vocal_smooth: 'Smooth Harsh Vocals',
-    ai_bass_tight: 'Tighten Bass / Remove Rumble',
-    ai_transient_soften: 'Reduce Pumping / Over-Transients',
-    ai_platform_safe: 'Platform Ready (AI Safe Loudness)',
-  };
-
-  const toolDefaults = {
-    ai_deglass: {
-      strength: 35,
-      options: { lp_enabled: true, preserve_air: false, afftdn_strength: 0.3 },
+  const toolDefs = [
+    {
+      id: 'ai_deglass',
+      title: 'Reduce AI Hiss / Glass',
+      subtitle: 'Soften brittle top-end and reduce hiss.',
+      fallback: 35,
     },
-    ai_vocal_smooth: {
-      strength: 30,
-      options: { center_hz: 4500, s_cut: false, s_hz: 7500, afftdn_strength: 0 },
+    {
+      id: 'ai_vocal_smooth',
+      title: 'Smooth Harsh Vocals',
+      subtitle: 'Tame harsh presence and sibilant edges.',
+      fallback: 30,
     },
-    ai_bass_tight: {
-      strength: 40,
-      options: { hp_hz: 40, mud_hz: 220, punch: false },
+    {
+      id: 'ai_bass_tight',
+      title: 'Tighten Bass / Remove Rumble',
+      subtitle: 'Clean sub rumble and low-mid mud.',
+      fallback: 40,
     },
-    ai_transient_soften: {
-      strength: 25,
-      options: { keep_punch: false },
+    {
+      id: 'ai_transient_soften',
+      title: 'Reduce Pumping / Over-Transients',
+      subtitle: 'Soften clicky transients and harsh bite.',
+      fallback: 25,
     },
-    ai_platform_safe: {
-      strength: 40,
-      options: { preset: 'streaming' },
+    {
+      id: 'ai_platform_safe',
+      title: 'Platform Ready (AI Safe Loudness)',
+      subtitle: 'Safer loudness for streaming without harsh clipping.',
+      fallback: 0,
     },
-  };
+  ];
 
   const aiPairBrowser = document.getElementById('aiPairBrowser');
   const aiAnyBrowser = document.getElementById('aiAnyBrowser');
@@ -40,23 +41,18 @@
   const aiAnyUploadStatus = document.getElementById('aiAnyUploadStatus');
   const aiSelectedName = document.getElementById('aiSelectedName');
   const aiSelectedMeta = document.getElementById('aiSelectedMeta');
-  const aiSelectedAudio = document.getElementById('aiSelectedAudio');
-  const aiPreviewAudio = document.getElementById('aiPreviewAudio');
-  const aiPreviewStatus = document.getElementById('aiPreviewStatus');
-  const aiPreviewOriginal = document.getElementById('aiPreviewOriginal');
-  const aiPreviewProcessed = document.getElementById('aiPreviewProcessed');
-  const aiResultsList = document.getElementById('aiResultsList');
-  const aiPresetName = document.getElementById('aiPresetName');
-  const aiPresetTool = document.getElementById('aiPresetTool');
-  const aiPresetSaveBtn = document.getElementById('aiPresetSaveBtn');
-  const aiPresetStatus = document.getElementById('aiPresetStatus');
-  const aiPresetList = document.getElementById('aiPresetList');
-  const aiDetectorScan = document.getElementById('aiDetectorScan');
-  const aiDetectorRunAll = document.getElementById('aiDetectorRunAll');
-  const aiDetectorStatus = document.getElementById('aiDetectorStatus');
-  const aiDetectorList = document.getElementById('aiDetectorList');
+  const aiWaveform = document.getElementById('aiWaveform');
+  const aiAudio = document.getElementById('aiAudio');
+  const aiPlayBtn = document.getElementById('aiPlayBtn');
+  const aiStopBtn = document.getElementById('aiStopBtn');
+  const aiTimeLabel = document.getElementById('aiTimeLabel');
+  const aiSpectrumCanvas = document.getElementById('aiSpectrumCanvas');
+  const aiSaveBtn = document.getElementById('aiSaveBtn');
+  const aiSaveStatus = document.getElementById('aiSaveStatus');
+  const aiSaveResult = document.getElementById('aiSaveResult');
 
   const modeRadios = Array.from(document.querySelectorAll('input[name="aiSourceMode"]'));
+  const toolRows = Array.from(document.querySelectorAll('.ai-tool-row'));
 
   const state = {
     mode: 'source',
@@ -65,29 +61,26 @@
     any: null,
     selected: null,
     duration: null,
-    preview: {
-      processed: null,
-      original: null,
-      focus: null,
-      len: 10,
-      path: null,
+    wave: null,
+    audioCtx: null,
+    nodes: null,
+    analyser: null,
+    spectrum: {
+      data: null,
+      smooth: null,
+      raf: null,
+      last: 0,
     },
-    findings: [],
+    strengths: {},
+    resizing: null,
   };
 
-  function formatSeconds(raw) {
+  function formatTime(raw) {
     const secs = Number(raw);
-    if (!Number.isFinite(secs)) return '-';
+    if (!Number.isFinite(secs)) return '0:00';
     const m = Math.floor(secs / 60);
-    const s = Math.round(secs % 60);
-    return `${m}:${s.toString().padStart(2, '0')}`;
-  }
-
-  function formatDate(ts) {
-    if (!ts) return '';
-    const d = new Date(ts * 1000);
-    if (Number.isNaN(d.getTime())) return '';
-    return d.toLocaleString();
+    const s = Math.floor(secs % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
   }
 
   function setMode(mode) {
@@ -103,42 +96,30 @@
     if (node) node.classList.add('active');
   }
 
-  function setSelectedFile(selected) {
-    if (selected?.rel && selected.rel !== state.preview.path) {
-      state.preview.processed = null;
-      state.preview.original = null;
-      state.preview.focus = null;
-      state.preview.path = selected.rel;
-      if (aiPreviewOriginal) aiPreviewOriginal.disabled = true;
-      if (aiPreviewProcessed) aiPreviewProcessed.disabled = true;
-    }
-    state.selected = selected;
-    if (!aiSelectedName || !aiSelectedMeta || !aiSelectedAudio) return;
+  function setPlayState(playing) {
+    if (!aiPlayBtn) return;
+    aiPlayBtn.textContent = playing ? 'Pause' : 'Play';
+  }
+
+  function updateTimeLabel() {
+    if (!aiTimeLabel) return;
+    const current = aiAudio ? aiAudio.currentTime : 0;
+    const duration = Number.isFinite(state.duration) ? state.duration : (aiAudio ? aiAudio.duration : 0);
+    aiTimeLabel.textContent = `${formatTime(current)} / ${formatTime(duration)}`;
+  }
+
+  function updateSaveState() {
+    if (aiSaveBtn) aiSaveBtn.disabled = !state.selected;
+  }
+
+  function updateSelectedSummary(selected) {
+    if (!aiSelectedName || !aiSelectedMeta) return;
     if (!selected) {
       aiSelectedName.textContent = '-';
       aiSelectedMeta.textContent = 'No file selected.';
-      aiSelectedAudio.hidden = true;
-      aiSelectedAudio.removeAttribute('src');
-      state.preview.processed = null;
-      state.preview.original = null;
-      state.preview.focus = null;
-      state.preview.path = null;
-      state.findings = [];
-      renderFindings([]);
-      setDetectorStatus('Select a file to scan.');
-      if (aiPreviewOriginal) aiPreviewOriginal.disabled = true;
-      if (aiPreviewProcessed) aiPreviewProcessed.disabled = true;
-      updateToolButtons();
       return;
     }
     aiSelectedName.textContent = selected.name || selected.rel || 'Selected';
-    aiSelectedAudio.hidden = false;
-    aiSelectedAudio.src = `/api/analyze/path?path=${encodeURIComponent(selected.rel)}`;
-    updateFileInfo(selected.rel);
-    state.findings = [];
-    renderFindings([]);
-    setDetectorStatus('Ready to scan.');
-    updateToolButtons();
   }
 
   async function updateFileInfo(rel) {
@@ -148,14 +129,15 @@
       if (!res.ok) throw new Error('info_failed');
       const data = await res.json();
       const parts = [];
-      if (data.duration_s) parts.push(`Duration: ${formatSeconds(data.duration_s)}`);
+      if (data.duration_s) parts.push(`Duration: ${formatTime(data.duration_s)}`);
       if (data.sample_rate) parts.push(`Sample rate: ${data.sample_rate} Hz`);
-      const stamp = formatDate(data.mtime);
-      if (stamp) parts.push(`Modified: ${stamp}`);
-      aiSelectedMeta.textContent = parts.length ? parts.join(' · ') : 'Metadata unavailable.';
-      state.duration = data.duration_s || state.duration;
+      if (data.channels) parts.push(`${data.channels} ch`);
+      if (aiSelectedMeta) {
+        aiSelectedMeta.textContent = parts.length ? parts.join(' · ') : 'Metadata unavailable.';
+      }
+      if (Number.isFinite(data.duration_s)) state.duration = data.duration_s;
     } catch (_err) {
-      aiSelectedMeta.textContent = 'Metadata unavailable.';
+      if (aiSelectedMeta) aiSelectedMeta.textContent = 'Metadata unavailable.';
     }
   }
 
@@ -171,123 +153,415 @@
     setSelectedFile(state.source || state.processed);
   }
 
-  function updateToolButtons() {
-    toolCards.forEach((card) => {
-      card.querySelectorAll('[data-action="preview"], [data-action="apply"]').forEach((btn) => {
-        btn.disabled = !state.selected;
-      });
-    });
+  function resetSpectrumBuffers() {
+    if (!state.analyser) return;
+    const len = state.analyser.frequencyBinCount;
+    state.spectrum.data = new Uint8Array(len);
+    state.spectrum.smooth = new Float32Array(len);
   }
 
-  function recommendedStrength(severity) {
-    const value = Math.round(25 + (severity || 0) * 60);
-    return Math.min(85, Math.max(20, value));
+  function ensureAudioContext() {
+    if (state.audioCtx) return state.audioCtx;
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return null;
+    state.audioCtx = new Ctx();
+    return state.audioCtx;
   }
 
-  function getToolCard(toolId) {
-    return toolCards.find((card) => card.dataset.toolId === toolId) || null;
-  }
-
-  function setToolStrength(card, strength) {
-    if (!card) return;
-    const input = card.querySelector('[data-role="strength"]');
-    if (!input) return;
-    input.value = String(strength);
-    updateStrengthDisplay(card);
-  }
-
-  function setDetectorStatus(message) {
-    if (!aiDetectorStatus) return;
-    aiDetectorStatus.textContent = message || '';
-  }
-
-  function renderFindings(findings) {
-    if (!aiDetectorList) return;
-    aiDetectorList.innerHTML = '';
-    if (!findings.length) {
-      aiDetectorList.innerHTML = '<div class="muted">No findings yet.</div>';
-      if (aiDetectorRunAll) aiDetectorRunAll.disabled = true;
-      return;
-    }
-    findings.forEach((finding) => {
-      const toolId = finding.suggested_tool_id || '';
-      const toolName = toolLabels[toolId] || toolId;
-      const row = document.createElement('div');
-      row.className = 'ai-detector-row';
-      row.innerHTML = `
-        <div class="ai-detector-main">
-          <span class="ai-confidence ${finding.confidence || 'low'}">${(finding.confidence || 'low').toUpperCase()}</span>
-          <div class="ai-detector-summary">${finding.summary || ''}</div>
-          <div class="ai-detector-tool">Try: ${toolName}</div>
-        </div>
-        <div class="ai-detector-actions-row">
-          <button class="btn ghost tiny" type="button" data-action="preview">Preview Suggested Fix</button>
-          <button class="btn ghost tiny" type="button" data-action="open">Open Tool</button>
-        </div>
-      `;
-      const previewBtn = row.querySelector('[data-action="preview"]');
-      const openBtn = row.querySelector('[data-action="open"]');
-      if (previewBtn) {
-        previewBtn.addEventListener('click', () => previewSuggested(finding));
-      }
-      if (openBtn) {
-        openBtn.addEventListener('click', () => openSuggested(finding));
-      }
-      aiDetectorList.appendChild(row);
-    });
-    if (aiDetectorRunAll) aiDetectorRunAll.disabled = false;
-  }
-
-  async function previewSuggested(finding) {
-    const toolId = finding.suggested_tool_id;
-    const card = getToolCard(toolId);
-    if (!card) return;
-    const strength = recommendedStrength(finding.severity);
-    setToolStrength(card, strength);
-    await runPreview(card);
-  }
-
-  function openSuggested(finding) {
-    const toolId = finding.suggested_tool_id;
-    const card = getToolCard(toolId);
-    if (!card) return;
-    const strength = recommendedStrength(finding.severity);
-    setToolStrength(card, strength);
-    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }
-
-  async function runDetector() {
-    if (!state.selected?.rel) {
-      setDetectorStatus('Select a file to scan.');
-      renderFindings([]);
-      return;
-    }
-    setDetectorStatus('Scanning track...');
-    renderFindings([]);
+  function setParam(param, value) {
+    if (!param) return;
+    const ctx = state.audioCtx;
+    const now = ctx ? ctx.currentTime : 0;
     try {
-      const url = `/api/ai-tool/detect?path=${encodeURIComponent(state.selected.rel)}&mode=fast`;
-      const res = await fetch(url, { cache: 'no-store' });
-      if (!res.ok) throw new Error('scan_failed');
-      const data = await res.json();
-      const findings = Array.isArray(data.findings) ? data.findings : [];
-      state.findings = findings;
-      renderFindings(findings);
-      setDetectorStatus(findings.length ? 'Scan complete.' : 'No obvious artifacts detected.');
+      param.cancelScheduledValues(now);
+      param.setTargetAtTime(value, now, 0.03);
     } catch (_err) {
-      setDetectorStatus('Scan failed.');
-      if (typeof showToast === 'function') showToast('Scan failed');
+      try {
+        param.value = value;
+      } catch (_err2) {
+        return;
+      }
     }
   }
 
-  async function runAllSuggestedPreviews() {
-    if (!state.findings.length) return;
-    if (aiDetectorRunAll) aiDetectorRunAll.disabled = true;
-    setDetectorStatus('Running suggested previews...');
-    for (const finding of state.findings) {
-      await previewSuggested(finding);
+  function buildAudioGraph() {
+    if (!aiAudio) return;
+    const ctx = ensureAudioContext();
+    if (!ctx) return;
+    if (state.nodes) return;
+    let mediaSource = null;
+    try {
+      mediaSource = ctx.createMediaElementSource(aiAudio);
+    } catch (_err) {
+      return;
     }
-    setDetectorStatus('Suggested previews complete.');
-    if (aiDetectorRunAll) aiDetectorRunAll.disabled = false;
+    const bassHp = ctx.createBiquadFilter();
+    bassHp.type = 'highpass';
+    bassHp.frequency.value = 25;
+    const bassMud = ctx.createBiquadFilter();
+    bassMud.type = 'peaking';
+    bassMud.frequency.value = 220;
+    bassMud.Q.value = 1.0;
+    bassMud.gain.value = 0;
+
+    const vocalSmooth = ctx.createBiquadFilter();
+    vocalSmooth.type = 'peaking';
+    vocalSmooth.frequency.value = 4500;
+    vocalSmooth.Q.value = 1.1;
+    vocalSmooth.gain.value = 0;
+
+    const sibilant = ctx.createBiquadFilter();
+    sibilant.type = 'peaking';
+    sibilant.frequency.value = 7500;
+    sibilant.Q.value = 2.0;
+    sibilant.gain.value = 0;
+
+    const deglassShelf = ctx.createBiquadFilter();
+    deglassShelf.type = 'highshelf';
+    deglassShelf.frequency.value = 11000;
+    deglassShelf.gain.value = 0;
+
+    const deglassLp = ctx.createBiquadFilter();
+    deglassLp.type = 'lowpass';
+    deglassLp.frequency.value = 20000;
+
+    const transientComp = ctx.createDynamicsCompressor();
+    transientComp.threshold.value = -18;
+    transientComp.ratio.value = 2;
+    transientComp.attack.value = 0.02;
+    transientComp.release.value = 0.25;
+
+    const platformComp = ctx.createDynamicsCompressor();
+    platformComp.threshold.value = -14;
+    platformComp.ratio.value = 2;
+    platformComp.attack.value = 0.01;
+    platformComp.release.value = 0.3;
+
+    const outputGain = ctx.createGain();
+    outputGain.gain.value = 1;
+
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 2048;
+    analyser.smoothingTimeConstant = 0.8;
+
+    mediaSource
+      .connect(bassHp)
+      .connect(bassMud)
+      .connect(vocalSmooth)
+      .connect(sibilant)
+      .connect(deglassShelf)
+      .connect(deglassLp)
+      .connect(transientComp)
+      .connect(platformComp)
+      .connect(outputGain)
+      .connect(analyser)
+      .connect(ctx.destination);
+
+    state.nodes = {
+      mediaSource,
+      bassHp,
+      bassMud,
+      vocalSmooth,
+      sibilant,
+      deglassShelf,
+      deglassLp,
+      transientComp,
+      platformComp,
+      outputGain,
+    };
+    state.analyser = analyser;
+    resetSpectrumBuffers();
+  }
+
+  function updateFilters() {
+    if (!state.nodes) return;
+    const ctx = state.audioCtx;
+    if (!ctx) return;
+    const s = state.strengths;
+    const deglass = (s.ai_deglass || 0) / 100;
+    const vocal = (s.ai_vocal_smooth || 0) / 100;
+    const bass = (s.ai_bass_tight || 0) / 100;
+    const trans = (s.ai_transient_soften || 0) / 100;
+    const platform = (s.ai_platform_safe || 0) / 100;
+
+    const hpFreq = 25 + 30 * bass;
+    setParam(state.nodes.bassHp.frequency, hpFreq);
+    setParam(state.nodes.bassMud.gain, -3 * bass);
+
+    setParam(state.nodes.vocalSmooth.gain, -4 * vocal);
+    const sBoost = Math.max(0, (s.ai_vocal_smooth || 0) - 60) / 40;
+    setParam(state.nodes.sibilant.gain, -2 * sBoost);
+
+    setParam(state.nodes.deglassShelf.gain, -4 * deglass);
+    const lpFreq = deglass > 0.3 ? 18000 - 3000 * ((deglass - 0.3) / 0.7) : 20000;
+    setParam(state.nodes.deglassLp.frequency, lpFreq);
+
+    const transThreshold = -18 - (6 * trans);
+    const transRatio = 2 + trans;
+    setParam(state.nodes.transientComp.threshold, transThreshold);
+    setParam(state.nodes.transientComp.ratio, transRatio);
+
+    const platformThreshold = -14 - (8 * platform);
+    const platformRatio = 2 + platform * 1.2;
+    setParam(state.nodes.platformComp.threshold, platformThreshold);
+    setParam(state.nodes.platformComp.ratio, platformRatio);
+
+    const gainDb = -3 * platform;
+    const gain = Math.pow(10, gainDb / 20);
+    setParam(state.nodes.outputGain.gain, gain);
+  }
+
+  function computeEffectCurve(width, height) {
+    const points = [];
+    const n = 96;
+    const minF = 20;
+    const maxF = 20000;
+    const logMin = Math.log10(minF);
+    const logMax = Math.log10(maxF);
+    const s = state.strengths;
+    const deglass = (s.ai_deglass || 0) / 100;
+    const vocal = (s.ai_vocal_smooth || 0) / 100;
+    const bass = (s.ai_bass_tight || 0) / 100;
+    const trans = (s.ai_transient_soften || 0) / 100;
+    const platform = (s.ai_platform_safe || 0) / 100;
+    const range = 6;
+
+    const gauss = (x, sigma) => Math.exp(-(x * x) / (2 * sigma * sigma));
+
+    for (let i = 0; i < n; i += 1) {
+      const t = i / (n - 1);
+      const f = Math.pow(10, logMin + (logMax - logMin) * t);
+      let db = 0;
+
+      const hp = 25 + 30 * bass;
+      if (f < hp && bass > 0) {
+        db += -3 * (1 - f / hp) * bass;
+      }
+      db += -3 * bass * gauss(Math.log2(f / 220), 0.6);
+
+      db += -4 * vocal * gauss(Math.log2(f / 4500), 0.5);
+      if ((s.ai_vocal_smooth || 0) > 60) {
+        const extra = ((s.ai_vocal_smooth || 0) - 60) / 40;
+        db += -2 * extra * gauss(Math.log2(f / 7500), 0.45);
+      }
+
+      const shelf = 1 / (1 + Math.exp(-5 * Math.log2(f / 11000)));
+      db += -4 * deglass * shelf;
+      if (deglass > 0.3 && f > 15000) {
+        db += -2 * (deglass - 0.3);
+      }
+
+      db += -2 * trans * gauss(Math.log2(f / 3200), 0.5);
+      db += -2 * trans * gauss(Math.log2(f / 8000), 0.6);
+
+      db += -3 * platform;
+
+      db = Math.max(-range, Math.min(range, db));
+      const x = t * width;
+      const y = height * 0.5 - (db / range) * (height * 0.5);
+      points.push({ x, y });
+    }
+    return points;
+  }
+
+  function drawSpectrumFrame() {
+    if (!aiSpectrumCanvas) return;
+    const ctx = aiSpectrumCanvas.getContext('2d');
+    if (!ctx) return;
+    const now = performance.now();
+    if (now - state.spectrum.last < 33) {
+      state.spectrum.raf = requestAnimationFrame(drawSpectrumFrame);
+      return;
+    }
+    state.spectrum.last = now;
+    const width = aiSpectrumCanvas.clientWidth;
+    const height = aiSpectrumCanvas.clientHeight;
+    if (!width || !height) {
+      state.spectrum.raf = requestAnimationFrame(drawSpectrumFrame);
+      return;
+    }
+    const dpr = window.devicePixelRatio || 1;
+    if (aiSpectrumCanvas.width !== Math.round(width * dpr) || aiSpectrumCanvas.height !== Math.round(height * dpr)) {
+      aiSpectrumCanvas.width = Math.round(width * dpr);
+      aiSpectrumCanvas.height = Math.round(height * dpr);
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+
+    if (state.analyser && state.spectrum.data && state.spectrum.smooth) {
+      state.analyser.getByteFrequencyData(state.spectrum.data);
+      for (let i = 0; i < state.spectrum.data.length; i += 1) {
+        const next = state.spectrum.data[i];
+        state.spectrum.smooth[i] = state.spectrum.smooth[i] * 0.85 + next * 0.15;
+      }
+
+      const len = state.spectrum.smooth.length;
+      const minF = 20;
+      const maxF = 20000;
+      const logMin = Math.log10(minF);
+      const logMax = Math.log10(maxF);
+
+      ctx.strokeStyle = '#2a3a4f';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      for (let i = 0; i < len; i += 1) {
+        const freq = (i / len) * (maxF - minF) + minF;
+        const t = (Math.log10(freq) - logMin) / (logMax - logMin);
+        const x = t * width;
+        const mag = state.spectrum.smooth[i] / 255;
+        const y = height - mag * height;
+        if (i === 0) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
+      }
+      ctx.stroke();
+    }
+
+    const curve = computeEffectCurve(width, height);
+    ctx.strokeStyle = '#ff8a3d';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    curve.forEach((pt, idx) => {
+      if (idx === 0) ctx.moveTo(pt.x, pt.y);
+      else ctx.lineTo(pt.x, pt.y);
+    });
+    ctx.stroke();
+
+    state.spectrum.raf = requestAnimationFrame(drawSpectrumFrame);
+  }
+
+  function startSpectrum() {
+    if (state.spectrum.raf) return;
+    state.spectrum.last = 0;
+    state.spectrum.raf = requestAnimationFrame(drawSpectrumFrame);
+  }
+
+  function stopSpectrum() {
+    if (state.spectrum.raf) {
+      cancelAnimationFrame(state.spectrum.raf);
+      state.spectrum.raf = null;
+    }
+  }
+
+  function updateSliderRow(row) {
+    const slider = row.querySelector('[data-role="strength"]');
+    const label = row.querySelector('[data-role="strength-value"]');
+    if (!slider || !label) return;
+    label.textContent = slider.value;
+  }
+
+  function setToolStrength(id, value) {
+    const row = toolRows.find((r) => r.dataset.toolId === id);
+    if (!row) return;
+    const slider = row.querySelector('[data-role="strength"]');
+    if (!slider) return;
+    slider.value = String(value);
+    updateSliderRow(row);
+    state.strengths[id] = parseInt(slider.value || '0', 10) || 0;
+  }
+
+  function updateAllStrengths() {
+    toolRows.forEach((row) => {
+      const slider = row.querySelector('[data-role="strength"]');
+      if (!slider) return;
+      const val = parseInt(slider.value || '0', 10) || 0;
+      state.strengths[row.dataset.toolId] = val;
+      updateSliderRow(row);
+    });
+  }
+
+  function updateSpectrumOnce() {
+    stopSpectrum();
+    state.spectrum.last = 0;
+    drawSpectrumFrame();
+  }
+
+  function applyDetectorDefaults(rel) {
+    const defaults = {};
+    toolDefs.forEach((tool) => {
+      defaults[tool.id] = tool.fallback;
+    });
+
+    const applyDefaults = () => {
+      Object.entries(defaults).forEach(([id, value]) => setToolStrength(id, value));
+      updateAllStrengths();
+      updateFilters();
+      updateSpectrumOnce();
+    };
+
+    if (!rel) {
+      applyDefaults();
+      return;
+    }
+
+    fetch(`/api/ai-tool/detect?path=${encodeURIComponent(rel)}&mode=fast`, { cache: 'no-store' })
+      .then((res) => {
+        if (!res.ok) throw new Error('detect_failed');
+        return res.json();
+      })
+      .then((data) => {
+        const findings = Array.isArray(data.findings) ? data.findings : [];
+        findings.forEach((finding) => {
+          const toolId = finding.suggested_tool_id;
+          if (!toolId || !(toolId in defaults)) return;
+          const severity = Number(finding.severity || 0);
+          const strength = Math.min(70, Math.max(0, Math.round(severity * 80)));
+          defaults[toolId] = Math.max(defaults[toolId], strength);
+        });
+        applyDefaults();
+      })
+      .catch(() => applyDefaults());
+  }
+
+  function setSelectedFile(selected) {
+    state.selected = selected;
+    updateSelectedSummary(selected);
+    updateSaveState();
+    if (!aiAudio || !selected?.rel) {
+      if (aiAudio) aiAudio.removeAttribute('src');
+      if (state.wave && typeof state.wave.empty === 'function') state.wave.empty();
+      stopSpectrum();
+      return;
+    }
+    const url = `/api/analyze/path?path=${encodeURIComponent(selected.rel)}`;
+    aiAudio.src = url;
+    aiAudio.load();
+    if (state.wave) {
+      state.wave.load(url);
+    }
+    updateFileInfo(selected.rel);
+    applyDetectorDefaults(selected.rel);
+  }
+
+  function initWaveSurfer() {
+    if (!aiWaveform || !aiAudio || !window.WaveSurfer) return;
+    if (state.wave) {
+      state.wave.destroy();
+    }
+    state.wave = WaveSurfer.create({
+      container: aiWaveform,
+      waveColor: '#2a3a4f',
+      progressColor: '#3b4f66',
+      cursorColor: '#6b829a',
+      height: 160,
+      barWidth: 2,
+      barGap: 1,
+      normalize: true,
+      backend: 'MediaElement',
+      media: aiAudio,
+      minPxPerSec: 1,
+      fillParent: true,
+      autoScroll: false,
+      autoCenter: false,
+      dragToSeek: true,
+    });
+    state.wave.on('ready', () => {
+      state.duration = state.wave.getDuration();
+      updateTimeLabel();
+    });
+    state.wave.on('interaction', () => updateTimeLabel());
   }
 
   async function resolveRun(song, out, solo) {
@@ -322,7 +596,6 @@
     try {
       const payload = await resolveRun(item.song, item.out || '', item.solo);
       applyResolvePayload(payload);
-      if (aiPreviewStatus) aiPreviewStatus.textContent = 'Ready to preview.';
     } catch (_err) {
       if (typeof showToast === 'function') showToast('Failed to load run');
     }
@@ -339,7 +612,6 @@
         state.processed = null;
         setSelectedFile(state.any);
       }
-      if (aiPreviewStatus) aiPreviewStatus.textContent = 'Ready to preview.';
     } catch (_err) {
       if (typeof showToast === 'function') showToast('Failed to load file');
     }
@@ -364,328 +636,103 @@
     });
   }
 
-  function getToolState(card) {
-    const toolId = card.dataset.toolId;
-    const strengthInput = card.querySelector('[data-role="strength"]');
-    const strength = strengthInput ? parseInt(strengthInput.value || '0', 10) : 0;
-    const options = {};
-    card.querySelectorAll('[data-option]').forEach((input) => {
-      const key = input.dataset.option;
-      if (!key) return;
-      if (input.type === 'checkbox') {
-        options[key] = input.checked;
-        return;
-      }
-      if (key === 'preset') {
-        options[key] = input.value;
-        return;
-      }
-      const scale = parseFloat(input.dataset.scale || '1');
-      const raw = parseFloat(input.value || '0');
-      options[key] = Number.isFinite(raw) ? raw * scale : 0;
+  function updateStrengthFromUI() {
+    updateAllStrengths();
+    buildAudioGraph();
+    updateFilters();
+    updateSpectrumOnce();
+  }
+
+  async function saveCleanedCopy() {
+    if (!state.selected?.rel) return;
+    if (aiSaveStatus) aiSaveStatus.textContent = 'Rendering cleaned copy...';
+    const settings = {};
+    toolDefs.forEach((tool) => {
+      settings[tool.id] = { strength: state.strengths[tool.id] || 0 };
     });
-    return { toolId, strength, options };
-  }
-
-  function updateStrengthDisplay(card) {
-    const input = card.querySelector('[data-role="strength"]');
-    const label = card.querySelector('[data-role="strength-value"]');
-    if (!input || !label) return;
-    label.textContent = input.value || '0';
-  }
-
-  function resetTool(card) {
-    const toolId = card.dataset.toolId;
-    const defaults = toolDefaults[toolId];
-    if (!defaults) return;
-    const strengthInput = card.querySelector('[data-role="strength"]');
-    if (strengthInput) strengthInput.value = String(defaults.strength);
-    updateStrengthDisplay(card);
-    card.querySelectorAll('[data-option]').forEach((input) => {
-      const key = input.dataset.option;
-      const targetVal = defaults.options[key];
-      if (input.type === 'checkbox') {
-        input.checked = Boolean(targetVal);
-        return;
-      }
-      if (key === 'preset') {
-        input.value = targetVal || 'streaming';
-        return;
-      }
-      const scale = parseFloat(input.dataset.scale || '1');
-      if (Number.isFinite(scale) && scale !== 0 && targetVal !== undefined) {
-        input.value = String(targetVal / scale);
-      }
-    });
-  }
-
-  function setCardStatus(card, message) {
-    const status = card.querySelector('[data-role="status"]');
-    if (!status) return;
-    status.textContent = message || '';
-  }
-
-  async function runPreview(card) {
-    if (!state.selected) {
-      setCardStatus(card, 'Select a file first.');
-      return;
-    }
-    const { toolId, strength, options } = getToolState(card);
-    setCardStatus(card, 'Generating preview...');
     try {
-      const res = await fetch('/api/ai-tool/preview', {
+      const res = await fetch('/api/ai-tool/render_combo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          path: state.selected.rel,
-          tool_id: toolId,
-          strength,
-          options,
-          preview_len_sec: 10,
-          preview_focus_sec: state.preview.focus,
-        }),
-      });
-      if (!res.ok) throw new Error('preview_failed');
-      const data = await res.json();
-      state.preview.processed = data.url;
-      state.preview.focus = data.preview_start + (data.duration * 0.5);
-      state.preview.len = data.duration;
-      state.preview.path = state.selected.rel;
-      if (aiPreviewAudio) {
-        aiPreviewAudio.src = data.url;
-        aiPreviewAudio.play().catch(() => {});
-      }
-      if (aiPreviewStatus) {
-        const label = toolLabels[toolId] || toolId;
-        aiPreviewStatus.textContent = `Previewing ${label}`;
-      }
-      if (aiPreviewProcessed) aiPreviewProcessed.disabled = false;
-      if (aiPreviewOriginal) aiPreviewOriginal.disabled = false;
-      setCardStatus(card, 'Preview ready.');
-    } catch (_err) {
-      setCardStatus(card, 'Preview failed.');
-      if (typeof showToast === 'function') showToast('Preview failed');
-    }
-  }
-
-  async function fetchOriginalPreview() {
-    if (!state.preview.path || !state.preview.focus) return null;
-    try {
-      const res = await fetch('/api/ai-tool/preview', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          path: state.preview.path,
-          tool_id: 'original',
-          strength: 0,
-          options: {},
-          preview_len_sec: state.preview.len || 10,
-          preview_focus_sec: state.preview.focus,
-        }),
-      });
-      if (!res.ok) throw new Error('preview_failed');
-      const data = await res.json();
-      state.preview.original = data.url;
-      return data.url;
-    } catch (_err) {
-      return null;
-    }
-  }
-
-  async function runApply(card) {
-    if (!state.selected) {
-      setCardStatus(card, 'Select a file first.');
-      return;
-    }
-    const { toolId, strength, options } = getToolState(card);
-    setCardStatus(card, 'Rendering full track...');
-    try {
-      const res = await fetch('/api/ai-tool/render', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          path: state.selected.rel,
-          tool_id: toolId,
-          strength,
-          options,
-        }),
+        body: JSON.stringify({ path: state.selected.rel, settings }),
       });
       if (!res.ok) throw new Error('render_failed');
       const data = await res.json();
-      addResultRow(data, toolId);
-      setCardStatus(card, 'Render complete.');
+      if (aiSaveStatus) aiSaveStatus.textContent = 'Cleaned copy saved.';
+      if (aiSaveResult) {
+        const sourceRel = state.selected.rel;
+        aiSaveResult.innerHTML = `
+          <div class="ai-save-name">${data.output_name || 'Output'}</div>
+          <div class="ai-save-actions">
+            <a class="btn ghost tiny" href="${data.url}" download>Download</a>
+            <button class="btn ghost tiny" type="button" data-action="compare">Open in Compare</button>
+          </div>
+        `;
+        const btn = aiSaveResult.querySelector('[data-action="compare"]');
+        if (btn) {
+          btn.addEventListener('click', () => {
+            const url = new URL('/compare', window.location.origin);
+            url.searchParams.set('src', sourceRel);
+            url.searchParams.set('proc', data.output_rel);
+            window.location.assign(`${url.pathname}${url.search}`);
+          });
+        }
+      }
     } catch (_err) {
-      setCardStatus(card, 'Render failed.');
-      if (typeof showToast === 'function') showToast('Render failed');
+      if (aiSaveStatus) aiSaveStatus.textContent = 'Save failed.';
+      if (typeof showToast === 'function') showToast('Save failed');
     }
   }
 
-  function addResultRow(result, toolId) {
-    if (!aiResultsList) return;
-    const row = document.createElement('div');
-    row.className = 'ai-result-row';
-    const name = result.output_name || result.output_rel || 'Output';
-    const label = toolLabels[toolId] || toolId;
-    const sourceRel = state.selected?.rel || '';
-    row.innerHTML = `
-      <div class="ai-result-main">
-        <div class="ai-result-name">${name}</div>
-        <div class="ai-result-meta">${label}</div>
-      </div>
-      <div class="ai-result-actions">
-        <a class="btn ghost tiny" href="${result.url}" download>Download</a>
-        <button class="btn ghost tiny" type="button" data-action="compare">Open in Compare</button>
-      </div>
-    `;
-    const btn = row.querySelector('[data-action="compare"]');
-    if (btn) {
-      btn.addEventListener('click', () => {
-        if (!sourceRel || !result.output_rel) return;
-        const url = new URL('/compare', window.location.origin);
-        url.searchParams.set('src', sourceRel);
-        url.searchParams.set('proc', result.output_rel);
-        window.location.assign(`${url.pathname}${url.search}`);
-      });
-    }
-    if (aiResultsList.querySelector('.muted')) {
-      aiResultsList.innerHTML = '';
-    }
-    aiResultsList.prepend(row);
-  }
-
-  async function loadPresets() {
-    if (!aiPresetList) return;
-    try {
-      const res = await fetch('/api/ai-tool/preset/list', { cache: 'no-store' });
-      if (!res.ok) throw new Error('preset_failed');
-      const data = await res.json();
-      const items = Array.isArray(data.items) ? data.items : [];
-      renderPresets(items);
-    } catch (_err) {
-      aiPresetList.innerHTML = '<div class="muted">Failed to load presets.</div>';
-    }
-  }
-
-  function renderPresets(items) {
-    if (!aiPresetList) return;
-    if (!items.length) {
-      aiPresetList.innerHTML = '<div class="muted">No presets yet.</div>';
-      return;
-    }
-    aiPresetList.innerHTML = '';
-    items.forEach((preset) => {
-      const row = document.createElement('div');
-      row.className = 'ai-preset-row';
-      row.innerHTML = `
-        <div class="ai-preset-main">
-          <div class="ai-preset-title">${preset.title || preset.id}</div>
-          <div class="ai-preset-meta">${toolLabels[preset.tool_id] || preset.tool_id}</div>
-        </div>
-        <div class="ai-preset-actions">
-          <button class="btn ghost tiny" type="button" data-action="load">Load</button>
-          <button class="btn ghost tiny" type="button" data-action="delete">Delete</button>
-        </div>
-      `;
-      row.querySelector('[data-action="load"]').addEventListener('click', () => {
-        applyPreset(preset);
-      });
-      row.querySelector('[data-action="delete"]').addEventListener('click', () => {
-        deletePreset(preset.id);
-      });
-      aiPresetList.appendChild(row);
+  if (aiAudio) {
+    aiAudio.addEventListener('timeupdate', updateTimeLabel);
+    aiAudio.addEventListener('durationchange', updateTimeLabel);
+    aiAudio.addEventListener('play', () => {
+      setPlayState(true);
+      buildAudioGraph();
+      updateFilters();
+      startSpectrum();
+    });
+    aiAudio.addEventListener('pause', () => {
+      setPlayState(false);
+      stopSpectrum();
+      updateSpectrumOnce();
     });
   }
 
-  function applyPreset(preset) {
-    const card = toolCards.find((c) => c.dataset.toolId === preset.tool_id);
-    if (!card) return;
-    const strengthInput = card.querySelector('[data-role="strength"]');
-    if (strengthInput && preset.strength !== undefined && preset.strength !== null) {
-      strengthInput.value = String(preset.strength);
-    }
-    card.querySelectorAll('[data-option]').forEach((input) => {
-      const key = input.dataset.option;
-      if (!key || !preset.options) return;
-      const value = preset.options[key];
-      if (input.type === 'checkbox') {
-        input.checked = Boolean(value);
-        return;
+  if (aiPlayBtn) {
+    aiPlayBtn.addEventListener('click', () => {
+      if (!state.selected || !aiAudio) return;
+      buildAudioGraph();
+      const ctx = ensureAudioContext();
+      if (ctx && ctx.state === 'suspended') {
+        ctx.resume().catch(() => {});
       }
-      if (key === 'preset') {
-        input.value = value || 'streaming';
-        return;
-      }
-      const scale = parseFloat(input.dataset.scale || '1');
-      if (Number.isFinite(scale) && scale !== 0 && value !== undefined) {
-        input.value = String(value / scale);
+      if (aiAudio.paused) {
+        aiAudio.play().catch(() => {});
+      } else {
+        aiAudio.pause();
       }
     });
-    updateStrengthDisplay(card);
-    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
-  async function savePreset() {
-    if (!aiPresetTool || !aiPresetName || !aiPresetSaveBtn) return;
-    const toolId = aiPresetTool.value;
-    const card = toolCards.find((c) => c.dataset.toolId === toolId);
-    if (!card) return;
-    const name = (aiPresetName.value || '').trim();
-    if (!name) {
-      if (aiPresetStatus) aiPresetStatus.textContent = 'Enter a preset name.';
-      return;
-    }
-    const { strength, options } = getToolState(card);
-    aiPresetStatus.textContent = 'Saving...';
-    try {
-      const res = await fetch('/api/ai-tool/preset/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: name, tool_id: toolId, strength, options }),
-      });
-      if (!res.ok) throw new Error('save_failed');
-      aiPresetName.value = '';
-      aiPresetStatus.textContent = 'Saved.';
-      loadPresets();
-    } catch (_err) {
-      aiPresetStatus.textContent = 'Save failed.';
-    }
+  if (aiStopBtn) {
+    aiStopBtn.addEventListener('click', () => {
+      if (!aiAudio) return;
+      aiAudio.pause();
+      aiAudio.currentTime = 0;
+      if (state.wave) state.wave.setTime(0);
+      updateTimeLabel();
+    });
   }
 
-  async function deletePreset(id) {
-    if (!id) return;
-    try {
-      const res = await fetch(`/api/ai-tool/preset/delete?preset_id=${encodeURIComponent(id)}`, {
-        method: 'DELETE',
-      });
-      if (!res.ok) throw new Error('delete_failed');
-      loadPresets();
-    } catch (_err) {
-      if (aiPresetStatus) aiPresetStatus.textContent = 'Delete failed.';
-    }
-  }
-
-  toolCards.forEach((card) => {
-    updateStrengthDisplay(card);
-    const strengthInput = card.querySelector('[data-role="strength"]');
-    if (strengthInput) {
-      strengthInput.addEventListener('input', () => updateStrengthDisplay(card));
-    }
-    if (card.dataset.toolId === 'ai_vocal_smooth') {
-      const sCut = card.querySelector('[data-option="s_cut"]');
-      const sHz = card.querySelector('[data-option="s_hz"]');
-      const syncS = () => { if (sHz) sHz.disabled = !(sCut && sCut.checked); };
-      if (sCut) sCut.addEventListener('change', syncS);
-      syncS();
-    }
-    card.querySelectorAll('[data-action]').forEach((btn) => {
-      const action = btn.dataset.action;
-      if (action === 'preview') {
-        btn.addEventListener('click', () => runPreview(card));
-      } else if (action === 'apply') {
-        btn.addEventListener('click', () => runApply(card));
-      } else if (action === 'reset') {
-        btn.addEventListener('click', () => resetTool(card));
-      }
+  toolRows.forEach((row) => {
+    updateSliderRow(row);
+    const slider = row.querySelector('[data-role="strength"]');
+    if (!slider) return;
+    slider.addEventListener('input', () => {
+      updateSliderRow(row);
+      updateStrengthFromUI();
     });
   });
 
@@ -759,47 +806,8 @@
     });
   }
 
-  if (aiPreviewOriginal) {
-    aiPreviewOriginal.addEventListener('click', async () => {
-      if (!aiPreviewAudio) return;
-      if (!state.preview.original) {
-        const url = await fetchOriginalPreview();
-        if (url) state.preview.original = url;
-      }
-      if (state.preview.original) {
-        aiPreviewAudio.src = state.preview.original;
-        aiPreviewAudio.play().catch(() => {});
-      }
-    });
-  }
-
-  if (aiPreviewProcessed) {
-    aiPreviewProcessed.addEventListener('click', () => {
-      if (!aiPreviewAudio || !state.preview.processed) return;
-      aiPreviewAudio.src = state.preview.processed;
-      aiPreviewAudio.play().catch(() => {});
-    });
-  }
-
-  if (aiDetectorScan) {
-    aiDetectorScan.addEventListener('click', runDetector);
-  }
-  if (aiDetectorRunAll) {
-    aiDetectorRunAll.addEventListener('click', runAllSuggestedPreviews);
-  }
-
-  if (aiPresetTool) {
-    aiPresetTool.innerHTML = '';
-    Object.keys(toolLabels).forEach((toolId) => {
-      const opt = document.createElement('option');
-      opt.value = toolId;
-      opt.textContent = toolLabels[toolId];
-      aiPresetTool.appendChild(opt);
-    });
-  }
-
-  if (aiPresetSaveBtn) {
-    aiPresetSaveBtn.addEventListener('click', savePreset);
+  if (aiSaveBtn) {
+    aiSaveBtn.addEventListener('click', saveCleanedCopy);
   }
 
   document.addEventListener('htmx:afterSwap', (evt) => {
@@ -811,6 +819,21 @@
     }
   });
 
-  loadPresets();
-  updateToolButtons();
+  const observerTarget = aiSpectrumCanvas?.parentElement;
+  if (observerTarget && typeof ResizeObserver !== 'undefined') {
+    const resizeObserver = new ResizeObserver(() => {
+      if (state.resizing) clearTimeout(state.resizing);
+      state.resizing = setTimeout(() => {
+        updateSpectrumOnce();
+      }, 80);
+    });
+    resizeObserver.observe(observerTarget);
+  }
+
+  initWaveSurfer();
+  updateAllStrengths();
+  updateFilters();
+  updateSpectrumOnce();
+  updateSaveState();
+  updateTimeLabel();
 })();

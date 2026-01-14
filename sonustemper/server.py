@@ -3199,6 +3199,30 @@ def _ai_tool_filter_chain(tool_id: str, strength: int, options: dict | None) -> 
 
     return ",".join(filters)
 
+def _ai_tool_combo_chain(settings: dict | None) -> str:
+    if not isinstance(settings, dict):
+        settings = {}
+    order = [
+        "ai_bass_tight",
+        "ai_vocal_smooth",
+        "ai_deglass",
+        "ai_transient_soften",
+        "ai_platform_safe",
+    ]
+    chains: list[str] = []
+    for tool_id in order:
+        entry = settings.get(tool_id, {})
+        if not isinstance(entry, dict):
+            entry = {"strength": entry}
+        strength = _ai_tool_strength(entry.get("strength"), 0)
+        if strength <= 0:
+            continue
+        options = entry.get("options") if isinstance(entry.get("options"), dict) else {}
+        chain = _ai_tool_filter_chain(tool_id, strength, options)
+        if chain:
+            chains.append(chain)
+    return ",".join(chains)
+
 def _ai_db_ratio(band_db: float | None, full_db: float | None) -> float | None:
     if band_db is None or full_db is None:
         return None
@@ -3859,6 +3883,48 @@ def ai_tool_render(payload: dict = Body(...)):
         "output_name": out_path.name,
         "url": f"/api/analyze/path?path={quote(rel)}",
         "tool_id": tool_id,
+    }
+
+@app.post("/api/ai-tool/render_combo")
+def ai_tool_render_combo(payload: dict = Body(...)):
+    path = payload.get("path")
+    settings = payload.get("settings") if isinstance(payload.get("settings"), dict) else {}
+    target = _resolve_analysis_path(path)
+    chain = _ai_tool_combo_chain(settings)
+    ANALYSIS_OUT_DIR.mkdir(parents=True, exist_ok=True)
+    suffix = target.suffix.lower() if target.suffix else ".wav"
+    codec_map = {
+        ".wav": "pcm_s16le",
+        ".aiff": "pcm_s16be",
+        ".aif": "pcm_s16be",
+        ".flac": "flac",
+        ".mp3": "libmp3lame",
+        ".m4a": "aac",
+        ".aac": "aac",
+        ".ogg": "libvorbis",
+    }
+    codec = codec_map.get(suffix, "pcm_s16le")
+    out_path = _unique_output_path(ANALYSIS_OUT_DIR, f"{target.stem}.ai-cleaned", suffix)
+    cmd = [
+        FFMPEG_BIN, "-y", "-hide_banner", "-loglevel", "error",
+        "-i", str(target),
+    ]
+    if chain:
+        cmd += ["-af", chain]
+    cmd += [
+        "-vn", "-ac", "2",
+        "-codec:a", codec,
+        str(out_path),
+    ]
+    proc = run_cmd(cmd)
+    if proc.returncode != 0 or not out_path.exists():
+        err = (proc.stderr or proc.stdout or "").strip()
+        raise HTTPException(status_code=500, detail=err or "render_failed")
+    rel = _analysis_rel_for_path(out_path) or f"analysis_out/{out_path.name}"
+    return {
+        "output_rel": rel,
+        "output_name": out_path.name,
+        "url": f"/api/analyze/path?path={quote(rel)}",
     }
 
 @app.get("/api/ai-tool/preset/list")
