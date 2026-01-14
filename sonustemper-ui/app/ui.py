@@ -15,6 +15,7 @@ from fastapi import APIRouter, Request, HTTPException, Form
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from sonustemper.tools import bundle_root, is_frozen
+from sonustemper import library as library_index
 
 # New tandem UI router (mounted at root).
 
@@ -1284,6 +1285,60 @@ def _list_voicings(q: str, limit: int, context: str = "") -> list[dict]:
     return items[:limit]
 
 
+def _find_master_input(song: str) -> Path | None:
+    try:
+        for fp in MASTER_IN_DIR.iterdir():
+            if fp.is_file() and fp.stem == song:
+                return fp
+    except Exception:
+        return None
+    return None
+
+
+def _register_master_versions(song: str, items: list[dict]) -> None:
+    if not song or not items:
+        return
+    source_path = _find_master_input(song)
+    if not source_path:
+        return
+    source_rel = f"in/{source_path.name}"
+    lib = library_index.load_library()
+    song_entry = library_index.ensure_song_for_source(
+        lib,
+        source_rel,
+        source_path.stem,
+        None,
+        source_path.suffix.lower().lstrip("."),
+    )
+    for item in items:
+        primary_rel = item.get("primary_rel") or ""
+        if not primary_rel:
+            continue
+        rel = f"out/{primary_rel}"
+        summary = {}
+        for badge in item.get("badges") or []:
+            if badge.get("type") == "voicing" and not summary.get("voicing"):
+                title = badge.get("title") or badge.get("label") or ""
+                summary["voicing"] = title.replace("Voicing: ", "").strip() or badge.get("label")
+            if badge.get("type") == "preset" and not summary.get("loudness_profile"):
+                summary["loudness_profile"] = badge.get("label") or badge.get("title")
+        metrics = item.get("metrics") if isinstance(item.get("metrics"), dict) else {}
+        try:
+            library_index.add_version(
+                lib,
+                song_entry.get("song_id"),
+                "master",
+                item.get("display_title") or item.get("name") or "Master",
+                rel,
+                summary,
+                metrics,
+                [],
+            )
+        except Exception:
+            continue
+    library_index.save_library(lib)
+
+
 def _run_outputs(song: str) -> list[dict]:
     folder = _util_root("mastering", "output")
     base = _safe_rel(folder, song)
@@ -1325,6 +1380,7 @@ def _run_outputs(song: str) -> list[dict]:
             "metric_pills": _metric_pills(m),
             "badges": badges,
         })
+    _register_master_versions(song, items)
     return items
 
 

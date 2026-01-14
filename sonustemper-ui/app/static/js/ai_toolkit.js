@@ -32,13 +32,8 @@
     },
   ];
 
-  const aiPairBrowser = document.getElementById('aiPairBrowser');
-  const aiAnyBrowser = document.getElementById('aiAnyBrowser');
-  const aiPairWrap = document.getElementById('aiPairBrowserWrap');
-  const aiAnyWrap = document.getElementById('aiAnyBrowserWrap');
-  const aiAnyUploadBtn = document.getElementById('aiAnyUploadBtn');
-  const aiAnyUploadInput = document.getElementById('aiAnyUploadInput');
-  const aiAnyUploadStatus = document.getElementById('aiAnyUploadStatus');
+  const aiLibraryBrowser = document.getElementById('aiLibraryBrowser');
+  const aiLibraryUploadInput = document.getElementById('aiLibraryUploadInput');
   const aiSelectedName = document.getElementById('aiSelectedName');
   const aiSelectedMeta = document.getElementById('aiSelectedMeta');
   const aiWaveform = document.getElementById('aiWaveform');
@@ -55,15 +50,14 @@
   const aiSaveStatus = document.getElementById('aiSaveStatus');
   const aiSaveResult = document.getElementById('aiSaveResult');
 
-  const modeRadios = Array.from(document.querySelectorAll('input[name="aiSourceMode"]'));
   const toolRows = Array.from(document.querySelectorAll('.ai-tool-row'));
 
   const state = {
-    mode: 'source',
     source: null,
     processed: null,
     any: null,
     selected: null,
+    selectedSongId: null,
     duration: null,
     wave: null,
     audioCtx: null,
@@ -85,6 +79,7 @@
     strengths: {},
     resizing: null,
   };
+  let libraryBrowser = null;
 
   function formatTime(raw) {
     const secs = Number(raw);
@@ -92,19 +87,6 @@
     const m = Math.floor(secs / 60);
     const s = Math.floor(secs % 60).toString().padStart(2, '0');
     return `${m}:${s}`;
-  }
-
-  function setMode(mode) {
-    state.mode = mode;
-    if (aiPairWrap) aiPairWrap.hidden = mode === 'any';
-    if (aiAnyWrap) aiAnyWrap.hidden = mode !== 'any';
-    updateSelectedFromMode();
-  }
-
-  function setActiveItem(container, node) {
-    if (!container) return;
-    container.querySelectorAll('.browser-item.active').forEach((el) => el.classList.remove('active'));
-    if (node) node.classList.add('active');
   }
 
   function setPlayState(playing) {
@@ -271,18 +253,6 @@
     } catch (_err) {
       if (aiSelectedMeta) aiSelectedMeta.textContent = 'Metadata unavailable.';
     }
-  }
-
-  function updateSelectedFromMode() {
-    if (state.mode === 'any') {
-      setSelectedFile(state.any);
-      return;
-    }
-    if (state.mode === 'processed') {
-      setSelectedFile(state.processed || state.source);
-      return;
-    }
-    setSelectedFile(state.source || state.processed);
   }
 
   function resetSpectrumBuffers() {
@@ -676,6 +646,7 @@
 
   function setSelectedFile(selected) {
     state.selected = selected;
+    state.selectedSongId = selected?.song_id || null;
     updateSelectedSummary(selected);
     updateSaveState();
     if (!aiAudio || !selected?.rel) {
@@ -724,59 +695,6 @@
     state.wave.on('interaction', () => updateTimeLabel());
   }
 
-  async function resolveRun(song, out, solo) {
-    const params = new URLSearchParams();
-    params.set('song', song);
-    if (out) params.set('out', out);
-    if (solo) params.set('solo', '1');
-    const res = await fetch(`/api/analyze-resolve?${params.toString()}`);
-    if (!res.ok) throw new Error('resolve_failed');
-    return res.json();
-  }
-
-  async function resolveFile(kind, rel) {
-    const params = new URLSearchParams();
-    if (kind === 'source') params.set('src', rel);
-    if (kind === 'import') params.set('imp', rel);
-    const res = await fetch(`/api/analyze-resolve-file?${params.toString()}`);
-    if (!res.ok) throw new Error('resolve_failed');
-    return res.json();
-  }
-
-  function applyResolvePayload(payload) {
-    state.source = payload.source_rel ? { rel: payload.source_rel, name: payload.source_name || 'Source' } : null;
-    state.processed = payload.processed_rel ? { rel: payload.processed_rel, name: payload.processed_name || 'Processed' } : null;
-    state.duration = payload.duration_s || payload.metrics?.input?.duration_sec || payload.metrics?.output?.duration_sec || null;
-    updateSelectedFromMode();
-  }
-
-  async function selectRun(item, node) {
-    if (!item?.song) return;
-    setActiveItem(aiPairBrowser, node);
-    try {
-      const payload = await resolveRun(item.song, item.out || '', item.solo);
-      applyResolvePayload(payload);
-    } catch (_err) {
-      if (typeof showToast === 'function') showToast('Failed to load run');
-    }
-  }
-
-  async function selectAnyFile(item, node) {
-    if (!item?.rel) return;
-    setActiveItem(aiAnyBrowser, node);
-    try {
-      const payload = await resolveFile(item.kind, item.rel);
-      state.any = { rel: payload.source_rel, name: payload.source_name || item.rel };
-      if (state.mode === 'any') {
-        state.source = null;
-        state.processed = null;
-        setSelectedFile(state.any);
-      }
-    } catch (_err) {
-      if (typeof showToast === 'function') showToast('Failed to load file');
-    }
-  }
-
   async function uploadAnyFile(file) {
     const fd = new FormData();
     fd.append('file', file, file.name);
@@ -818,6 +736,24 @@
       });
       if (!res.ok) throw new Error('render_failed');
       const data = await res.json();
+      if (state.selectedSongId && data.output_rel) {
+        const activeTools = toolDefs
+          .filter((tool) => (state.strengths[tool.id] || 0) > 0)
+          .map((tool) => tool.title);
+        await fetch('/api/library/add_version', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            song_id: state.selectedSongId,
+            kind: 'aitk',
+            label: 'AI Toolkit',
+            rel: data.output_rel,
+            summary: { aitk: 'AI Toolkit' },
+            tags: activeTools,
+          }),
+        });
+        if (libraryBrowser) libraryBrowser.reload();
+      }
       if (aiSaveStatus) aiSaveStatus.textContent = 'Cleaned copy saved.';
       if (aiSaveResult) {
         const sourceRel = state.selected.rel;
@@ -911,88 +847,119 @@
     });
   });
 
-  if (modeRadios.length) {
-    modeRadios.forEach((radio) => {
-      radio.addEventListener('change', () => {
-        if (radio.checked) setMode(radio.value);
-      });
-    });
-  }
-
-  if (aiPairBrowser) {
-    aiPairBrowser.addEventListener('click', (evt) => {
-      const itemNode = evt.target.closest('.browser-item');
-      if (!itemNode || itemNode.disabled) return;
-      const kind = itemNode.dataset.kind || '';
-      if (kind !== 'mastering_output') return;
-      let meta = {};
-      if (itemNode.dataset.meta) {
-        try {
-          meta = JSON.parse(itemNode.dataset.meta || '{}');
-        } catch (_err) {
-          meta = {};
-        }
-      }
-      selectRun({ song: meta.song, out: meta.out || '', solo: Boolean(meta.solo) }, itemNode);
-    });
-  }
-
-  if (aiAnyBrowser) {
-    aiAnyBrowser.addEventListener('click', (evt) => {
-      const itemNode = evt.target.closest('.browser-item');
-      if (!itemNode || itemNode.disabled) return;
-      const kind = itemNode.dataset.kind || '';
-      if (kind !== 'source' && kind !== 'import') return;
-      let meta = {};
-      if (itemNode.dataset.meta) {
-        try {
-          meta = JSON.parse(itemNode.dataset.meta || '{}');
-        } catch (_err) {
-          meta = {};
-        }
-      }
-      const rel = meta.rel || itemNode.dataset.id || '';
-      if (!rel) return;
-      selectAnyFile({ kind, rel }, itemNode);
-    });
-  }
-
-  if (aiAnyUploadBtn && aiAnyUploadInput) {
-    aiAnyUploadBtn.addEventListener('click', () => aiAnyUploadInput.click());
-    aiAnyUploadInput.addEventListener('change', async () => {
-      const file = (aiAnyUploadInput.files || [])[0];
-      if (!file) return;
-      if (aiAnyUploadStatus) aiAnyUploadStatus.textContent = 'Uploading...';
-      try {
-        const data = await uploadAnyFile(file);
-        if (data.rel) {
-          state.any = { rel: `analysis/${data.rel}`, name: data.source_name || file.name };
-          setMode('any');
-          setSelectedFile(state.any);
-        }
-        if (aiAnyUploadStatus) aiAnyUploadStatus.textContent = 'Upload complete.';
-        if (typeof showToast === 'function') showToast('Upload complete');
-      } catch (_err) {
-        if (aiAnyUploadStatus) aiAnyUploadStatus.textContent = 'Upload failed.';
-        if (typeof showToast === 'function') showToast('Upload failed');
-      } finally {
-        aiAnyUploadInput.value = '';
-      }
-    });
-  }
-
   if (aiSaveBtn) {
     aiSaveBtn.addEventListener('click', saveCleanedCopy);
   }
 
-  document.addEventListener('htmx:afterSwap', (evt) => {
-    if (aiPairBrowser && aiPairBrowser.contains(evt.target)) {
-      updateSelectedFromMode();
+  if (aiLibraryBrowser && window.LibraryBrowser) {
+    const browser = window.LibraryBrowser.init(aiLibraryBrowser, { module: 'ai' });
+    libraryBrowser = browser;
+    aiLibraryBrowser.addEventListener('library:select', (evt) => {
+      const { song, track } = evt.detail || {};
+      if (!track?.rel) return;
+      setSelectedFile({
+        rel: track.rel,
+        name: track.label || song?.title || track.rel,
+        song_id: song?.song_id || null,
+      });
+    });
+    aiLibraryBrowser.addEventListener('library:action', async (evt) => {
+      const { action, song, version, item } = evt.detail || {};
+      if (action === 'import-file' && aiLibraryUploadInput) {
+        aiLibraryUploadInput.click();
+        return;
+      }
+      if (action === 'rename-song' && song?.song_id) {
+        const next = prompt('Rename song', song.title || '');
+        if (!next) return;
+        await fetch('/api/library/rename_song', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ song_id: song.song_id, title: next }),
+        });
+        browser.reload();
+        return;
+      }
+      if (action === 'delete-version' && song?.song_id && version?.version_id) {
+        await fetch('/api/library/delete_version', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ song_id: song.song_id, version_id: version.version_id }),
+        });
+        browser.reload();
+        return;
+      }
+      if (action === 'open-compare' && version?.rel) {
+        const url = new URL('/compare', window.location.origin);
+        if (song?.source?.rel) url.searchParams.set('src', song.source.rel);
+        if (version.rel) url.searchParams.set('proc', version.rel);
+        window.location.assign(`${url.pathname}${url.search}`);
+        return;
+      }
+      if (action === 'add-unsorted' && item?.rel) {
+        const res = await fetch('/api/library', { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+        const songs = Array.isArray(data.songs) ? data.songs : [];
+        const list = songs.map((song, idx) => `${idx + 1}) ${song.title || 'Untitled'}`).join('\n');
+        const choice = prompt(`Add output to which song?\n${list}\n\nEnter number or type a new title.`, '');
+        if (!choice) return;
+        const idx = parseInt(choice, 10);
+        if (!Number.isNaN(idx) && songs[idx - 1]) {
+          const song = songs[idx - 1];
+          await fetch('/api/library/add_version', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              song_id: song.song_id,
+              kind: 'manual',
+              label: item.name || 'Output',
+              rel: item.rel,
+              summary: {},
+              tags: [],
+            }),
+          });
+        } else {
+          const title = choice.trim() || item.name || item.rel;
+          await fetch('/api/library/import_source', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: item.rel, title }),
+          });
+        }
+        browser.reload();
+      }
+    });
+    if (aiLibraryUploadInput) {
+      aiLibraryUploadInput.addEventListener('change', async () => {
+        const file = (aiLibraryUploadInput.files || [])[0];
+        if (!file) return;
+        try {
+          const data = await uploadAnyFile(file);
+          if (data.rel) {
+            const rel = `analysis/${data.rel}`;
+            const res = await fetch('/api/library/import_source', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ path: rel, title: data.source_name || file.name }),
+            });
+            const payload = res.ok ? await res.json() : null;
+            setSelectedFile({
+              rel,
+              name: data.source_name || file.name,
+              song_id: payload?.song?.song_id || null,
+            });
+            browser.reload();
+          }
+          if (typeof showToast === 'function') showToast('Upload complete');
+        } catch (_err) {
+          if (typeof showToast === 'function') showToast('Upload failed');
+        } finally {
+          aiLibraryUploadInput.value = '';
+        }
+      });
     }
-    if (aiAnyBrowser && aiAnyBrowser.contains(evt.target)) {
-      updateSelectedFromMode();
-    }
-  });
+  }
 
   const observerTarget = aiSpectrumCanvas?.parentElement;
   if (observerTarget && typeof ResizeObserver !== 'undefined') {

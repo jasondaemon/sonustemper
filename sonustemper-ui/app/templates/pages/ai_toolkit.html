@@ -7,35 +7,12 @@
   <div class="card">
     <div class="card-head">
       <div>
-        <div class="card-title">Track Source</div>
-        <div class="muted">Choose what to clean up.</div>
+        <div class="card-title">Library</div>
+        <div class="muted">Select a song or version to clean up.</div>
       </div>
     </div>
-    <div class="ai-source-modes">
-      <label class="ai-radio"><input type="radio" name="aiSourceMode" value="source" checked> Use Source</label>
-      <label class="ai-radio"><input type="radio" name="aiSourceMode" value="processed"> Use Processed</label>
-      <label class="ai-radio"><input type="radio" name="aiSourceMode" value="any"> Use Any File</label>
-    </div>
-    <div class="ai-browser-wrap" id="aiPairBrowserWrap">
-      {% set browser_id = "aiPairBrowser" %}
-      {% set sections = [
-        {"key": "mastering_outputs", "title": "Mastering Outputs", "endpoint": "/partials/library_list?view=mastering_outputs&context=compare"}
-      ] %}
-      {% include "partials/file_browser.html" %}
-    </div>
-    <div class="ai-browser-wrap" id="aiAnyBrowserWrap" hidden>
-      {% set browser_id = "aiAnyBrowser" %}
-      {% set sections = [
-        {"key": "mastering_sources", "title": "Input Sources", "endpoint": "/partials/library_list?view=mastering_sources&context=ai"},
-        {"key": "analysis_uploads", "title": "Analyze Uploads", "endpoint": "/partials/library_list?view=analysis_imports&context=ai"}
-      ] %}
-      {% include "partials/file_browser.html" %}
-      <div class="ai-upload-row">
-        <input type="file" id="aiAnyUploadInput" accept=".wav,.mp3,.flac,.aiff,.aif,.m4a,.ogg,.aac" hidden>
-        <button class="btn ghost small" type="button" id="aiAnyUploadBtn">Upload file</button>
-        <div class="muted" id="aiAnyUploadStatus"></div>
-      </div>
-    </div>
+    <input type="file" id="aiLibraryUploadInput" accept=".wav,.mp3,.flac,.aiff,.aif,.m4a,.ogg,.aac" hidden>
+    <div id="aiLibraryBrowser" class="library-browser-container" data-module="ai"></div>
     <div class="ai-selected-summary">
       <div class="ai-selected-label">Selected File</div>
       <div class="ai-selected-name" id="aiSelectedName">-</div>
@@ -150,5 +127,6 @@
 
 {% block extra_js %}
 <script src="/ui/static/vendor/wavesurfer.min.js"></script>
+<script src="/static/js/library_browser.js"></script>
 <script defer src="/static/js/ai_toolkit.js"></script>
 {% endblock %}

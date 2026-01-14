@@ -22,12 +22,7 @@
         <div class="muted">Pick a source, run output, or import.</div>
       </div>
     </div>
-    {% set browser_id = "analyzeBrowser" %}
-    {% set sections = [
-      {"key": "analyze_uploads", "title": "Compare Uploads", "endpoint": "/partials/library_list?view=analysis_imports&context=compare"},
-      {"key": "mastering_outputs", "title": "Mastering Outputs", "endpoint": "/partials/library_list?view=mastering_outputs&context=compare"}
-    ] %}
-    {% include "partials/file_browser.html" %}
+    <div id="analyzeBrowser" class="library-browser-container" data-module="compare"></div>
   </div>
 {% endblock %}
 {% block content %}
@@ -135,6 +130,7 @@
 
 {% block extra_js %}
 <script src="/ui/static/vendor/wavesurfer.min.js"></script>
+<script src="/static/js/library_browser.js"></script>
 <script>
 (() => {
   const uploadBtn = document.getElementById('analyzeUploadBtn');
@@ -180,6 +176,7 @@
   const gainNodes = new Map();
   const volumeRafs = new Map();
   const analyzeBrowser = document.getElementById('analyzeBrowser');
+  let libraryBrowser = null;
   let statusLines = [];
   let statusRenderPending = false;
 
@@ -1336,16 +1333,50 @@
     return res.json();
   }
 
-  function setActiveItem(node){
-    if (!analyzeBrowser) return;
-    analyzeBrowser.querySelectorAll('.browser-item.active').forEach(el => el.classList.remove('active'));
-    if (node) node.classList.add('active');
+  function normalizeLibraryRel(rel){
+    if (!rel) return null;
+    const raw = String(rel);
+    if (raw.startsWith('in/')) return { kind: 'source', rel: raw.slice(3) };
+    if (raw.startsWith('analysis/')) return { kind: 'import', rel: raw.slice(9) };
+    return { kind: 'any', rel: raw };
   }
 
-  async function selectAndLoad(item, node, shouldPush){
+  async function loadLibrarySelection(song, track, shouldPush){
+    if (!track?.rel) return;
+    const sourceRel = song?.source?.rel || null;
+    if (track.kind === 'version' && sourceRel) {
+      addStatusLine(`Loading ${song?.title || 'selection'}...`);
+      if (shouldPush) updateUrl(new URLSearchParams({ src: sourceRel, proc: track.rel }));
+      const data = await resolvePair(sourceRel, track.rel);
+      await applyData(data);
+      addStatusLine('Compare ready');
+      return;
+    }
+    const parsed = normalizeLibraryRel(track.rel);
+    if (parsed?.kind === 'source' || parsed?.kind === 'import') {
+      addStatusLine(`Loading ${parsed.kind}...`);
+      const params = new URLSearchParams();
+      params.set(parsed.kind === 'source' ? 'src' : 'imp', parsed.rel);
+      if (shouldPush) updateUrl(params);
+      const data = await resolveFile(parsed.kind, parsed.rel);
+      await applyData(data);
+      addStatusLine('Compare ready');
+      return;
+    }
+    if (sourceRel) {
+      addStatusLine(`Loading ${song?.title || 'selection'}...`);
+      if (shouldPush) updateUrl(new URLSearchParams({ src: sourceRel, proc: track.rel }));
+      const data = await resolvePair(sourceRel, track.rel);
+      await applyData(data);
+      addStatusLine('Compare ready');
+      return;
+    }
+    addStatusLine('Compare failed');
+  }
+
+  async function selectAndLoad(item, _node, shouldPush){
     if (!item) return;
     selectedItem = item;
-    setActiveItem(node);
     try {
       if (item.kind === 'mastering_output') {
         addStatusLine(`Loading run ${item.song}...`);
@@ -1435,6 +1466,12 @@
           const params = new URLSearchParams();
           params.set('imp', data.rel);
           updateUrl(params);
+          await fetch('/api/library/import_source', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: `analysis/${data.rel}`, title: data.source_name || file.name }),
+          });
+          if (libraryBrowser) libraryBrowser.reload();
         }
         if (typeof showToast === 'function') showToast('Compare ready');
       } catch (_err) {
@@ -1547,7 +1584,7 @@
   const song = params.get('song');
   const out = params.get('out');
   const solo = params.get('solo');
-  const src = params.get('src');
+  let src = params.get('src');
   const proc = params.get('proc');
   const imp = params.get('imp');
   if (song) {
@@ -1565,6 +1602,10 @@
       if (typeof showToast === 'function') showToast('Compare data unavailable');
     });
   } else if (src) {
+    const parsed = normalizeLibraryRel(src);
+    if (parsed?.kind === 'source' || parsed?.kind === 'import') {
+      src = parsed.rel;
+    }
     selectedItem = { kind: 'source', rel: src };
     selectAndLoad(selectedItem, null, false);
   } else if (imp) {
@@ -1572,85 +1613,92 @@
     selectAndLoad(selectedItem, null, false);
   }
 
-  if (analyzeBrowser) {
-    analyzeBrowser.addEventListener('click', (evt) => {
-      const itemNode = evt.target.closest('.browser-item');
-      if (!itemNode || itemNode.disabled) return;
-      const kind = itemNode.dataset.kind || '';
-      const id = itemNode.dataset.id || '';
-      let meta = {};
-      if (itemNode.dataset.meta) {
-        try {
-          meta = JSON.parse(itemNode.dataset.meta || '{}');
-        } catch (_err) {
-          meta = {};
-        }
+  if (analyzeBrowser && window.LibraryBrowser) {
+    const browser = window.LibraryBrowser.init(analyzeBrowser, { module: 'compare' });
+    libraryBrowser = browser;
+    analyzeBrowser.addEventListener('library:select', async (evt) => {
+      const { song, track } = evt.detail || {};
+      try {
+        await loadLibrarySelection(song, track, true);
+      } catch (_err) {
+        addStatusLine('Compare failed');
+        if (typeof showToast === 'function') showToast('Compare data unavailable');
       }
-      if (kind === 'mastering_output') {
-        const song = meta.song || '';
-        if (!song) return;
-        evt.preventDefault();
-        evt.stopPropagation();
-        const item = { kind, id, song, out: meta.out || '', solo: Boolean(meta.solo) };
-        selectAndLoad(item, itemNode, true);
-        return;
-      }
-      if (kind === 'import') {
-        const rel = meta.rel || id;
-        if (!rel) return;
-        evt.preventDefault();
-        evt.stopPropagation();
-        const item = { kind, id, rel };
-        selectAndLoad(item, itemNode, true);
-        return;
-      }
-      if (kind !== 'mastering_run') return;
-      evt.preventDefault();
-      evt.stopPropagation();
-      const item = { kind, id, song: id };
-      selectAndLoad(item, itemNode, true);
     });
-    document.addEventListener('htmx:afterSwap', (evt) => {
-      if (!analyzeBrowser.contains(evt.target)) return;
-      const params = new URLSearchParams(window.location.search);
-      const currentSong = params.get('song');
-      const currentOut = params.get('out');
-      if (currentSong && currentOut) {
-        const nodes = analyzeBrowser.querySelectorAll('.browser-item[data-kind="mastering_output"]');
-        for (const node of nodes) {
-          if (!node.dataset.meta) continue;
-          try {
-            const meta = JSON.parse(node.dataset.meta || '{}');
-            if (meta.song === currentSong && meta.out === currentOut) {
-              setActiveItem(node);
-              break;
-            }
-          } catch (_err) {
-            continue;
-          }
+    analyzeBrowser.addEventListener('library:action', async (evt) => {
+      const { action, song, version, item } = evt.detail || {};
+      if (action === 'set-processed' && song?.source?.rel && version?.rel) {
+        try {
+          await loadLibrarySelection(song, { kind: 'version', rel: version.rel }, true);
+        } catch (_err) {
+          addStatusLine('Compare failed');
         }
         return;
       }
-      const currentImp = params.get('imp');
-      if (currentImp) {
-        const nodes = analyzeBrowser.querySelectorAll('.browser-item[data-kind="import"]');
-        for (const node of nodes) {
-          if (!node.dataset.meta) continue;
-          try {
-            const meta = JSON.parse(node.dataset.meta || '{}');
-            if (meta.rel === currentImp) {
-              setActiveItem(node);
-              break;
-            }
-          } catch (_err) {
-            continue;
-          }
-        }
+      if (action === 'open-compare' && version?.rel) {
+        const url = new URL('/compare', window.location.origin);
+        if (song?.source?.rel) url.searchParams.set('src', song.source.rel);
+        url.searchParams.set('proc', version.rel);
+        window.location.assign(`${url.pathname}${url.search}`);
         return;
       }
-      if (!currentSong) return;
-      const node = analyzeBrowser.querySelector(`.browser-item[data-song="${currentSong}"]`);
-      if (node) setActiveItem(node);
+      if (action === 'delete-version' && song?.song_id && version?.version_id) {
+        await fetch('/api/library/delete_version', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ song_id: song.song_id, version_id: version.version_id }),
+        });
+        browser.reload();
+        return;
+      }
+      if (action === 'rename-song' && song?.song_id) {
+        const next = prompt('Rename song', song.title || '');
+        if (!next) return;
+        await fetch('/api/library/rename_song', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ song_id: song.song_id, title: next }),
+        });
+        browser.reload();
+        return;
+      }
+      if (action === 'add-unsorted' && item?.rel) {
+        const res = await fetch('/api/library', { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+        const songs = Array.isArray(data.songs) ? data.songs : [];
+        const list = songs.map((song, idx) => `${idx + 1}) ${song.title || 'Untitled'}`).join('\n');
+        const choice = prompt(`Add output to which song?\n${list}\n\nEnter number or type a new title.`, '');
+        if (!choice) return;
+        const idx = parseInt(choice, 10);
+        if (!Number.isNaN(idx) && songs[idx - 1]) {
+          const song = songs[idx - 1];
+          await fetch('/api/library/add_version', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              song_id: song.song_id,
+              kind: 'manual',
+              label: item.name || 'Output',
+              rel: item.rel,
+              summary: {},
+              tags: [],
+            }),
+          });
+        } else {
+          const title = choice.trim() || item.name || item.rel;
+          await fetch('/api/library/import_source', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: item.rel, title }),
+          });
+        }
+        browser.reload();
+        return;
+      }
+      if (action === 'import-file' && uploadInput) {
+        uploadInput.click();
+      }
     });
   }
 })();

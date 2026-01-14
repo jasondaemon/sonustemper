@@ -25,6 +25,7 @@ from fastapi.responses import JSONResponse, FileResponse, StreamingResponse, Res
 from sonustemper.tools import bundle_root, is_frozen, resolve_tool
 from fastapi.templating import Jinja2Templates
 from .tagger import TaggerService
+from . import library as library_index
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
@@ -2348,6 +2349,169 @@ def _preset_items(kind: str | None = None, include_staging: bool = True, include
                 "meta": meta,
             })
     return items
+
+def _library_used_rels(lib: dict) -> set[str]:
+    used = set()
+    for song in lib.get("songs", []):
+        src = song.get("source") or {}
+        rel = src.get("rel")
+        if rel:
+            used.add(rel)
+        for version in song.get("versions") or []:
+            vrel = version.get("rel")
+            if vrel:
+                used.add(vrel)
+    return used
+
+
+def _library_scan_unsorted(used: set[str]) -> list[dict]:
+    items = []
+    for root, prefix in ((OUT_DIR, "out"), (ANALYSIS_OUT_DIR, "analysis_out")):
+        if not root.exists():
+            continue
+        for fp in sorted(root.rglob("*")):
+            if not fp.is_file() or fp.suffix.lower() not in ANALYZE_AUDIO_EXTS:
+                continue
+            rel = _analysis_rel_for_path(fp)
+            if not rel or rel in used:
+                continue
+            items.append(
+                {
+                    "rel": rel,
+                    "name": fp.name,
+                    "format": fp.suffix.lower().lstrip("."),
+                    "kind": "output",
+                }
+            )
+    return items
+
+
+@app.get("/api/library")
+def library_index():
+    lib = library_index.load_library()
+    payload = {
+        "version": lib.get("version", 1),
+        "songs": [],
+        "unsorted": [],
+    }
+    used = _library_used_rels(lib)
+    for song in lib.get("songs", []):
+        entry = dict(song)
+        entry["latest_version"] = library_index.latest_version(song)
+        payload["songs"].append(entry)
+    payload["unsorted"] = _library_scan_unsorted(used)
+    return payload
+
+
+@app.post("/api/library/import_source")
+def library_import_source(payload: dict = Body(...)):
+    rel = (payload.get("path") or "").strip()
+    title = payload.get("title")
+    target = _resolve_analysis_path(rel)
+    rel_path = _analysis_rel_for_path(target) or rel
+    duration = _duration_seconds(target)
+    fmt = target.suffix.lower().lstrip(".")
+    lib = library_index.load_library()
+    song = library_index.ensure_song_for_source(lib, rel_path, title, duration, fmt)
+    library_index.save_library(lib)
+    return {"song": song}
+
+
+@app.post("/api/library/use_as_source")
+def library_use_as_source(payload: dict = Body(...)):
+    rel = (payload.get("path") or "").strip()
+    title = payload.get("title")
+    target = _resolve_analysis_path(rel)
+    IN_DIR.mkdir(parents=True, exist_ok=True)
+    stem = target.stem
+    suffix = target.suffix
+    candidate = f"{stem}{suffix}"
+    dest = _safe_rel(IN_DIR, candidate)
+    idx = 1
+    while dest.exists():
+        candidate = f"{stem}-source-{idx}{suffix}"
+        dest = _safe_rel(IN_DIR, candidate)
+        idx += 1
+    shutil.copy2(target, dest)
+    rel_path = _analysis_rel_for_path(dest) or f"in/{dest.name}"
+    duration = _duration_seconds(dest)
+    fmt = dest.suffix.lower().lstrip(".")
+    lib = library_index.load_library()
+    song = library_index.ensure_song_for_source(lib, rel_path, title, duration, fmt)
+    library_index.save_library(lib)
+    return {"song": song, "rel": rel_path}
+
+
+@app.post("/api/library/add_version")
+def library_add_version(payload: dict = Body(...)):
+    song_id = (payload.get("song_id") or "").strip()
+    kind = (payload.get("kind") or "").strip()
+    label = (payload.get("label") or "").strip() or kind or "Version"
+    rel = (payload.get("rel") or "").strip()
+    summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+    metrics = payload.get("metrics") if isinstance(payload.get("metrics"), dict) else {}
+    tags = payload.get("tags") if isinstance(payload.get("tags"), list) else []
+    if not song_id or not rel or not kind:
+        raise HTTPException(status_code=400, detail="missing_fields")
+    target = _resolve_analysis_path(rel)
+    rel_path = _analysis_rel_for_path(target) or rel
+    lib = library_index.load_library()
+    try:
+        version = library_index.add_version(lib, song_id, kind, label, rel_path, summary, metrics, tags)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="song_not_found")
+    library_index.save_library(lib)
+    return {"version": version}
+
+
+@app.post("/api/library/rename_song")
+def library_rename_song(payload: dict = Body(...)):
+    song_id = (payload.get("song_id") or "").strip()
+    title = payload.get("title") or ""
+    if not song_id:
+        raise HTTPException(status_code=400, detail="missing_song_id")
+    lib = library_index.load_library()
+    if not library_index.rename_song(lib, song_id, title):
+        raise HTTPException(status_code=404, detail="song_not_found")
+    library_index.save_library(lib)
+    return {"ok": True}
+
+
+@app.post("/api/library/delete_version")
+def library_delete_version(payload: dict = Body(...)):
+    song_id = (payload.get("song_id") or "").strip()
+    version_id = (payload.get("version_id") or "").strip()
+    if not song_id or not version_id:
+        raise HTTPException(status_code=400, detail="missing_fields")
+    lib = library_index.load_library()
+    removed = library_index.delete_version(lib, song_id, version_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail="version_not_found")
+    library_index.save_library(lib)
+    rel = removed.get("rel")
+    if rel:
+        try:
+            target = _resolve_analysis_path(rel)
+        except HTTPException:
+            target = None
+        if target and target.exists():
+            try:
+                target.unlink(missing_ok=True)
+            except Exception:
+                pass
+    return {"deleted": version_id}
+
+
+@app.post("/api/library/delete_song")
+def library_delete_song(payload: dict = Body(...)):
+    song_id = (payload.get("song_id") or "").strip()
+    if not song_id:
+        raise HTTPException(status_code=400, detail="missing_song_id")
+    lib = library_index.load_library()
+    if not library_index.delete_song(lib, song_id):
+        raise HTTPException(status_code=404, detail="song_not_found")
+    library_index.save_library(lib)
+    return {"deleted": song_id}
 
 def _preset_name_list() -> list[str]:
     seen = set()

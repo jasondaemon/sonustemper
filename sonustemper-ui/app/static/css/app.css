@@ -372,6 +372,134 @@ h1{margin:0;font-size:24px;}
   overflow:auto;
   border-top:1px solid var(--line);
 }
+
+.library-browser{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.library-browser-controls{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  align-items:center;
+}
+.library-search{
+  flex:1 1 140px;
+  min-width:140px;
+}
+.library-sort{
+  min-width:120px;
+}
+.library-browser-list{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+.library-song{
+  border:1px solid var(--line);
+  border-radius:12px;
+  padding:8px 10px;
+  background:#0f151d;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+.library-song-head{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  cursor:pointer;
+}
+.library-caret{
+  width:22px;
+  height:22px;
+  border-radius:999px;
+  border:1px solid var(--line);
+  background:#0f151d;
+  color:var(--muted);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:11px;
+}
+.library-song-title{
+  font-weight:600;
+  flex:1 1 auto;
+  min-width:0;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.library-song-meta{
+  display:flex;
+  gap:6px;
+  flex-wrap:wrap;
+  margin-left:auto;
+}
+.library-song-actions{
+  display:flex;
+  justify-content:flex-end;
+  gap:6px;
+}
+.library-version-list{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  margin-left:28px;
+}
+.library-version{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  padding:6px 8px;
+  border-radius:10px;
+  border:1px solid rgba(255,255,255,0.05);
+  background:#101722;
+  cursor:pointer;
+}
+.library-version-label{
+  font-size:12px;
+  font-weight:600;
+}
+.library-version-meta{
+  display:flex;
+  gap:6px;
+  flex-wrap:wrap;
+}
+.library-version-actions{
+  display:flex;
+  gap:6px;
+  flex-wrap:wrap;
+}
+.library-unsorted{
+  border-top:1px solid var(--line);
+  padding-top:8px;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+.library-section-title{
+  font-size:11px;
+  letter-spacing:0.04em;
+  text-transform:uppercase;
+  color:var(--muted);
+}
+.library-unsorted-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  border:1px solid var(--line);
+  border-radius:10px;
+  padding:6px 8px;
+  background:#0f151d;
+  font-size:12px;
+}
+.library-unsorted-actions{
+  display:flex;
+  gap:6px;
+}
 .browse-card{
   display:flex;
   flex-direction:column;
