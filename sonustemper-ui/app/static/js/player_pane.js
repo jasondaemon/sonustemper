@@ -99,6 +99,8 @@
       audioCtx: null,
       audioSource: null,
       outputGain: null,
+      pendingAutoplay: null,
+      pendingTimer: null,
     };
 
     function setHint(text) {
@@ -158,7 +160,17 @@
         autoCenter: false,
         dragToSeek: true,
       });
-      state.wave.on('ready', updateWaveTime);
+      state.wave.on('ready', () => {
+        updateWaveTime();
+        if (state.pendingAutoplay && state.pendingAutoplay === state.activeId) {
+          state.pendingAutoplay = null;
+          if (state.pendingTimer) {
+            clearTimeout(state.pendingTimer);
+            state.pendingTimer = null;
+          }
+          playWhenReady();
+        }
+      });
       state.wave.on('interaction', updateWaveTime);
       state.wave.on('error', (err) => {
         const msg = String(err || '');
@@ -308,7 +320,8 @@
       state.activeId = track.id;
       updateWaveMeta(track);
       const url = `/api/analyze/path?path=${encodeURIComponent(track.rel)}`;
-      if (audio.src !== url) {
+      const srcChanged = audio.src !== url;
+      if (srcChanged) {
         audio.src = url;
         audio.load();
         ensureWave();
@@ -324,7 +337,18 @@
       updateWaveTime();
       updateButtons();
       if (autoplay) {
-        playWhenReady();
+        if (srcChanged && state.wave) {
+          state.pendingAutoplay = track.id;
+          if (state.pendingTimer) clearTimeout(state.pendingTimer);
+          state.pendingTimer = setTimeout(() => {
+            if (state.pendingAutoplay === track.id) {
+              state.pendingAutoplay = null;
+              playWhenReady();
+            }
+          }, 800);
+        } else {
+          playWhenReady();
+        }
       }
     }
 
