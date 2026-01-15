@@ -801,6 +801,28 @@
         url.searchParams.set('path', track.rel);
         window.location.assign(`${url.pathname}${url.search}`);
       },
+      onDeleteTrack: async (song, track) => {
+        if (!song?.song_id || !track) return;
+        if (track.kind === 'source') {
+          if (!confirm(`Delete ${song.title || 'this song'} and all versions?`)) return;
+          await fetch('/api/library/delete_song', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ song_id: song.song_id }),
+          });
+          if (libraryBrowser) libraryBrowser.reload();
+          if (playerPane) playerPane.clearIfSong(song.song_id);
+          return;
+        }
+        if (!track.version_id) return;
+        if (!confirm('Delete this version?')) return;
+        await fetch('/api/library/delete_version', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ song_id: song.song_id, version_id: track.version_id }),
+        });
+        if (libraryBrowser) libraryBrowser.reload();
+      },
     });
   }
 

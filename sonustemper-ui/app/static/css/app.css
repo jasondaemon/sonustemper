@@ -589,8 +589,8 @@ h1{margin:0;font-size:24px;}
   margin-bottom:6px;
 }
 .player-wave-title{
-  font-size:13px;
-  font-weight:600;
+  font-size:16px;
+  font-weight:700;
 }
 .player-wave-meta{
   font-size:12px;
@@ -634,46 +634,45 @@ h1{margin:0;font-size:24px;}
 .player-track.is-active{
   box-shadow:inset 0 0 0 1px rgba(255,138,61,0.3);
 }
-.player-track-head{
+.player-track-line{
   display:flex;
   align-items:center;
   gap:8px;
+  flex-wrap:wrap;
+}
+.player-track-line--actions{
+  gap:6px;
+}
+.player-track-play{
+  width:28px;
+  min-width:28px;
+  text-align:center;
+  padding-left:0;
+  padding-right:0;
 }
 .player-track-title{
   font-size:12px;
   font-weight:600;
-  flex:1 1 auto;
   min-width:0;
   white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
 }
 .player-track-pills{
   display:flex;
   gap:6px;
   flex-wrap:wrap;
 }
-.player-track-controls{
-  display:flex;
-  align-items:center;
-  gap:8px;
-  flex-wrap:wrap;
-}
-.player-track-time{
-  font-size:11px;
-}
 .player-track-downloads{
-  display:flex;
-  gap:6px;
-  flex-wrap:wrap;
-}
-.player-track-actions{
   display:flex;
   gap:6px;
   flex-wrap:wrap;
 }
 .player-audio{
   display:none;
+}
+.player-live-scope{
+  width:100%;
+  height:100%;
+  display:block;
 }
 .files-grid{
   display:grid;

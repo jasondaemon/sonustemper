@@ -58,7 +58,8 @@
       tracks.push({
         id: trackId(song.song_id, 'version', version.version_id, primary.rel),
         kind: 'version',
-        title: version.kind === 'master' ? 'Master' : (version.label || version.title || 'Version'),
+        version_id: version.version_id,
+        title: 'Version',
         subtitle: song.title || 'Untitled',
         rel: primary.rel,
         format: primary.format || '',
@@ -112,8 +113,8 @@
         waveMeta.textContent = '—';
         return;
       }
-      waveTitle.textContent = track.title || 'Track';
-      waveMeta.textContent = track.subtitle || '';
+      waveTitle.textContent = track.subtitle || track.title || 'Track';
+      waveMeta.textContent = track.title || 'Track';
     }
 
     function updateWaveTime() {
@@ -280,12 +281,30 @@
       drawScopeFrame();
     }
 
+    function playWhenReady() {
+      if (!audio) return;
+      ensureScopeGraph();
+      resumeScopeAudio();
+      if (audio.readyState >= 2) {
+        audio.play().catch(() => {});
+        return;
+      }
+      const onReady = () => {
+        audio.removeEventListener('canplay', onReady);
+        audio.play().catch(() => {});
+      };
+      audio.addEventListener('canplay', onReady, { once: true });
+    }
+
     function loadTrack(track, autoplay) {
       if (!audio || !track?.rel) return;
-      if (!audio.paused) {
+      const isNew = state.activeId !== track.id;
+      if (!audio.paused && isNew) {
         audio.pause();
       }
-      audio.currentTime = 0;
+      if (isNew) {
+        audio.currentTime = 0;
+      }
       state.activeId = track.id;
       updateWaveMeta(track);
       const url = `/api/analyze/path?path=${encodeURIComponent(track.rel)}`;
@@ -305,9 +324,7 @@
       updateWaveTime();
       updateButtons();
       if (autoplay) {
-        ensureScopeGraph();
-        resumeScopeAudio();
-        audio.play().catch(() => {});
+        playWhenReady();
       }
     }
 
@@ -319,30 +336,12 @@
         card.className = 'player-track';
         card.dataset.trackId = track.id;
 
-        const head = document.createElement('div');
-        head.className = 'player-track-head';
-        const title = document.createElement('div');
-        title.className = 'player-track-title';
-        title.textContent = track.title || 'Track';
-        title.title = track.subtitle || '';
-        head.appendChild(title);
+        const mainLine = document.createElement('div');
+        mainLine.className = 'player-track-line player-track-line--main';
 
-        const pills = document.createElement('div');
-        pills.className = 'player-track-pills';
-        if (track.summary?.voicing) {
-          pills.appendChild(makePill(track.summary.voicing, 'badge-voicing'));
-        }
-        if (track.summary?.loudness_profile) {
-          pills.appendChild(makePill(track.summary.loudness_profile, 'badge-profile'));
-        }
-        head.appendChild(pills);
-        card.appendChild(head);
-
-        const controls = document.createElement('div');
-        controls.className = 'player-track-controls';
         const playBtn = document.createElement('button');
         playBtn.type = 'button';
-        playBtn.className = 'btn ghost tiny';
+        playBtn.className = 'btn ghost tiny player-track-play';
         playBtn.dataset.action = 'toggle-play';
         playBtn.dataset.trackId = track.id;
         playBtn.textContent = '▶';
@@ -353,19 +352,28 @@
             return;
           }
           if (audio.paused) {
-            ensureScopeGraph();
-            resumeScopeAudio();
-            audio.play().catch(() => {});
+            playWhenReady();
           } else {
             audio.pause();
           }
         });
-        controls.appendChild(playBtn);
+        mainLine.appendChild(playBtn);
 
-        const time = document.createElement('div');
-        time.className = 'player-track-time muted';
-        time.textContent = track.duration ? formatDuration(track.duration) : (track.subtitle || '');
-        controls.appendChild(time);
+        const label = document.createElement('div');
+        label.className = 'player-track-title';
+        label.textContent = track.kind === 'source' ? 'Source' : 'Version';
+        label.title = track.subtitle || '';
+        mainLine.appendChild(label);
+
+        const pills = document.createElement('div');
+        pills.className = 'player-track-pills';
+        if (track.summary?.voicing) {
+          pills.appendChild(makePill(track.summary.voicing, 'badge-voicing'));
+        }
+        if (track.summary?.loudness_profile) {
+          pills.appendChild(makePill(track.summary.loudness_profile, 'badge-profile'));
+        }
+        mainLine.appendChild(pills);
 
         const downloads = document.createElement('div');
         downloads.className = 'player-track-downloads';
@@ -379,16 +387,17 @@
           link.setAttribute('download', '');
           downloads.appendChild(link);
         });
-        controls.appendChild(downloads);
-        card.appendChild(controls);
+        mainLine.appendChild(downloads);
+        card.appendChild(mainLine);
 
         const actions = document.createElement('div');
-        actions.className = 'player-track-actions';
+        actions.className = 'player-track-line player-track-line--actions';
         actions.appendChild(makeActionButton('Open in EQ', () => options?.onOpenEq?.(track.song, track)));
         actions.appendChild(makeActionButton('Analyze', () => options?.onOpenAnalyze?.(track.song, track)));
         actions.appendChild(makeActionButton('Compare', () => options?.onOpenCompare?.(track.song, track)));
         actions.appendChild(makeActionButton('AI Toolkit', () => options?.onOpenAiToolkit?.(track.song, track)));
         actions.appendChild(makeActionButton('Add as Input', () => options?.onAddInput?.(track.song, track)));
+        actions.appendChild(makeActionButton('Delete', () => options?.onDeleteTrack?.(track.song, track), 'danger'));
         card.appendChild(actions);
 
         trackList.appendChild(card);
@@ -403,10 +412,10 @@
       return pill;
     }
 
-    function makeActionButton(label, handler) {
+    function makeActionButton(label, handler, variant) {
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'btn ghost tiny';
+      btn.className = `btn ${variant === 'danger' ? 'danger' : 'ghost'} tiny`;
       btn.textContent = label;
       btn.addEventListener('click', (evt) => {
         evt.stopPropagation();
