@@ -446,13 +446,14 @@
       return metrics;
     }
 
-    function metricValue(metrics, primaryKey, fallbackKey) {
+    function metricValue(metrics, keys) {
       const normalized = normalizeMetrics(metrics);
       if (!normalized || typeof normalized !== 'object') return null;
-      const value = normalized[primaryKey];
-      if (typeof value === 'number') return value;
-      const fallback = normalized[fallbackKey];
-      return typeof fallback === 'number' ? fallback : null;
+      const list = Array.isArray(keys) ? keys : [keys];
+      for (const key of list) {
+        if (typeof normalized[key] === 'number') return normalized[key];
+      }
+      return null;
     }
 
     function formatDelta(value, sourceValue) {
@@ -475,16 +476,16 @@
       const container = document.createElement('div');
       container.className = 'player-track-metric-pills';
       const items = [
-        { label: 'LUFS', key: 'lufs_i', fallback: 'lufs' },
-        { label: 'TP', key: 'true_peak_db', fallback: 'true_peak' },
-        { label: 'Crest', key: 'crest_db', fallback: 'crest' },
+        { label: 'LUFS', keys: ['lufs_i', 'lufs', 'I'] },
+        { label: 'TP', keys: ['true_peak_db', 'true_peak', 'TP'] },
+        { label: 'Crest', keys: ['crest_db', 'crest', 'crest_factor'] },
       ];
       const canDelta = track.kind === 'version' && metrics && sourceMetrics;
       let count = 0;
       items.forEach((item) => {
-        const value = metricValue(displayMetrics, item.key, item.fallback);
+        const value = metricValue(displayMetrics, item.keys);
         if (typeof value !== 'number') return;
-        const sourceValue = metricValue(sourceMetrics, item.key, item.fallback);
+        const sourceValue = metricValue(sourceMetrics, item.keys);
         const delta = canDelta ? formatDelta(value, sourceValue) : '';
         const pill = document.createElement('span');
         pill.className = 'badge badge-param';

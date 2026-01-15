@@ -563,6 +563,8 @@ def _import_master_outputs(song_id: str, run_dir: Path, summary: dict | None = N
                 break
     if not metrics:
         metrics = read_first_wav_metrics(run_dir) or {}
+    if metrics:
+        metrics = _normalize_metrics_keys(metrics)
     if renditions:
         title = song.get("title") or "Master"
         entry = library_store.add_version(
@@ -1743,6 +1745,26 @@ def _choose_preferred(files: list[Path]) -> Path | None:
             if p.suffix.lower() == ext:
                 return p
     return sorted(files, key=lambda p: p.name.lower())[0]
+
+def _normalize_metrics_keys(metrics: dict) -> dict:
+    if not isinstance(metrics, dict):
+        return {}
+    m = dict(metrics)
+    if "lufs_i" not in m and "I" in m:
+        m["lufs_i"] = m.get("I")
+    if "true_peak_db" not in m and "TP" in m:
+        m["true_peak_db"] = m.get("TP")
+    if "crest_db" not in m and "crest_factor" in m:
+        m["crest_db"] = m.get("crest_factor")
+    if "peak_db" not in m and "peak_level" in m:
+        m["peak_db"] = m.get("peak_level")
+    if "rms_db" not in m and "rms_level" in m:
+        m["rms_db"] = m.get("rms_level")
+    if "dynamic_range_db" not in m and "dynamic_range" in m:
+        m["dynamic_range_db"] = m.get("dynamic_range")
+    if "noise_floor_db" not in m and "noise_floor" in m:
+        m["noise_floor_db"] = m.get("noise_floor")
+    return m
 def _resolve_processed_file(folder: Path, out: str | None) -> tuple[Path | None, list[Path]]:
     files = [p for p in _list_audio_files(folder) if not (p.stem == folder.name and "__" not in p.stem)]
     if not files:
