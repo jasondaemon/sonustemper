@@ -401,20 +401,6 @@
         }
         mainLine.appendChild(pills);
 
-        const downloads = document.createElement('div');
-        downloads.className = 'player-track-downloads';
-        const renditions = track.renditions?.length ? track.renditions : [{ rel: track.rel, format: track.format }];
-        collectRenditionFormats(renditions).forEach((rendition) => {
-          if (!rendition.rel) return;
-          const link = document.createElement('a');
-          link.href = `/api/analyze/path?path=${encodeURIComponent(rendition.rel)}`;
-          link.className = 'badge badge-format';
-          link.textContent = String(rendition.format || 'FILE').toUpperCase();
-          link.setAttribute('download', '');
-          downloads.appendChild(link);
-        });
-        mainLine.appendChild(downloads);
-
         const metrics = renderMetricPills(track);
         if (metrics) {
           const metricsWrap = document.createElement('div');
@@ -431,6 +417,19 @@
         actions.appendChild(makeActionButton('Compare', () => options?.onOpenCompare?.(track.song, track)));
         actions.appendChild(makeActionButton('AI Toolkit', () => options?.onOpenAiToolkit?.(track.song, track)));
         actions.appendChild(makeActionButton('Add as Input', () => options?.onAddInput?.(track.song, track)));
+        const downloads = document.createElement('div');
+        downloads.className = 'player-track-downloads';
+        const renditions = track.renditions?.length ? track.renditions : [{ rel: track.rel, format: track.format }];
+        collectRenditionFormats(renditions).forEach((rendition) => {
+          if (!rendition.rel) return;
+          const link = document.createElement('a');
+          link.href = `/api/analyze/path?path=${encodeURIComponent(rendition.rel)}`;
+          link.className = 'badge badge-format';
+          link.textContent = String(rendition.format || 'FILE').toUpperCase();
+          link.setAttribute('download', '');
+          downloads.appendChild(link);
+        });
+        actions.appendChild(downloads);
         actions.appendChild(makeActionButton('Delete', () => options?.onDeleteTrack?.(track.song, track), 'danger'));
         card.appendChild(actions);
 
@@ -476,23 +475,48 @@
       const container = document.createElement('div');
       container.className = 'player-track-metric-pills';
       const items = [
-        { label: 'LUFS', keys: ['lufs_i', 'lufs', 'I'] },
-        { label: 'TP', keys: ['true_peak_db', 'true_peak', 'TP'] },
-        { label: 'Crest', keys: ['crest_db', 'crest', 'crest_factor'] },
+        { label: 'LUFS', keys: ['lufs_i', 'lufs', 'I'], unit: '' },
+        { label: 'TP', keys: ['true_peak_db', 'true_peak', 'TP'], unit: '' },
+        { label: 'LRA', keys: ['lra', 'LRA'], unit: '' },
+        { label: 'Crest', keys: ['crest_db', 'crest', 'crest_factor'], unit: '' },
+        { label: 'RMS', keys: ['rms_db', 'rms_level'], unit: '' },
+        { label: 'Peak', keys: ['peak_db', 'peak_level'], unit: '' },
+        { label: 'DR', keys: ['dynamic_range_db', 'dynamic_range'], unit: '' },
+        { label: 'Noise', keys: ['noise_floor_db', 'noise_floor'], unit: '' },
+        { label: 'Corr', keys: ['stereo_corr'], unit: '' },
+        { label: 'Width', keys: ['width'], unit: '' },
+        { label: 'Target I', keys: ['target_I'], unit: '' },
+        { label: 'Target TP', keys: ['target_TP'], unit: '' },
+        { label: 'TP Margin', keys: ['tp_margin'], unit: '' },
+        { label: 'Dur', keys: ['duration_sec'], unit: 's' },
       ];
       const canDelta = track.kind === 'version' && metrics && sourceMetrics;
-      let count = 0;
+      const collected = [];
       items.forEach((item) => {
         const value = metricValue(displayMetrics, item.keys);
         if (typeof value !== 'number') return;
         const sourceValue = metricValue(sourceMetrics, item.keys);
         const delta = canDelta ? formatDelta(value, sourceValue) : '';
+        const formatted = item.label === 'Dur'
+          ? `${item.label} ${Math.round(value)}${item.unit}${delta}`
+          : `${item.label} ${value.toFixed(1)}${item.unit}${delta}`;
+        collected.push(formatted);
+      });
+      const primary = collected.slice(0, 4);
+      primary.forEach((text) => {
         const pill = document.createElement('span');
         pill.className = 'badge badge-param';
-        pill.textContent = `${item.label} ${value.toFixed(1)}${delta}`;
+        pill.textContent = text;
         container.appendChild(pill);
-        count += 1;
       });
+      const remaining = collected.length - primary.length;
+      if (remaining > 0) {
+        const overflow = document.createElement('span');
+        overflow.className = 'badge badge-param';
+        overflow.textContent = `+${remaining}`;
+        overflow.title = collected.join(' | ');
+        container.appendChild(overflow);
+      }
       return container.children.length ? container : null;
     }
 
