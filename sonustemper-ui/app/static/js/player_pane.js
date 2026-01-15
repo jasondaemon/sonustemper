@@ -439,11 +439,19 @@
       updateButtons();
     }
 
-    function metricValue(metrics, primaryKey, fallbackKey) {
+    function normalizeMetrics(metrics) {
       if (!metrics || typeof metrics !== 'object') return null;
-      const value = metrics[primaryKey];
+      if (metrics.output && typeof metrics.output === 'object') return metrics.output;
+      if (metrics.input && typeof metrics.input === 'object') return metrics.input;
+      return metrics;
+    }
+
+    function metricValue(metrics, primaryKey, fallbackKey) {
+      const normalized = normalizeMetrics(metrics);
+      if (!normalized || typeof normalized !== 'object') return null;
+      const value = normalized[primaryKey];
       if (typeof value === 'number') return value;
-      const fallback = metrics[fallbackKey];
+      const fallback = normalized[fallbackKey];
       return typeof fallback === 'number' ? fallback : null;
     }
 
@@ -456,9 +464,10 @@
     }
 
     function renderMetricPills(track) {
-      const metrics = track.metrics;
-      if (!metrics || typeof metrics !== 'object') return null;
-      const sourceMetrics = track.song?.source?.metrics || null;
+      const metrics = normalizeMetrics(track.metrics);
+      const sourceMetrics = normalizeMetrics(track.song?.source?.metrics);
+      const displayMetrics = metrics || sourceMetrics;
+      if (!displayMetrics) return null;
       const container = document.createElement('div');
       container.className = 'player-track-metric-pills';
       const items = [
@@ -466,11 +475,12 @@
         { label: 'TP', key: 'true_peak_db', fallback: 'true_peak' },
         { label: 'Crest', key: 'crest_db', fallback: 'crest' },
       ];
+      const canDelta = track.kind === 'version' && metrics && sourceMetrics;
       items.forEach((item) => {
-        const value = metricValue(metrics, item.key, item.fallback);
+        const value = metricValue(displayMetrics, item.key, item.fallback);
         if (typeof value !== 'number') return;
         const sourceValue = metricValue(sourceMetrics, item.key, item.fallback);
-        const delta = track.kind === 'version' ? formatDelta(value, sourceValue) : '';
+        const delta = canDelta ? formatDelta(value, sourceValue) : '';
         const pill = document.createElement('span');
         pill.className = 'badge badge-param';
         pill.textContent = `${item.label} ${value.toFixed(1)}${delta}`;
