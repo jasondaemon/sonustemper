@@ -47,6 +47,39 @@ METRIC_KEY_MAP = {
     "width": ["width", "stereo_width"],
 }
 
+METRIC_SUMMARY_KEYS = {
+    "duration_sec",
+    "lufs_i",
+    "lufs",
+    "I",
+    "lra",
+    "LRA",
+    "true_peak_dbtp",
+    "true_peak_db",
+    "true_peak",
+    "TP",
+    "target_lufs",
+    "target_i",
+    "target_I",
+    "target_tp",
+    "target_TP",
+    "delta_i",
+    "delta_I",
+    "tp_margin",
+    "crest_factor",
+    "crest_db",
+    "dynamic_range",
+    "dynamic_range_db",
+    "rms_level",
+    "rms_db",
+    "peak_level",
+    "peak_db",
+    "noise_floor",
+    "noise_floor_db",
+    "stereo_corr",
+    "width",
+}
+
 PREFERRED_RENDITION_ORDER = ["wav", "flac", "aiff", "aif", "m4a", "aac", "mp3", "ogg"]
 
 
@@ -116,6 +149,9 @@ def init_db() -> None:
                     kind TEXT NOT NULL,
                     title TEXT NOT NULL,
                     label TEXT NOT NULL,
+                    utility TEXT,
+                    voicing TEXT,
+                    loudness_profile TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     summary_json TEXT NOT NULL DEFAULT "{}",
@@ -151,6 +187,38 @@ def init_db() -> None:
                 CREATE INDEX IF NOT EXISTS idx_songs_title ON songs(title);
                 """
             )
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(versions)").fetchall()}
+            if "utility" not in columns:
+                conn.execute("ALTER TABLE versions ADD COLUMN utility TEXT")
+            if "voicing" not in columns:
+                conn.execute("ALTER TABLE versions ADD COLUMN voicing TEXT")
+            if "loudness_profile" not in columns:
+                conn.execute("ALTER TABLE versions ADD COLUMN loudness_profile TEXT")
+            rows = conn.execute(
+                "SELECT version_id, summary_json, voicing, loudness_profile FROM versions"
+            ).fetchall()
+            for row in rows:
+                summary_raw = row["summary_json"] or ""
+                if not summary_raw or summary_raw == "{}":
+                    continue
+                try:
+                    summary = json.loads(summary_raw)
+                except Exception:
+                    summary = {}
+                if not isinstance(summary, dict):
+                    summary = {}
+                voicing = row["voicing"] or summary.get("voicing")
+                profile = row["loudness_profile"] or summary.get("loudness_profile")
+                if voicing is None and profile is None and summary_raw != "{}":
+                    conn.execute(
+                        "UPDATE versions SET summary_json = ? WHERE version_id = ?",
+                        ("{}", row["version_id"]),
+                    )
+                    continue
+                conn.execute(
+                    "UPDATE versions SET voicing = ?, loudness_profile = ?, summary_json = ? WHERE version_id = ?",
+                    (voicing, profile, "{}", row["version_id"]),
+                )
         finally:
             conn.close()
 
@@ -227,20 +295,46 @@ def _metrics_from_row(row: sqlite3.Row | None, *, duration_override: float | Non
     return metrics
 
 
-def _json_load(payload: str | None) -> dict:
-    if not payload:
-        return {}
-    try:
-        data = json.loads(payload)
-    except Exception:
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
 def _format_from_rel(rel: str | None) -> str | None:
     if not rel:
         return None
     return Path(rel).suffix.lower().lstrip(".") or None
+
+
+def _merge_summary_metrics(metrics: dict | None, summary: dict | None) -> dict:
+    merged = dict(metrics or {})
+    if not isinstance(summary, dict):
+        return merged
+    if "target_lufs" in summary and "target_I" not in merged and "target_i" not in merged:
+        merged["target_I"] = summary.get("target_lufs")
+    if "target_tp" in summary and "target_TP" not in merged and "target_tp" not in merged:
+        merged["target_TP"] = summary.get("target_tp")
+    if "delta_I" in summary and "delta_I" not in merged and "delta_i" not in merged:
+        merged["delta_I"] = summary.get("delta_I")
+    if "delta_i" in summary and "delta_I" not in merged and "delta_i" not in merged:
+        merged["delta_I"] = summary.get("delta_i")
+    if "tp_margin" in summary and "tp_margin" not in merged:
+        merged["tp_margin"] = summary.get("tp_margin")
+    return merged
+
+
+def _strip_summary_metrics(summary: dict | None) -> dict:
+    if not isinstance(summary, dict):
+        return {}
+    return {k: v for k, v in summary.items() if k not in METRIC_SUMMARY_KEYS}
+
+
+def _utility_from_kind(kind: str | None) -> str:
+    kind = (kind or "").strip().lower()
+    mapping = {
+        "master": "Master",
+        "aitk": "AITK",
+        "ai_tool": "AITK",
+        "eq": "EQ",
+        "noise_clean": "Noise Cleanup",
+        "manual": "Manual",
+    }
+    return mapping.get(kind, (kind or "Utility").upper())
 
 
 def _primary_rendition(renditions: list[dict]) -> dict | None:
@@ -279,14 +373,20 @@ def list_library() -> dict:
     versions_by_song: dict[str, list[dict]] = {}
     for row in version_rows:
         renditions = renditions_map.get(row["version_id"], [])
-        summary = _json_load(row["summary_json"])
+        summary = {}
+        if row["voicing"]:
+            summary["voicing"] = row["voicing"]
+        if row["loudness_profile"]:
+            summary["loudness_profile"] = row["loudness_profile"]
         metrics = _metrics_from_row(version_metrics.get(row["version_id"]))
+        utility = row["utility"] or _utility_from_kind(row["kind"])
         version = {
             "version_id": row["version_id"],
             "song_id": row["song_id"],
             "kind": row["kind"],
             "title": row["title"],
             "label": row["label"],
+            "utility": utility,
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
             "summary": summary,
@@ -361,14 +461,20 @@ def get_song(song_id: str) -> dict | None:
     versions = []
     for row in version_rows:
         renditions = renditions_map.get(row["version_id"], [])
-        summary = _json_load(row["summary_json"])
+        summary = {}
+        if row["voicing"]:
+            summary["voicing"] = row["voicing"]
+        if row["loudness_profile"]:
+            summary["loudness_profile"] = row["loudness_profile"]
         metrics = _metrics_from_row(version_metrics.get(row["version_id"]))
+        utility = row["utility"] or _utility_from_kind(row["kind"])
         version = {
             "version_id": row["version_id"],
             "song_id": row["song_id"],
             "kind": row["kind"],
             "title": row["title"],
             "label": row["label"],
+            "utility": utility,
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
             "summary": summary,
@@ -591,13 +697,19 @@ def add_version(
     metrics: dict | None,
     renditions: list[dict],
     version_id: str | None = None,
+    utility: str | None = None,
 ) -> dict:
     init_db()
     now = _now_iso()
-    summary_json = json.dumps(summary or {})
-    raw_metrics_json = json.dumps(metrics or {})
-    mapped_metrics = _map_metrics(metrics, prefer_output=True)
+    summary_clean = _strip_summary_metrics(summary)
+    metrics_payload = _merge_summary_metrics(metrics, summary)
+    summary_json = "{}"
+    raw_metrics_json = "{}"
+    voicing = summary_clean.get("voicing") if isinstance(summary_clean, dict) else None
+    loudness_profile = summary_clean.get("loudness_profile") if isinstance(summary_clean, dict) else None
+    mapped_metrics = _map_metrics(metrics_payload, prefer_output=True)
     version_id = version_id or new_version_id(kind)
+    utility_value = (utility or "").strip() or _utility_from_kind(kind)
     with _WRITE_LOCK:
         conn = _connect()
         try:
@@ -606,10 +718,12 @@ def add_version(
                 raise ValueError("song_not_found")
             conn.execute(
                 """
-                INSERT INTO versions (version_id, song_id, kind, title, label, created_at, updated_at, summary_json, metrics_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO versions (version_id, song_id, kind, title, label, utility, voicing, loudness_profile,
+                                      created_at, updated_at, summary_json, metrics_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (version_id, song_id, kind, title, label, now, now, summary_json, raw_metrics_json),
+                (version_id, song_id, kind, title, label, utility_value, voicing, loudness_profile,
+                 now, now, summary_json, raw_metrics_json),
             )
             conn.execute(
                 """

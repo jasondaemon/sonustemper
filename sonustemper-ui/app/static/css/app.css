@@ -1503,6 +1503,7 @@ h1{margin:0;font-size:24px;}
 }
 .badge-voicing{background:rgba(255,138,61,0.2);border-color:rgba(255,138,61,0.6);color:#ffb07a;}
 .badge-profile{background:rgba(43,212,189,0.15);border-color:rgba(43,212,189,0.45);color:#9df1e5;}
+.badge-utility{background:rgba(90,160,255,0.18);border-color:rgba(90,160,255,0.55);color:#b6d2ff;}
 .badge-param{background:rgba(43,212,189,0.15);border-color:rgba(43,212,189,0.45);color:#9df1e5;}
 .badge-format{background:rgba(255,255,255,0.04);border-color:rgba(255,255,255,0.15);color:#cfe0f1;}
 .badge-tag{background:rgba(255,255,255,0.04);border-color:rgba(255,255,255,0.12);color:#cfe0f1;}

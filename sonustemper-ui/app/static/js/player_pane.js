@@ -66,6 +66,7 @@
         format: primary.format || '',
         duration: song.source?.duration_sec || null,
         metrics: version.metrics || null,
+        utility: version.utility || version.kind || null,
         song,
         version,
         renditions: version.renditions || [],
@@ -393,6 +394,9 @@
 
         const pills = document.createElement('div');
         pills.className = 'player-track-pills';
+        if (track.kind === 'version' && track.utility) {
+          pills.appendChild(makePill(track.utility, 'badge-utility'));
+        }
         if (track.summary?.voicing) {
           pills.appendChild(makePill(track.summary.voicing, 'badge-voicing'));
         }

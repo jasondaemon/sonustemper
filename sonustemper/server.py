@@ -710,8 +710,6 @@ def _start_master_jobs(song_ids, presets, strength, lufs, tp, width, mono_bass, 
                     summary={
                         "voicing": voicing_name or presets,
                         "loudness_profile": loudness_profile,
-                        "target_lufs": lufs,
-                        "target_tp": tp,
                     },
                 )
                 final_event = final_events.pop(rid, None)
@@ -2650,6 +2648,7 @@ def library_add_version(payload: dict = Body(...)):
     title = (payload.get("title") or "").strip() or label
     rel = (payload.get("rel") or "").strip()
     version_id = (payload.get("version_id") or "").strip() or None
+    utility = (payload.get("utility") or "").strip() or None
     summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
     metrics = payload.get("metrics") if isinstance(payload.get("metrics"), dict) else {}
     renditions = payload.get("renditions") if isinstance(payload.get("renditions"), list) else []
@@ -2693,6 +2692,7 @@ def library_add_version(payload: dict = Body(...)):
             metrics,
             normalized_renditions,
             version_id=version_id,
+            utility=utility,
         )
     except ValueError:
         raise HTTPException(status_code=404, detail="song_not_found")
