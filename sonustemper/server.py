@@ -555,6 +555,8 @@ def _import_master_outputs(song_id: str, run_dir: Path, summary: dict | None = N
             metrics = read_metrics_file(metrics_path) or {}
         rel = rel_from_path(dest)
         renditions.append({"format": ext, "rel": rel})
+    if not metrics:
+        metrics = read_run_metrics(run_dir) or read_first_wav_metrics(run_dir) or {}
     if renditions:
         title = song.get("title") or "Master"
         entry = library_store.add_version(

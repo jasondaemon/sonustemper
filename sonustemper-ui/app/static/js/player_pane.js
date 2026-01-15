@@ -476,6 +476,7 @@
         { label: 'Crest', key: 'crest_db', fallback: 'crest' },
       ];
       const canDelta = track.kind === 'version' && metrics && sourceMetrics;
+      let count = 0;
       items.forEach((item) => {
         const value = metricValue(displayMetrics, item.key, item.fallback);
         if (typeof value !== 'number') return;
@@ -485,7 +486,19 @@
         pill.className = 'badge badge-param';
         pill.textContent = `${item.label} ${value.toFixed(1)}${delta}`;
         container.appendChild(pill);
+        count += 1;
       });
+      if (!count && metrics && sourceMetrics && metrics !== sourceMetrics) {
+        items.forEach((item) => {
+          const value = metricValue(sourceMetrics, item.key, item.fallback);
+          if (typeof value !== 'number') return;
+          const pill = document.createElement('span');
+          pill.className = 'badge badge-param';
+          pill.textContent = `${item.label} ${value.toFixed(1)}`;
+          container.appendChild(pill);
+          count += 1;
+        });
+      }
       return container.children.length ? container : null;
     }
 
