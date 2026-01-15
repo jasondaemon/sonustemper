@@ -25,7 +25,7 @@ from fastapi.responses import JSONResponse, FileResponse, StreamingResponse, Res
 from sonustemper.tools import bundle_root, is_frozen, resolve_tool
 from fastapi.templating import Jinja2Templates
 from .tagger import TaggerService
-from . import library as library_store
+from . import library_db as library_store
 from . import storage as storage
 from .storage import (
     DATA_ROOT,
@@ -33,7 +33,6 @@ from .storage import (
     LIBRARY_DIR,
     SONGS_DIR,
     PREVIEWS_DIR,
-    LIBRARY_FILE,
     ensure_data_roots,
     allocate_source_path,
     allocate_version_path,
@@ -213,6 +212,7 @@ _default_pack = REPO_ROOT / "sonustemper" / "master_pack.py"
 MASTER_SCRIPT = Path(os.getenv("MASTER_SCRIPT", str(_default_pack)))
 app = FastAPI(docs_url=None, redoc_url=None)
 ensure_data_roots()
+library_store.init_db()
 for p in [
     PREVIEW_DIR,
     MASTER_RUN_DIR,
@@ -531,7 +531,6 @@ def _import_master_outputs(song_id: str, run_dir: Path, summary: dict | None = N
     outputs = []
     if not run_dir.exists():
         return outputs
-    lib = library_store.load_library()
     song = _library_find_song(song_id)
     if not song:
         return outputs
@@ -576,20 +575,16 @@ def _import_master_outputs(song_id: str, run_dir: Path, summary: dict | None = N
     if renditions:
         title = song.get("title") or "Master"
         entry = library_store.add_version(
-            lib,
             song_id,
             "master",
             "Master",
-            renditions[0].get("rel"),
+            title,
             summary or {},
             metrics,
-            [],
+            renditions,
             version_id=version_id,
-            renditions=renditions,
-            title=title,
         )
         outputs.append(entry)
-    library_store.save_library(lib)
     return outputs
 
 
@@ -1349,7 +1344,7 @@ def _seed_demo_inputs() -> None:
     demo_dir = _demo_asset_dir()
     if not demo_dir.exists():
         return
-    lib = library_store.load_library()
+    lib = library_store.list_library()
     if lib.get("songs"):
         return
     copied = 0
@@ -1371,21 +1366,21 @@ def _seed_demo_inputs() -> None:
             rel_path = rel_from_path(dest)
             duration = metrics.get("duration_sec")
             fmt = dest.suffix.lower().lstrip(".")
-            library_store.ensure_song_for_source(
-                lib,
+            mtime = datetime.utcfromtimestamp(dest.stat().st_mtime).replace(microsecond=0).isoformat() + "Z"
+            library_store.upsert_song_for_source(
                 rel_path,
-                song_id,
                 dest.stem,
                 duration,
                 fmt,
                 metrics,
                 analyzed,
+                song_id=song_id,
+                file_mtime_utc=mtime,
             )
             copied += 1
         except Exception:
             continue
     if copied:
-        library_store.save_library(lib)
         try:
             DEMO_SEED_MARKER.write_text("seeded", encoding="utf-8")
         except Exception:
@@ -2351,7 +2346,7 @@ def tagger_album_download(ids: str, name: str = "album", background_tasks: Backg
 
 @app.get("/api/files")
 def list_files():
-    lib = library_store.load_library()
+    lib = library_store.list_library()
     files = []
     for song in lib.get("songs", []):
         rel = (song.get("source") or {}).get("rel")
@@ -2366,7 +2361,7 @@ def presets():
     return _preset_name_list()
 @app.get("/api/recent")
 def recent(limit: int = 30):
-    lib = library_store.load_library()
+    lib = library_store.list_library()
     items = []
     songs = sorted(
         lib.get("songs", []),
@@ -2374,7 +2369,7 @@ def recent(limit: int = 30):
         reverse=True,
     )
     for song in songs[:limit]:
-        latest = library_store.latest_version(song)
+        latest = library_store.latest_version(song.get("song_id"))
         items.append({
             "song": song.get("title") or song.get("song_id"),
             "song_id": song.get("song_id"),
@@ -2386,10 +2381,9 @@ def delete_song(song: str):
     song_entry = _library_find_song(song)
     if not song_entry:
         raise HTTPException(status_code=404, detail="song_not_found")
-    lib = library_store.load_library()
-    if not library_store.delete_song(lib, song_entry.get("song_id")):
+    deleted, _rels = library_store.delete_song(song_entry.get("song_id"))
+    if not deleted:
         raise HTTPException(status_code=404, detail="song_not_found")
-    library_store.save_library(lib)
     try:
         song_dir = SONGS_DIR / song_entry.get("song_id")
         if song_dir.exists() and SONGS_DIR.resolve() in song_dir.resolve().parents:
@@ -2419,30 +2413,24 @@ def delete_output(song: str, name: str):
             break
     if not version:
         raise HTTPException(status_code=404, detail="version_not_found")
-    lib = library_store.load_library()
-    removed = library_store.delete_version(lib, song_entry.get("song_id"), version.get("version_id"))
-    if removed:
-        for rendition in removed.get("renditions") or []:
-            rel = rendition.get("rel")
-            if not rel:
-                continue
+    deleted, rels = library_store.delete_version(song_entry.get("song_id"), version.get("version_id"))
+    if deleted:
+        for rel in rels:
             try:
                 target = resolve_rel(rel)
             except ValueError:
                 continue
             if target.exists():
                 target.unlink()
-    library_store.save_library(lib)
     return {"message": f"Deleted {stem}"}
 @app.delete("/api/upload/{name}")
 def delete_upload(name: str):
     song_entry = _library_find_song(name)
     if not song_entry:
         raise HTTPException(status_code=404, detail="song_not_found")
-    lib = library_store.load_library()
-    if not library_store.delete_song(lib, song_entry.get("song_id")):
+    deleted, _rels = library_store.delete_song(song_entry.get("song_id"))
+    if not deleted:
         raise HTTPException(status_code=404, detail="song_not_found")
-    library_store.save_library(lib)
     return {"message": f"Deleted song {song_entry.get('title') or song_entry.get('song_id')}."}
 @app.get("/api/outlist")
 def outlist(song: str):
@@ -2539,32 +2527,21 @@ def _library_lookup_rel(rel: str) -> tuple[dict | None, dict | None]:
     rel = (rel or "").strip()
     if not rel:
         return None, None
-    lib = library_store.load_library()
-    for song in lib.get("songs", []):
-        source = song.get("source") or {}
-        if source.get("rel") == rel:
-            return song, None
-        for version in song.get("versions") or []:
-            if version.get("rel") == rel:
-                return song, version
-            for rendition in version.get("renditions") or []:
-                if rendition.get("rel") == rel:
-                    return song, version
-    return None, None
+    return library_store.find_by_rel(rel)
 
 
 def _library_find_song(song_key: str) -> dict | None:
     key = (song_key or "").strip()
     if not key:
         return None
-    lib = library_store.load_library()
-    for song in lib.get("songs", []):
-        if song.get("song_id") == key:
-            return song
+    song = library_store.get_song(key)
+    if song:
+        return song
     key_lower = key.lower()
-    for song in lib.get("songs", []):
-        if (song.get("title") or "").strip().lower() == key_lower:
-            return song
+    lib = library_store.list_library()
+    for entry in lib.get("songs", []):
+        if (entry.get("title") or "").strip().lower() == key_lower:
+            return entry
     return None
 
 
@@ -2572,7 +2549,7 @@ def _library_find_version(song: dict, token: str | None) -> dict | None:
     if not song:
         return None
     if not token:
-        return library_store.latest_version(song)
+        return library_store.latest_version(song.get("song_id"))
     token = token.strip()
     for version in song.get("versions") or []:
         if version.get("version_id") == token:
@@ -2586,18 +2563,18 @@ def _library_find_version(song: dict, token: str | None) -> dict | None:
     for version in song.get("versions") or []:
         if (version.get("title") or version.get("label") or "").strip().lower() == token.lower():
             return version
-    return library_store.latest_version(song)
+    return library_store.latest_version(song.get("song_id"))
 
 @app.get("/api/library")
 def library_index_endpoint():
-    lib = library_store.load_library()
+    lib = library_store.list_library()
     payload = {
         "version": lib.get("version", 1),
         "songs": [],
     }
     for song in lib.get("songs", []):
         entry = dict(song)
-        entry["latest_version"] = library_store.latest_version(song)
+        entry["latest_version"] = library_store.latest_version(song.get("song_id"))
         payload["songs"].append(entry)
     return payload
 
@@ -2618,18 +2595,17 @@ def library_import_source(payload: dict = Body(...)):
     duration = metrics.get("duration_sec")
     fmt = target.suffix.lower().lstrip(".")
     rel_path = rel_from_path(target)
-    lib = library_store.load_library()
-    song = library_store.ensure_song_for_source(
-        lib,
+    mtime = datetime.utcfromtimestamp(target.stat().st_mtime).replace(microsecond=0).isoformat() + "Z"
+    song = library_store.upsert_song_for_source(
         rel_path,
-        new_song_id(),
         title,
         duration,
         fmt,
         metrics,
         bool(metrics),
+        song_id=new_song_id(),
+        file_mtime_utc=mtime,
     )
-    library_store.save_library(lib)
     return {"song": song}
 
 
@@ -2652,18 +2628,17 @@ def library_use_as_source(payload: dict = Body(...)):
     metrics = _analyze_audio_metrics(dest)
     duration = metrics.get("duration_sec")
     fmt = dest.suffix.lower().lstrip(".")
-    lib = library_store.load_library()
-    song = library_store.ensure_song_for_source(
-        lib,
+    mtime = datetime.utcfromtimestamp(dest.stat().st_mtime).replace(microsecond=0).isoformat() + "Z"
+    song = library_store.upsert_song_for_source(
         rel_path,
-        song_id,
         title,
         duration,
         fmt,
         metrics,
         bool(metrics),
+        song_id=song_id,
+        file_mtime_utc=mtime,
     )
-    library_store.save_library(lib)
     return {"song": song, "rel": rel_path}
 
 
@@ -2677,7 +2652,6 @@ def library_add_version(payload: dict = Body(...)):
     version_id = (payload.get("version_id") or "").strip() or None
     summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
     metrics = payload.get("metrics") if isinstance(payload.get("metrics"), dict) else {}
-    tags = payload.get("tags") if isinstance(payload.get("tags"), list) else []
     renditions = payload.get("renditions") if isinstance(payload.get("renditions"), list) else []
     if not song_id or not kind:
         raise HTTPException(status_code=400, detail="missing_fields")
@@ -2709,25 +2683,19 @@ def library_add_version(payload: dict = Body(...)):
         normalized_renditions.append({"format": fmt, "rel": rel_path})
     if not normalized_renditions:
         raise HTTPException(status_code=400, detail="missing_fields")
-    primary_rel = normalized_renditions[0].get("rel")
-    lib = library_store.load_library()
     try:
         version = library_store.add_version(
-            lib,
             song_id,
             kind,
             label,
-            primary_rel,
+            title,
             summary,
             metrics,
-            tags,
+            normalized_renditions,
             version_id=version_id,
-            renditions=normalized_renditions,
-            title=title,
         )
     except ValueError:
         raise HTTPException(status_code=404, detail="song_not_found")
-    library_store.save_library(lib)
     return {"version": version}
 
 
@@ -2737,10 +2705,8 @@ def library_rename_song(payload: dict = Body(...)):
     title = payload.get("title") or ""
     if not song_id:
         raise HTTPException(status_code=400, detail="missing_song_id")
-    lib = library_store.load_library()
-    if not library_store.rename_song(lib, song_id, title):
+    if not library_store.rename_song(song_id, title):
         raise HTTPException(status_code=404, detail="song_not_found")
-    library_store.save_library(lib)
     return {"ok": True}
 
 
@@ -2750,15 +2716,10 @@ def library_delete_version(payload: dict = Body(...)):
     version_id = (payload.get("version_id") or "").strip()
     if not song_id or not version_id:
         raise HTTPException(status_code=400, detail="missing_fields")
-    lib = library_store.load_library()
-    removed = library_store.delete_version(lib, song_id, version_id)
-    if not removed:
+    deleted, rels = library_store.delete_version(song_id, version_id)
+    if not deleted:
         raise HTTPException(status_code=404, detail="version_not_found")
-    library_store.save_library(lib)
-    for rendition in removed.get("renditions") or []:
-        rel = rendition.get("rel")
-        if not rel:
-            continue
+    for rel in rels:
         try:
             target = resolve_rel(rel)
         except ValueError:
@@ -2773,10 +2734,9 @@ def library_delete_song(payload: dict = Body(...)):
     song_id = (payload.get("song_id") or "").strip()
     if not song_id:
         raise HTTPException(status_code=400, detail="missing_song_id")
-    lib = library_store.load_library()
-    if not library_store.delete_song(lib, song_id):
+    deleted, _rels = library_store.delete_song(song_id)
+    if not deleted:
         raise HTTPException(status_code=404, detail="song_not_found")
-    library_store.save_library(lib)
     try:
         song_dir = SONGS_DIR / song_id
         if song_dir.exists() and SONGS_DIR.resolve() in song_dir.resolve().parents:
@@ -3939,18 +3899,17 @@ async def analyze_upload(file: UploadFile = File(...)):
     rel_path = rel_from_path(dest)
     fmt = dest.suffix.lower().lstrip(".")
     duration = metrics.get("duration_sec")
-    lib = library_store.load_library()
-    song = library_store.ensure_song_for_source(
-        lib,
+    mtime = datetime.utcfromtimestamp(dest.stat().st_mtime).replace(microsecond=0).isoformat() + "Z"
+    song = library_store.upsert_song_for_source(
         rel_path,
-        song_id,
         dest.stem,
         duration,
         fmt,
         metrics,
         analyzed,
+        song_id=song_id,
+        file_mtime_utc=mtime,
     )
-    library_store.save_library(lib)
     return {
         "song": song,
         "rel": rel_path,
@@ -4539,7 +4498,7 @@ def ai_tool_detect(path: str, mode: str = "fast"):
     return {"track": track, "metrics": metrics, "findings": findings}
 @app.get("/api/analyze-sources")
 def analyze_sources():
-    lib = library_store.load_library()
+    lib = library_store.list_library()
     items = []
     for song in lib.get("songs", []):
         rel = (song.get("source") or {}).get("rel")
@@ -4600,21 +4559,20 @@ async def upload(files: list[UploadFile] = File(...)):
         except Exception:
             metrics = {}
             analyzed = False
-        lib = library_store.load_library()
         rel_path = rel_from_path(dest)
         duration = metrics.get("duration_sec")
         fmt = dest.suffix.lower().lstrip(".")
-        song = library_store.ensure_song_for_source(
-            lib,
+        mtime = datetime.utcfromtimestamp(dest.stat().st_mtime).replace(microsecond=0).isoformat() + "Z"
+        song = library_store.upsert_song_for_source(
             rel_path,
-            song_id,
             dest.stem,
             duration,
             fmt,
             metrics,
             analyzed,
+            song_id=song_id,
+            file_mtime_utc=mtime,
         )
-        library_store.save_library(lib)
         saved_songs.append(song)
     return JSONResponse({"message": f"Uploaded: {', '.join(saved)}", "songs": saved_songs})
 @app.post("/api/master")

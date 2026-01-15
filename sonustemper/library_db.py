@@ -1,0 +1,757 @@
+import json
+import sqlite3
+import threading
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+from .storage import LIBRARY_DB, ensure_data_roots, new_song_id, new_version_id
+
+
+LIBRARY_VERSION = 1
+_WRITE_LOCK = threading.Lock()
+
+METRIC_FIELDS = [
+    "duration_sec",
+    "lufs_i",
+    "lra",
+    "true_peak_dbtp",
+    "target_i",
+    "target_tp",
+    "delta_i",
+    "tp_margin",
+    "crest_factor",
+    "dynamic_range",
+    "rms_level",
+    "peak_level",
+    "noise_floor",
+    "stereo_corr",
+    "width",
+]
+
+METRIC_KEY_MAP = {
+    "duration_sec": ["duration_sec", "duration", "dur"],
+    "lufs_i": ["lufs_i", "I", "lufs"],
+    "lra": ["lra", "LRA"],
+    "true_peak_dbtp": ["true_peak_dbtp", "true_peak_db", "TP", "true_peak"],
+    "target_i": ["target_i", "target_I", "target_lufs"],
+    "target_tp": ["target_tp", "target_TP", "target_tp"],
+    "delta_i": ["delta_i", "delta_I", "delta_lufs"],
+    "tp_margin": ["tp_margin", "tp_margin_db"],
+    "crest_factor": ["crest_factor", "crest_db", "crest"],
+    "dynamic_range": ["dynamic_range", "dynamic_range_db", "dr", "DR"],
+    "rms_level": ["rms_level", "rms_db", "rms"],
+    "peak_level": ["peak_level", "peak_db", "peak"],
+    "noise_floor": ["noise_floor", "noise_floor_db"],
+    "stereo_corr": ["stereo_corr", "stereo_correlation"],
+    "width": ["width", "stereo_width"],
+}
+
+PREFERRED_RENDITION_ORDER = ["wav", "flac", "aiff", "aif", "m4a", "aac", "mp3", "ogg"]
+
+
+def _now_iso() -> str:
+    return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
+
+def _clean_title(raw: str) -> str:
+    cleaned = (raw or "").strip()
+    if not cleaned:
+        return "Untitled"
+    cleaned = cleaned.replace("_", " ").replace("-", " ")
+    cleaned = " ".join(cleaned.split())
+    return cleaned or "Untitled"
+
+
+def _connect() -> sqlite3.Connection:
+    ensure_data_roots()
+    conn = sqlite3.connect(LIBRARY_DB, timeout=30, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL")
+    return conn
+
+
+def init_db() -> None:
+    ensure_data_roots()
+    with _WRITE_LOCK:
+        conn = _connect()
+        try:
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS songs (
+                    song_id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    last_used_at TEXT NOT NULL,
+                    source_rel TEXT NOT NULL UNIQUE,
+                    source_format TEXT,
+                    duration_sec REAL,
+                    source_analyzed INTEGER NOT NULL DEFAULT 0,
+                    source_metrics_json TEXT NOT NULL DEFAULT "{}",
+                    file_mtime_utc TEXT
+                );
+                CREATE TABLE IF NOT EXISTS song_metrics (
+                    song_id TEXT PRIMARY KEY REFERENCES songs(song_id) ON DELETE CASCADE,
+                    duration_sec REAL,
+                    lufs_i REAL,
+                    lra REAL,
+                    true_peak_dbtp REAL,
+                    target_i REAL,
+                    target_tp REAL,
+                    delta_i REAL,
+                    tp_margin REAL,
+                    crest_factor REAL,
+                    dynamic_range REAL,
+                    rms_level REAL,
+                    peak_level REAL,
+                    noise_floor REAL,
+                    stereo_corr REAL,
+                    width REAL
+                );
+                CREATE TABLE IF NOT EXISTS versions (
+                    version_id TEXT PRIMARY KEY,
+                    song_id TEXT NOT NULL REFERENCES songs(song_id) ON DELETE CASCADE,
+                    kind TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    label TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    summary_json TEXT NOT NULL DEFAULT "{}",
+                    metrics_json TEXT NOT NULL DEFAULT "{}"
+                );
+                CREATE TABLE IF NOT EXISTS version_metrics (
+                    version_id TEXT PRIMARY KEY REFERENCES versions(version_id) ON DELETE CASCADE,
+                    duration_sec REAL,
+                    lufs_i REAL,
+                    lra REAL,
+                    true_peak_dbtp REAL,
+                    target_i REAL,
+                    target_tp REAL,
+                    delta_i REAL,
+                    tp_margin REAL,
+                    crest_factor REAL,
+                    dynamic_range REAL,
+                    rms_level REAL,
+                    peak_level REAL,
+                    noise_floor REAL,
+                    stereo_corr REAL,
+                    width REAL
+                );
+                CREATE TABLE IF NOT EXISTS renditions (
+                    rendition_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    version_id TEXT NOT NULL REFERENCES versions(version_id) ON DELETE CASCADE,
+                    format TEXT NOT NULL,
+                    rel TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_versions_song_created ON versions(song_id, created_at);
+                CREATE INDEX IF NOT EXISTS idx_renditions_version ON renditions(version_id);
+                CREATE INDEX IF NOT EXISTS idx_songs_last_used ON songs(last_used_at);
+                CREATE INDEX IF NOT EXISTS idx_songs_title ON songs(title);
+                """
+            )
+        finally:
+            conn.close()
+
+
+def _select_metrics(metrics: dict | None, prefer_output: bool) -> dict:
+    if not isinstance(metrics, dict):
+        return {}
+    if "output" in metrics or "input" in metrics:
+        if prefer_output and isinstance(metrics.get("output"), dict):
+            return metrics["output"]
+        if not prefer_output and isinstance(metrics.get("input"), dict):
+            return metrics["input"]
+        for key in ("output", "input"):
+            if isinstance(metrics.get(key), dict):
+                return metrics[key]
+    return metrics
+
+
+def _coerce_float(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        if value != value:
+            return None
+        return float(value)
+    return None
+
+
+def _map_metrics(metrics: dict | None, *, prefer_output: bool, duration_override: float | None = None) -> dict:
+    selected = _select_metrics(metrics, prefer_output)
+    mapped: dict[str, float | None] = {field: None for field in METRIC_FIELDS}
+    for field, keys in METRIC_KEY_MAP.items():
+        for key in keys:
+            if key in selected:
+                val = _coerce_float(selected.get(key))
+                if val is not None:
+                    mapped[field] = val
+                    break
+    if mapped["duration_sec"] is None and duration_override is not None:
+        mapped["duration_sec"] = duration_override
+    return mapped
+
+
+def _metrics_from_row(row: sqlite3.Row | None, *, duration_override: float | None = None) -> dict:
+    metrics = {field: None for field in METRIC_FIELDS}
+    if row:
+        for field in METRIC_FIELDS:
+            metrics[field] = row[field]
+    if metrics["duration_sec"] is None and duration_override is not None:
+        metrics["duration_sec"] = duration_override
+    if metrics["true_peak_dbtp"] is not None:
+        metrics["true_peak_db"] = metrics["true_peak_dbtp"]
+        metrics["TP"] = metrics["true_peak_dbtp"]
+    if metrics["crest_factor"] is not None:
+        metrics["crest_db"] = metrics["crest_factor"]
+    if metrics["dynamic_range"] is not None:
+        metrics["dynamic_range_db"] = metrics["dynamic_range"]
+    if metrics["lufs_i"] is not None:
+        metrics["I"] = metrics["lufs_i"]
+    if metrics["lra"] is not None:
+        metrics["LRA"] = metrics["lra"]
+    if metrics["rms_level"] is not None:
+        metrics["rms_db"] = metrics["rms_level"]
+    if metrics["peak_level"] is not None:
+        metrics["peak_db"] = metrics["peak_level"]
+    if metrics["noise_floor"] is not None:
+        metrics["noise_floor_db"] = metrics["noise_floor"]
+    if metrics["target_i"] is not None:
+        metrics["target_I"] = metrics["target_i"]
+    if metrics["target_tp"] is not None:
+        metrics["target_TP"] = metrics["target_tp"]
+    if metrics["delta_i"] is not None:
+        metrics["delta_I"] = metrics["delta_i"]
+    return metrics
+
+
+def _json_load(payload: str | None) -> dict:
+    if not payload:
+        return {}
+    try:
+        data = json.loads(payload)
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _format_from_rel(rel: str | None) -> str | None:
+    if not rel:
+        return None
+    return Path(rel).suffix.lower().lstrip(".") or None
+
+
+def _primary_rendition(renditions: list[dict]) -> dict | None:
+    if not renditions:
+        return None
+    if len(renditions) == 1:
+        return renditions[0]
+    for ext in PREFERRED_RENDITION_ORDER:
+        for rendition in renditions:
+            if (rendition.get("format") or "").lower() == ext:
+                return rendition
+    return renditions[0]
+
+
+def list_library() -> dict:
+    init_db()
+    conn = _connect()
+    try:
+        songs_rows = conn.execute("SELECT * FROM songs ORDER BY created_at DESC").fetchall()
+        song_metrics_rows = conn.execute("SELECT * FROM song_metrics").fetchall()
+        version_rows = conn.execute("SELECT * FROM versions ORDER BY created_at DESC").fetchall()
+        version_metrics_rows = conn.execute("SELECT * FROM version_metrics").fetchall()
+        rendition_rows = conn.execute("SELECT version_id, format, rel FROM renditions ORDER BY rendition_id").fetchall()
+    finally:
+        conn.close()
+
+    song_metrics = {row["song_id"]: row for row in song_metrics_rows}
+    version_metrics = {row["version_id"]: row for row in version_metrics_rows}
+    renditions_map: dict[str, list[dict]] = {}
+    for row in rendition_rows:
+        renditions_map.setdefault(row["version_id"], []).append({
+            "format": row["format"],
+            "rel": row["rel"],
+        })
+
+    versions_by_song: dict[str, list[dict]] = {}
+    for row in version_rows:
+        renditions = renditions_map.get(row["version_id"], [])
+        summary = _json_load(row["summary_json"])
+        metrics = _metrics_from_row(version_metrics.get(row["version_id"]))
+        version = {
+            "version_id": row["version_id"],
+            "song_id": row["song_id"],
+            "kind": row["kind"],
+            "title": row["title"],
+            "label": row["label"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+            "summary": summary,
+            "metrics": metrics,
+            "renditions": renditions,
+        }
+        primary = _primary_rendition(renditions)
+        if primary:
+            version["rel"] = primary.get("rel")
+        versions_by_song.setdefault(row["song_id"], []).append(version)
+
+    songs = []
+    for row in songs_rows:
+        metrics = _metrics_from_row(song_metrics.get(row["song_id"]), duration_override=row["duration_sec"])
+        song = {
+            "song_id": row["song_id"],
+            "title": row["title"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+            "last_used_at": row["last_used_at"],
+            "chain": {},
+            "tags": [],
+            "source": {
+                "kind": "source",
+                "rel": row["source_rel"],
+                "format": row["source_format"],
+                "duration_sec": row["duration_sec"],
+                "analyzed": bool(row["source_analyzed"]),
+                "metrics": metrics,
+            },
+            "versions": versions_by_song.get(row["song_id"], []),
+        }
+        songs.append(song)
+
+    return {"version": LIBRARY_VERSION, "songs": songs}
+
+
+def get_song(song_id: str) -> dict | None:
+    init_db()
+    conn = _connect()
+    try:
+        song_row = conn.execute("SELECT * FROM songs WHERE song_id = ?", (song_id,)).fetchone()
+        if not song_row:
+            return None
+        song_metrics_row = conn.execute(
+            "SELECT * FROM song_metrics WHERE song_id = ?",
+            (song_id,),
+        ).fetchone()
+        version_rows = conn.execute(
+            "SELECT * FROM versions WHERE song_id = ? ORDER BY created_at DESC",
+            (song_id,),
+        ).fetchall()
+        version_metrics_rows = conn.execute(
+            "SELECT * FROM version_metrics WHERE version_id IN (SELECT version_id FROM versions WHERE song_id = ?)",
+            (song_id,),
+        ).fetchall()
+        rendition_rows = conn.execute(
+            "SELECT version_id, format, rel FROM renditions WHERE version_id IN (SELECT version_id FROM versions WHERE song_id = ?) ORDER BY rendition_id",
+            (song_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    version_metrics = {row["version_id"]: row for row in version_metrics_rows}
+    renditions_map: dict[str, list[dict]] = {}
+    for row in rendition_rows:
+        renditions_map.setdefault(row["version_id"], []).append({
+            "format": row["format"],
+            "rel": row["rel"],
+        })
+
+    versions = []
+    for row in version_rows:
+        renditions = renditions_map.get(row["version_id"], [])
+        summary = _json_load(row["summary_json"])
+        metrics = _metrics_from_row(version_metrics.get(row["version_id"]))
+        version = {
+            "version_id": row["version_id"],
+            "song_id": row["song_id"],
+            "kind": row["kind"],
+            "title": row["title"],
+            "label": row["label"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+            "summary": summary,
+            "metrics": metrics,
+            "renditions": renditions,
+        }
+        primary = _primary_rendition(renditions)
+        if primary:
+            version["rel"] = primary.get("rel")
+        versions.append(version)
+
+    metrics = _metrics_from_row(song_metrics_row, duration_override=song_row["duration_sec"])
+    return {
+        "song_id": song_row["song_id"],
+        "title": song_row["title"],
+        "created_at": song_row["created_at"],
+        "updated_at": song_row["updated_at"],
+        "last_used_at": song_row["last_used_at"],
+        "chain": {},
+        "tags": [],
+        "source": {
+            "kind": "source",
+            "rel": song_row["source_rel"],
+            "format": song_row["source_format"],
+            "duration_sec": song_row["duration_sec"],
+            "analyzed": bool(song_row["source_analyzed"]),
+            "metrics": metrics,
+        },
+        "versions": versions,
+    }
+
+
+def latest_version(song_id: str) -> dict | None:
+    init_db()
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT version_id FROM versions WHERE song_id = ? ORDER BY created_at DESC LIMIT 1",
+            (song_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return None
+    song = get_song(song_id)
+    if not song:
+        return None
+    for version in song.get("versions", []):
+        if version.get("version_id") == row["version_id"]:
+            return version
+    return None
+
+
+def find_song_by_source(rel: str) -> dict | None:
+    init_db()
+    conn = _connect()
+    try:
+        row = conn.execute("SELECT song_id FROM songs WHERE source_rel = ?", (rel,)).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return None
+    return get_song(row["song_id"])
+
+
+def find_by_rel(rel: str) -> tuple[dict | None, dict | None]:
+    rel = (rel or "").strip()
+    if not rel:
+        return None, None
+    init_db()
+    conn = _connect()
+    try:
+        song_row = conn.execute("SELECT song_id FROM songs WHERE source_rel = ?", (rel,)).fetchone()
+        if song_row:
+            song = get_song(song_row["song_id"])
+            return song, None
+        join_row = conn.execute(
+            """
+            SELECT v.song_id, v.version_id
+            FROM renditions r
+            JOIN versions v ON r.version_id = v.version_id
+            WHERE r.rel = ?
+            LIMIT 1
+            """,
+            (rel,),
+        ).fetchone()
+    finally:
+        conn.close()
+    if not join_row:
+        return None, None
+    song = get_song(join_row["song_id"])
+    if not song:
+        return None, None
+    for version in song.get("versions", []):
+        if version.get("version_id") == join_row["version_id"]:
+            return song, version
+    return song, None
+
+
+def upsert_song_for_source(
+    rel: str,
+    title_hint: str | None,
+    duration_sec: float | None,
+    fmt: str | None,
+    metrics: dict | None,
+    analyzed: bool,
+    song_id: str | None = None,
+    file_mtime_utc: str | None = None,
+) -> dict:
+    init_db()
+    now = _now_iso()
+    title = _clean_title(title_hint or Path(rel).stem)
+    mapped_metrics = _map_metrics(metrics, prefer_output=False, duration_override=duration_sec)
+    raw_metrics_json = json.dumps(metrics or {})
+
+    with _WRITE_LOCK:
+        conn = _connect()
+        try:
+            existing = conn.execute("SELECT song_id FROM songs WHERE source_rel = ?", (rel,)).fetchone()
+            if existing:
+                song_id = existing["song_id"]
+                conn.execute(
+                    """
+                    UPDATE songs
+                    SET title = ?, updated_at = ?, last_used_at = ?, source_format = ?, duration_sec = ?,
+                        source_analyzed = ?, source_metrics_json = ?, file_mtime_utc = ?
+                    WHERE song_id = ?
+                    """,
+                    (
+                        title,
+                        now,
+                        now,
+                        fmt,
+                        duration_sec,
+                        1 if analyzed else 0,
+                        raw_metrics_json,
+                        file_mtime_utc,
+                        song_id,
+                    ),
+                )
+            else:
+                song_id = song_id or new_song_id()
+                conn.execute(
+                    """
+                    INSERT INTO songs (song_id, title, created_at, updated_at, last_used_at, source_rel,
+                                       source_format, duration_sec, source_analyzed, source_metrics_json, file_mtime_utc)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        song_id,
+                        title,
+                        now,
+                        now,
+                        now,
+                        rel,
+                        fmt,
+                        duration_sec,
+                        1 if analyzed else 0,
+                        raw_metrics_json,
+                        file_mtime_utc,
+                    ),
+                )
+            conn.execute(
+                """
+                INSERT INTO song_metrics
+                (song_id, duration_sec, lufs_i, lra, true_peak_dbtp, target_i, target_tp, delta_i, tp_margin,
+                 crest_factor, dynamic_range, rms_level, peak_level, noise_floor, stereo_corr, width)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(song_id) DO UPDATE SET
+                    duration_sec=excluded.duration_sec,
+                    lufs_i=excluded.lufs_i,
+                    lra=excluded.lra,
+                    true_peak_dbtp=excluded.true_peak_dbtp,
+                    target_i=excluded.target_i,
+                    target_tp=excluded.target_tp,
+                    delta_i=excluded.delta_i,
+                    tp_margin=excluded.tp_margin,
+                    crest_factor=excluded.crest_factor,
+                    dynamic_range=excluded.dynamic_range,
+                    rms_level=excluded.rms_level,
+                    peak_level=excluded.peak_level,
+                    noise_floor=excluded.noise_floor,
+                    stereo_corr=excluded.stereo_corr,
+                    width=excluded.width
+                """,
+                (
+                    song_id,
+                    mapped_metrics["duration_sec"],
+                    mapped_metrics["lufs_i"],
+                    mapped_metrics["lra"],
+                    mapped_metrics["true_peak_dbtp"],
+                    mapped_metrics["target_i"],
+                    mapped_metrics["target_tp"],
+                    mapped_metrics["delta_i"],
+                    mapped_metrics["tp_margin"],
+                    mapped_metrics["crest_factor"],
+                    mapped_metrics["dynamic_range"],
+                    mapped_metrics["rms_level"],
+                    mapped_metrics["peak_level"],
+                    mapped_metrics["noise_floor"],
+                    mapped_metrics["stereo_corr"],
+                    mapped_metrics["width"],
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    song = get_song(song_id)
+    if not song:
+        raise ValueError("song_not_found")
+    return song
+
+
+def add_version(
+    song_id: str,
+    kind: str,
+    label: str,
+    title: str,
+    summary: dict | None,
+    metrics: dict | None,
+    renditions: list[dict],
+    version_id: str | None = None,
+) -> dict:
+    init_db()
+    now = _now_iso()
+    summary_json = json.dumps(summary or {})
+    raw_metrics_json = json.dumps(metrics or {})
+    mapped_metrics = _map_metrics(metrics, prefer_output=True)
+    version_id = version_id or new_version_id(kind)
+    with _WRITE_LOCK:
+        conn = _connect()
+        try:
+            exists = conn.execute("SELECT song_id FROM songs WHERE song_id = ?", (song_id,)).fetchone()
+            if not exists:
+                raise ValueError("song_not_found")
+            conn.execute(
+                """
+                INSERT INTO versions (version_id, song_id, kind, title, label, created_at, updated_at, summary_json, metrics_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (version_id, song_id, kind, title, label, now, now, summary_json, raw_metrics_json),
+            )
+            conn.execute(
+                """
+                INSERT INTO version_metrics
+                (version_id, duration_sec, lufs_i, lra, true_peak_dbtp, target_i, target_tp, delta_i, tp_margin,
+                 crest_factor, dynamic_range, rms_level, peak_level, noise_floor, stereo_corr, width)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(version_id) DO UPDATE SET
+                    duration_sec=excluded.duration_sec,
+                    lufs_i=excluded.lufs_i,
+                    lra=excluded.lra,
+                    true_peak_dbtp=excluded.true_peak_dbtp,
+                    target_i=excluded.target_i,
+                    target_tp=excluded.target_tp,
+                    delta_i=excluded.delta_i,
+                    tp_margin=excluded.tp_margin,
+                    crest_factor=excluded.crest_factor,
+                    dynamic_range=excluded.dynamic_range,
+                    rms_level=excluded.rms_level,
+                    peak_level=excluded.peak_level,
+                    noise_floor=excluded.noise_floor,
+                    stereo_corr=excluded.stereo_corr,
+                    width=excluded.width
+                """,
+                (
+                    version_id,
+                    mapped_metrics["duration_sec"],
+                    mapped_metrics["lufs_i"],
+                    mapped_metrics["lra"],
+                    mapped_metrics["true_peak_dbtp"],
+                    mapped_metrics["target_i"],
+                    mapped_metrics["target_tp"],
+                    mapped_metrics["delta_i"],
+                    mapped_metrics["tp_margin"],
+                    mapped_metrics["crest_factor"],
+                    mapped_metrics["dynamic_range"],
+                    mapped_metrics["rms_level"],
+                    mapped_metrics["peak_level"],
+                    mapped_metrics["noise_floor"],
+                    mapped_metrics["stereo_corr"],
+                    mapped_metrics["width"],
+                ),
+            )
+            for rendition in renditions:
+                fmt = rendition.get("format") or _format_from_rel(rendition.get("rel"))
+                rel = rendition.get("rel")
+                if not fmt or not rel:
+                    continue
+                conn.execute(
+                    "INSERT INTO renditions (version_id, format, rel) VALUES (?, ?, ?)",
+                    (version_id, fmt, rel),
+                )
+            conn.execute(
+                "UPDATE songs SET updated_at = ?, last_used_at = ? WHERE song_id = ?",
+                (now, now, song_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    song = get_song(song_id)
+    if not song:
+        raise ValueError("song_not_found")
+    for version in song.get("versions", []):
+        if version.get("version_id") == version_id:
+            return version
+    raise ValueError("version_not_found")
+
+
+def delete_song(song_id: str) -> tuple[bool, list[str]]:
+    init_db()
+    rels: list[str] = []
+    with _WRITE_LOCK:
+        conn = _connect()
+        try:
+            row = conn.execute("SELECT source_rel FROM songs WHERE song_id = ?", (song_id,)).fetchone()
+            if not row:
+                return False, []
+            rels.append(row["source_rel"])
+            rendition_rows = conn.execute(
+                """
+                SELECT rel FROM renditions WHERE version_id IN (
+                    SELECT version_id FROM versions WHERE song_id = ?
+                )
+                """,
+                (song_id,),
+            ).fetchall()
+            rels.extend([r["rel"] for r in rendition_rows])
+            conn.execute("DELETE FROM songs WHERE song_id = ?", (song_id,))
+            conn.commit()
+        finally:
+            conn.close()
+    return True, rels
+
+
+def delete_version(song_id: str, version_id: str) -> tuple[bool, list[str]]:
+    init_db()
+    rels: list[str] = []
+    with _WRITE_LOCK:
+        conn = _connect()
+        try:
+            row = conn.execute(
+                "SELECT version_id FROM versions WHERE song_id = ? AND version_id = ?",
+                (song_id, version_id),
+            ).fetchone()
+            if not row:
+                return False, []
+            rendition_rows = conn.execute(
+                "SELECT rel FROM renditions WHERE version_id = ?",
+                (version_id,),
+            ).fetchall()
+            rels.extend([r["rel"] for r in rendition_rows])
+            conn.execute("DELETE FROM versions WHERE version_id = ?", (version_id,))
+            conn.commit()
+        finally:
+            conn.close()
+    return True, rels
+
+
+def rename_song(song_id: str, title: str) -> bool:
+    init_db()
+    new_title = _clean_title(title)
+    with _WRITE_LOCK:
+        conn = _connect()
+        try:
+            cur = conn.execute("UPDATE songs SET title = ?, updated_at = ? WHERE song_id = ?", (_clean_title(new_title), _now_iso(), song_id))
+            conn.commit()
+            return cur.rowcount > 0
+        finally:
+            conn.close()
+
+
+def update_last_used(song_id: str) -> None:
+    init_db()
+    with _WRITE_LOCK:
+        conn = _connect()
+        try:
+            conn.execute("UPDATE songs SET last_used_at = ? WHERE song_id = ?", (_now_iso(), song_id))
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def version_primary_rendition(version: dict) -> dict | None:
+    renditions = version.get("renditions") or []
+    return _primary_rendition(renditions)
