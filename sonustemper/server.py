@@ -540,6 +540,7 @@ def _import_master_outputs(song_id: str, run_dir: Path, summary: dict | None = N
     dest_dir.mkdir(parents=True, exist_ok=True)
     renditions = []
     metrics = {}
+    dest_paths: list[Path] = []
     for fp in _list_audio_files(run_dir):
         ext = fp.suffix.lower().lstrip(".")
         if not ext:
@@ -550,6 +551,7 @@ def _import_master_outputs(song_id: str, run_dir: Path, summary: dict | None = N
             shutil.move(str(fp), dest)
         except Exception:
             continue
+        dest_paths.append(dest)
         metrics_path = run_dir / f"{fp.stem}.metrics.json"
         if metrics_path.exists():
             metrics = read_metrics_file(metrics_path) or {}
@@ -563,6 +565,12 @@ def _import_master_outputs(song_id: str, run_dir: Path, summary: dict | None = N
                 break
     if not metrics:
         metrics = read_first_wav_metrics(run_dir) or {}
+    if not metrics and dest_paths:
+        primary = _choose_preferred(dest_paths) or dest_paths[0]
+        try:
+            metrics = _analyze_audio_metrics(primary)
+        except Exception:
+            metrics = {}
     if metrics:
         metrics = _normalize_metrics_keys(metrics)
     if renditions:
