@@ -234,7 +234,10 @@
             <div class="player-wave-title" id="playerWaveTitle">No track loaded</div>
             <div class="player-wave-meta muted" id="playerWaveMeta">—</div>
           </div>
-          <div class="player-waveform" id="playerWaveform"></div>
+          <div class="player-wave-body">
+            <canvas id="playerLiveScope" class="player-live-scope" aria-hidden="true"></canvas>
+            <div class="player-waveform" id="playerWaveform"></div>
+          </div>
           <div class="player-wave-time muted"><span id="playerWaveTime">0:00</span> / <span id="playerWaveDuration">0:00</span></div>
         </div>
         <div class="player-track-list" id="playerTrackList"></div>
@@ -653,7 +656,7 @@
     masteringBrowser.addEventListener('library:play-song', (evt) => {
       const { song } = evt.detail || {};
       if (!song || !playerPane) return;
-      playerPane.loadSong(song, { autoplay: true });
+      playerPane.loadSong(song, { autoplay: false });
     });
     masteringBrowser.addEventListener('library:delete-song', async (evt) => {
       const { song } = evt.detail || {};

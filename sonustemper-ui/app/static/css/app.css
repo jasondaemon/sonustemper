@@ -595,8 +595,23 @@ h1{margin:0;font-size:24px;}
 .player-wave-meta{
   font-size:12px;
 }
+.player-wave-body{
+  position:relative;
+  height:160px;
+  border-radius:10px;
+  overflow:hidden;
+}
 .player-waveform{
   height:160px;
+  position:relative;
+  z-index:1;
+}
+.player-live-scope{
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  z-index:3;
+  opacity:0.9;
 }
 .player-wave-time{
   margin-top:6px;

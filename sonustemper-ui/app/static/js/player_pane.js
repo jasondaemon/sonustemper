@@ -80,6 +80,7 @@
     const waveTime = root.querySelector('#playerWaveTime');
     const waveDuration = root.querySelector('#playerWaveDuration');
     const trackList = root.querySelector('#playerTrackList');
+    const scopeCanvas = root.querySelector('#playerLiveScope');
     const hintEl = document.getElementById('playerPaneHint');
     const audio = options?.audioEl || root.querySelector('audio');
     const state = {
@@ -87,6 +88,16 @@
       tracks: [],
       activeId: null,
       wave: null,
+      scope: {
+        node: null,
+        floatData: null,
+        byteData: null,
+        raf: null,
+        last: 0,
+      },
+      audioCtx: null,
+      audioSource: null,
+      outputGain: null,
     };
 
     function setHint(text) {
@@ -148,10 +159,133 @@
       });
       state.wave.on('ready', updateWaveTime);
       state.wave.on('interaction', updateWaveTime);
+      state.wave.on('error', (err) => {
+        const msg = String(err || '');
+        if (msg.includes('AbortError')) return;
+      });
+    }
+
+    function ensureScopeGraph() {
+      if (!audio || state.audioCtx) return;
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      state.audioCtx = ctx;
+      try {
+        state.audioSource = ctx.createMediaElementSource(audio);
+      } catch (_err) {
+        return;
+      }
+      const scope = ctx.createAnalyser();
+      scope.fftSize = 2048;
+      scope.smoothingTimeConstant = 0.85;
+      const outputGain = ctx.createGain();
+      outputGain.gain.value = 1;
+      state.audioSource.connect(scope);
+      scope.connect(outputGain);
+      outputGain.connect(ctx.destination);
+      state.outputGain = outputGain;
+      state.scope.node = scope;
+      state.scope.floatData = new Float32Array(scope.fftSize);
+      state.scope.byteData = new Uint8Array(scope.fftSize);
+    }
+
+    function resumeScopeAudio() {
+      if (!state.audioCtx) return;
+      if (state.audioCtx.state === 'suspended') {
+        state.audioCtx.resume().catch(() => {});
+      }
+    }
+
+    function drawScopeFrame() {
+      if (!scopeCanvas || !state.scope.node) return;
+      const ctx = scopeCanvas.getContext('2d');
+      if (!ctx) return;
+      const now = performance.now();
+      if (now - state.scope.last < 16) {
+        state.scope.raf = requestAnimationFrame(drawScopeFrame);
+        return;
+      }
+      state.scope.last = now;
+      const width = scopeCanvas.clientWidth;
+      const height = scopeCanvas.clientHeight;
+      if (!width || !height) {
+        state.scope.raf = requestAnimationFrame(drawScopeFrame);
+        return;
+      }
+      const dpr = window.devicePixelRatio || 1;
+      if (scopeCanvas.width !== Math.round(width * dpr) || scopeCanvas.height !== Math.round(height * dpr)) {
+        scopeCanvas.width = Math.round(width * dpr);
+        scopeCanvas.height = Math.round(height * dpr);
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, width, height);
+
+      const scopeNode = state.scope.node;
+      let data = state.scope.floatData;
+      let useFloat = true;
+      if (!data || typeof scopeNode.getFloatTimeDomainData !== 'function') {
+        useFloat = false;
+        data = state.scope.byteData;
+      }
+      if (!data) {
+        state.scope.raf = requestAnimationFrame(drawScopeFrame);
+        return;
+      }
+      if (useFloat) {
+        scopeNode.getFloatTimeDomainData(data);
+      } else {
+        scopeNode.getByteTimeDomainData(data);
+      }
+      const rootStyle = getComputedStyle(document.documentElement);
+      const accent = rootStyle.getPropertyValue('--accent').trim() || '#ff8a3d';
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = 1.4;
+      ctx.globalAlpha = audio && !audio.paused ? 0.85 : 0.5;
+      ctx.beginPath();
+      for (let i = 0; i < data.length; i += 1) {
+        const t = i / (data.length - 1);
+        const x = t * width;
+        const v = useFloat ? data[i] : (data[i] - 128) / 128;
+        const y = (1 - (v * 0.5 + 0.5)) * height;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      ctx.globalAlpha = audio && !audio.paused ? 0.12 : 0.08;
+      ctx.fillStyle = accent;
+      ctx.lineTo(width, height * 0.5);
+      ctx.lineTo(0, height * 0.5);
+      ctx.closePath();
+      ctx.fill();
+      state.scope.raf = requestAnimationFrame(drawScopeFrame);
+    }
+
+    function startScope() {
+      if (state.scope.raf) return;
+      state.scope.last = 0;
+      state.scope.raf = requestAnimationFrame(drawScopeFrame);
+    }
+
+    function stopScope() {
+      if (state.scope.raf) {
+        cancelAnimationFrame(state.scope.raf);
+        state.scope.raf = null;
+      }
+    }
+
+    function updateScopeOnce() {
+      stopScope();
+      state.scope.last = 0;
+      drawScopeFrame();
     }
 
     function loadTrack(track, autoplay) {
       if (!audio || !track?.rel) return;
+      if (!audio.paused) {
+        audio.pause();
+      }
+      audio.currentTime = 0;
       state.activeId = track.id;
       updateWaveMeta(track);
       const url = `/api/analyze/path?path=${encodeURIComponent(track.rel)}`;
@@ -159,11 +293,20 @@
         audio.src = url;
         audio.load();
         ensureWave();
-        if (state.wave) state.wave.load(url);
+        if (state.wave) {
+          try {
+            const result = state.wave.load(url);
+            if (result && typeof result.catch === 'function') {
+              result.catch(() => {});
+            }
+          } catch (_err) {}
+        }
       }
       updateWaveTime();
       updateButtons();
       if (autoplay) {
+        ensureScopeGraph();
+        resumeScopeAudio();
         audio.play().catch(() => {});
       }
     }
@@ -210,6 +353,8 @@
             return;
           }
           if (audio.paused) {
+            ensureScopeGraph();
+            resumeScopeAudio();
             audio.play().catch(() => {});
           } else {
             audio.pause();
@@ -280,7 +425,7 @@
         updateWaveMeta(null);
         return;
       }
-      loadTrack(state.tracks[0], opts?.autoplay);
+      loadTrack(state.tracks[0], Boolean(opts && opts.autoplay));
     }
 
     function clearIfSong(songId) {
@@ -304,11 +449,20 @@
 
     if (audio) {
       audio.addEventListener('timeupdate', updateWaveTime);
-      audio.addEventListener('play', updateButtons);
-      audio.addEventListener('pause', updateButtons);
+      audio.addEventListener('play', () => {
+        ensureScopeGraph();
+        resumeScopeAudio();
+        startScope();
+        updateButtons();
+      });
+      audio.addEventListener('pause', () => {
+        updateButtons();
+        updateScopeOnce();
+      });
       audio.addEventListener('ended', () => {
         updateButtons();
         updateWaveTime();
+        updateScopeOnce();
       });
     }
 
