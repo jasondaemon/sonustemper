@@ -47,6 +47,7 @@
         rel: song.source.rel,
         format: song.source.format || '',
         duration: song.source?.duration_sec || null,
+        metrics: song.source?.metrics || null,
         song,
         renditions: [],
         summary: null,
@@ -64,6 +65,7 @@
         rel: primary.rel,
         format: primary.format || '',
         duration: song.source?.duration_sec || null,
+        metrics: version.metrics || null,
         song,
         version,
         renditions: version.renditions || [],
@@ -412,6 +414,14 @@
           downloads.appendChild(link);
         });
         mainLine.appendChild(downloads);
+
+        const metrics = renderMetricPills(track);
+        if (metrics) {
+          const metricsWrap = document.createElement('div');
+          metricsWrap.className = 'player-track-metrics';
+          metricsWrap.appendChild(metrics);
+          mainLine.appendChild(metricsWrap);
+        }
         card.appendChild(mainLine);
 
         const actions = document.createElement('div');
@@ -427,6 +437,46 @@
         trackList.appendChild(card);
       });
       updateButtons();
+    }
+
+    function metricValue(metrics, primaryKey, fallbackKey) {
+      if (!metrics || typeof metrics !== 'object') return null;
+      const value = metrics[primaryKey];
+      if (typeof value === 'number') return value;
+      const fallback = metrics[fallbackKey];
+      return typeof fallback === 'number' ? fallback : null;
+    }
+
+    function formatDelta(value, sourceValue) {
+      if (typeof value !== 'number' || typeof sourceValue !== 'number') return '';
+      const diff = value - sourceValue;
+      if (!Number.isFinite(diff)) return '';
+      const sign = diff >= 0 ? '+' : '';
+      return ` (${sign}${diff.toFixed(1)})`;
+    }
+
+    function renderMetricPills(track) {
+      const metrics = track.metrics;
+      if (!metrics || typeof metrics !== 'object') return null;
+      const sourceMetrics = track.song?.source?.metrics || null;
+      const container = document.createElement('div');
+      container.className = 'player-track-metric-pills';
+      const items = [
+        { label: 'LUFS', key: 'lufs_i', fallback: 'lufs' },
+        { label: 'TP', key: 'true_peak_db', fallback: 'true_peak' },
+        { label: 'Crest', key: 'crest_db', fallback: 'crest' },
+      ];
+      items.forEach((item) => {
+        const value = metricValue(metrics, item.key, item.fallback);
+        if (typeof value !== 'number') return;
+        const sourceValue = metricValue(sourceMetrics, item.key, item.fallback);
+        const delta = track.kind === 'version' ? formatDelta(value, sourceValue) : '';
+        const pill = document.createElement('span');
+        pill.className = 'badge badge-param';
+        pill.textContent = `${item.label} ${value.toFixed(1)}${delta}`;
+        container.appendChild(pill);
+      });
+      return container.children.length ? container : null;
     }
 
     function makePill(text, className) {

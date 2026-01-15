@@ -666,6 +666,17 @@ h1{margin:0;font-size:24px;}
   gap:6px;
   flex-wrap:wrap;
 }
+.player-track-metrics{
+  margin-left:auto;
+  display:flex;
+  justify-content:flex-end;
+}
+.player-track-metric-pills{
+  display:flex;
+  gap:6px;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+}
 .player-track-downloads .badge{
   transition: box-shadow 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
