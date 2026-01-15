@@ -2,199 +2,40 @@
 {% block page_title %}File Manager | SonusTemper{% endblock %}
 {% block title %}Library Management{% endblock %}
 {% block subtitle %}Manage songs and mastered versions.{% endblock %}
-{% block sidebar %}
-  <div class="card browse-card">
-    <div class="card-head">
-      <div>
-        <div class="card-title">Library</div>
-        <div class="muted">Select a song or version.</div>
+{% block sidebar %}{% endblock %}
+{% block content %}
+  <div class="files-grid">
+    <div class="card files-panel">
+      <div class="card-head">
+        <div>
+          <div class="card-title">Library Manager</div>
+          <div class="muted">Select songs or versions for bulk actions.</div>
+        </div>
+        <div class="files-bulk-actions">
+          <button type="button" class="btn danger tiny" id="filesDeleteSelected" disabled>Delete Selected</button>
+          <button type="button" class="btn ghost tiny" id="filesDownloadSelected" disabled>Download Selected</button>
+          <button type="button" class="btn danger tiny" id="filesDeleteAll">Delete All</button>
+        </div>
+      </div>
+      <div class="files-library-controls">
+        <input type="search" id="filesSearch" placeholder="Search songs or versions" aria-label="Search library">
+        <button type="button" class="btn ghost tiny" id="filesRefresh">Refresh</button>
+      </div>
+      <div id="filesLibraryList" class="files-library-list"></div>
+    </div>
+    <div class="card files-detail-panel">
+      <div class="card-head">
+        <div>
+          <div class="card-title">Details</div>
+          <div class="muted">Select a song or version to view details.</div>
+        </div>
+      </div>
+      <div id="filesDetailBody" class="files-detail-body">
+        <div class="muted">Select a song or version to view details.</div>
       </div>
     </div>
-    <div id="filesLibraryBrowser" class="library-browser-container" data-module="files"></div>
-  </div>
-{% endblock %}
-{% block content %}
-  <div class="card" id="fileManagerDetail">
-    <div class="muted">Select a song or version to view details.</div>
   </div>
 {% endblock %}
 {% block scripts %}
-  <script>
-    const filesBrowserEl = document.getElementById('filesLibraryBrowser');
-    const detailEl = document.getElementById('fileManagerDetail');
-
-    function formatDuration(seconds){
-      const value = Number(seconds);
-      if (!Number.isFinite(value)) return null;
-      const mins = Math.floor(value / 60);
-      const secs = Math.round(value % 60).toString().padStart(2, '0');
-      return `${mins}:${secs}`;
-    }
-
-    function primaryRendition(renditions){
-      const list = Array.isArray(renditions) ? renditions : [];
-      if (!list.length) return null;
-      const prefer = ['wav', 'flac', 'aiff', 'aif', 'm4a', 'aac', 'mp3', 'ogg'];
-      for (const fmt of prefer) {
-        const hit = list.find(item => String(item.format || '').toLowerCase() === fmt);
-        if (hit) return hit;
-      }
-      return list[0];
-    }
-
-    function renderSongDetail(song){
-      const duration = formatDuration(song?.source?.duration_sec);
-      const metrics = song?.source?.metrics || {};
-      detailEl.innerHTML = `
-        <div class="card-head">
-          <div>
-            <div class="card-title">Song</div>
-            <div class="muted">Source + versions</div>
-          </div>
-        </div>
-        <div class="form-row">
-          <label class="control-label">Title</label>
-          <input type="text" id="songTitleInput" value="${song?.title || ''}">
-          <div class="form-actions">
-            <button class="btn primary tiny" type="button" id="songRenameBtn">Save Rename</button>
-            <button class="btn danger tiny" type="button" id="songDeleteBtn">Delete Song</button>
-          </div>
-        </div>
-        <div class="muted">Source: ${song?.source?.rel || '—'}</div>
-        <div class="pill-row">
-          ${duration ? `<span class="badge badge-format">${duration}</span>` : ''}
-          ${song?.source?.format ? `<span class="badge badge-format">${String(song.source.format).toUpperCase()}</span>` : ''}
-          ${typeof metrics.lufs_i === 'number' ? `<span class="badge badge-param">LUFS: ${metrics.lufs_i.toFixed(1)}</span>` : ''}
-          ${typeof metrics.true_peak_db === 'number' ? `<span class="badge badge-param">TP: ${metrics.true_peak_db.toFixed(1)}</span>` : ''}
-        </div>
-        <div class="section-title">Versions</div>
-        <div id="songVersionList" class="library-version-list"></div>
-      `;
-
-      const list = detailEl.querySelector('#songVersionList');
-      (song?.versions || []).forEach((version) => {
-        const row = document.createElement('button');
-        row.type = 'button';
-        row.className = 'library-version-row';
-        const label = version.kind === 'master' ? 'Master' : (version.label || version.title || 'Version');
-        row.innerHTML = `
-          <div class="library-version-label">${label}</div>
-          <div class="library-version-meta">
-            ${version.summary?.voicing ? `<span class="badge badge-voicing">${version.summary.voicing}</span>` : ''}
-            ${version.summary?.loudness_profile ? `<span class="badge badge-profile">${version.summary.loudness_profile}</span>` : ''}
-          </div>
-        `;
-        row.addEventListener('click', () => renderVersionDetail(song, version));
-        list.appendChild(row);
-      });
-
-      const renameBtn = detailEl.querySelector('#songRenameBtn');
-      const deleteBtn = detailEl.querySelector('#songDeleteBtn');
-      renameBtn.addEventListener('click', async () => {
-        const title = detailEl.querySelector('#songTitleInput').value || '';
-        await fetch('/api/library/rename_song', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ song_id: song.song_id, title }),
-        });
-        if (window.libraryBrowser) window.libraryBrowser.reload();
-      });
-      deleteBtn.addEventListener('click', async () => {
-        if (!confirm('Delete this song and all versions?')) return;
-        await fetch('/api/library/delete_song', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ song_id: song.song_id }),
-        });
-        if (window.libraryBrowser) window.libraryBrowser.reload();
-        detailEl.innerHTML = '<div class="muted">Select a song or version to view details.</div>';
-      });
-    }
-
-    function renderVersionDetail(song, version){
-      const renditions = Array.isArray(version?.renditions) ? version.renditions : [];
-      detailEl.innerHTML = `
-        <div class="card-head">
-          <div>
-            <div class="card-title">Version</div>
-            <div class="muted">${version.kind === 'master' ? 'Master' : (version.label || version.title || 'Version')}</div>
-          </div>
-        </div>
-        <div class="pill-row">
-          ${version.summary?.voicing ? `<span class="badge badge-voicing">${version.summary.voicing}</span>` : ''}
-          ${version.summary?.loudness_profile ? `<span class="badge badge-profile">${version.summary.loudness_profile}</span>` : ''}
-        </div>
-        <div class="section-title">Renditions</div>
-        <div class="rendition-list" id="versionRenditions"></div>
-        <div class="form-actions">
-          <button class="btn ghost tiny" type="button" id="versionUseSource">Use as Source</button>
-          <button class="btn ghost tiny" type="button" id="versionOpenCompare">Open in Compare</button>
-          <button class="btn danger tiny" type="button" id="versionDelete">Delete Version</button>
-        </div>
-      `;
-      const list = detailEl.querySelector('#versionRenditions');
-      renditions.forEach((rendition) => {
-        if (!rendition.rel) return;
-        const link = document.createElement('a');
-        link.href = `/api/analyze/path?path=${encodeURIComponent(rendition.rel)}`;
-        link.textContent = String(rendition.format || 'file').toUpperCase();
-        link.setAttribute('download', '');
-        list.appendChild(link);
-      });
-      detailEl.querySelector('#versionUseSource').addEventListener('click', async () => {
-        const rel = primaryRendition(renditions)?.rel || version.rel;
-        if (!rel) return;
-        await fetch('/api/library/use_as_source', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path: rel, title: song.title ? `${song.title} (Derived)` : 'Derived Source' }),
-        });
-        if (window.libraryBrowser) window.libraryBrowser.reload();
-      });
-      detailEl.querySelector('#versionOpenCompare').addEventListener('click', () => {
-        const rel = primaryRendition(renditions)?.rel || version.rel;
-        if (!rel) return;
-        const url = new URL('/compare', window.location.origin);
-        if (song?.source?.rel) url.searchParams.set('src', song.source.rel);
-        url.searchParams.set('proc', rel);
-        window.location.assign(`${url.pathname}${url.search}`);
-      });
-      detailEl.querySelector('#versionDelete').addEventListener('click', async () => {
-        if (!confirm('Delete this version?')) return;
-        await fetch('/api/library/delete_version', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ song_id: song.song_id, version_id: version.version_id }),
-        });
-        if (window.libraryBrowser) window.libraryBrowser.reload();
-        renderSongDetail(song);
-      });
-    }
-
-    if (filesBrowserEl && window.LibraryBrowser) {
-      localStorage.setItem('sonustemper.libraryView', 'extended');
-      window.libraryBrowser = window.LibraryBrowser.init(filesBrowserEl, { module: 'files' });
-      filesBrowserEl.addEventListener('library:select', (evt) => {
-        const { song, track } = evt.detail || {};
-        if (!song) return;
-        if (track?.kind === 'version') {
-          renderVersionDetail(song, track);
-        } else {
-          renderSongDetail(song);
-        }
-      });
-      filesBrowserEl.addEventListener('library:action', async (evt) => {
-        const { action, song, version } = evt.detail || {};
-        if (action === 'import-file') return;
-        if (action === 'delete-version' && song?.song_id && version?.version_id) {
-          await fetch('/api/library/delete_version', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ song_id: song.song_id, version_id: version.version_id }),
-          });
-          window.libraryBrowser.reload();
-        }
-      });
-    }
-  </script>
+  <script src="/static/js/files_manager.js"></script>
 {% endblock %}

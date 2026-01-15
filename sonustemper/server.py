@@ -612,11 +612,16 @@ def _start_master_jobs(song_ids, presets, strength, lufs, tp, width, mono_bass, 
                 asyncio.run_coroutine_threadsafe(status_bus.mark_direct(run_id), loop_obj)
             except Exception:
                 pass
+    final_events: dict[str, dict] = {}
     def _make_event_cb(run_id: str):
         def _cb(event: dict):
             if not isinstance(event, dict):
                 return
-            _emit(run_id, event.get("stage", ""), event.get("detail", ""), event.get("preset"))
+            stage = event.get("stage", "")
+            if stage == "complete":
+                final_events[run_id] = event
+                return
+            _emit(run_id, stage, event.get("detail", ""), event.get("preset"))
         return _cb
     def run_all():
         for song_id, rid in zip(song_ids, run_ids):
@@ -696,6 +701,11 @@ def _start_master_jobs(song_ids, presets, strength, lufs, tp, width, mono_bass, 
                         "target_tp": tp,
                     },
                 )
+                final_event = final_events.pop(rid, None)
+                if final_event:
+                    _emit(rid, final_event.get("stage", "complete"), final_event.get("detail", ""), final_event.get("preset"))
+                else:
+                    _emit(rid, "complete", "", None)
                 print(f"[master-bulk] done song={song_id}", file=sys.stderr)
             except Exception as e:
                 print(f"[master-bulk] failed song={song_id}: {e}", file=sys.stderr)

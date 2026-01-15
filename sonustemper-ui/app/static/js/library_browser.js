@@ -70,6 +70,7 @@
 
   function renderLibrary(container, options = {}) {
     const module = options.module || container.dataset.module || 'generic';
+    const isMastering = module === 'mastering';
     const state = {
       view: localStorage.getItem(VIEW_KEY) || 'simple',
       sort: localStorage.getItem(SORT_KEY) || 'recent',
@@ -180,57 +181,89 @@
       const title = document.createElement('div');
       title.className = 'library-song-title';
       title.textContent = song.title || 'Untitled';
-      const meta = document.createElement('div');
-      meta.className = 'library-song-meta';
-      const duration = formatDuration(song.source?.duration_sec);
-      if (duration) meta.appendChild(makeBadge(duration, 'badge-format'));
-      if (song.source?.format && isLossy(song.source.format)) {
-        meta.appendChild(makeBadge(song.source.format.toUpperCase(), 'badge-format'));
-      }
       header.appendChild(caret);
       header.appendChild(title);
-      header.appendChild(meta);
+      if (!isMastering) {
+        const meta = document.createElement('div');
+        meta.className = 'library-song-meta';
+        const duration = formatDuration(song.source?.duration_sec);
+        if (duration) meta.appendChild(makeBadge(duration, 'badge-format'));
+        if (song.source?.format && isLossy(song.source.format)) {
+          meta.appendChild(makeBadge(song.source.format.toUpperCase(), 'badge-format'));
+        }
+        header.appendChild(meta);
+      }
       const songTooltip = metricsTooltip(song.source?.metrics);
       if (songTooltip) {
         header.title = songTooltip;
       }
-      header.addEventListener('click', () => {
-        if (disabled) return;
-        if (module === 'mastering' && song.source?.rel) {
-          emit('library:select', {
-            song_id: song.song_id,
-            song,
-            track: { kind: 'source', rel: song.source.rel, label: song.title },
-          });
-          return;
-        }
-        const latest = song.latest_version || (song.versions || []).slice(-1)[0];
-        if (latest) {
-          const primary = primaryRendition(latest.renditions);
-          emit('library:select', {
-            song_id: song.song_id,
-            song,
-            track: {
-              kind: 'version',
-              version_id: latest.version_id,
-              rel: primary?.rel || latest.rel,
-              format: primary?.format,
-              title: latest.title || latest.label,
-              summary: latest.summary,
-              metrics: latest.metrics,
-              renditions: latest.renditions || [],
-            },
-          });
-        } else if (song.source?.rel) {
-          emit('library:select', {
-            song_id: song.song_id,
-            song,
-            track: { kind: 'source', rel: song.source.rel, label: song.title },
-          });
-        }
-      });
+      if (!isMastering) {
+        header.addEventListener('click', () => {
+          if (disabled) return;
+          const latest = song.latest_version || (song.versions || []).slice(-1)[0];
+          if (latest) {
+            const primary = primaryRendition(latest.renditions);
+            emit('library:select', {
+              song_id: song.song_id,
+              song,
+              track: {
+                kind: 'version',
+                version_id: latest.version_id,
+                rel: primary?.rel || latest.rel,
+                format: primary?.format,
+                title: latest.title || latest.label,
+                summary: latest.summary,
+                metrics: latest.metrics,
+                renditions: latest.renditions || [],
+              },
+            });
+          } else if (song.source?.rel) {
+            emit('library:select', {
+              song_id: song.song_id,
+              song,
+              track: { kind: 'source', rel: song.source.rel, label: song.title },
+            });
+          }
+        });
+      }
 
       row.appendChild(header);
+      if (isMastering) {
+        row.classList.add('library-song--compact');
+        const actions = document.createElement('div');
+        actions.className = 'library-song-actions';
+        const addBtn = document.createElement('button');
+        addBtn.type = 'button';
+        addBtn.className = 'btn ghost tiny';
+        addBtn.textContent = '+';
+        addBtn.title = 'Add to Input';
+        addBtn.addEventListener('click', (evt) => {
+          evt.stopPropagation();
+          emit('library:add-to-input', { song });
+        });
+        const playBtn = document.createElement('button');
+        playBtn.type = 'button';
+        playBtn.className = 'btn ghost tiny';
+        playBtn.textContent = '▶';
+        playBtn.title = 'Play';
+        playBtn.addEventListener('click', (evt) => {
+          evt.stopPropagation();
+          emit('library:play-song', { song });
+        });
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'btn ghost tiny';
+        delBtn.textContent = '🗑';
+        delBtn.title = 'Delete Song';
+        delBtn.addEventListener('click', (evt) => {
+          evt.stopPropagation();
+          emit('library:delete-song', { song });
+        });
+        actions.appendChild(addBtn);
+        actions.appendChild(playBtn);
+        actions.appendChild(delBtn);
+        row.appendChild(actions);
+      }
 
       const showVersions = state.view === 'extended' || state.view === 'simple' || state.expanded[song.song_id];
       if (showVersions) {
@@ -289,72 +322,98 @@
       menu.appendChild(menuSummary);
       const menuList = document.createElement('div');
       menuList.className = 'library-action-list';
-
-      if (module === 'compare' && version.kind !== 'source') {
-        const setProc = document.createElement('button');
-        setProc.type = 'button';
-        setProc.textContent = 'Set as Processed';
-        setProc.addEventListener('click', (evt) => {
+      if (isMastering) {
+        const analyzeBtn = document.createElement('button');
+        analyzeBtn.type = 'button';
+        analyzeBtn.textContent = 'Analyze';
+        analyzeBtn.addEventListener('click', (evt) => {
           evt.stopPropagation();
-          emit('library:action', { action: 'set-processed', song, version });
+          emit('library:action', { action: 'open-analyze', song, version });
         });
-        menuList.appendChild(setProc);
-      }
-      if (module === 'mastering' && version.kind !== 'source') {
-        const useSource = document.createElement('button');
-        useSource.type = 'button';
-        useSource.textContent = 'Use as Source';
-        useSource.addEventListener('click', (evt) => {
+        menuList.appendChild(analyzeBtn);
+        const compareBtn = document.createElement('button');
+        compareBtn.type = 'button';
+        compareBtn.textContent = 'Compare';
+        compareBtn.addEventListener('click', (evt) => {
           evt.stopPropagation();
-          emit('library:action', { action: 'use-as-source', song, version });
+          emit('library:action', { action: 'open-compare', song, version });
         });
-        menuList.appendChild(useSource);
+        menuList.appendChild(compareBtn);
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.textContent = 'Delete';
+        delBtn.addEventListener('click', (evt) => {
+          evt.stopPropagation();
+          emit('library:action', { action: 'delete-version', song, version });
+        });
+        menuList.appendChild(delBtn);
+      } else {
+        if (module === 'compare' && version.kind !== 'source') {
+          const setProc = document.createElement('button');
+          setProc.type = 'button';
+          setProc.textContent = 'Set as Processed';
+          setProc.addEventListener('click', (evt) => {
+            evt.stopPropagation();
+            emit('library:action', { action: 'set-processed', song, version });
+          });
+          menuList.appendChild(setProc);
+        }
+        if (module === 'mastering' && version.kind !== 'source') {
+          const useSource = document.createElement('button');
+          useSource.type = 'button';
+          useSource.textContent = 'Use as Source';
+          useSource.addEventListener('click', (evt) => {
+            evt.stopPropagation();
+            emit('library:action', { action: 'use-as-source', song, version });
+          });
+          menuList.appendChild(useSource);
+        }
+        const openCompare = document.createElement('button');
+        openCompare.type = 'button';
+        openCompare.textContent = 'Open in Compare';
+        openCompare.addEventListener('click', (evt) => {
+          evt.stopPropagation();
+          emit('library:action', { action: 'open-compare', song, version });
+        });
+        menuList.appendChild(openCompare);
+
+        const download = document.createElement('details');
+        download.className = 'library-download-menu';
+        const downloadSummary = document.createElement('summary');
+        downloadSummary.textContent = 'Download';
+        downloadSummary.className = 'btn ghost tiny';
+        downloadSummary.addEventListener('click', (evt) => evt.stopPropagation());
+        download.appendChild(downloadSummary);
+        const downloadList = document.createElement('div');
+        downloadList.className = 'library-download-list';
+        const ordered = [];
+        ['wav', 'flac', 'm4a', 'aac', 'mp3', 'ogg'].forEach((fmt) => {
+          renditions.forEach((item) => {
+            if (String(item.format || '').toLowerCase() === fmt) ordered.push(item);
+          });
+        });
+        (ordered.length ? ordered : renditions).forEach((rendition) => {
+          const rel = rendition.rel;
+          if (!rel) return;
+          const fmt = String(rendition.format || '').toUpperCase() || 'FILE';
+          const link = document.createElement('a');
+          link.href = `/api/analyze/path?path=${encodeURIComponent(rel)}`;
+          link.textContent = fmt;
+          link.setAttribute('download', '');
+          downloadList.appendChild(link);
+        });
+        download.appendChild(downloadList);
+        menuList.appendChild(download);
+
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.textContent = 'Delete Version';
+        delBtn.addEventListener('click', (evt) => {
+          evt.stopPropagation();
+          emit('library:action', { action: 'delete-version', song, version });
+        });
+        menuList.appendChild(delBtn);
       }
-      const openCompare = document.createElement('button');
-      openCompare.type = 'button';
-      openCompare.textContent = 'Open in Compare';
-      openCompare.addEventListener('click', (evt) => {
-        evt.stopPropagation();
-        emit('library:action', { action: 'open-compare', song, version });
-      });
-      menuList.appendChild(openCompare);
-
-      const download = document.createElement('details');
-      download.className = 'library-download-menu';
-      const downloadSummary = document.createElement('summary');
-      downloadSummary.textContent = 'Download';
-      downloadSummary.className = 'btn ghost tiny';
-      downloadSummary.addEventListener('click', (evt) => evt.stopPropagation());
-      download.appendChild(downloadSummary);
-      const downloadList = document.createElement('div');
-      downloadList.className = 'library-download-list';
-      const ordered = [];
-      ['wav', 'flac', 'm4a', 'aac', 'mp3', 'ogg'].forEach((fmt) => {
-        renditions.forEach((item) => {
-          if (String(item.format || '').toLowerCase() === fmt) ordered.push(item);
-        });
-      });
-      (ordered.length ? ordered : renditions).forEach((rendition) => {
-        const rel = rendition.rel;
-        if (!rel) return;
-        const fmt = String(rendition.format || '').toUpperCase() || 'FILE';
-        const link = document.createElement('a');
-        link.href = `/api/analyze/path?path=${encodeURIComponent(rel)}`;
-        link.textContent = fmt;
-        link.setAttribute('download', '');
-        downloadList.appendChild(link);
-      });
-      download.appendChild(downloadList);
-      menuList.appendChild(download);
-
-      const delBtn = document.createElement('button');
-      delBtn.type = 'button';
-      delBtn.textContent = 'Delete Version';
-      delBtn.addEventListener('click', (evt) => {
-        evt.stopPropagation();
-        emit('library:action', { action: 'delete-version', song, version });
-      });
-      menuList.appendChild(delBtn);
 
       menu.appendChild(menuList);
       actions.appendChild(menu);
@@ -366,27 +425,29 @@
       if (versionTooltip) {
         row.title = versionTooltip;
       }
-      row.addEventListener('click', () => {
-        if (version.kind === 'source') {
-          emit('library:select', { song_id: song.song_id, song, track: { kind: 'source', rel: version.rel, label: song.title } });
-          return;
-        }
-        const primary = primaryRendition(version.renditions);
-        emit('library:select', {
-          song_id: song.song_id,
-          song,
-          track: {
-            kind: 'version',
-            version_id: version.version_id,
-            rel: primary?.rel || version.rel,
-            format: primary?.format,
-            title: version.title || version.label,
-            summary: version.summary,
-            metrics: version.metrics,
-            renditions: version.renditions || [],
-          },
+      if (!isMastering) {
+        row.addEventListener('click', () => {
+          if (version.kind === 'source') {
+            emit('library:select', { song_id: song.song_id, song, track: { kind: 'source', rel: version.rel, label: song.title } });
+            return;
+          }
+          const primary = primaryRendition(version.renditions);
+          emit('library:select', {
+            song_id: song.song_id,
+            song,
+            track: {
+              kind: 'version',
+              version_id: version.version_id,
+              rel: primary?.rel || version.rel,
+              format: primary?.format,
+              title: version.title || version.label,
+              summary: version.summary,
+              metrics: version.metrics,
+              renditions: version.renditions || [],
+            },
+          });
         });
-      });
+      }
       return row;
     }
 

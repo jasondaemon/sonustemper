@@ -221,15 +221,24 @@
       </form>
     </div>
 
-    <div class="card full-width" id="outputPaneWrap">
-      <div class="card" id="outputPane" style="background:transparent;border:none;padding:0;">
-        <div class="card-head">
-          <div>
-            <div class="card-title">Job Output</div>
-            <div class="muted">Select a run to view outputs.</div>
-          </div>
+    <div class="card full-width" id="playerPane">
+      <div class="card-head">
+        <div>
+          <div class="card-title">Player</div>
+          <div class="muted" id="playerPaneHint">Select a song to preview.</div>
         </div>
-        <div class="muted">Output list placeholder.</div>
+      </div>
+      <div class="player-pane-body">
+        <div class="player-wave-wrap" id="playerWaveWrap">
+          <div class="player-wave-head">
+            <div class="player-wave-title" id="playerWaveTitle">No track loaded</div>
+            <div class="player-wave-meta muted" id="playerWaveMeta">—</div>
+          </div>
+          <div class="player-waveform" id="playerWaveform"></div>
+          <div class="player-wave-time muted"><span id="playerWaveTime">0:00</span> / <span id="playerWaveDuration">0:00</span></div>
+        </div>
+        <div class="player-track-list" id="playerTrackList"></div>
+        <audio id="playerAudio" class="player-audio" preload="metadata"></audio>
       </div>
     </div>
   </div>
@@ -237,12 +246,15 @@
 
 {% block extra_js %}
 <script src="/static/js/library_browser.js"></script>
+<script src="/static/vendor/wavesurfer.min.js"></script>
+<script src="/static/js/player_pane.js"></script>
 <script>
 (function(){
   const indicator = document.getElementById('jobIndicator');
   const statusList = document.getElementById('statusList');
   const statusProgressBar = document.getElementById('statusProgressBar');
-  const outputPaneWrap = document.getElementById('outputPaneWrap');
+  const playerPaneEl = document.getElementById('playerPane');
+  const playerAudio = document.getElementById('playerAudio');
 
   let currentRun = null;
   let statusSource = null;
@@ -250,6 +262,7 @@
   let statusRenderPending = false;
   let statusStages = new Set();
   let libraryBrowser = null;
+  let playerPane = null;
   const state = {
     selectedSongs: [],
     inputItems: [],
@@ -412,9 +425,6 @@
         closeStatusStream();
         // Refresh browser list ONLY (do not auto-click a run, or you'll restart SSE forever)
         refreshMasteringRuns();
-        if (currentRun) {
-          loadOutput(currentRun);
-        }
       }
     };
     es.onerror = ()=>{
@@ -635,10 +645,27 @@
   if (masteringBrowser && window.LibraryBrowser) {
     const browser = window.LibraryBrowser.init(masteringBrowser, { module: 'mastering' });
     libraryBrowser = browser;
-    masteringBrowser.addEventListener('library:select', (evt) => {
-      const { song, track } = evt.detail || {};
+    masteringBrowser.addEventListener('library:add-to-input', (evt) => {
+      const { song } = evt.detail || {};
       if (!song) return;
-      addInputItemFromSelection(song, track);
+      addInputItemFromSelection(song, { kind: 'source', rel: song?.source?.rel });
+    });
+    masteringBrowser.addEventListener('library:play-song', (evt) => {
+      const { song } = evt.detail || {};
+      if (!song || !playerPane) return;
+      playerPane.loadSong(song, { autoplay: true });
+    });
+    masteringBrowser.addEventListener('library:delete-song', async (evt) => {
+      const { song } = evt.detail || {};
+      if (!song?.song_id) return;
+      if (!confirm(`Delete ${song.title || 'this song'} and all versions?`)) return;
+      await fetch('/api/library/delete_song', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ song_id: song.song_id }),
+      });
+      browser.reload();
+      if (playerPane) playerPane.clearIfSong(song.song_id);
     });
     masteringBrowser.addEventListener('library:action', async (evt) => {
       const { action, song, version, item } = evt.detail || {};
@@ -675,6 +702,14 @@
         window.location.assign(`${url.pathname}${url.search}`);
         return;
       }
+      if (action === 'open-analyze') {
+        const rel = primaryRendition(version?.renditions)?.rel || version?.rel;
+        if (!rel) return;
+        const url = new URL('/analyze', window.location.origin);
+        url.searchParams.set('path', rel);
+        window.location.assign(`${url.pathname}${url.search}`);
+        return;
+      }
       if (action === 'use-as-source') {
         const rel = primaryRendition(version?.renditions)?.rel || version?.rel;
         if (!rel) return;
@@ -692,28 +727,6 @@
         return;
       }
     });
-  }
-
-  async function loadOutput(song){
-    if(!song || !outputPaneWrap) return;
-    try{
-      const res = await fetch(`/partials/master_output?song=${encodeURIComponent(song)}`, {cache:'no-store'});
-      if(!res.ok){
-        outputPaneWrap.innerHTML = `
-          <div class="card" id="outputPane" style="background:transparent;border:none;padding:0;">
-            <div class="card-head">
-              <div>
-                <div class="card-title">Job Output</div>
-                <div class="muted">No output found for <strong>${song}</strong>.</div>
-              </div>
-            </div>
-          </div>`;
-        return;
-      }
-      outputPaneWrap.innerHTML = await res.text();
-    }catch(err){
-      showToast('Failed to load output');
-    }
   }
 
   function refreshMasteringRuns(){
@@ -754,6 +767,39 @@
   let previewIsBuilding = false;
   let previewLastStatus = null;
   let previewAutoPlay = false;
+
+  if (playerPaneEl && window.MasteringPlayerPane) {
+    playerPane = window.MasteringPlayerPane.init(playerPaneEl, {
+      audioEl: playerAudio,
+      onAddInput: (song, track) => addInputItemFromSelection(song, track),
+      onOpenCompare: (song, track) => {
+        const rel = track?.rel;
+        if (!rel) return;
+        const url = new URL('/compare', window.location.origin);
+        if (song?.source?.rel) url.searchParams.set('src', song.source.rel);
+        if (track?.kind === 'version') url.searchParams.set('proc', rel);
+        window.location.assign(`${url.pathname}${url.search}`);
+      },
+      onOpenAnalyze: (_song, track) => {
+        if (!track?.rel) return;
+        const url = new URL('/analyze', window.location.origin);
+        url.searchParams.set('path', track.rel);
+        window.location.assign(`${url.pathname}${url.search}`);
+      },
+      onOpenAiToolkit: (_song, track) => {
+        if (!track?.rel) return;
+        const url = new URL('/ai', window.location.origin);
+        url.searchParams.set('path', track.rel);
+        window.location.assign(`${url.pathname}${url.search}`);
+      },
+      onOpenEq: (_song, track) => {
+        if (!track?.rel) return;
+        const url = new URL('/eq', window.location.origin);
+        url.searchParams.set('path', track.rel);
+        window.location.assign(`${url.pathname}${url.search}`);
+      },
+    });
+  }
 
   function setPreviewStatus(text){
     const msg = text || '';
@@ -1585,55 +1631,12 @@
         }
 
         setCurrentRun(runId);
-        loadOutput(runId);
         refreshMasteringRuns();
       }
     }catch(err){
       showToast('Network error');
     }finally{
       setBusy(false);
-    }
-  });
-
-  // track run selection clicks to update status polling target + output pane
-  document.addEventListener('click', function(evt){
-    const deleteBtn = evt.target.closest && evt.target.closest('[data-action="delete-run"]');
-    if(deleteBtn && deleteBtn.dataset && deleteBtn.dataset.song){
-      const song = deleteBtn.dataset.song;
-      if(!song) return;
-      if(!confirm(`Delete outputs for ${song}?`)) return;
-      fetch(`/api/song/${encodeURIComponent(song)}`, { method:'DELETE' })
-        .then(res => {
-          if(!res.ok) throw new Error('delete failed');
-          showToast('Deleted');
-          refreshMasteringRuns();
-          if (outputPaneWrap) {
-            outputPaneWrap.innerHTML = `
-              <div class="card" id="outputPane" style="background:transparent;border:none;padding:0;">
-                <div class="card-head">
-                  <div>
-                    <div class="card-title">Job Output</div>
-                    <div class="muted">Select a run to view outputs.</div>
-                  </div>
-                </div>
-              </div>`;
-          }
-        })
-        .catch(() => showToast('Delete failed'));
-    }
-    const deleteOutput = evt.target.closest && evt.target.closest('[data-action="delete-output"]');
-    if(deleteOutput && deleteOutput.dataset){
-      const song = deleteOutput.dataset.song;
-      const stem = deleteOutput.dataset.stem;
-      if(!song || !stem) return;
-      if(!confirm(`Delete ${stem}?`)) return;
-      fetch(`/api/output/${encodeURIComponent(song)}/${encodeURIComponent(stem)}`, { method:'DELETE' })
-        .then(res => {
-          if(!res.ok) throw new Error('delete failed');
-          showToast('Deleted');
-          loadOutput(song);
-        })
-        .catch(() => showToast('Delete failed'));
     }
   });
 
