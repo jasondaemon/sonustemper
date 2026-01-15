@@ -466,8 +466,12 @@
     function renderMetricPills(track) {
       const metrics = normalizeMetrics(track.metrics);
       const sourceMetrics = normalizeMetrics(track.song?.source?.metrics);
-      const displayMetrics = metrics || sourceMetrics;
-      if (!displayMetrics) return null;
+      if (track.kind === 'version') {
+        if (!metrics) return null;
+      } else if (!metrics && !sourceMetrics) {
+        return null;
+      }
+      const displayMetrics = track.kind === 'version' ? metrics : (metrics || sourceMetrics);
       const container = document.createElement('div');
       container.className = 'player-track-metric-pills';
       const items = [
@@ -488,17 +492,6 @@
         container.appendChild(pill);
         count += 1;
       });
-      if (!count && metrics && sourceMetrics && metrics !== sourceMetrics) {
-        items.forEach((item) => {
-          const value = metricValue(sourceMetrics, item.key, item.fallback);
-          if (typeof value !== 'number') return;
-          const pill = document.createElement('span');
-          pill.className = 'badge badge-param';
-          pill.textContent = `${item.label} ${value.toFixed(1)}`;
-          container.appendChild(pill);
-          count += 1;
-        });
-      }
       return container.children.length ? container : null;
     }
 
