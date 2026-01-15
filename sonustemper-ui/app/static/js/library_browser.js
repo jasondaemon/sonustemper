@@ -232,13 +232,20 @@
 
       row.appendChild(header);
 
-      const showVersions = state.view === 'extended' || state.expanded[song.song_id];
+      const showVersions = state.view === 'extended' || state.view === 'simple' || state.expanded[song.song_id];
       if (showVersions) {
         const list = document.createElement('div');
         list.className = 'library-version-list';
-        (song.versions || []).forEach((version) => {
-          list.appendChild(renderVersionRow(song, { kind: 'version', ...version }));
-        });
+        if (state.view === 'simple') {
+          const latest = song.latest_version || (song.versions || []).slice(-1)[0];
+          if (latest) {
+            list.appendChild(renderVersionRow(song, { kind: 'version', ...latest }));
+          }
+        } else {
+          (song.versions || []).forEach((version) => {
+            list.appendChild(renderVersionRow(song, { kind: 'version', ...version }));
+          });
+        }
         row.appendChild(list);
       }
       return row;
@@ -246,93 +253,111 @@
 
     function renderVersionRow(song, version) {
       const row = document.createElement('div');
-      row.className = 'library-version';
+      row.className = 'library-version-row';
       const label = document.createElement('div');
       label.className = 'library-version-label';
-      label.textContent = version.title || version.label || version.kind || 'Version';
+      if (version.kind === 'master') {
+        label.textContent = 'Master';
+      } else {
+        label.textContent = version.label || version.title || version.kind || 'Version';
+      }
       const meta = document.createElement('div');
       meta.className = 'library-version-meta';
       if (version.summary?.voicing) meta.appendChild(makeBadge(version.summary.voicing, 'badge-voicing'));
       if (version.summary?.loudness_profile) meta.appendChild(makeBadge(version.summary.loudness_profile, 'badge-profile'));
+      const renditions = Array.isArray(version.renditions) ? version.renditions : [];
+      const lossyFormats = [];
+      renditions.forEach((item) => {
+        const fmt = String(item.format || '').toLowerCase();
+        if (isLossy(fmt) && !lossyFormats.includes(fmt)) {
+          lossyFormats.push(fmt);
+        }
+      });
+      if (lossyFormats.length) {
+        const label = lossyFormats.slice(0, 2).map((f) => f.toUpperCase()).join('+');
+        meta.appendChild(makeBadge(label, 'badge-format'));
+      }
 
       const actions = document.createElement('div');
       actions.className = 'library-version-actions';
+      const menu = document.createElement('details');
+      menu.className = 'library-action-menu';
+      const menuSummary = document.createElement('summary');
+      menuSummary.textContent = '⋯';
+      menuSummary.className = 'btn ghost tiny';
+      menuSummary.addEventListener('click', (evt) => evt.stopPropagation());
+      menu.appendChild(menuSummary);
+      const menuList = document.createElement('div');
+      menuList.className = 'library-action-list';
+
       if (module === 'compare' && version.kind !== 'source') {
         const setProc = document.createElement('button');
         setProc.type = 'button';
-        setProc.className = 'btn ghost tiny';
-        setProc.textContent = 'Set Processed';
+        setProc.textContent = 'Set as Processed';
         setProc.addEventListener('click', (evt) => {
           evt.stopPropagation();
           emit('library:action', { action: 'set-processed', song, version });
         });
-        actions.appendChild(setProc);
+        menuList.appendChild(setProc);
       }
       if (module === 'mastering' && version.kind !== 'source') {
         const useSource = document.createElement('button');
         useSource.type = 'button';
-        useSource.className = 'btn ghost tiny';
         useSource.textContent = 'Use as Source';
         useSource.addEventListener('click', (evt) => {
           evt.stopPropagation();
           emit('library:action', { action: 'use-as-source', song, version });
         });
-        actions.appendChild(useSource);
+        menuList.appendChild(useSource);
       }
-      const renditions = Array.isArray(version.renditions) ? version.renditions : [];
-      const primary = primaryRendition(renditions);
-      if (primary?.rel || version.rel) {
-        const download = document.createElement('a');
-        download.className = 'btn ghost tiny';
-        download.href = `/api/analyze/path?path=${encodeURIComponent(primary?.rel || version.rel)}`;
-        download.textContent = 'Download';
-        download.setAttribute('download', '');
-        actions.appendChild(download);
-        if (renditions.length > 1) {
-          const menu = document.createElement('details');
-          menu.className = 'library-download-menu';
-          const summary = document.createElement('summary');
-          summary.className = 'btn ghost tiny';
-          summary.textContent = 'More';
-          menu.appendChild(summary);
-          const list = document.createElement('div');
-          list.className = 'library-download-list';
-          renditions.forEach((rendition) => {
-            const rel = rendition.rel;
-            if (!rel) return;
-            const fmt = String(rendition.format || '').toUpperCase() || 'FILE';
-            const link = document.createElement('a');
-            link.href = `/api/analyze/path?path=${encodeURIComponent(rel)}`;
-            link.textContent = fmt;
-            link.setAttribute('download', '');
-            list.appendChild(link);
-          });
-          menu.appendChild(list);
-          actions.appendChild(menu);
-        }
+      const openCompare = document.createElement('button');
+      openCompare.type = 'button';
+      openCompare.textContent = 'Open in Compare';
+      openCompare.addEventListener('click', (evt) => {
+        evt.stopPropagation();
+        emit('library:action', { action: 'open-compare', song, version });
+      });
+      menuList.appendChild(openCompare);
 
-        const openCompare = document.createElement('button');
-        openCompare.type = 'button';
-        openCompare.className = 'btn ghost tiny';
-        openCompare.textContent = 'Open in Compare';
-        openCompare.addEventListener('click', (evt) => {
-          evt.stopPropagation();
-          emit('library:action', { action: 'open-compare', song, version });
+      const download = document.createElement('details');
+      download.className = 'library-download-menu';
+      const downloadSummary = document.createElement('summary');
+      downloadSummary.textContent = 'Download';
+      downloadSummary.className = 'btn ghost tiny';
+      downloadSummary.addEventListener('click', (evt) => evt.stopPropagation());
+      download.appendChild(downloadSummary);
+      const downloadList = document.createElement('div');
+      downloadList.className = 'library-download-list';
+      const ordered = [];
+      ['wav', 'flac', 'm4a', 'aac', 'mp3', 'ogg'].forEach((fmt) => {
+        renditions.forEach((item) => {
+          if (String(item.format || '').toLowerCase() === fmt) ordered.push(item);
         });
-        actions.appendChild(openCompare);
+      });
+      (ordered.length ? ordered : renditions).forEach((rendition) => {
+        const rel = rendition.rel;
+        if (!rel) return;
+        const fmt = String(rendition.format || '').toUpperCase() || 'FILE';
+        const link = document.createElement('a');
+        link.href = `/api/analyze/path?path=${encodeURIComponent(rel)}`;
+        link.textContent = fmt;
+        link.setAttribute('download', '');
+        downloadList.appendChild(link);
+      });
+      download.appendChild(downloadList);
+      menuList.appendChild(download);
 
-        if (version.kind !== 'source') {
-          const delBtn = document.createElement('button');
-          delBtn.type = 'button';
-          delBtn.className = 'btn ghost tiny';
-          delBtn.textContent = 'Delete';
-          delBtn.addEventListener('click', (evt) => {
-            evt.stopPropagation();
-            emit('library:action', { action: 'delete-version', song, version });
-          });
-          actions.appendChild(delBtn);
-        }
-      }
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.textContent = 'Delete Version';
+      delBtn.addEventListener('click', (evt) => {
+        evt.stopPropagation();
+        emit('library:action', { action: 'delete-version', song, version });
+      });
+      menuList.appendChild(delBtn);
+
+      menu.appendChild(menuList);
+      actions.appendChild(menu);
 
       row.appendChild(label);
       row.appendChild(meta);

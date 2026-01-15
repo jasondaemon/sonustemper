@@ -441,6 +441,7 @@
       const text = document.createElement('span');
       text.className = 'input-name';
       text.textContent = item.title || 'Untitled';
+      text.title = item.title || '';
       const badges = document.createElement('div');
       badges.className = 'input-badges';
       if (item.duration) {

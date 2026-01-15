@@ -556,21 +556,12 @@ def _import_master_outputs(song_id: str, run_dir: Path, summary: dict | None = N
         rel = rel_from_path(dest)
         renditions.append({"format": ext, "rel": rel})
     if renditions:
-        title_parts = []
-        if summary:
-            if summary.get("voicing"):
-                title_parts.append(summary.get("voicing"))
-            if summary.get("loudness_profile"):
-                title_parts.append(summary.get("loudness_profile"))
-        if title_parts:
-            title = f"Master: {' / '.join(title_parts)}"
-        else:
-            title = "Master"
+        title = song.get("title") or "Master"
         entry = library_store.add_version(
             lib,
             song_id,
             "master",
-            title,
+            "Master",
             renditions[0].get("rel"),
             summary or {},
             metrics,
@@ -2351,6 +2342,12 @@ def delete_song(song: str):
     if not library_store.delete_song(lib, song_entry.get("song_id")):
         raise HTTPException(status_code=404, detail="song_not_found")
     library_store.save_library(lib)
+    try:
+        song_dir = SONGS_DIR / song_entry.get("song_id")
+        if song_dir.exists() and SONGS_DIR.resolve() in song_dir.resolve().parents:
+            shutil.rmtree(song_dir)
+    except Exception:
+        pass
     return {"message": f"Deleted song {song_entry.get('title') or song_entry.get('song_id')}."}
 @app.delete("/api/output/{song}/{name}")
 def delete_output(song: str, name: str):
@@ -2732,6 +2729,12 @@ def library_delete_song(payload: dict = Body(...)):
     if not library_store.delete_song(lib, song_id):
         raise HTTPException(status_code=404, detail="song_not_found")
     library_store.save_library(lib)
+    try:
+        song_dir = SONGS_DIR / song_id
+        if song_dir.exists() and SONGS_DIR.resolve() in song_dir.resolve().parents:
+            shutil.rmtree(song_dir)
+    except Exception:
+        pass
     return {"deleted": song_id}
 
 def _preset_name_list() -> list[str]:
@@ -4712,6 +4715,7 @@ def start_run(
     wav_sample_rate: str | None = Form(None),
     voicing_mode: str = Form("presets"),
     voicing_name: str | None = Form(None),
+    loudness_profile: str | None = Form(None),
     presets: str | None = Form(None),
 ):
     raw_ids = song_ids or infiles

@@ -86,15 +86,6 @@ def load_library() -> dict:
                         fmt = _format_from_rel(rel)
                         renditions = [{"format": fmt, "rel": rel}]
                 version["renditions"] = renditions
-                if version.get("kind") == "master":
-                    summary = version.get("summary") or {}
-                    title_parts = []
-                    if summary.get("voicing"):
-                        title_parts.append(summary.get("voicing"))
-                    if summary.get("loudness_profile"):
-                        title_parts.append(summary.get("loudness_profile"))
-                    if title_parts:
-                        version["title"] = f"Master: {' / '.join(title_parts)}"
         return data
 
 
