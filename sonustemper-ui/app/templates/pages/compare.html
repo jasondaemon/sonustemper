@@ -266,6 +266,7 @@
   let analysisData = null;
   let overlayCleanup = [];
   let transportCleanup = [];
+  let overviewCleanup = [];
   let transportLock = false;
   let zoomRaf = null;
   let pendingZoom = null;
@@ -786,43 +787,62 @@
     }
   }
 
-  function bindOverviewScrub(viewport, windowEl){
+  function bindOverviewScrub(viewport, windowEl, cleanupList){
     if (!viewport || !windowEl) return;
     let dragging = false;
-    const onMove = (evt) => {
-      if (!dragging) return;
-      const rect = viewport.getBoundingClientRect();
-      const ratio = clamp((evt.clientX - rect.left) / rect.width, 0, 1);
+    let raf = 0;
+    let pendingRatio = null;
+
+    const apply = () => {
+      raf = 0;
+      if (pendingRatio === null) return;
+      const ratio = pendingRatio;
+      pendingRatio = null;
       scrollMainToRatio(ratio);
       const duration = getDurationBase();
       if (duration) seekBoth(duration * ratio);
     };
-    const onDown = (evt) => {
+
+    const schedule = (ratio) => {
+      pendingRatio = ratio;
+      if (!raf) raf = requestAnimationFrame(apply);
+    };
+
+    const ratioFromEvent = (evt) => {
+      const rect = viewport.getBoundingClientRect();
+      return clamp((evt.clientX - rect.left) / rect.width, 0, 1);
+    };
+
+    const onPointerDown = (evt) => {
       dragging = true;
+      viewport.setPointerCapture?.(evt.pointerId);
       evt.preventDefault();
-      const rect = viewport.getBoundingClientRect();
-      const ratio = clamp((evt.clientX - rect.left) / rect.width, 0, 1);
-      scrollMainToRatio(ratio);
-      const duration = getDurationBase();
-      if (duration) seekBoth(duration * ratio);
+      schedule(ratioFromEvent(evt));
     };
-    const onUp = () => {
+    const onPointerMove = (evt) => {
+      if (!dragging) return;
+      schedule(ratioFromEvent(evt));
+    };
+    const onPointerUp = (evt) => {
+      if (!dragging) return;
       dragging = false;
+      if (viewport.releasePointerCapture) {
+        try {
+          viewport.releasePointerCapture(evt.pointerId);
+        } catch (_err) {
+          // ignore
+        }
+      }
     };
-    viewport.addEventListener('mousedown', onDown);
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    viewport.addEventListener('click', (evt) => {
-      const rect = viewport.getBoundingClientRect();
-      const ratio = clamp((evt.clientX - rect.left) / rect.width, 0, 1);
-      scrollMainToRatio(ratio);
-      const duration = getDurationBase();
-      if (duration) seekBoth(duration * ratio);
-    });
-    transportCleanup.push(() => {
-      viewport.removeEventListener('mousedown', onDown);
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
+
+    viewport.addEventListener('pointerdown', onPointerDown);
+    viewport.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+
+    cleanupList.push(() => {
+      viewport.removeEventListener('pointerdown', onPointerDown);
+      viewport.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
     });
   }
 
@@ -954,6 +974,19 @@
     });
     transportCleanup = [];
     stopDriftCorrection();
+  }
+
+  function setupOverviewScrub(){
+    overviewCleanup.forEach((fn) => {
+      try {
+        fn();
+      } catch (_err) {
+        // ignore cleanup errors
+      }
+    });
+    overviewCleanup = [];
+    bindOverviewScrub(compareMiniWaveViewport, compareMiniWaveWindow, overviewCleanup);
+    bindOverviewScrub(compareMiniSpectroViewport, compareMiniSpectroWindow, overviewCleanup);
   }
 
   function getClockAudio(){
@@ -2005,6 +2038,7 @@
     bindTransportEvents(processedWave);
     updateControls();
     setupOverlays();
+    setupOverviewScrub();
     setViewMode(viewMode);
     updateMiniSpectrogram();
     updateSelectedFromPayload(payload);
@@ -2323,8 +2357,7 @@
   disableImageDrag(spectroProcessedImg);
   disableImageDrag(compareMiniSpectroSourceImg);
   disableImageDrag(compareMiniSpectroProcessedImg);
-  bindOverviewScrub(compareMiniWaveViewport, compareMiniWaveWindow);
-  bindOverviewScrub(compareMiniSpectroViewport, compareMiniSpectroWindow);
+  setupOverviewScrub();
   bindAudioEvents(compareAudioSource);
   bindAudioEvents(compareAudioProcessed);
 

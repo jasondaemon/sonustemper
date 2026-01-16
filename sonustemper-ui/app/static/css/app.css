@@ -1536,6 +1536,8 @@ h1{margin:0;font-size:24px;}
   border-radius:10px;
   background:#0b1119;
   overflow:hidden;
+  cursor:grab;
+  touch-action:none;
 }
 .compare-mini-viewport--spectro{
   height:64px;
