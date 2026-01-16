@@ -146,7 +146,7 @@ h1{margin:0;font-size:24px;}
   font-size:12px;
 }
 .control-row.compact-row .control-label{min-width:100px;}
-.control-row.compact-row input[type="range"]{max-width:260px;}
+.control-row.compact-row input[type="range"]{max-width:100%;}
 .control-row.compact-row .value-pill{
   min-width:40px;
   text-align:right;
@@ -253,12 +253,12 @@ h1{margin:0;font-size:24px;}
 }
 .control-label{min-width:140px;font-weight:600;display:flex;align-items:center;gap:6px;}
 .control-row select,.control-row input[type="number"]{min-width:200px;}
-.control-row input[type="range"]{flex:1;min-width:200px;}
-.value-pill{min-width:80px;text-align:right;color:var(--muted);font-size:12px;}
+.control-row input[type="range"]{flex:1 1 140px;min-width:0;max-width:100%;}
+.value-pill{min-width:0;max-width:100%;text-align:right;color:var(--muted);font-size:12px;white-space:nowrap;}
 .control-subtitle{margin:8px 0 4px;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.4px;}
 .override-row{
   display:grid;
-  grid-template-columns:minmax(140px, 1.1fr) minmax(130px, 1fr) 64px;
+  grid-template-columns:minmax(120px, 1.1fr) minmax(0, 1fr) minmax(48px, auto);
   align-items:center;
   gap:8px;
   margin-top:6px;
@@ -266,7 +266,8 @@ h1{margin:0;font-size:24px;}
 }
 .override-row input[type="range"]{
   width:100%;
-  max-width:200px;
+  max-width:100%;
+  min-width:0;
 }
 .override-row input[type="number"]{
   width:64px;
