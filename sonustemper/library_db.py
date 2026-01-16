@@ -6,7 +6,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .storage import LIBRARY_DB, ensure_data_roots, new_song_id, new_version_id
+from .storage import (
+    LIBRARY_DB,
+    ensure_data_roots,
+    new_song_id,
+    new_version_id,
+    detect_mount_type,
+)
 from .logging_util import log_debug, log_summary, log_error
 
 
@@ -120,9 +126,22 @@ def init_db() -> None:
         with _WRITE_LOCK:
             conn = _connect()
             try:
-                conn.execute("PRAGMA journal_mode = WAL")
-                conn.execute("PRAGMA synchronous = NORMAL")
+                mount_type = detect_mount_type(LIBRARY_DB)
+                if mount_type in {"nfs", "cifs", "smbfs", "sshfs", "fuse.sshfs"}:
+                    log_summary(
+                        "db",
+                        "DB is on network fs; disabling WAL",
+                        mount=mount_type,
+                        db=str(LIBRARY_DB),
+                    )
+                    conn.execute("PRAGMA journal_mode = DELETE")
+                    conn.execute("PRAGMA synchronous = FULL")
+                else:
+                    conn.execute("PRAGMA journal_mode = WAL")
+                    conn.execute("PRAGMA synchronous = NORMAL")
                 conn.execute("PRAGMA busy_timeout = 30000")
+                jm = conn.execute("PRAGMA journal_mode").fetchone()
+                log_debug("db", "journal_mode set", mode=str(jm[0]) if jm else "unknown")
                 conn.executescript(
                     """
                 CREATE TABLE IF NOT EXISTS songs (
@@ -370,7 +389,16 @@ def list_library() -> dict:
         songs_rows = conn.execute("SELECT * FROM songs ORDER BY created_at DESC").fetchall()
         t_songs = (time.monotonic() - t_conn) * 1000
         if t_songs > 250:
-            log_summary("db", "list_library query slow", query="songs", ms=round(t_songs, 1))
+            mount = detect_mount_type(LIBRARY_DB)
+            jm = conn.execute("PRAGMA journal_mode").fetchone()
+            log_summary(
+                "db",
+                "list_library query slow",
+                query="songs",
+                ms=round(t_songs, 1),
+                mount=mount,
+                journal=(jm[0] if jm else None),
+            )
 
         t_q = time.monotonic()
         song_metrics_rows = conn.execute("SELECT * FROM song_metrics").fetchall()

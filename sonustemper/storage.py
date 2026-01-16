@@ -41,6 +41,38 @@ def ensure_data_roots() -> None:
         pass
 
 
+def detect_mount_type(p: Path) -> str:
+    try:
+        p = p.resolve()
+    except Exception:
+        p = Path(str(p))
+    best_mount = ""
+    best_type = ""
+    try:
+        with open("/proc/mounts", "r", encoding="utf-8") as handle:
+            for line in handle:
+                parts = line.split()
+                if len(parts) < 3:
+                    continue
+                mountpoint = parts[1]
+                fstype = parts[2]
+                if str(p) == mountpoint or str(p).startswith(mountpoint.rstrip("/") + "/"):
+                    if len(mountpoint) > len(best_mount):
+                        best_mount = mountpoint
+                        best_type = fstype
+    except Exception:
+        return "unknown"
+    return best_type or "unknown"
+
+
+def describe_db_location() -> dict:
+    return {
+        "LIBRARY_DB": str(LIBRARY_DB),
+        "db_under_data": str(LIBRARY_DB).startswith(str(DATA_ROOT)),
+        "mount_type": detect_mount_type(LIBRARY_DB),
+    }
+
+
 def new_song_id() -> str:
     return f"s_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
 

@@ -142,13 +142,14 @@ h1{margin:0;font-size:24px;}
 .input-footer{margin-top:8px;color:var(--muted);font-size:12px;}
 .control-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
 .control-row.compact-row{
-  flex-wrap:nowrap;
+  flex-wrap:wrap;
   font-size:12px;
 }
-.control-row.compact-row .control-label{min-width:100px;}
-.control-row.compact-row input[type="range"]{max-width:100%;}
+.control-row.compact-row .control-label{min-width:100px;max-width:100%;}
+.control-row.compact-row input[type="range"]{flex:1 1 160px;min-width:0;max-width:100%;}
 .control-row.compact-row .value-pill{
-  min-width:40px;
+  min-width:0;
+  max-width:100%;
   text-align:right;
   font-size:12px;
 }
@@ -258,12 +259,13 @@ h1{margin:0;font-size:24px;}
 .control-subtitle{margin:8px 0 4px;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.4px;}
 .override-row{
   display:grid;
-  grid-template-columns:minmax(120px, 1.1fr) minmax(0, 1fr) minmax(48px, auto);
+  grid-template-columns:minmax(0, 1.1fr) minmax(0, 1fr) minmax(48px, auto);
   align-items:center;
   gap:8px;
   margin-top:6px;
   font-size:12px;
 }
+.override-row .control-label{min-width:0;}
 .override-row input[type="range"]{
   width:100%;
   max-width:100%;
