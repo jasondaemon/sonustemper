@@ -266,18 +266,10 @@
     function renderVersionRow(song, version) {
       const row = document.createElement('div');
       row.className = 'library-version-row';
-      const label = document.createElement('div');
-      label.className = 'library-version-label';
-      if (version.kind === 'master') {
-        label.textContent = 'Master';
-      } else {
-        label.textContent = version.label || version.title || version.kind || 'Version';
-      }
       const meta = document.createElement('div');
       meta.className = 'library-version-meta';
       if (version.utility) meta.appendChild(makeBadge(version.utility, 'badge-utility'));
       if (version.summary?.voicing) meta.appendChild(makeBadge(version.summary.voicing, 'badge-voicing'));
-      if (version.summary?.loudness_profile) meta.appendChild(makeBadge(version.summary.loudness_profile, 'badge-profile'));
       const metaOverflow = makeBadge('⋯', 'badge-param library-meta-overflow');
       const metaLines = [];
       if (version.label) metaLines.push(`Label: ${version.label}`);
@@ -416,7 +408,6 @@
       menu.appendChild(menuList);
       actions.appendChild(menu);
 
-      row.appendChild(label);
       row.appendChild(meta);
       row.appendChild(actions);
       const versionTooltip = metricsTooltip(version.metrics);

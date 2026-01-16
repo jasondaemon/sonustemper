@@ -457,12 +457,13 @@ h1{margin:0;font-size:24px;}
   display:flex;
   flex-direction:column;
   gap:6px;
-  margin-left:28px;
+  margin-left:18px;
 }
 .library-version-row{
   display:flex;
   align-items:center;
   gap:8px;
+  flex-wrap:nowrap;
   padding:4px 8px;
   border-radius:10px;
   border:1px solid rgba(255,255,255,0.05);
@@ -481,7 +482,13 @@ h1{margin:0;font-size:24px;}
 .library-version-meta{
   display:flex;
   gap:6px;
-  flex-wrap:wrap;
+  flex-wrap:nowrap;
+  align-items:center;
+  flex:1 1 auto;
+  min-width:0;
+}
+.library-version-meta .badge{
+  flex-shrink:0;
 }
 .library-meta-overflow{
   cursor:pointer;
