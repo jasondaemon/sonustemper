@@ -96,6 +96,7 @@
     const waveTime = root.querySelector('#playerWaveTime');
     const waveDuration = root.querySelector('#playerWaveDuration');
     const clipMeta = root.querySelector('#playerWaveClipMeta');
+    const waveLoadingEl = root.querySelector('#playerWaveLoading');
     const trackList = root.querySelector('#playerTrackList');
     const scopeCanvas = root.querySelector('#playerLiveScope');
     const hintEl = document.getElementById('playerPaneHint');
@@ -186,6 +187,7 @@
         const msg = String(err || '');
         if (msg.includes('AbortError')) return;
         dlog('wave.error', msg);
+        if (this.callbacks.onError) this.callbacks.onError(err);
       });
     };
 
@@ -225,6 +227,21 @@
     function setHint(text) {
       if (!hintEl) return;
       hintEl.textContent = text || '';
+    }
+
+    function setWaveLoading(on, token) {
+      if (!waveBody) return;
+      if (typeof token === 'number' && token !== state.waveLoadToken) return;
+      waveBody.classList.toggle('is-loading', Boolean(on));
+      if (!waveLoadingEl) return;
+      waveLoadingEl.hidden = false;
+      if (!on) {
+        setTimeout(() => {
+          if (!waveBody.classList.contains('is-loading')) {
+            waveLoadingEl.hidden = true;
+          }
+        }, 220);
+      }
     }
 
     function updateWaveMeta(track) {
@@ -267,8 +284,8 @@
       const wave = state.waveform.wave;
       const renderer = typeof wave.getRenderer === 'function' ? wave.getRenderer() : wave.renderer;
       if (!renderer || typeof renderer.renderProgress !== 'function') return;
-      const duration = wave.getDuration() || audio.duration || 0;
-      if (!duration) return;
+      const durRaw = audio.duration || wave.getDuration() || 0;
+      const duration = Number.isFinite(durRaw) && durRaw > 0 ? durRaw : 0.001;
       const progress = Math.max(0, Math.min(1, audio.currentTime / duration));
       renderer.renderProgress(progress, false);
     }
@@ -277,6 +294,7 @@
       if (!waveContainer || !audio || !window.WaveSurfer) return;
       const token = ++state.waveLoadToken;
       dlog('wave.ensure', { token, url });
+      setWaveLoading(true, token);
       setHint('Loading waveform...');
       waveContainer.innerHTML = '';
       if (state.waveform) {
@@ -293,6 +311,7 @@
           } else {
             setHint('Loaded');
           }
+          setWaveLoading(false, token);
           if (state.pendingAutoplay && state.pendingAutoplay === state.activeId) {
             state.pendingAutoplay = null;
             if (state.pendingTimer) {
@@ -309,12 +328,13 @@
         },
         onSeek: (time) => {
           if (!audio || !Number.isFinite(time)) return;
-          const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
-          if (duration > 0) {
-            audio.currentTime = Math.max(0, Math.min(time, duration));
-          } else {
-            audio.currentTime = Math.max(0, time);
-          }
+          const durRaw = audio.duration || state.waveform?.wave?.getDuration?.() || 0;
+          const duration = Number.isFinite(durRaw) && durRaw > 0 ? durRaw : 0;
+          if (!duration) return;
+          audio.currentTime = Math.max(0, Math.min(time, duration));
+        },
+        onError: () => {
+          setWaveLoading(false, token);
         },
       });
       const result = state.waveform.load(url);
