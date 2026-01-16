@@ -266,6 +266,7 @@
     function renderVersionRow(song, version) {
       const row = document.createElement('div');
       row.className = 'library-version-row';
+      const renditions = Array.isArray(version.renditions) ? version.renditions : [];
       const meta = document.createElement('div');
       meta.className = 'library-version-meta';
       if (version.utility) meta.appendChild(makeBadge(version.utility, 'badge-utility'));
