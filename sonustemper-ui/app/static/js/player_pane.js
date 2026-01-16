@@ -130,7 +130,7 @@
     }
 
     PlayerWaveform.prototype.create = function create() {
-      if (!window.WaveSurfer || !this.container || !this.media) return;
+      if (!window.WaveSurfer || !this.container) return;
       if (this.wave) {
         this.wave.destroy();
         this.wave = null;
@@ -147,22 +147,32 @@
         normalize: false,
         barAlign: 'center',
         backend: 'MediaElement',
-        media: this.media,
+        mediaControls: false,
         minPxPerSec: 1,
         fillParent: true,
         autoScroll: false,
         autoCenter: false,
         dragToSeek: true,
       });
+      const wsMedia = this.wave.getMediaElement ? this.wave.getMediaElement() : null;
+      if (wsMedia) {
+        wsMedia.muted = true;
+        wsMedia.volume = 0;
+        wsMedia.pause();
+      }
       this.wave.on('ready', () => {
         dlog('wave.ready', {
           duration: this.wave.getDuration(),
-          src: this.media?.currentSrc || this.media?.src || '',
+          src: this.wave?.getMediaElement?.()?.currentSrc || '',
         });
         if (this.callbacks.onReady) this.callbacks.onReady(this.wave.getDuration());
       });
       this.wave.on('audioprocess', (time) => {
         if (this.callbacks.onTime) this.callbacks.onTime(time);
+      });
+      this.wave.on('interaction', (time) => {
+        dlog('wave.interaction', { time });
+        if (this.callbacks.onSeek) this.callbacks.onSeek(time);
       });
       this.wave.on('seek', () => {
         dlog('wave.seek', { time: this.wave.getCurrentTime() });
@@ -234,6 +244,7 @@
       waveTime.textContent = formatDuration(time);
       waveDuration.textContent = formatDuration(audio.duration || 0);
       state.playheadTime = time;
+      syncWaveToAudio();
     }
 
     function updateButtons() {
@@ -251,10 +262,22 @@
       });
     }
 
+    function syncWaveToAudio() {
+      if (!audio || !state.waveform || !state.waveform.wave) return;
+      const wave = state.waveform.wave;
+      const renderer = typeof wave.getRenderer === 'function' ? wave.getRenderer() : wave.renderer;
+      if (!renderer || typeof renderer.renderProgress !== 'function') return;
+      const duration = wave.getDuration() || audio.duration || 0;
+      if (!duration) return;
+      const progress = Math.max(0, Math.min(1, audio.currentTime / duration));
+      renderer.renderProgress(progress, false);
+    }
+
     function ensureWaveform(url) {
       if (!waveContainer || !audio || !window.WaveSurfer) return;
       const token = ++state.waveLoadToken;
       dlog('wave.ensure', { token, url });
+      setHint('Loading waveform...');
       waveContainer.innerHTML = '';
       if (state.waveform) {
         state.waveform.destroy();
@@ -265,6 +288,11 @@
           if (token !== state.waveLoadToken) return;
           applyPendingSeek();
           updateWaveTime();
+          if (state.song) {
+            setHint(state.song.title ? `Loaded ${state.song.title}` : 'Loaded');
+          } else {
+            setHint('Loaded');
+          }
           if (state.pendingAutoplay && state.pendingAutoplay === state.activeId) {
             state.pendingAutoplay = null;
             if (state.pendingTimer) {
@@ -279,10 +307,19 @@
           updateButtons();
           updateWaveTime();
         },
+        onSeek: (time) => {
+          if (!audio || !Number.isFinite(time)) return;
+          const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
+          if (duration > 0) {
+            audio.currentTime = Math.max(0, Math.min(time, duration));
+          } else {
+            audio.currentTime = Math.max(0, time);
+          }
+        },
       });
       const result = state.waveform.load(url);
       if (result && typeof result.catch === 'function') {
-        result.catch(() => {});
+        result.catch((err) => dlog('wave.load failed', err));
       }
     }
 
@@ -422,32 +459,20 @@
         const onReady = () => {
           audio.removeEventListener('loadedmetadata', onReady);
           applyPendingSeek();
-          if (state.waveform) {
-            state.waveform.play();
-          } else {
-            audio.play().catch(() => {});
-          }
+          audio.play().catch(() => {});
         };
         audio.addEventListener('loadedmetadata', onReady, { once: true });
         return;
       }
       applyPendingSeek();
       if (audio.readyState >= 2) {
-        if (state.waveform) {
-          state.waveform.play();
-        } else {
-          audio.play().catch(() => {});
-        }
+        audio.play().catch(() => {});
         return;
       }
       const onReady = () => {
         audio.removeEventListener('canplay', onReady);
         applyPendingSeek();
-        if (state.waveform) {
-          state.waveform.play();
-        } else {
-          audio.play().catch(() => {});
-        }
+        audio.play().catch(() => {});
       };
       audio.addEventListener('canplay', onReady, { once: true });
     }
@@ -497,7 +522,7 @@
       if (isNew) {
         if (state.waveform) state.waveform.stop();
         audio.pause();
-        audio.removeAttribute('src');
+        audio.src = nextUrlAbs;
         audio.load();
         ensureWaveform(nextUrlAbs);
       } else if (state.pendingSeek !== null) {
@@ -554,11 +579,7 @@
         if (audio.paused) {
           playWhenReady();
         } else {
-          if (state.waveform) {
-            state.waveform.pause();
-          } else {
-            audio.pause();
-          }
+          audio.pause();
         }
       });
         mainLine.appendChild(playBtn);
@@ -789,8 +810,6 @@
         if (waveContainer) waveContainer.innerHTML = '';
         if (audio) {
           audio.pause();
-          audio.removeAttribute('src');
-          audio.load();
           audio.currentTime = 0;
         }
         state.activeId = null;
