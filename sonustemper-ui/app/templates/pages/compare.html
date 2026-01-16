@@ -1338,6 +1338,10 @@
     const raw = String(rel);
     if (raw.startsWith('in/')) return { kind: 'source', rel: raw.slice(3) };
     if (raw.startsWith('analysis/')) return { kind: 'import', rel: raw.slice(9) };
+    if (raw.startsWith('library/songs/')) {
+      if (raw.includes('/source/')) return { kind: 'source', rel: raw };
+      return { kind: 'import', rel: raw };
+    }
     return { kind: 'any', rel: raw };
   }
 
@@ -1458,30 +1462,18 @@
         const data = await uploadFile(file);
         addStatusLine('Upload complete');
         addStatusLine('Analyzing...');
-        const payload = {
-          source_url: data.source_url,
-          source_name: data.source_name || file.name,
-          processed_url: null,
-          processed_name: '',
-          metrics: { input: data.metrics, output: null },
-          duration_s: data.duration_s,
-          series: data.series,
-          markers: data.markers,
-        };
-        await applyData(payload);
+        if (data.rel) {
+          const payload = await resolveFile('source', data.rel);
+          await applyData(payload);
+        }
         addStatusLine('Compare ready');
         setStatusProgress(100, false);
         if (data.rel) {
-          const item = { kind: 'import', rel: data.rel };
+          const item = { kind: 'source', rel: data.rel };
           selectedItem = item;
           const params = new URLSearchParams();
-          params.set('imp', data.rel);
+          params.set('src', data.rel);
           updateUrl(params);
-          await fetch('/api/library/import_source', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ path: `analysis/${data.rel}`, title: data.source_name || file.name }),
-          });
           if (libraryBrowser) libraryBrowser.reload();
         }
         if (typeof showToast === 'function') showToast('Compare ready');
@@ -1675,6 +1667,10 @@
           body: JSON.stringify({ song_id: song.song_id, title: next }),
         });
         browser.reload();
+        return;
+      }
+      if (action === 'import-file' && uploadInput) {
+        uploadInput.click();
         return;
       }
       if (action === 'add-unsorted' && item?.rel) {

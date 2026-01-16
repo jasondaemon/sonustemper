@@ -257,6 +257,29 @@ class TaggerService:
         items.sort(key=lambda e: (e["root"], e["relpath"]))
         return items
 
+    def find_id_by_path(self, rel_path: str) -> Optional[str]:
+        if not rel_path:
+            return None
+        rel_norm = Path(str(rel_path)).as_posix().lstrip("/")
+        root_key = None
+        rel_sub = None
+        if rel_norm.startswith("library/songs/"):
+            root_key = "out"
+            rel_sub = rel_norm[len("library/songs/"):]
+        elif rel_norm.startswith("previews/tagging/"):
+            root_key = "tag"
+            rel_sub = rel_norm[len("previews/tagging/"):]
+        elif rel_norm.startswith("tagging/"):
+            root_key = "tag"
+            rel_sub = rel_norm[len("tagging/"):]
+        if not root_key or not rel_sub:
+            return None
+        self._scan()
+        for entry in self._index.values():
+            if entry.get("root") == root_key and entry.get("relpath") == rel_sub:
+                return entry.get("id")
+        return None
+
     def resolve_id(self, file_id: str) -> Tuple[Dict, Path]:
         self._ensure_index()
         entry = self._index.get(file_id)

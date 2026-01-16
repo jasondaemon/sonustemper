@@ -2270,6 +2270,24 @@ async def delete_utility_files(payload: dict):
 def tagger_list(scope: str = "all"):
     return {"items": TAGGER.list_mp3s(scope)}
 
+@app.get("/api/tagger/resolve")
+def tagger_resolve(path: str):
+    if not path:
+        raise HTTPException(status_code=400, detail="missing_path")
+    try:
+        target = resolve_rel(path)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid_path")
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="file_not_found")
+    if target.suffix.lower() != ".mp3":
+        raise HTTPException(status_code=400, detail="not_mp3")
+    rel_path = rel_from_path(target)
+    file_id = TAGGER.find_id_by_path(rel_path)
+    if not file_id:
+        raise HTTPException(status_code=404, detail="file_not_indexed")
+    return {"id": file_id}
+
 @app.get("/api/tagger/file/{file_id}")
 def tagger_get(file_id: str):
     return TAGGER.get_file_payload(file_id)

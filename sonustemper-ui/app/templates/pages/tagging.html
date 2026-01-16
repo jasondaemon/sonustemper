@@ -7,31 +7,13 @@
   <div class="card tagging-sidebar">
     <div class="card-head">
       <div>
-        <div class="card-title">Library</div>
-        <div class="muted">Browse mastered and imported MP3s.</div>
+        <div class="card-title">Song Library</div>
+        <div class="muted">Pick MP3 renditions to edit tags.</div>
       </div>
     </div>
-    <div class="tagging-scope" id="tagScopeBtns">
-      <button class="btn small ghost active" type="button" data-scope="out">Mastered</button>
-      <button class="btn small ghost" type="button" data-scope="tag">Imported</button>
-      <button class="btn small ghost" type="button" data-scope="all">All</button>
-    </div>
-    <div class="tagging-browser">
-      {% set browser_id = "taggingBrowser" %}
-      {% set sections = [
-        {"key": "mastered", "title": "Mastered MP3s", "endpoint": "/partials/library_list?view=tagging_mp3&scope=out&context=tagging"},
-        {"key": "imported", "title": "Imported MP3s", "endpoint": "/partials/library_list?view=tagging_mp3&scope=tag&context=tagging"}
-      ] %}
-      {% include "partials/file_browser.html" %}
-      <div class="tagging-browser-actions">
-        <div class="tagging-actions">
-          <input type="file" id="tagImportFile" accept=".mp3" style="display:none;">
-          <button class="btn small" type="button" id="tagImportBtn">Import MP3</button>
-          <button class="btn small ghost" type="button" id="tagSelectAllBtn">Add All (filtered)</button>
-        </div>
-        <div class="muted" id="tagImportStatus"></div>
-      </div>
-    </div>
+    <input type="file" id="tagImportFile" accept=".mp3" style="display:none;">
+    <div id="taggingBrowser" class="library-browser-container" data-module="tagging"></div>
+    <div class="muted" id="tagImportStatus"></div>
     <div class="tagging-working-set">
       <div class="tagging-working-head">
         <div>
@@ -140,5 +122,6 @@
 {% endblock %}
 
 {% block extra_js %}
+  <script src="/static/js/library_browser.js"></script>
   <script defer src="/static/js/tagging.js"></script>
 {% endblock %}

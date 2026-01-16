@@ -961,17 +961,10 @@
         try {
           const data = await uploadAnyFile(file);
           if (data.rel) {
-            const rel = `analysis/${data.rel}`;
-            const res = await fetch('/api/library/import_source', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ path: rel, title: data.source_name || file.name }),
-            });
-            const payload = res.ok ? await res.json() : null;
             setSelectedFile({
-              rel,
+              rel: data.rel,
               name: data.source_name || file.name,
-              song_id: payload?.song?.song_id || null,
+              song_id: data.song?.song_id || null,
             });
             browser.reload();
           }

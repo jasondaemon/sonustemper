@@ -788,6 +788,10 @@
     const raw = String(rel);
     if (raw.startsWith('in/')) return { kind: 'source', rel: raw.slice(3) };
     if (raw.startsWith('analysis/')) return { kind: 'import', rel: raw.slice(9) };
+    if (raw.startsWith('library/songs/')) {
+      if (raw.includes('/source/')) return { kind: 'source', rel: raw };
+      return { kind: 'import', rel: raw };
+    }
     return { kind: 'any', rel: raw };
   }
 
@@ -1438,15 +1442,10 @@
         addStatusLine(`Uploading ${file.name}...`);
         const data = await uploadFile(file);
         if (data.rel) {
-          const importRes = await fetch('/api/library/import_source', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ path: `analysis/${data.rel}`, title: data.source_name || file.name }),
-          });
-          const importData = importRes.ok ? await importRes.json() : null;
-          const payload = await resolveFile('import', data.rel);
+          const payload = await resolveFile('source', data.rel);
           await applyData(payload);
-          analysisContext.song_id = importData?.song?.song_id || null;
+          analysisContext.song_id = data.song?.song_id || null;
+          updateCompareLinkWithRel(data.rel, null);
           if (libraryBrowser) libraryBrowser.reload();
         }
         addStatusLine('Upload complete');

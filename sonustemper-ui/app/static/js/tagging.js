@@ -11,6 +11,7 @@
     albumArt: { mode: 'keep', uploadId: null, mime: null, size: 0, preview: null },
     dirty: false,
   };
+  let libraryBrowser = null;
 
   function tagToast(msg){
     const el = document.getElementById('tagSaveStatus');
@@ -41,6 +42,76 @@
   function updateSelectedCount(){
     const el = document.getElementById('tagSelectedCount');
     if(el) el.textContent = `${tagState.selectedIds.size} selected`;
+  }
+
+  function formatTitleFromRel(rel){
+    if(!rel) return '';
+    const raw = String(rel);
+    const base = raw.split('/').pop() || raw;
+    return base.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim();
+  }
+
+  function buildBadgesFromTrack(track){
+    const badges = [];
+    if(track?.summary?.utility){
+      badges.push({ key: 'utility', label: track.summary.utility, title: track.summary.utility });
+    }
+    if(track?.summary?.voicing){
+      badges.push({ key: 'voicing', label: track.summary.voicing, title: `Voicing: ${track.summary.voicing}` });
+    }
+    if(track?.summary?.loudness_profile){
+      badges.push({ key: 'profile', label: track.summary.loudness_profile, title: `Profile: ${track.summary.loudness_profile}` });
+    }
+    badges.push({ key: 'format', label: 'MP3', title: 'MP3 rendition' });
+    return badges;
+  }
+
+  function pickMp3Rendition(track){
+    if(!track) return null;
+    if(Array.isArray(track.renditions)){
+      const mp3 = track.renditions.find(r => String(r.format || '').toLowerCase() === 'mp3');
+      if(mp3?.rel) return mp3.rel;
+    }
+    if(track.rel && String(track.rel).toLowerCase().endsWith('.mp3')) return track.rel;
+    return null;
+  }
+
+  async function resolveTaggerId(rel){
+    if(!rel) return null;
+    try{
+      const res = await fetch(`/api/tagger/resolve?path=${encodeURIComponent(rel)}`, { cache: 'no-store' });
+      if(!res.ok) return null;
+      const data = await res.json();
+      return data.id || null;
+    }catch(_err){
+      return null;
+    }
+  }
+
+  function buildItemFromLibrary(song, track, rel, fileId){
+    const displayTitle = track?.title || track?.label || song?.title || formatTitleFromRel(rel) || rel;
+    const basename = (rel || '').split('/').pop() || displayTitle;
+    return {
+      id: fileId,
+      song_id: song?.song_id || null,
+      root: 'library',
+      basename,
+      relpath: rel,
+      full_name: rel,
+      display_title: displayTitle,
+      badges: buildBadgesFromTrack(track),
+    };
+  }
+
+  function primaryRendition(renditions){
+    const list = Array.isArray(renditions) ? renditions : [];
+    if (!list.length) return null;
+    const prefer = ['wav', 'flac', 'aiff', 'aif', 'm4a', 'aac', 'mp3', 'ogg'];
+    for (const fmt of prefer) {
+      const hit = list.find((item) => String(item.format || '').toLowerCase() === fmt);
+      if (hit) return hit;
+    }
+    return list[0];
   }
 
   function syncWorkingSelected(){
@@ -350,18 +421,7 @@
   }
 
   function syncBrowserSelection(){
-    const browser = document.getElementById('taggingBrowser');
-    if(!browser) return;
-    browser.querySelectorAll('.browser-item[data-kind="mp3"]').forEach(btn => {
-      const selected = tagState.selectedIds.has(btn.dataset.id);
-      if(selected){
-        btn.classList.add('disabled');
-        btn.setAttribute('disabled', 'disabled');
-      }else{
-        btn.classList.remove('disabled');
-        btn.removeAttribute('disabled');
-      }
-    });
+    if(!libraryBrowser) return;
   }
 
   function isItemVisible(btn){
@@ -428,16 +488,7 @@
     });
   }
 
-  document.addEventListener('click', (evt)=>{
-    const btn = evt.target.closest('.file-browser .browser-item');
-    if(!btn || !btn.dataset.kind || btn.dataset.kind !== 'mp3') return;
-    if(btn.disabled) return;
-    const item = buildItemFromButton(btn);
-    if(item) addToWorking(item);
-  });
-
   document.addEventListener('DOMContentLoaded', ()=>{
-    document.getElementById('tagSelectAllBtn')?.addEventListener('click', addAllVisible);
     document.getElementById('tagClearSelBtn')?.addEventListener('click', ()=>{
       tagState.working = [];
       tagState.selectedId = null;
@@ -446,10 +497,6 @@
       updateEditorView();
       tagState.dirty = false;
       updateDownloadState();
-    });
-
-    document.getElementById('tagImportBtn')?.addEventListener('click', ()=>{
-      document.getElementById('tagImportFile')?.click();
     });
 
     document.getElementById('tagImportFile')?.addEventListener('change', async (e)=>{
@@ -461,24 +508,36 @@
       const fd = new FormData();
       fd.append('file', file, file.name);
       try{
-        const res = await fetch('/api/tagger/import', { method: 'POST', body: fd });
-        if(!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        setStatus('Imported.');
-        refreshBrowserSections();
-        if(data && data.id){
-          const displayTitle = (data.basename || '').replace(/\.mp3$/i, '') || data.id;
-          const item = {
-            id: data.id,
-            root: data.root || 'tag',
-            basename: data.basename || displayTitle,
-            relpath: data.relpath || data.basename || displayTitle,
-            full_name: data.relpath || data.basename || displayTitle,
-            display_title: displayTitle,
-            badges: [{ key: 'format', label: 'Imported', title: 'Imported' }],
-          };
-          addToWorking(item);
+        const xhr = new XMLHttpRequest();
+        const uploadRes = await new Promise((resolve, reject) => {
+          xhr.open('POST', '/api/analyze-upload', true);
+          xhr.responseType = 'json';
+          xhr.addEventListener('load', () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              resolve(xhr.response || {});
+            } else {
+              reject(new Error('upload_failed'));
+            }
+          });
+          xhr.addEventListener('error', () => reject(new Error('upload_failed')));
+          xhr.send(fd);
+        });
+        setStatus('Analyzing...');
+        const rel = uploadRes.rel;
+        const song = uploadRes.song || null;
+        let doneStatus = 'Ready.';
+        if (rel) {
+          const fileId = await resolveTaggerId(rel);
+          if (fileId) {
+            const item = buildItemFromLibrary(song, { kind: 'source', rel, summary: {} }, rel, fileId);
+            addToWorking(item);
+            doneStatus = 'Ready.';
+          } else {
+            doneStatus = 'Uploaded (MP3 not indexed yet).';
+          }
+          if (libraryBrowser) libraryBrowser.reload();
         }
+        setStatus(doneStatus);
       }catch(_err){
         setStatus('Import failed.');
       }finally{
@@ -486,11 +545,49 @@
       }
     });
 
-    document.querySelectorAll('#tagScopeBtns button').forEach(btn => {
-      btn.addEventListener('click', ()=>{
-        setScope(btn.dataset.scope || 'out');
+    const browser = document.getElementById('taggingBrowser');
+    if (browser && window.LibraryBrowser) {
+      libraryBrowser = window.LibraryBrowser.init(browser, { module: 'tagging' });
+      browser.addEventListener('library:select', async (evt) => {
+        const { song, track } = evt.detail || {};
+        const rel = pickMp3Rendition(track);
+        if (!rel) {
+          tagToast('No MP3 rendition available for tagging.');
+          return;
+        }
+        const fileId = await resolveTaggerId(rel);
+        if (!fileId) {
+          tagToast('MP3 not indexed yet.');
+          return;
+        }
+        addToWorking(buildItemFromLibrary(song, track, rel, fileId));
       });
-    });
+      browser.addEventListener('library:action', (evt) => {
+        const { action, song, version } = evt.detail || {};
+        if (action === 'import-file') {
+          document.getElementById('tagImportFile')?.click();
+          return;
+        }
+        if (action === 'open-compare' && song?.source?.rel && version) {
+          const rel = primaryRendition(version.renditions)?.rel || version.rel;
+          if (!rel) return;
+          const url = new URL('/compare', window.location.origin);
+          url.searchParams.set('src', song.source.rel);
+          url.searchParams.set('proc', rel);
+          window.location.assign(`${url.pathname}${url.search}`);
+          return;
+        }
+        if (action === 'delete-version' && song?.song_id && version?.version_id) {
+          fetch('/api/library/delete_version', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ song_id: song.song_id, version_id: version.version_id }),
+          }).then(() => {
+            if (libraryBrowser) libraryBrowser.reload();
+          });
+        }
+      });
+    }
 
     document.getElementById('albArtUploadBtn')?.addEventListener('click', ()=>{
       document.getElementById('albArtFile')?.click();
