@@ -1271,6 +1271,15 @@ h1{margin:0;font-size:24px;}
   object-fit:fill;
   image-rendering:auto;
 }
+.spectro-scrub-line{
+  position:absolute;
+  top:0;
+  bottom:0;
+  width:1px;
+  background:rgba(255,255,255,0.35);
+  pointer-events:none;
+  z-index:3;
+}
 .spectro-window{
   position:absolute;
   top:2px;
@@ -1402,6 +1411,30 @@ h1{margin:0;font-size:24px;}
   padding:12px;
   background:#0f151d;
 }
+.wave-body{
+  position:relative;
+}
+.wave-clip-label{
+  position:sticky;
+  top:8px;
+  left:8px;
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  font-size:11px;
+  color:rgba(255,120,120,0.6);
+  background:rgba(0,0,0,0.35);
+  border-radius:999px;
+  padding:2px 6px;
+  z-index:6;
+  pointer-events:none;
+}
+.wave-clip-meta{
+  color:rgba(255,255,255,0.6);
+}
+.wave-body.is-clip .wave-clip-label{
+  color:rgba(255,120,120,0.95);
+}
 .wave-head{
   display:flex;
   align-items:center;
@@ -1455,7 +1488,7 @@ h1{margin:0;font-size:24px;}
 }
 .wave-ref-line.clip{
   height:1px;
-  background:rgba(255,255,255,0.16);
+  background:rgba(255,80,80,0.28);
 }
 .wave-ref-line.safe{
   height:0;
@@ -1464,6 +1497,9 @@ h1{margin:0;font-size:24px;}
 }
 .wave-ref-lines.show-safe .wave-ref-line.safe{
   opacity:1;
+}
+.wave-body.is-clip .wave-ref-line.clip{
+  background:rgba(255,80,80,0.8);
 }
 .wave-empty{
   margin-top:8px;

@@ -58,10 +58,17 @@
             <div class="wave-meta" id="sourceName">-</div>
           </div>
         </div>
-        <div class="wave-canvas" id="waveSource"></div>
-        <div class="spectro-viewport" id="spectroSourceViewport" hidden>
-          <div class="spectro-inner" id="spectroSourceInner">
-            <img id="spectroSourceImg" alt="Source spectrogram">
+        <div class="wave-body" id="sourceWaveBody">
+          <div class="wave-clip-label" id="sourceClipLabel">
+            <span class="wave-clip-text">CLIP</span>
+            <span class="wave-clip-meta" id="sourceClipMeta">TP Margin —</span>
+          </div>
+          <div class="wave-canvas" id="waveSource"></div>
+          <div class="spectro-viewport" id="spectroSourceViewport" hidden>
+            <div class="spectro-inner" id="spectroSourceInner">
+              <div class="spectro-scrub-line" id="spectroSourceScrub"></div>
+              <img id="spectroSourceImg" alt="Source spectrogram">
+            </div>
           </div>
         </div>
       </div>
@@ -74,10 +81,17 @@
             <div class="wave-meta" id="processedName">-</div>
           </div>
         </div>
-        <div class="wave-canvas" id="waveProcessed"></div>
-        <div class="spectro-viewport" id="spectroProcessedViewport" hidden>
-          <div class="spectro-inner" id="spectroProcessedInner">
-            <img id="spectroProcessedImg" alt="Processed spectrogram">
+        <div class="wave-body" id="processedWaveBody">
+          <div class="wave-clip-label" id="processedClipLabel">
+            <span class="wave-clip-text">CLIP</span>
+            <span class="wave-clip-meta" id="processedClipMeta">TP Margin —</span>
+          </div>
+          <div class="wave-canvas" id="waveProcessed"></div>
+          <div class="spectro-viewport" id="spectroProcessedViewport" hidden>
+            <div class="spectro-inner" id="spectroProcessedInner">
+              <div class="spectro-scrub-line" id="spectroProcessedScrub"></div>
+              <img id="spectroProcessedImg" alt="Processed spectrogram">
+            </div>
           </div>
         </div>
         <div class="wave-empty muted" id="processedEmpty" hidden>No processed file selected.</div>
@@ -132,13 +146,18 @@
             <span>Δ Loudness</span>
           </label>
         </div>
-        <div class="analyze-legend" aria-label="Waveform legend">
+        <div class="analyze-legend" id="compareWaveLegend" aria-label="Waveform legend">
           <span class="legend-title">Legend</span>
           <span class="legend-item"><span class="legend-swatch peak-warn"></span>Peak risk (warn)</span>
           <span class="legend-item"><span class="legend-swatch peak-clip"></span>Peak risk (clip)</span>
           <span class="legend-item"><span class="legend-swatch heatmap"></span>Loudness heatmap</span>
           <span class="legend-item"><span class="legend-swatch delta-plus"></span>Δ Loudness +</span>
           <span class="legend-item"><span class="legend-swatch delta-minus"></span>Δ Loudness -</span>
+        </div>
+        <div class="spectro-legend" id="compareSpectroLegend" hidden aria-label="Spectrogram legend">
+          <span>Low</span>
+          <div class="spectro-legend-bar" aria-hidden="true"></div>
+          <span>High</span>
         </div>
       </div>
 
@@ -192,12 +211,20 @@
 
   const waveSourceEl = document.getElementById('waveSource');
   const waveProcessedEl = document.getElementById('waveProcessed');
+  const sourceWaveBody = document.getElementById('sourceWaveBody');
+  const processedWaveBody = document.getElementById('processedWaveBody');
+  const sourceClipMeta = document.getElementById('sourceClipMeta');
+  const processedClipMeta = document.getElementById('processedClipMeta');
   const spectroSourceViewport = document.getElementById('spectroSourceViewport');
   const spectroSourceInner = document.getElementById('spectroSourceInner');
   const spectroSourceImg = document.getElementById('spectroSourceImg');
+  const spectroSourceScrub = document.getElementById('spectroSourceScrub');
   const spectroProcessedViewport = document.getElementById('spectroProcessedViewport');
   const spectroProcessedInner = document.getElementById('spectroProcessedInner');
   const spectroProcessedImg = document.getElementById('spectroProcessedImg');
+  const spectroProcessedScrub = document.getElementById('spectroProcessedScrub');
+  const compareWaveLegend = document.getElementById('compareWaveLegend');
+  const compareSpectroLegend = document.getElementById('compareSpectroLegend');
 
   let sourceWave = null;
   let processedWave = null;
@@ -599,6 +626,7 @@
     };
     updateOne(spectroSourceViewport, spectroSourceInner, spectroSourceImg, analysisData?.source_rel);
     updateOne(spectroProcessedViewport, spectroProcessedInner, spectroProcessedImg, analysisData?.processed_rel);
+    syncWaveforms();
   }
 
   function setupSpectroScrollSync(){
@@ -636,16 +664,42 @@
     seekBoth(t);
   }
 
+  function bindSpectroScrub(viewport, inner){
+    if (!viewport || !inner) return;
+    let dragging = false;
+    const onMove = (evt) => {
+      if (!dragging) return;
+      handleSpectroClick(evt, viewport, inner);
+    };
+    const onDown = (evt) => {
+      dragging = true;
+      handleSpectroClick(evt, viewport, inner);
+    };
+    const onUp = () => {
+      dragging = false;
+    };
+    viewport.addEventListener('mousedown', onDown);
+    viewport.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    transportCleanup.push(() => {
+      viewport.removeEventListener('mousedown', onDown);
+      viewport.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    });
+  }
+
   function bindSpectrogramInteractions(){
     if (spectroSourceViewport) {
       spectroSourceViewport.addEventListener('click', (evt) => {
         handleSpectroClick(evt, spectroSourceViewport, spectroSourceInner);
       });
+      bindSpectroScrub(spectroSourceViewport, spectroSourceInner);
     }
     if (spectroProcessedViewport) {
       spectroProcessedViewport.addEventListener('click', (evt) => {
         handleSpectroClick(evt, spectroProcessedViewport, spectroProcessedInner);
       });
+      bindSpectroScrub(spectroProcessedViewport, spectroProcessedInner);
     }
   }
 
@@ -660,6 +714,8 @@
     if (viewMode === 'spectrogram' && !analysisData?.processed_rel && spectroProcessedViewport) {
       spectroProcessedViewport.hidden = true;
     }
+    if (compareWaveLegend) compareWaveLegend.hidden = viewMode !== 'waveform';
+    if (compareSpectroLegend) compareSpectroLegend.hidden = viewMode !== 'spectrogram';
     if (viewMode === 'spectrogram') {
       waveScrollCleanup.forEach((fn) => fn());
       waveScrollCleanup = [];
@@ -734,6 +790,14 @@
     renderer.renderProgress(rel, false);
   }
 
+  function updateSpectroScrubLine(scrubEl, innerEl, time, duration){
+    if (!scrubEl || !innerEl) return;
+    const dur = Number.isFinite(duration) && duration > 0 ? duration : 0.001;
+    const rel = Math.max(0, Math.min(1, time / dur));
+    const width = Math.max(innerEl.clientWidth || 0, 1);
+    scrubEl.style.left = `${rel * width}px`;
+  }
+
   function syncWaveforms(){
     const clock = getClockAudio();
     if (!clock) return;
@@ -741,6 +805,8 @@
     const duration = getDurationBase() || clock.duration || 0;
     updateWaveProgress(sourceWave, time, duration);
     updateWaveProgress(processedWave, time, duration);
+    updateSpectroScrubLine(spectroSourceScrub, spectroSourceInner, time, duration);
+    updateSpectroScrubLine(spectroProcessedScrub, spectroProcessedInner, time, duration);
   }
 
   function seekBoth(time){
@@ -752,6 +818,8 @@
     if (compareAudioProcessed?.src) compareAudioProcessed.currentTime = target;
     updateWaveProgress(sourceWave, target, duration);
     updateWaveProgress(processedWave, target, duration);
+    updateSpectroScrubLine(spectroSourceScrub, spectroSourceInner, target, duration);
+    updateSpectroScrubLine(spectroProcessedScrub, spectroProcessedInner, target, duration);
     transportLock = false;
   }
 
@@ -809,6 +877,8 @@
     stopDriftCorrection();
     updateWaveProgress(sourceWave, 0, getDurationBase());
     updateWaveProgress(processedWave, 0, getDurationBase());
+    updateSpectroScrubLine(spectroSourceScrub, spectroSourceInner, 0, getDurationBase());
+    updateSpectroScrubLine(spectroProcessedScrub, spectroProcessedInner, 0, getDurationBase());
   }
 
   function updateTrackToggleUI(){
@@ -1059,7 +1129,6 @@
       center.style.left = '0';
       center.style.right = '0';
       center.style.height = '1px';
-      center.style.background = 'rgba(255,255,255,0.12)';
       box.appendChild(center);
       const clipTop = document.createElement('div');
       clipTop.className = 'wave-ref-line clip';
@@ -1067,7 +1136,6 @@
       clipTop.style.left = '0';
       clipTop.style.right = '0';
       clipTop.style.height = '1px';
-      clipTop.style.background = 'rgba(255,255,255,0.22)';
       box.appendChild(clipTop);
       const clipBottom = document.createElement('div');
       clipBottom.className = 'wave-ref-line clip';
@@ -1075,7 +1143,6 @@
       clipBottom.style.left = '0';
       clipBottom.style.right = '0';
       clipBottom.style.height = '1px';
-      clipBottom.style.background = 'rgba(255,255,255,0.22)';
       box.appendChild(clipBottom);
       const safeTop = document.createElement('div');
       safeTop.className = 'wave-ref-line safe';
@@ -1083,7 +1150,6 @@
       safeTop.style.left = '0';
       safeTop.style.right = '0';
       safeTop.style.height = '0';
-      safeTop.style.borderTop = '1px dashed rgba(255,138,61,0.45)';
       safeTop.style.opacity = '0';
       box.appendChild(safeTop);
       const safeBottom = document.createElement('div');
@@ -1092,7 +1158,6 @@
       safeBottom.style.left = '0';
       safeBottom.style.right = '0';
       safeBottom.style.height = '0';
-      safeBottom.style.borderTop = '1px dashed rgba(255,138,61,0.45)';
       safeBottom.style.opacity = '0';
       box.appendChild(safeBottom);
     }
@@ -1587,6 +1652,42 @@
     return parts.join(' • ');
   }
 
+  function normalizeMetrics(metrics){
+    if (!metrics || typeof metrics !== 'object') return null;
+    if (metrics.output && typeof metrics.output === 'object') return metrics.output;
+    if (metrics.input && typeof metrics.input === 'object') return metrics.input;
+    return metrics;
+  }
+
+  function getMetricValue(metrics, keys){
+    const data = normalizeMetrics(metrics);
+    if (!data) return null;
+    const list = Array.isArray(keys) ? keys : [keys];
+    for (const key of list) {
+      if (typeof data[key] === 'number' && Number.isFinite(data[key])) return data[key];
+    }
+    return null;
+  }
+
+  function applyClipState(kind, metrics){
+    const data = normalizeMetrics(metrics);
+    const body = kind === 'processed' ? processedWaveBody : sourceWaveBody;
+    const metaEl = kind === 'processed' ? processedClipMeta : sourceClipMeta;
+    if (!body) return;
+    const tp = getMetricValue(data, ['true_peak_dbtp', 'true_peak_db', 'true_peak', 'TP']);
+    const peak = getMetricValue(data, ['peak_db', 'peak_level']);
+    const clip = (typeof tp === 'number' && tp >= 0) || (typeof peak === 'number' && peak >= 0);
+    body.classList.toggle('is-clip', Boolean(clip));
+    if (metaEl) {
+      const tpMargin = getMetricValue(data, ['tp_margin']);
+      if (typeof tpMargin === 'number') {
+        metaEl.textContent = `TP Margin ${tpMargin.toFixed(1)}`;
+      } else {
+        metaEl.textContent = 'TP Margin —';
+      }
+    }
+  }
+
   function updateSelectedFromPayload(payload){
     if (selectedSummaryLocked) return;
     if (!payload) return;
@@ -1625,6 +1726,8 @@
 
     renderPills(input, output);
     renderCompare(input, output);
+    applyClipState('source', input);
+    applyClipState('processed', output);
 
     clearWaves();
     sourceWave = initWave('waveSource');
@@ -1661,6 +1764,7 @@
     setupOverlays();
     setViewMode(viewMode);
     updateSelectedFromPayload(payload);
+    syncWaveforms();
   }
 
   async function resolveRun(song, out, solo){
