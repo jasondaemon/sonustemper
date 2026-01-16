@@ -102,6 +102,7 @@
       playheadTime: 0,
       waveform: null,
       waveLoadToken: 0,
+      currentUrl: null,
       scope: {
         node: null,
         floatData: null,
@@ -248,6 +249,7 @@
       state.waveform = new PlayerWaveform(waveContainer, audio, {
         onReady: () => {
           if (token !== state.waveLoadToken) return;
+          state.currentUrl = url;
           applyPendingSeek();
           updateWaveTime();
           if (state.pendingAutoplay && state.pendingAutoplay === state.activeId) {
@@ -471,14 +473,11 @@
       updateWaveMeta(track);
       setClipState(track);
       const nextUrlAbs = buildTrackUrl(track.rel);
-      const currentAbs = String(audio.currentSrc || audio.src || '');
-      const srcChanged = currentAbs !== nextUrlAbs;
+      const srcChanged = state.currentUrl !== nextUrlAbs;
       if (srcChanged) {
         if (state.waveform) state.waveform.stop();
         audio.pause();
         audio.removeAttribute('src');
-        audio.load();
-        audio.src = nextUrlAbs;
         audio.load();
         ensureWaveform(nextUrlAbs);
       } else if (isNew) {
