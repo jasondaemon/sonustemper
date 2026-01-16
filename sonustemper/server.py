@@ -2583,16 +2583,20 @@ def _library_find_version(song: dict, token: str | None) -> dict | None:
 
 @app.get("/api/library")
 def library_index_endpoint():
-    lib = library_store.list_library()
-    payload = {
-        "version": lib.get("version", 1),
-        "songs": [],
-    }
-    for song in lib.get("songs", []):
-        entry = dict(song)
-        entry["latest_version"] = library_store.latest_version(song.get("song_id"))
-        payload["songs"].append(entry)
-    return payload
+    start = time.monotonic()
+    logger.info("[api] /api/library start")
+    try:
+        lib = library_store.list_library()
+        payload = {
+            "version": lib.get("version", 1),
+            "songs": lib.get("songs", []),
+        }
+        elapsed_ms = (time.monotonic() - start) * 1000
+        logger.info("[api] /api/library ok in %.1fms songs=%s", elapsed_ms, len(payload["songs"]))
+        return payload
+    except Exception:
+        logger.exception("[api] /api/library failed")
+        raise
 
 
 @app.post("/api/library/import_source")

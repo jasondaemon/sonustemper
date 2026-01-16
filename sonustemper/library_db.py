@@ -10,6 +10,8 @@ from .storage import LIBRARY_DB, ensure_data_roots, new_song_id, new_version_id
 
 LIBRARY_VERSION = 1
 _WRITE_LOCK = threading.Lock()
+_INIT_LOCK = threading.Lock()
+_DB_READY = False
 
 METRIC_FIELDS = [
     "duration_sec",
@@ -106,12 +108,18 @@ def _connect() -> sqlite3.Connection:
 
 
 def init_db() -> None:
-    ensure_data_roots()
-    with _WRITE_LOCK:
-        conn = _connect()
-        try:
-            conn.executescript(
-                """
+    global _DB_READY
+    if _DB_READY:
+        return
+    with _INIT_LOCK:
+        if _DB_READY:
+            return
+        ensure_data_roots()
+        with _WRITE_LOCK:
+            conn = _connect()
+            try:
+                conn.executescript(
+                    """
                 CREATE TABLE IF NOT EXISTS songs (
                     song_id TEXT PRIMARY KEY,
                     title TEXT NOT NULL,
@@ -186,43 +194,44 @@ def init_db() -> None:
                 CREATE INDEX IF NOT EXISTS idx_songs_last_used ON songs(last_used_at);
                 CREATE INDEX IF NOT EXISTS idx_songs_title ON songs(title);
                 """
-            )
-            columns = {row["name"] for row in conn.execute("PRAGMA table_info(versions)").fetchall()}
-            if "utility" not in columns:
-                conn.execute("ALTER TABLE versions ADD COLUMN utility TEXT")
-            if "voicing" not in columns:
-                conn.execute("ALTER TABLE versions ADD COLUMN voicing TEXT")
-            if "loudness_profile" not in columns:
-                conn.execute("ALTER TABLE versions ADD COLUMN loudness_profile TEXT")
-            conn.execute("UPDATE songs SET source_metrics_json = '{}' WHERE source_metrics_json IS NOT NULL AND source_metrics_json != '{}'")
-            rows = conn.execute(
-                "SELECT version_id, summary_json, voicing, loudness_profile FROM versions"
-            ).fetchall()
-            for row in rows:
-                summary_raw = row["summary_json"] or ""
-                if not summary_raw or summary_raw == "{}":
-                    continue
-                try:
-                    summary = json.loads(summary_raw)
-                except Exception:
-                    summary = {}
-                if not isinstance(summary, dict):
-                    summary = {}
-                voicing = row["voicing"] or summary.get("voicing")
-                profile = row["loudness_profile"] or summary.get("loudness_profile")
-                if voicing is None and profile is None and summary_raw != "{}":
-                    conn.execute(
-                        "UPDATE versions SET summary_json = ? WHERE version_id = ?",
-                        ("{}", row["version_id"]),
-                    )
-                    continue
-                conn.execute(
-                    "UPDATE versions SET voicing = ?, loudness_profile = ?, summary_json = ? WHERE version_id = ?",
-                    (voicing, profile, "{}", row["version_id"]),
                 )
-            conn.execute("UPDATE versions SET metrics_json = '{}' WHERE metrics_json IS NOT NULL AND metrics_json != '{}'")
-        finally:
-            conn.close()
+                columns = {row["name"] for row in conn.execute("PRAGMA table_info(versions)").fetchall()}
+                if "utility" not in columns:
+                    conn.execute("ALTER TABLE versions ADD COLUMN utility TEXT")
+                if "voicing" not in columns:
+                    conn.execute("ALTER TABLE versions ADD COLUMN voicing TEXT")
+                if "loudness_profile" not in columns:
+                    conn.execute("ALTER TABLE versions ADD COLUMN loudness_profile TEXT")
+                conn.execute("UPDATE songs SET source_metrics_json = '{}' WHERE source_metrics_json IS NOT NULL AND source_metrics_json != '{}'")
+                rows = conn.execute(
+                    "SELECT version_id, summary_json, voicing, loudness_profile FROM versions"
+                ).fetchall()
+                for row in rows:
+                    summary_raw = row["summary_json"] or ""
+                    if not summary_raw or summary_raw == "{}":
+                        continue
+                    try:
+                        summary = json.loads(summary_raw)
+                    except Exception:
+                        summary = {}
+                    if not isinstance(summary, dict):
+                        summary = {}
+                    voicing = row["voicing"] or summary.get("voicing")
+                    profile = row["loudness_profile"] or summary.get("loudness_profile")
+                    if voicing is None and profile is None and summary_raw != "{}":
+                        conn.execute(
+                            "UPDATE versions SET summary_json = ? WHERE version_id = ?",
+                            ("{}", row["version_id"]),
+                        )
+                        continue
+                    conn.execute(
+                        "UPDATE versions SET voicing = ?, loudness_profile = ?, summary_json = ? WHERE version_id = ?",
+                        (voicing, profile, "{}", row["version_id"]),
+                    )
+                conn.execute("UPDATE versions SET metrics_json = '{}' WHERE metrics_json IS NOT NULL AND metrics_json != '{}'")
+            finally:
+                conn.close()
+        _DB_READY = True
 
 
 def _select_metrics(metrics: dict | None, prefer_output: bool) -> dict:
@@ -369,6 +378,7 @@ def list_library() -> dict:
         })
 
     versions_by_song: dict[str, list[dict]] = {}
+    latest_by_song: dict[str, dict] = {}
     for row in version_rows:
         renditions = renditions_map.get(row["version_id"], [])
         summary = {}
@@ -395,6 +405,9 @@ def list_library() -> dict:
         if primary:
             version["rel"] = primary.get("rel")
         versions_by_song.setdefault(row["song_id"], []).append(version)
+        current = latest_by_song.get(row["song_id"])
+        if not current or (row["created_at"] or "") > (current.get("created_at") or ""):
+            latest_by_song[row["song_id"]] = version
 
     songs = []
     for row in songs_rows:
@@ -416,6 +429,7 @@ def list_library() -> dict:
                 "metrics": metrics,
             },
             "versions": versions_by_song.get(row["song_id"], []),
+            "latest_version": latest_by_song.get(row["song_id"]),
         }
         songs.append(song)
 
