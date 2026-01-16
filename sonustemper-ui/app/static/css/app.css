@@ -665,6 +665,18 @@ h1{margin:0;font-size:24px;}
 }
 .player-wave-label--clip{top:calc(12% - 10px);color:rgba(255,120,120,0.85);}
 .player-wave-label--zero{top:calc(50% - 10px);}
+.player-wave-body .player-wave-danger,
+.player-wave-body .player-wave-line--clip-top,
+.player-wave-body .player-wave-line--clip-bottom,
+.player-wave-body .player-wave-label--clip{
+  opacity:0;
+}
+.player-wave-body.is-clip .player-wave-danger,
+.player-wave-body.is-clip .player-wave-line--clip-top,
+.player-wave-body.is-clip .player-wave-line--clip-bottom,
+.player-wave-body.is-clip .player-wave-label--clip{
+  opacity:1;
+}
 .player-live-scope{
   position:absolute;
   inset:0;

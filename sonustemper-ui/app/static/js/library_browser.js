@@ -305,6 +305,9 @@
       actions.className = 'library-version-actions';
       const menu = document.createElement('details');
       menu.className = 'library-action-menu';
+      menu.addEventListener('mouseleave', () => {
+        menu.open = false;
+      });
       const menuSummary = document.createElement('summary');
       menuSummary.textContent = '⋯';
       menuSummary.className = 'btn ghost tiny';
@@ -369,6 +372,9 @@
 
         const download = document.createElement('details');
         download.className = 'library-download-menu';
+        download.addEventListener('mouseleave', () => {
+          download.open = false;
+        });
         const downloadSummary = document.createElement('summary');
         downloadSummary.textContent = 'Download';
         downloadSummary.className = 'btn ghost tiny';

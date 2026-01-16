@@ -79,6 +79,7 @@
   function init(root, options) {
     if (!root) return null;
     const waveContainer = root.querySelector('#playerWaveform');
+    const waveBody = root.querySelector('.player-wave-body');
     const waveTitle = root.querySelector('#playerWaveTitle');
     const waveMeta = root.querySelector('#playerWaveMeta');
     const waveTime = root.querySelector('#playerWaveTime');
@@ -92,7 +93,7 @@
       tracks: [],
       activeId: null,
       playheadTime: 0,
-      wave: null,
+      waveform: null,
       scope: {
         node: null,
         floatData: null,
@@ -106,6 +107,86 @@
       pendingAutoplay: null,
       pendingTimer: null,
       pendingSeek: null,
+    };
+
+    function PlayerWaveform(container, media, callbacks) {
+      this.container = container;
+      this.media = media;
+      this.callbacks = callbacks || {};
+      this.wave = null;
+    }
+
+    PlayerWaveform.prototype.create = function create() {
+      if (!window.WaveSurfer || !this.container || !this.media) return;
+      if (this.wave) {
+        this.wave.destroy();
+        this.wave = null;
+      }
+      this.wave = WaveSurfer.create({
+        container: this.container,
+        waveColor: '#2a3a4f',
+        progressColor: '#3b4f66',
+        cursorColor: '#6b829a',
+        height: 150,
+        barWidth: 2,
+        barGap: 1,
+        normalize: true,
+        backend: 'MediaElement',
+        media: this.media,
+        minPxPerSec: 1,
+        fillParent: true,
+        autoScroll: false,
+        autoCenter: false,
+        dragToSeek: true,
+      });
+      this.wave.on('ready', () => {
+        if (this.callbacks.onReady) this.callbacks.onReady(this.wave.getDuration());
+      });
+      this.wave.on('audioprocess', (time) => {
+        if (this.callbacks.onTime) this.callbacks.onTime(time);
+      });
+      this.wave.on('seek', () => {
+        if (this.callbacks.onTime) this.callbacks.onTime(this.wave.getCurrentTime());
+      });
+      this.wave.on('finish', () => {
+        if (this.callbacks.onFinish) this.callbacks.onFinish();
+      });
+      this.wave.on('error', (err) => {
+        const msg = String(err || '');
+        if (msg.includes('AbortError')) return;
+      });
+    };
+
+    PlayerWaveform.prototype.load = function load(url) {
+      if (!this.wave) this.create();
+      if (!this.wave) return null;
+      return this.wave.load(url);
+    };
+
+    PlayerWaveform.prototype.play = function play() {
+      if (this.wave) this.wave.play();
+    };
+
+    PlayerWaveform.prototype.pause = function pause() {
+      if (this.wave) this.wave.pause();
+    };
+
+    PlayerWaveform.prototype.stop = function stop() {
+      if (this.wave) this.wave.stop();
+    };
+
+    PlayerWaveform.prototype.seekTo = function seekTo(seconds) {
+      if (!this.wave) return;
+      const duration = this.wave.getDuration() || this.media?.duration || 0;
+      if (!duration) return;
+      this.wave.seekTo(Math.max(0, Math.min(1, seconds / duration)));
+    };
+
+    PlayerWaveform.prototype.destroy = function destroy() {
+      if (this.wave) {
+        this.wave.destroy();
+        this.wave = null;
+      }
     };
 
     function setHint(text) {
@@ -124,11 +205,12 @@
       waveMeta.textContent = track.title || 'Track';
     }
 
-    function updateWaveTime() {
+    function updateWaveTime(forcedTime) {
       if (!audio || !waveTime || !waveDuration) return;
-      waveTime.textContent = formatDuration(audio.currentTime || 0);
+      const time = typeof forcedTime === 'number' ? forcedTime : (audio.currentTime || 0);
+      waveTime.textContent = formatDuration(time);
       waveDuration.textContent = formatDuration(audio.duration || 0);
-      state.playheadTime = audio.currentTime || 0;
+      state.playheadTime = time;
     }
 
     function updateButtons() {
@@ -146,42 +228,35 @@
       });
     }
 
-    function ensureWave() {
-      if (!window.WaveSurfer || !waveContainer || !audio) return;
-      if (state.wave) return;
-      state.wave = WaveSurfer.create({
-        container: waveContainer,
-        waveColor: '#2a3a4f',
-        progressColor: '#3b4f66',
-        cursorColor: '#6b829a',
-        height: 140,
-        barWidth: 2,
-        barGap: 1,
-        normalize: true,
-        backend: 'MediaElement',
-        media: audio,
-        minPxPerSec: 1,
-        fillParent: true,
-        autoScroll: false,
-        autoCenter: false,
-        dragToSeek: true,
-      });
-      state.wave.on('ready', () => {
-        updateWaveTime();
-        if (state.pendingAutoplay && state.pendingAutoplay === state.activeId) {
-          state.pendingAutoplay = null;
-          if (state.pendingTimer) {
-            clearTimeout(state.pendingTimer);
-            state.pendingTimer = null;
+    function ensureWaveform(url) {
+      if (!waveContainer || !audio || !window.WaveSurfer) return;
+      if (state.waveform) {
+        state.waveform.destroy();
+        state.waveform = null;
+      }
+      state.waveform = new PlayerWaveform(waveContainer, audio, {
+        onReady: () => {
+          applyPendingSeek();
+          updateWaveTime();
+          if (state.pendingAutoplay && state.pendingAutoplay === state.activeId) {
+            state.pendingAutoplay = null;
+            if (state.pendingTimer) {
+              clearTimeout(state.pendingTimer);
+              state.pendingTimer = null;
+            }
+            playWhenReady();
           }
-          playWhenReady();
-        }
+        },
+        onTime: (time) => updateWaveTime(time),
+        onFinish: () => {
+          updateButtons();
+          updateWaveTime();
+        },
       });
-      state.wave.on('interaction', updateWaveTime);
-      state.wave.on('error', (err) => {
-        const msg = String(err || '');
-        if (msg.includes('AbortError')) return;
-      });
+      const result = state.waveform.load(url);
+      if (result && typeof result.catch === 'function') {
+        result.catch(() => {});
+      }
     }
 
     function ensureScopeGraph() {
@@ -303,7 +378,11 @@
       if (!audio || state.pendingSeek === null) return;
       if (!Number.isFinite(audio.duration) || audio.duration <= 0) return;
       const target = Math.max(0, Math.min(state.pendingSeek, Math.max(0, audio.duration - 0.01)));
-      audio.currentTime = target;
+      if (state.waveform) {
+        state.waveform.seekTo(target);
+      } else {
+        audio.currentTime = target;
+      }
       state.pendingSeek = null;
       updateWaveTime();
     }
@@ -316,22 +395,43 @@
         const onReady = () => {
           audio.removeEventListener('loadedmetadata', onReady);
           applyPendingSeek();
-          audio.play().catch(() => {});
+          if (state.waveform) {
+            state.waveform.play();
+          } else {
+            audio.play().catch(() => {});
+          }
         };
         audio.addEventListener('loadedmetadata', onReady, { once: true });
         return;
       }
       applyPendingSeek();
       if (audio.readyState >= 2) {
-        audio.play().catch(() => {});
+        if (state.waveform) {
+          state.waveform.play();
+        } else {
+          audio.play().catch(() => {});
+        }
         return;
       }
       const onReady = () => {
         audio.removeEventListener('canplay', onReady);
         applyPendingSeek();
-        audio.play().catch(() => {});
+        if (state.waveform) {
+          state.waveform.play();
+        } else {
+          audio.play().catch(() => {});
+        }
       };
       audio.addEventListener('canplay', onReady, { once: true });
+    }
+
+    function setClipState(track) {
+      if (!waveBody) return;
+      const metrics = normalizeMetrics(track?.metrics) || {};
+      const tp = metrics.true_peak_dbtp ?? metrics.true_peak_db ?? metrics.true_peak;
+      const peak = metrics.peak_level ?? metrics.peak_db;
+      const clip = (typeof tp === 'number' && tp >= 0) || (typeof peak === 'number' && peak >= 0);
+      waveBody.classList.toggle('is-clip', Boolean(clip));
     }
 
     function loadTrack(track, autoplay) {
@@ -339,7 +439,9 @@
       const isNew = state.activeId !== track.id;
       const wasPlaying = !audio.paused;
       const resumeTime = isNew && wasPlaying ? audio.currentTime : null;
-      if (wasPlaying && isNew) {
+      if (wasPlaying && isNew && state.waveform) {
+        state.waveform.stop();
+      } else if (wasPlaying && isNew) {
         audio.pause();
       }
       if (isNew) {
@@ -347,27 +449,20 @@
       }
       state.activeId = track.id;
       updateWaveMeta(track);
+      setClipState(track);
       const url = `/api/analyze/path?path=${encodeURIComponent(track.rel)}`;
       const srcChanged = audio.src !== url;
       if (srcChanged) {
         audio.src = url;
         audio.load();
-        ensureWave();
-        if (state.wave) {
-          try {
-            const result = state.wave.load(url);
-            if (result && typeof result.catch === 'function') {
-              result.catch(() => {});
-            }
-          } catch (_err) {}
-        }
+        ensureWaveform(url);
       } else if (state.pendingSeek !== null) {
         applyPendingSeek();
       }
       updateWaveTime();
       updateButtons();
       if (autoplay) {
-        if (srcChanged && state.wave) {
+        if (srcChanged) {
           state.pendingAutoplay = track.id;
           if (state.pendingTimer) clearTimeout(state.pendingTimer);
           state.pendingTimer = setTimeout(() => {
@@ -401,16 +496,20 @@
         playBtn.textContent = '▶';
         playBtn.addEventListener('click', (evt) => {
           evt.stopPropagation();
-          if (state.activeId !== track.id) {
-            loadTrack(track, true);
-            return;
-          }
-          if (audio.paused) {
-            playWhenReady();
+        if (state.activeId !== track.id) {
+          loadTrack(track, true);
+          return;
+        }
+        if (audio.paused) {
+          playWhenReady();
+        } else {
+          if (state.waveform) {
+            state.waveform.pause();
           } else {
             audio.pause();
           }
-        });
+        }
+      });
         mainLine.appendChild(playBtn);
 
         const label = document.createElement('div');
@@ -569,7 +668,7 @@
         overflowBtn = document.createElement('button');
         overflowBtn.type = 'button';
         overflowBtn.className = 'badge badge-param player-track-metric-toggle';
-        overflowBtn.textContent = `+${remaining}`;
+        overflowBtn.textContent = 'i';
         overflowBtn.setAttribute('aria-label', 'Show all metrics');
         container.appendChild(overflowBtn);
       }
@@ -639,14 +738,15 @@
       trackList.innerHTML = '';
       updateWaveMeta(null);
       setHint('Select a song to preview.');
+      if (waveBody) waveBody.classList.remove('is-clip');
       if (audio) {
         audio.pause();
         audio.removeAttribute('src');
         audio.load();
       }
-      if (state.wave) {
-        state.wave.destroy();
-        state.wave = null;
+      if (state.waveform) {
+        state.waveform.destroy();
+        state.waveform = null;
       }
     }
 
@@ -667,6 +767,9 @@
         updateScopeOnce();
       });
       audio.addEventListener('ended', () => {
+        if (state.waveform) {
+          state.waveform.stop();
+        }
         updateButtons();
         updateWaveTime();
         updateScopeOnce();
