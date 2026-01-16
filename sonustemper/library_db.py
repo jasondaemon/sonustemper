@@ -1,11 +1,13 @@
 import json
 import sqlite3
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from .storage import LIBRARY_DB, ensure_data_roots, new_song_id, new_version_id
+from .logging_util import log_debug, log_summary, log_error
 
 
 LIBRARY_VERSION = 1
@@ -103,7 +105,7 @@ def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(LIBRARY_DB, timeout=30, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA busy_timeout = 30000")
     return conn
 
 
@@ -118,6 +120,9 @@ def init_db() -> None:
         with _WRITE_LOCK:
             conn = _connect()
             try:
+                conn.execute("PRAGMA journal_mode = WAL")
+                conn.execute("PRAGMA synchronous = NORMAL")
+                conn.execute("PRAGMA busy_timeout = 30000")
                 conn.executescript(
                     """
                 CREATE TABLE IF NOT EXISTS songs (
@@ -358,13 +363,42 @@ def _primary_rendition(renditions: list[dict]) -> dict | None:
 
 def list_library() -> dict:
     init_db()
+    t0 = time.monotonic()
     conn = _connect()
     try:
+        t_conn = time.monotonic()
         songs_rows = conn.execute("SELECT * FROM songs ORDER BY created_at DESC").fetchall()
+        t_songs = (time.monotonic() - t_conn) * 1000
+        if t_songs > 250:
+            log_summary("db", "list_library query slow", query="songs", ms=round(t_songs, 1))
+
+        t_q = time.monotonic()
         song_metrics_rows = conn.execute("SELECT * FROM song_metrics").fetchall()
+        t_song_metrics = (time.monotonic() - t_q) * 1000
+        if t_song_metrics > 250:
+            log_summary("db", "list_library query slow", query="song_metrics", ms=round(t_song_metrics, 1))
+
+        t_q = time.monotonic()
         version_rows = conn.execute("SELECT * FROM versions ORDER BY created_at DESC").fetchall()
+        t_versions = (time.monotonic() - t_q) * 1000
+        if t_versions > 250:
+            log_summary("db", "list_library query slow", query="versions", ms=round(t_versions, 1))
+
+        t_q = time.monotonic()
         version_metrics_rows = conn.execute("SELECT * FROM version_metrics").fetchall()
+        t_version_metrics = (time.monotonic() - t_q) * 1000
+        if t_version_metrics > 250:
+            log_summary("db", "list_library query slow", query="version_metrics", ms=round(t_version_metrics, 1))
+
+        t_q = time.monotonic()
         rendition_rows = conn.execute("SELECT version_id, format, rel FROM renditions ORDER BY rendition_id").fetchall()
+        t_renditions = (time.monotonic() - t_q) * 1000
+        if t_renditions > 250:
+            log_summary("db", "list_library query slow", query="renditions", ms=round(t_renditions, 1))
+    except Exception as exc:
+        elapsed = (time.monotonic() - t0) * 1000
+        log_error("db", "list_library failed", ms=round(elapsed, 1), err=str(exc))
+        raise
     finally:
         conn.close()
 
@@ -433,6 +467,17 @@ def list_library() -> dict:
         }
         songs.append(song)
 
+    total_ms = (time.monotonic() - t0) * 1000
+    if total_ms > 500:
+        log_summary(
+            "db",
+            "list_library slow",
+            ms=round(total_ms, 1),
+            songs=len(songs),
+            versions=len(version_rows),
+        )
+    else:
+        log_debug("db", "list_library ok", ms=round(total_ms, 1), songs=len(songs), versions=len(version_rows))
     return {"version": LIBRARY_VERSION, "songs": songs}
 
 

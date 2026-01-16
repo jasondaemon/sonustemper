@@ -2584,7 +2584,8 @@ def _library_find_version(song: dict, token: str | None) -> dict | None:
 @app.get("/api/library")
 def library_index_endpoint():
     start = time.monotonic()
-    logger.info("[api] /api/library start")
+    req_id = uuid.uuid4().hex[:8]
+    logger.info("[api] /api/library start rid=%s", req_id)
     try:
         lib = library_store.list_library()
         payload = {
@@ -2592,10 +2593,10 @@ def library_index_endpoint():
             "songs": lib.get("songs", []),
         }
         elapsed_ms = (time.monotonic() - start) * 1000
-        logger.info("[api] /api/library ok in %.1fms songs=%s", elapsed_ms, len(payload["songs"]))
+        logger.info("[api] /api/library ok rid=%s in %.1fms songs=%s", req_id, elapsed_ms, len(payload["songs"]))
         return payload
     except Exception:
-        logger.exception("[api] /api/library failed")
+        logger.exception("[api] /api/library failed rid=%s", req_id)
         raise
 
 
