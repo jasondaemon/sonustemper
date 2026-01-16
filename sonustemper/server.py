@@ -185,6 +185,17 @@ logger.info(
     os.getenv("LOG_LEVEL", "error"),
     os.getenv("EVENT_LOG_LEVEL", os.getenv("LOG_LEVEL", "error")),
 )
+if os.getenv("SONUSTEMPER_REQUIRE_CONFIG") == "1":
+    data_root_env = (os.getenv("SONUSTEMPER_DATA_ROOT") or "").strip()
+    db_env = (os.getenv("SONUSTEMPER_LIBRARY_DB") or "").strip()
+    if data_root_env != "/data":
+        raise RuntimeError(
+            "Required config missing: SONUSTEMPER_DATA_ROOT must be /data (shared storage)."
+        )
+    if not db_env.startswith("/db/"):
+        raise RuntimeError(
+            "Required config missing: SONUSTEMPER_LIBRARY_DB must point under /db (local DB mount)."
+        )
 ui_router = None
 logger.info("[startup] UI_APP_DIR=%s exists=%s", UI_APP_DIR, UI_APP_DIR.exists())
 if UI_APP_DIR.exists():
@@ -534,6 +545,8 @@ except AttributeError:
     _uid = "n/a"
     _gid = "n/a"
 logger.info("[startup] DATA_ROOT=%s uid=%s gid=%s", str(DATA_ROOT), _uid, _gid)
+logger.info("[startup] SONUSTEMPER_DATA_ROOT=%s", os.getenv("SONUSTEMPER_DATA_ROOT", ""))
+logger.info("[startup] SONUSTEMPER_REQUIRE_CONFIG=%s", os.getenv("SONUSTEMPER_REQUIRE_CONFIG", "0"))
 logger.info("[startup] PRESETS_DIR=%s", str(PRESETS_DIR))
 logger.info("[startup] LIBRARY_DIR=%s", str(LIBRARY_DIR))
 logger.info("[startup] SONGS_DIR=%s", str(SONGS_DIR))

@@ -15,6 +15,7 @@ services:
       DATA_DIR: "/data"
       SONUSTEMPER_DATA_ROOT: "/data"
       SONUSTEMPER_REQUIRE_DATA_ROOT: "1"
+      SONUSTEMPER_REQUIRE_CONFIG: "1"
       MASTERING_BUILD: "docker"
       # NOTE:
       # /data is shared/NFS for songs + presets.
@@ -29,7 +30,8 @@ services:
       EVENT_LOG_LEVEL: "${EVENT_LOG_LEVEL:-}"
     volumes:
       # /data is shared/NFS for songs + presets
-      - ../data:/data
+      # TODO: replace /HOST_NFS_PATH with your actual NFS mount path on host
+      - /HOST_NFS_PATH:/data
       # IMPORTANT: SQLite DB MUST be local (NOT NFS).
       - ./localdb:/db
     healthcheck:
