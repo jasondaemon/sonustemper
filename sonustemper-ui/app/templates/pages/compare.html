@@ -67,7 +67,7 @@
           <div class="spectro-viewport" id="spectroSourceViewport" hidden>
             <div class="spectro-inner" id="spectroSourceInner">
               <div class="spectro-scrub-line" id="spectroSourceScrub"></div>
-              <img id="spectroSourceImg" alt="Source spectrogram">
+              <img id="spectroSourceImg" alt="Source spectrogram" draggable="false">
             </div>
           </div>
         </div>
@@ -90,7 +90,7 @@
           <div class="spectro-viewport" id="spectroProcessedViewport" hidden>
             <div class="spectro-inner" id="spectroProcessedInner">
               <div class="spectro-scrub-line" id="spectroProcessedScrub"></div>
-              <img id="spectroProcessedImg" alt="Processed spectrogram">
+              <img id="spectroProcessedImg" alt="Processed spectrogram" draggable="false">
             </div>
           </div>
         </div>
@@ -132,7 +132,7 @@
           <span class="zoom-label" id="zoomLabel">1x</span>
           <input type="range" id="zoomRange" min="0" max="5" value="0" step="1">
         </div>
-        <div class="analyze-toggles">
+        <div class="analyze-toggles" id="compareOverlayToggles">
           <label class="analyze-toggle is-active">
             <input type="checkbox" id="togglePeakRisk" checked>
             <span>Peak Risk</span>
@@ -158,6 +158,27 @@
           <span>Low</span>
           <div class="spectro-legend-bar" aria-hidden="true"></div>
           <span>High</span>
+        </div>
+      </div>
+
+      <div class="compare-overview" id="compareOverview">
+        <div class="compare-overview-row">
+          <div class="compare-overview-title">Overview</div>
+          <div class="compare-overview-hint muted">Drag the window to scrub/scroll. Click to jump.</div>
+        </div>
+        <div class="compare-mini-viewport" id="compareMiniWaveViewport">
+          <div class="compare-mini-inner" id="compareMiniWaveInner">
+            <div class="compare-mini-wave" id="compareMiniWaveSource"></div>
+            <div class="compare-mini-wave" id="compareMiniWaveProcessed"></div>
+            <div class="compare-mini-window" id="compareMiniWaveWindow"></div>
+          </div>
+        </div>
+        <div class="compare-mini-viewport compare-mini-viewport--spectro" id="compareMiniSpectroViewport" hidden>
+          <div class="compare-mini-inner" id="compareMiniSpectroInner">
+            <img id="compareMiniSpectroSourceImg" alt="Source spectrogram overview" draggable="false">
+            <img id="compareMiniSpectroProcessedImg" alt="Processed spectrogram overview" draggable="false">
+            <div class="compare-mini-window" id="compareMiniSpectroWindow"></div>
+          </div>
         </div>
       </div>
 
@@ -205,6 +226,7 @@
   const toggleMatchLoudness = document.getElementById('toggleMatchLoudness');
   const toggleViewWaveform = document.getElementById('toggleViewWaveform');
   const toggleViewSpectrogram = document.getElementById('toggleViewSpectrogram');
+  const compareOverlayToggles = document.getElementById('compareOverlayToggles');
 
   const compareAudioSource = document.getElementById('compareAudioSource');
   const compareAudioProcessed = document.getElementById('compareAudioProcessed');
@@ -223,11 +245,23 @@
   const spectroProcessedInner = document.getElementById('spectroProcessedInner');
   const spectroProcessedImg = document.getElementById('spectroProcessedImg');
   const spectroProcessedScrub = document.getElementById('spectroProcessedScrub');
+  const compareMiniWaveViewport = document.getElementById('compareMiniWaveViewport');
+  const compareMiniWaveInner = document.getElementById('compareMiniWaveInner');
+  const compareMiniWaveSource = document.getElementById('compareMiniWaveSource');
+  const compareMiniWaveProcessed = document.getElementById('compareMiniWaveProcessed');
+  const compareMiniWaveWindow = document.getElementById('compareMiniWaveWindow');
+  const compareMiniSpectroViewport = document.getElementById('compareMiniSpectroViewport');
+  const compareMiniSpectroInner = document.getElementById('compareMiniSpectroInner');
+  const compareMiniSpectroSourceImg = document.getElementById('compareMiniSpectroSourceImg');
+  const compareMiniSpectroProcessedImg = document.getElementById('compareMiniSpectroProcessedImg');
+  const compareMiniSpectroWindow = document.getElementById('compareMiniSpectroWindow');
   const compareWaveLegend = document.getElementById('compareWaveLegend');
   const compareSpectroLegend = document.getElementById('compareSpectroLegend');
 
   let sourceWave = null;
   let processedWave = null;
+  let miniSourceWave = null;
+  let miniProcessedWave = null;
   let selectedItem = null;
   let analysisData = null;
   let overlayCleanup = [];
@@ -330,8 +364,13 @@
     const minPxPerSec = Math.max(1, fitMinPxPerSec) * factor;
     if (sourceWave) sourceWave.zoom(minPxPerSec);
     if (processedWave) processedWave.zoom(minPxPerSec);
+    const miniPxPerSec = Math.max(1, fitMinPxPerSec);
+    if (miniSourceWave) miniSourceWave.zoom(miniPxPerSec);
+    if (miniProcessedWave) miniProcessedWave.zoom(miniPxPerSec);
     updateZoomClasses(factor);
     updateSpectrogramZoom();
+    updateMiniSpectrogram();
+    updateOverviewWindow();
     requestAnimationFrame(updateScrollHints);
   }
 
@@ -411,10 +450,10 @@
     } catch (_err) {
       return null;
     }
+    audioEl.muted = false;
     if (typeof audioEl.volume === 'number') {
-      audioEl.volume = 1;
+      audioEl.volume = 0;
     }
-    audioEl.muted = true;
     const gain = ctx.createGain();
     gain.gain.value = 1;
     source.connect(gain);
@@ -463,6 +502,9 @@
     const node = allowCreate ? ensureGainNodeForAudio(audioEl, key) : gainNodes.get(key);
     if (node && node.gain) {
       rampGain(node.gain, gain);
+      if (typeof audioEl.volume === 'number') {
+        audioEl.volume = 0;
+      }
       return;
     }
     rampMediaVolume(audioEl, gain);
@@ -563,27 +605,35 @@
     waveScrollCleanup = [];
     const sourceScroll = getWaveScrollEl(sourceWave);
     const processedScroll = getWaveScrollEl(processedWave);
-    if (!sourceScroll || !processedScroll) return;
+    if (!sourceScroll) return;
     const onSource = () => {
       if (scrollSyncLock) return;
-      scrollSyncLock = true;
-      processedScroll.scrollLeft = sourceScroll.scrollLeft;
-      scrollSyncLock = false;
+      if (processedScroll) {
+        scrollSyncLock = true;
+        processedScroll.scrollLeft = sourceScroll.scrollLeft;
+        scrollSyncLock = false;
+      }
       updateScrollHints();
-    };
-    const onProcessed = () => {
-      if (scrollSyncLock) return;
-      scrollSyncLock = true;
-      sourceScroll.scrollLeft = processedScroll.scrollLeft;
-      scrollSyncLock = false;
-      updateScrollHints();
+      updateOverviewWindow();
     };
     sourceScroll.addEventListener('scroll', onSource, { passive: true });
-    processedScroll.addEventListener('scroll', onProcessed, { passive: true });
     waveScrollCleanup.push(() => {
       sourceScroll.removeEventListener('scroll', onSource);
-      processedScroll.removeEventListener('scroll', onProcessed);
     });
+    if (processedScroll) {
+      const onProcessed = () => {
+        if (scrollSyncLock) return;
+        scrollSyncLock = true;
+        sourceScroll.scrollLeft = processedScroll.scrollLeft;
+        scrollSyncLock = false;
+        updateScrollHints();
+        updateOverviewWindow();
+      };
+      processedScroll.addEventListener('scroll', onProcessed, { passive: true });
+      waveScrollCleanup.push(() => {
+        processedScroll.removeEventListener('scroll', onProcessed);
+      });
+    }
   }
 
   function spectrogramUrl(rel, width, height){
@@ -627,29 +677,152 @@
     updateOne(spectroSourceViewport, spectroSourceInner, spectroSourceImg, analysisData?.source_rel);
     updateOne(spectroProcessedViewport, spectroProcessedInner, spectroProcessedImg, analysisData?.processed_rel);
     syncWaveforms();
+    updateOverviewWindow();
   }
 
   function setupSpectroScrollSync(){
     spectroScrollCleanup.forEach((fn) => fn());
     spectroScrollCleanup = [];
-    if (!spectroSourceViewport || !spectroProcessedViewport) return;
+    if (!spectroSourceViewport) return;
     const onSource = () => {
       if (spectroSyncLock) return;
-      spectroSyncLock = true;
-      spectroProcessedViewport.scrollLeft = spectroSourceViewport.scrollLeft;
-      spectroSyncLock = false;
-    };
-    const onProcessed = () => {
-      if (spectroSyncLock) return;
-      spectroSyncLock = true;
-      spectroSourceViewport.scrollLeft = spectroProcessedViewport.scrollLeft;
-      spectroSyncLock = false;
+      if (spectroProcessedViewport) {
+        spectroSyncLock = true;
+        spectroProcessedViewport.scrollLeft = spectroSourceViewport.scrollLeft;
+        spectroSyncLock = false;
+      }
+      updateOverviewWindow();
     };
     spectroSourceViewport.addEventListener('scroll', onSource, { passive: true });
-    spectroProcessedViewport.addEventListener('scroll', onProcessed, { passive: true });
     spectroScrollCleanup.push(() => {
       spectroSourceViewport.removeEventListener('scroll', onSource);
-      spectroProcessedViewport.removeEventListener('scroll', onProcessed);
+    });
+    if (spectroProcessedViewport) {
+      const onProcessed = () => {
+        if (spectroSyncLock) return;
+        spectroSyncLock = true;
+        spectroSourceViewport.scrollLeft = spectroProcessedViewport.scrollLeft;
+        spectroSyncLock = false;
+        updateOverviewWindow();
+      };
+      spectroProcessedViewport.addEventListener('scroll', onProcessed, { passive: true });
+      spectroScrollCleanup.push(() => {
+        spectroProcessedViewport.removeEventListener('scroll', onProcessed);
+      });
+    }
+  }
+
+  function getMainScrollState(){
+    if (viewMode === 'spectrogram') {
+      if (!spectroSourceViewport || !spectroSourceInner) return null;
+      return {
+        viewport: spectroSourceViewport,
+        scrollLeft: spectroSourceViewport.scrollLeft,
+        viewportWidth: spectroSourceViewport.clientWidth || 0,
+        contentWidth: spectroSourceInner.clientWidth || 0,
+      };
+    }
+    if (!sourceWave || typeof sourceWave.getWrapper !== 'function') return null;
+    const wrapper = sourceWave.getWrapper();
+    const scrollEl = wrapper ? wrapper.parentElement : null;
+    if (!wrapper || !scrollEl) return null;
+    return {
+      viewport: scrollEl,
+      scrollLeft: scrollEl.scrollLeft,
+      viewportWidth: scrollEl.clientWidth || 0,
+      contentWidth: wrapper.scrollWidth || wrapper.clientWidth || 0,
+    };
+  }
+
+  function updateOverviewWindow(){
+    const state = getMainScrollState();
+    const windowEl = viewMode === 'spectrogram' ? compareMiniSpectroWindow : compareMiniWaveWindow;
+    if (!state || !windowEl) return;
+    const { scrollLeft, viewportWidth, contentWidth } = state;
+    if (!contentWidth || !viewportWidth) return;
+    const maxScroll = Math.max(1, contentWidth - viewportWidth);
+    const ratioStart = maxScroll > 0 ? scrollLeft / maxScroll : 0;
+    const ratioWidth = Math.min(1, viewportWidth / contentWidth);
+    windowEl.style.left = `${ratioStart * 100}%`;
+    windowEl.style.width = `${ratioWidth * 100}%`;
+  }
+
+  function scrollMainToRatio(ratio){
+    const state = getMainScrollState();
+    if (!state) return;
+    const { viewportWidth, contentWidth } = state;
+    const maxScroll = Math.max(0, contentWidth - viewportWidth);
+    const target = clamp(ratio, 0, 1) * maxScroll;
+    if (viewMode === 'spectrogram') {
+      if (!spectroSourceViewport) return;
+      spectroSyncLock = true;
+      spectroSourceViewport.scrollLeft = target;
+      if (spectroProcessedViewport) spectroProcessedViewport.scrollLeft = target;
+      spectroSyncLock = false;
+    } else {
+      const scrollEl = sourceWave?.getWrapper?.().parentElement;
+      const procScroll = processedWave?.getWrapper?.().parentElement;
+      if (!scrollEl) return;
+      waveSyncLock = true;
+      scrollEl.scrollLeft = target;
+      if (procScroll) procScroll.scrollLeft = target;
+      waveSyncLock = false;
+    }
+    updateOverviewWindow();
+  }
+
+  function updateMiniSpectrogram(){
+    if (!compareMiniSpectroViewport || !compareMiniSpectroInner) return;
+    const dpr = window.devicePixelRatio || 1;
+    compareMiniSpectroInner.style.width = `${compareMiniSpectroViewport.clientWidth || 0}px`;
+    compareMiniSpectroInner.style.height = `${compareMiniSpectroViewport.clientHeight || 0}px`;
+    const width = Math.max(240, Math.round(compareMiniSpectroViewport.clientWidth * dpr));
+    const height = Math.max(60, Math.round(compareMiniSpectroViewport.clientHeight * dpr));
+    if (compareMiniSpectroSourceImg && analysisData?.source_rel) {
+      compareMiniSpectroSourceImg.src = spectrogramUrl(analysisData.source_rel, width, height);
+    }
+    if (compareMiniSpectroProcessedImg && analysisData?.processed_rel) {
+      compareMiniSpectroProcessedImg.src = spectrogramUrl(analysisData.processed_rel, width, height);
+    }
+  }
+
+  function bindOverviewScrub(viewport, windowEl){
+    if (!viewport || !windowEl) return;
+    let dragging = false;
+    const onMove = (evt) => {
+      if (!dragging) return;
+      const rect = viewport.getBoundingClientRect();
+      const ratio = clamp((evt.clientX - rect.left) / rect.width, 0, 1);
+      scrollMainToRatio(ratio);
+      const duration = getDurationBase();
+      if (duration) seekBoth(duration * ratio);
+    };
+    const onDown = (evt) => {
+      dragging = true;
+      evt.preventDefault();
+      const rect = viewport.getBoundingClientRect();
+      const ratio = clamp((evt.clientX - rect.left) / rect.width, 0, 1);
+      scrollMainToRatio(ratio);
+      const duration = getDurationBase();
+      if (duration) seekBoth(duration * ratio);
+    };
+    const onUp = () => {
+      dragging = false;
+    };
+    viewport.addEventListener('mousedown', onDown);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    viewport.addEventListener('click', (evt) => {
+      const rect = viewport.getBoundingClientRect();
+      const ratio = clamp((evt.clientX - rect.left) / rect.width, 0, 1);
+      scrollMainToRatio(ratio);
+      const duration = getDurationBase();
+      if (duration) seekBoth(duration * ratio);
+    });
+    transportCleanup.push(() => {
+      viewport.removeEventListener('mousedown', onDown);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
     });
   }
 
@@ -673,6 +846,7 @@
     };
     const onDown = (evt) => {
       dragging = true;
+      evt.preventDefault();
       handleSpectroClick(evt, viewport, inner);
     };
     const onUp = () => {
@@ -703,6 +877,11 @@
     }
   }
 
+  function disableImageDrag(img){
+    if (!img) return;
+    img.addEventListener('dragstart', (evt) => evt.preventDefault());
+  }
+
   function setViewMode(mode){
     viewMode = mode === 'spectrogram' ? 'spectrogram' : 'waveform';
     if (toggleViewWaveform) toggleViewWaveform.classList.toggle('is-active', viewMode === 'waveform');
@@ -714,12 +893,22 @@
     if (viewMode === 'spectrogram' && !analysisData?.processed_rel && spectroProcessedViewport) {
       spectroProcessedViewport.hidden = true;
     }
-    if (compareWaveLegend) compareWaveLegend.hidden = viewMode !== 'waveform';
-    if (compareSpectroLegend) compareSpectroLegend.hidden = viewMode !== 'spectrogram';
+    if (compareWaveLegend) {
+      compareWaveLegend.hidden = viewMode !== 'waveform';
+      compareWaveLegend.style.display = viewMode === 'waveform' ? '' : 'none';
+    }
+    if (compareSpectroLegend) {
+      compareSpectroLegend.hidden = viewMode !== 'spectrogram';
+      compareSpectroLegend.style.display = viewMode === 'spectrogram' ? '' : 'none';
+    }
+    if (compareOverlayToggles) compareOverlayToggles.hidden = viewMode === 'spectrogram';
+    if (compareMiniWaveViewport) compareMiniWaveViewport.hidden = viewMode !== 'waveform';
+    if (compareMiniSpectroViewport) compareMiniSpectroViewport.hidden = viewMode !== 'spectrogram';
     if (viewMode === 'spectrogram') {
       waveScrollCleanup.forEach((fn) => fn());
       waveScrollCleanup = [];
       updateSpectrogramZoom();
+      updateMiniSpectrogram();
       setupSpectroScrollSync();
     } else {
       spectroScrollCleanup.forEach((fn) => fn());
@@ -727,6 +916,7 @@
       updateScrollHints();
       setupWaveScrollSync();
     }
+    updateOverviewWindow();
   }
 
   function fitPxPerSecFor(wave){
@@ -1029,6 +1219,9 @@
       }
       if (state.audio) {
         state.audio.muted = false;
+        if (typeof state.audio.volume === 'number') {
+          state.audio.volume = 1;
+        }
       }
     });
     gainNodes.clear();
@@ -1502,6 +1695,14 @@
       processedWave.destroy();
       processedWave = null;
     }
+    if (miniSourceWave) {
+      miniSourceWave.destroy();
+      miniSourceWave = null;
+    }
+    if (miniProcessedWave) {
+      miniProcessedWave.destroy();
+      miniProcessedWave = null;
+    }
     if (compareAudioSource) {
       compareAudioSource.pause();
       compareAudioSource.removeAttribute('src');
@@ -1533,6 +1734,26 @@
     });
   }
 
+  function initMiniWave(containerId){
+    const el = document.getElementById(containerId);
+    if (!el || !window.WaveSurfer) return null;
+    return WaveSurfer.create({
+      container: el,
+      waveColor: '#2a3a4f',
+      progressColor: '#2a3a4f',
+      cursorColor: 'transparent',
+      height: 34,
+      normalize: false,
+      backend: 'MediaElement',
+      minPxPerSec: Math.max(1, fitMinPxPerSec),
+      fillParent: true,
+      autoScroll: false,
+      autoCenter: false,
+      interact: false,
+      cursorWidth: 0,
+    });
+  }
+
   async function loadWave(wave, url){
     if (!wave || !url) return;
     return new Promise((resolve) => {
@@ -1544,6 +1765,16 @@
           showToast('Waveform failed to load');
         }
       });
+      wave.load(url);
+    });
+  }
+
+  async function loadMiniWave(wave, url){
+    if (!wave || !url) return;
+    return new Promise((resolve) => {
+      const done = () => resolve();
+      wave.once('ready', done);
+      wave.once('error', done);
       wave.load(url);
     });
   }
@@ -1732,6 +1963,14 @@
     clearWaves();
     sourceWave = initWave('waveSource');
     processedWave = payload.processed_url ? initWave('waveProcessed') : null;
+    miniSourceWave = initMiniWave('compareMiniWaveSource');
+    miniProcessedWave = payload.processed_url ? initMiniWave('compareMiniWaveProcessed') : null;
+    if (compareMiniWaveProcessed) {
+      compareMiniWaveProcessed.style.display = payload.processed_url ? '' : 'none';
+    }
+    if (compareMiniSpectroProcessedImg) {
+      compareMiniSpectroProcessedImg.style.display = payload.processed_url ? '' : 'none';
+    }
 
     if (compareAudioSource) {
       if (payload.source_url) {
@@ -1754,6 +1993,10 @@
     if (processedWave) {
       await loadWave(processedWave, payload.processed_url);
     }
+    await loadMiniWave(miniSourceWave, payload.source_url);
+    if (miniProcessedWave) {
+      await loadMiniWave(miniProcessedWave, payload.processed_url);
+    }
     updateFitBaseline();
     trackMode = processedWave ? 'both' : 'source';
     applyTrackState();
@@ -1763,8 +2006,10 @@
     updateControls();
     setupOverlays();
     setViewMode(viewMode);
+    updateMiniSpectrogram();
     updateSelectedFromPayload(payload);
     syncWaveforms();
+    updateOverviewWindow();
   }
 
   async function resolveRun(song, out, solo){
@@ -2001,6 +2246,8 @@
       zoomRaf = null;
       updateFitBaseline();
       if (viewMode === 'spectrogram') updateSpectrogramZoom();
+      updateMiniSpectrogram();
+      updateOverviewWindow();
     });
   });
 
@@ -2072,6 +2319,12 @@
   updateFitBaseline();
   updateTrackToggleUI();
   bindSpectrogramInteractions();
+  disableImageDrag(spectroSourceImg);
+  disableImageDrag(spectroProcessedImg);
+  disableImageDrag(compareMiniSpectroSourceImg);
+  disableImageDrag(compareMiniSpectroProcessedImg);
+  bindOverviewScrub(compareMiniWaveViewport, compareMiniWaveWindow);
+  bindOverviewScrub(compareMiniSpectroViewport, compareMiniSpectroWindow);
   bindAudioEvents(compareAudioSource);
   bindAudioEvents(compareAudioProcessed);
 
