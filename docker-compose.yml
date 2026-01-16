@@ -14,6 +14,11 @@ services:
     environment:
       DATA_DIR: "/data"
       MASTERING_BUILD: "docker"
+      # NOTE:
+      # SQLite database MUST be on local storage.
+      # Putting library.sqlite3 on NFS causes WAL lock stalls
+      # and breaks /api/library with multi-second delays.
+      SONUSTEMPER_LIBRARY_DB: "/db/library.sqlite3"
       API_KEY: "${API_KEY:-}"
       API_AUTH_DISABLED: "${API_AUTH_DISABLED:-0}"
       PROXY_SHARED_SECRET: "${PROXY_SHARED_SECRET:-changeme-proxy}"
@@ -22,6 +27,7 @@ services:
       EVENT_LOG_LEVEL: "${EVENT_LOG_LEVEL:-}"
     volumes:
       - ./data:/data
+      - sonustemper-db:/db
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8383/health').read()"]
       interval: 30s
@@ -51,3 +57,11 @@ services:
       BASIC_AUTH_PASS: "${BASIC_AUTH_PASS:-CHANGEME}"
       PROXY_SHARED_SECRET: "${PROXY_SHARED_SECRET:-changeme-proxy}"
     entrypoint: ["/bin/sh", "/entrypoint.sh"]
+
+volumes:
+  sonustemper-db:
+    driver: local
+    # IMPORTANT:
+    # This volume MUST remain local (not NFS).
+    # SQLite + WAL on NFS causes intermittent 10–12s stalls and API timeouts.
+    # Audio files live on /data (can be NFS); the DB must be local.
