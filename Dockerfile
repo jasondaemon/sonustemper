@@ -24,16 +24,16 @@ COPY sonustemper-ui/app/ /app/sonustemper-ui/app/
 COPY assets/ /app/assets/
 
 ENV DATA_DIR=/data \
-    PRESET_DIR=/data/presets/user \
-    GEN_PRESET_DIR=/data/presets/generated \
+    PRESET_DIR=${DATA_DIR}/presets/user \
+    GEN_PRESET_DIR=${DATA_DIR}/presets/generated \
     ASSET_PRESET_DIR=/app/assets/presets
 
 # Prepare writable dirs owned by non-root
 RUN mkdir -p \
-    /data/presets/user /data/presets/generated /data/presets/builtin \
-    /data/library/songs \
-    /data/previews && \
-    chown -R app:app /data /app
+    ${DATA_DIR}/presets/user ${DATA_DIR}/presets/generated ${DATA_DIR}/presets/builtin \
+    ${DATA_DIR}/library/songs \
+    ${DATA_DIR}/previews && \
+    chown -R app:app ${DATA_DIR} /app
 
 USER app
 

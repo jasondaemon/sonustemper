@@ -99,8 +99,8 @@ The backend is the **single source of truth** across all environments.
   - `/data/tagging/in`
   - `/data/tagging/tmp`
 - Presets:
-  - `/data/presets/user`
-  - `/data/presets/generated`
+  - `${DATA_DIR}/presets/user`
+  - `${DATA_DIR}/presets/generated`
 - Analysis:
   - `/data/analysis/in`
   - `/data/analysis/out`

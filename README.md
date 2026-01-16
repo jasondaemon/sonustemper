@@ -77,7 +77,7 @@ SonusTemper is a one-page mastering workstation: drop in a song, choose a voicin
 - Song audio:
   - Sources: `./data/library/songs/<song_id>/source/`
   - Versions: `./data/library/songs/<song_id>/versions/`
-- Presets: `./data/presets/{builtin,user,generated}/`
+- Presets: `${DATA_DIR}/presets/{builtin,user,generated}/`
 - Previews (session temp): `./data/previews/` (TTL-cleaned, non-persistent)
 
 ## Install & run

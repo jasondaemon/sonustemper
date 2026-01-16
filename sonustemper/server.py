@@ -534,6 +534,10 @@ except AttributeError:
     _uid = "n/a"
     _gid = "n/a"
 logger.info("[startup] DATA_ROOT=%s uid=%s gid=%s", str(DATA_ROOT), _uid, _gid)
+logger.info("[startup] PRESETS_DIR=%s", str(PRESETS_DIR))
+logger.info("[startup] LIBRARY_DIR=%s", str(LIBRARY_DIR))
+logger.info("[startup] SONGS_DIR=%s", str(SONGS_DIR))
+logger.info("[startup] PREVIEWS_DIR=%s", str(PREVIEWS_DIR))
 logger.info("[startup] SONUSTEMPER_LIBRARY_DB=%s", _db_info.get("env_db") or "")
 logger.info("[startup] LIBRARY_DB=%s mount=%s", _db_info["LIBRARY_DB"], _db_info["mount_type"])
 if os.getenv("SONUSTEMPER_RECONCILE_ON_BOOT", "1") == "1":

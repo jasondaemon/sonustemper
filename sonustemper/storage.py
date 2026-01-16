@@ -36,6 +36,7 @@ def _can_write(root: Path) -> bool:
 
 def _select_data_root() -> Path:
     env_root = os.getenv("DATA_DIR") or os.getenv("SONUSTEMPER_DATA_ROOT")
+    require_root = os.getenv("SONUSTEMPER_REQUIRE_DATA_ROOT") == "1"
     root = Path(env_root) if env_root else Path("/data")
     try:
         root.mkdir(parents=True, exist_ok=True)
@@ -43,6 +44,8 @@ def _select_data_root() -> Path:
         pass
     if _can_write(root):
         return root
+    if require_root:
+        raise RuntimeError(f"DATA_ROOT not writable: {root}")
     fallback = Path.cwd() / "data"
     try:
         fallback.mkdir(parents=True, exist_ok=True)
@@ -68,7 +71,14 @@ SONGS_DIR = LIBRARY_DIR / "songs"
 def ensure_data_roots() -> None:
     failures = []
     uid, gid = _uid_gid()
-    for path in [PRESETS_DIR, LIBRARY_DIR, SONGS_DIR, PREVIEWS_DIR, LIBRARY_DB.parent]:
+    preset_dirs = [
+        PRESETS_DIR,
+        PRESETS_DIR / "user",
+        PRESETS_DIR / "generated",
+        PRESETS_DIR / "builtin",
+    ]
+    paths = preset_dirs + [LIBRARY_DIR, SONGS_DIR, PREVIEWS_DIR, LIBRARY_DB.parent]
+    for path in paths:
         try:
             path.mkdir(parents=True, exist_ok=True)
         except PermissionError:
