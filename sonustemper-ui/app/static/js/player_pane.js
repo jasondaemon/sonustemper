@@ -170,6 +170,8 @@
     PlayerWaveform.prototype.load = function load(url) {
       if (!this.wave) this.create();
       if (!this.wave) return null;
+      this.media.src = url;
+      this.media.load();
       return this.wave.load(url);
     };
 
@@ -270,6 +272,10 @@
       const result = state.waveform.load(url);
       if (result && typeof result.catch === 'function') {
         result.catch(() => {});
+      }
+      if (audio) {
+        audio.src = url;
+        audio.load();
       }
     }
 
