@@ -527,8 +527,27 @@ FFMPEG_BIN = resolve_tool("ffmpeg")
 FFPROBE_BIN = resolve_tool("ffprobe")
 logger.debug("[startup] ffmpeg=%s ffprobe=%s", FFMPEG_BIN, FFPROBE_BIN)
 _db_info = describe_db_location()
+try:
+    _uid = os.geteuid()
+    _gid = os.getegid()
+except AttributeError:
+    _uid = "n/a"
+    _gid = "n/a"
+logger.info("[startup] DATA_ROOT=%s uid=%s gid=%s", str(DATA_ROOT), _uid, _gid)
 logger.info("[startup] SONUSTEMPER_LIBRARY_DB=%s", _db_info.get("env_db") or "")
 logger.info("[startup] LIBRARY_DB=%s mount=%s", _db_info["LIBRARY_DB"], _db_info["mount_type"])
+if os.getenv("SONUSTEMPER_RECONCILE_ON_BOOT", "1") == "1":
+    try:
+        _reconcile = library_store.reconcile_library_fs()
+        logger.info(
+            "[startup] reconcile removed_songs=%s removed_versions=%s",
+            _reconcile.get("removed_songs"),
+            _reconcile.get("removed_versions"),
+        )
+    except Exception as exc:
+        logger.warning("[startup] reconcile failed: %s", exc)
+else:
+    logger.info("[startup] reconcile skipped (SONUSTEMPER_RECONCILE_ON_BOOT=0)")
 MAX_CONCURRENT_RUNS = int(os.getenv("MAX_CONCURRENT_RUNS", "2"))
 RUNS_IN_FLIGHT = 0
 

@@ -1,19 +1,54 @@
 import os
+import logging
 import re
 import uuid
 from datetime import datetime
 from pathlib import Path
 
+logger = logging.getLogger("sonustemper.storage")
+
+def _uid_gid() -> tuple[str, str]:
+    uid = str(os.geteuid()) if hasattr(os, "geteuid") else "n/a"
+    gid = str(os.getegid()) if hasattr(os, "getegid") else "n/a"
+    return uid, gid
+
+def _can_write(root: Path) -> bool:
+    test_dir = root / ".sonustemper_write_test"
+    test_file = test_dir / "x"
+    try:
+        test_dir.mkdir(parents=True, exist_ok=True)
+        test_file.write_text("ok", encoding="utf-8")
+        test_file.unlink()
+        test_dir.rmdir()
+        return True
+    except Exception:
+        try:
+            if test_file.exists():
+                test_file.unlink()
+        except Exception:
+            pass
+        try:
+            if test_dir.exists():
+                test_dir.rmdir()
+        except Exception:
+            pass
+        return False
+
 def _select_data_root() -> Path:
     env_root = os.getenv("DATA_DIR") or os.getenv("SONUSTEMPER_DATA_ROOT")
-    if env_root:
-        return Path(env_root)
-    root = Path("/data")
+    root = Path(env_root) if env_root else Path("/data")
     try:
         root.mkdir(parents=True, exist_ok=True)
-    except PermissionError:
-        return Path.cwd() / "data"
-    return root
+    except Exception:
+        pass
+    if _can_write(root):
+        return root
+    fallback = Path.cwd() / "data"
+    try:
+        fallback.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        return fallback
+    return fallback
 
 
 DATA_ROOT = _select_data_root()
@@ -31,14 +66,23 @@ SONGS_DIR = LIBRARY_DIR / "songs"
 
 
 def ensure_data_roots() -> None:
-    PRESETS_DIR.mkdir(parents=True, exist_ok=True)
-    LIBRARY_DIR.mkdir(parents=True, exist_ok=True)
-    SONGS_DIR.mkdir(parents=True, exist_ok=True)
-    PREVIEWS_DIR.mkdir(parents=True, exist_ok=True)
-    try:
-        LIBRARY_DB.parent.mkdir(parents=True, exist_ok=True)
-    except PermissionError:
-        pass
+    failures = []
+    uid, gid = _uid_gid()
+    for path in [PRESETS_DIR, LIBRARY_DIR, SONGS_DIR, PREVIEWS_DIR, LIBRARY_DB.parent]:
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except PermissionError:
+            logger.warning(
+                "[storage] Permission denied creating %s (DATA_ROOT=%s uid=%s gid=%s). "
+                "Fix bind mount permissions or run container with matching uid/gid.",
+                path,
+                DATA_ROOT,
+                uid,
+                gid,
+            )
+            failures.append(path)
+    if failures:
+        raise RuntimeError(f"DATA_ROOT not writable: {DATA_ROOT}")
 
 
 def detect_mount_type(p: Path) -> str:

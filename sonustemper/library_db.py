@@ -7,7 +7,9 @@ from pathlib import Path
 from typing import Any
 
 from .storage import (
+    DATA_ROOT,
     LIBRARY_DB,
+    SONGS_DIR,
     ensure_data_roots,
     new_song_id,
     new_version_id,
@@ -980,3 +982,117 @@ def update_last_used(song_id: str) -> None:
 def version_primary_rendition(version: dict) -> dict | None:
     renditions = version.get("renditions") or []
     return _primary_rendition(renditions)
+
+
+def _song_dir_from_rel(rel: str) -> Path:
+    rel_path = Path((rel or "").lstrip("/"))
+    parts = rel_path.parts
+    if "songs" in parts:
+        idx = parts.index("songs")
+        if idx + 1 < len(parts):
+            return DATA_ROOT / Path(*parts[: idx + 2])
+    return (DATA_ROOT / rel_path).parent.parent
+
+
+def reconcile_library_fs(max_log_examples: int = 10) -> dict:
+    init_db()
+    if not SONGS_DIR.exists():
+        log_summary("db", "reconcile skipped: SONGS_DIR missing", path=str(SONGS_DIR))
+        return {
+            "removed_versions": 0,
+            "removed_songs": 0,
+            "kept_versions": 0,
+            "kept_songs": 0,
+        }
+    removed_versions: list[str] = []
+    removed_songs: list[str] = []
+    kept_versions = 0
+    kept_songs = 0
+    examples: list[str] = []
+    conn = _connect()
+    try:
+        song_rows = conn.execute("SELECT song_id, source_rel FROM songs").fetchall()
+        version_rows = conn.execute("SELECT version_id, song_id FROM versions").fetchall()
+        rendition_rows = conn.execute(
+            "SELECT r.version_id, v.song_id, r.format, r.rel FROM renditions r "
+            "JOIN versions v ON v.version_id = r.version_id"
+        ).fetchall()
+        log_summary("db", "reconcile start", songs=len(song_rows), versions=len(version_rows))
+
+        renditions_by_version: dict[str, list[dict]] = {}
+        for row in rendition_rows:
+            renditions_by_version.setdefault(row["version_id"], []).append(
+                {
+                    "format": (row["format"] or "").lower(),
+                    "rel": row["rel"],
+                    "song_id": row["song_id"],
+                }
+            )
+
+        song_missing: set[str] = set()
+        for row in song_rows:
+            song_id = row["song_id"]
+            source_rel = (row["source_rel"] or "").lstrip("/")
+            source_path = DATA_ROOT / source_rel
+            song_dir = _song_dir_from_rel(source_rel)
+            if not song_dir.exists() or not source_path.exists():
+                removed_songs.append(song_id)
+                song_missing.add(song_id)
+                if len(examples) < max_log_examples:
+                    examples.append(f"song:{song_id}")
+            else:
+                kept_songs += 1
+
+        for row in version_rows:
+            version_id = row["version_id"]
+            song_id = row["song_id"]
+            if song_id in song_missing:
+                removed_versions.append(version_id)
+                continue
+            renditions = renditions_by_version.get(version_id, [])
+            if not renditions:
+                removed_versions.append(version_id)
+                if len(examples) < max_log_examples:
+                    examples.append(f"version:{version_id}")
+                continue
+            wav = next((r for r in renditions if r["format"] == "wav"), None)
+            if wav:
+                wav_path = DATA_ROOT / (wav["rel"] or "").lstrip("/")
+                if not wav_path.exists():
+                    removed_versions.append(version_id)
+                    if len(examples) < max_log_examples:
+                        examples.append(f"version:{version_id}")
+                else:
+                    kept_versions += 1
+            else:
+                removed_versions.append(version_id)
+                if len(examples) < max_log_examples:
+                    examples.append(f"version:{version_id}")
+
+        with _WRITE_LOCK:
+            if removed_versions:
+                placeholders = ",".join(["?"] * len(removed_versions))
+                conn.execute(f"DELETE FROM versions WHERE version_id IN ({placeholders})", removed_versions)
+            if removed_songs:
+                placeholders = ",".join(["?"] * len(removed_songs))
+                conn.execute(f"DELETE FROM songs WHERE song_id IN ({placeholders})", removed_songs)
+            conn.commit()
+    except Exception as exc:
+        log_error("db", "reconcile failed", err=str(exc))
+    finally:
+        conn.close()
+
+    log_summary(
+        "db",
+        "reconcile removed",
+        removed_songs=len(removed_songs),
+        removed_versions=len(removed_versions),
+    )
+    if examples:
+        log_debug("db", "reconcile examples", examples=examples)
+    return {
+        "removed_versions": len(removed_versions),
+        "removed_songs": len(removed_songs),
+        "kept_versions": kept_versions,
+        "kept_songs": kept_songs,
+    }
