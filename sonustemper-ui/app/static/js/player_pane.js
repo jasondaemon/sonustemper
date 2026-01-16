@@ -91,6 +91,7 @@
       song: null,
       tracks: [],
       activeId: null,
+      playheadTime: 0,
       wave: null,
       scope: {
         node: null,
@@ -104,6 +105,7 @@
       outputGain: null,
       pendingAutoplay: null,
       pendingTimer: null,
+      pendingSeek: null,
     };
 
     function setHint(text) {
@@ -126,6 +128,7 @@
       if (!audio || !waveTime || !waveDuration) return;
       waveTime.textContent = formatDuration(audio.currentTime || 0);
       waveDuration.textContent = formatDuration(audio.duration || 0);
+      state.playheadTime = audio.currentTime || 0;
     }
 
     function updateButtons() {
@@ -223,8 +226,8 @@
         return;
       }
       state.scope.last = now;
-      const width = scopeCanvas.clientWidth;
-      const height = scopeCanvas.clientHeight;
+      const width = waveContainer?.clientWidth || scopeCanvas.clientWidth;
+      const height = waveContainer?.clientHeight || scopeCanvas.clientHeight;
       if (!width || !height) {
         state.scope.raf = requestAnimationFrame(drawScopeFrame);
         return;
@@ -296,16 +299,36 @@
       drawScopeFrame();
     }
 
+    function applyPendingSeek() {
+      if (!audio || state.pendingSeek === null) return;
+      if (!Number.isFinite(audio.duration) || audio.duration <= 0) return;
+      const target = Math.max(0, Math.min(state.pendingSeek, Math.max(0, audio.duration - 0.01)));
+      audio.currentTime = target;
+      state.pendingSeek = null;
+      updateWaveTime();
+    }
+
     function playWhenReady() {
       if (!audio) return;
       ensureScopeGraph();
       resumeScopeAudio();
+      if (state.pendingSeek !== null && (!Number.isFinite(audio.duration) || audio.duration <= 0)) {
+        const onReady = () => {
+          audio.removeEventListener('loadedmetadata', onReady);
+          applyPendingSeek();
+          audio.play().catch(() => {});
+        };
+        audio.addEventListener('loadedmetadata', onReady, { once: true });
+        return;
+      }
+      applyPendingSeek();
       if (audio.readyState >= 2) {
         audio.play().catch(() => {});
         return;
       }
       const onReady = () => {
         audio.removeEventListener('canplay', onReady);
+        applyPendingSeek();
         audio.play().catch(() => {});
       };
       audio.addEventListener('canplay', onReady, { once: true });
@@ -314,11 +337,13 @@
     function loadTrack(track, autoplay) {
       if (!audio || !track?.rel) return;
       const isNew = state.activeId !== track.id;
-      if (!audio.paused && isNew) {
+      const wasPlaying = !audio.paused;
+      const resumeTime = isNew && wasPlaying ? audio.currentTime : null;
+      if (wasPlaying && isNew) {
         audio.pause();
       }
       if (isNew) {
-        audio.currentTime = 0;
+        state.pendingSeek = resumeTime !== null ? resumeTime : 0;
       }
       state.activeId = track.id;
       updateWaveMeta(track);
@@ -336,6 +361,8 @@
             }
           } catch (_err) {}
         }
+      } else if (state.pendingSeek !== null) {
+        applyPendingSeek();
       }
       updateWaveTime();
       updateButtons();
@@ -405,14 +432,27 @@
         }
         mainLine.appendChild(pills);
 
-        const metrics = renderMetricPills(track);
-        if (metrics) {
+        const metricsData = renderMetricPills(track);
+        let metricDetails = null;
+        if (metricsData) {
           const metricsWrap = document.createElement('div');
           metricsWrap.className = 'player-track-metrics';
-          metricsWrap.appendChild(metrics);
+          metricsWrap.appendChild(metricsData.container);
           mainLine.appendChild(metricsWrap);
+          if (metricsData.rows && metricsData.rows.length > 4 && metricsData.overflowBtn) {
+            metricDetails = renderMetricDetails(metricsData.rows);
+            metricsData.overflowBtn.addEventListener('click', (evt) => {
+              evt.stopPropagation();
+              const shouldShow = metricDetails.hidden;
+              metricDetails.hidden = !shouldShow;
+              metricsData.overflowBtn.classList.toggle('is-open', shouldShow);
+            });
+          }
         }
         card.appendChild(mainLine);
+        if (metricDetails) {
+          card.appendChild(metricDetails);
+        }
 
         const actions = document.createElement('div');
         actions.className = 'player-track-line player-track-line--actions';
@@ -467,7 +507,7 @@
       return ` (${sign}${diff.toFixed(1)})`;
     }
 
-    function renderMetricPills(track) {
+    function buildMetricData(track) {
       const metrics = normalizeMetrics(track.metrics);
       const sourceMetrics = normalizeMetrics(track.song?.source?.metrics);
       if (track.kind === 'version') {
@@ -476,11 +516,9 @@
         return null;
       }
       const displayMetrics = track.kind === 'version' ? metrics : (metrics || sourceMetrics);
-      const container = document.createElement('div');
-      container.className = 'player-track-metric-pills';
       const items = [
         { label: 'LUFS', keys: ['lufs_i', 'lufs', 'I'], unit: '' },
-        { label: 'TP', keys: ['true_peak_db', 'true_peak', 'TP'], unit: '' },
+        { label: 'TP', keys: ['true_peak_dbtp', 'true_peak_db', 'true_peak', 'TP'], unit: '' },
         { label: 'LRA', keys: ['lra', 'LRA'], unit: '' },
         { label: 'Crest', keys: ['crest_db', 'crest', 'crest_factor'], unit: '' },
         { label: 'RMS', keys: ['rms_db', 'rms_level'], unit: '' },
@@ -489,39 +527,76 @@
         { label: 'Noise', keys: ['noise_floor_db', 'noise_floor'], unit: '' },
         { label: 'Corr', keys: ['stereo_corr'], unit: '' },
         { label: 'Width', keys: ['width'], unit: '' },
-        { label: 'Target I', keys: ['target_I'], unit: '' },
-        { label: 'Target TP', keys: ['target_TP'], unit: '' },
+        { label: 'Target I', keys: ['target_i', 'target_I'], unit: '' },
+        { label: 'Target TP', keys: ['target_tp', 'target_TP'], unit: '' },
         { label: 'TP Margin', keys: ['tp_margin'], unit: '' },
         { label: 'Dur', keys: ['duration_sec'], unit: 's' },
       ];
       const canDelta = track.kind === 'version' && metrics && sourceMetrics;
-      const collected = [];
+      const rows = [];
       items.forEach((item) => {
         const value = metricValue(displayMetrics, item.keys);
         if (typeof value !== 'number') return;
         const sourceValue = metricValue(sourceMetrics, item.keys);
         const delta = canDelta ? formatDelta(value, sourceValue) : '';
-        const formatted = item.label === 'Dur'
-          ? `${item.label} ${Math.round(value)}${item.unit}${delta}`
-          : `${item.label} ${value.toFixed(1)}${item.unit}${delta}`;
-        collected.push(formatted);
+        const valueText = item.label === 'Dur'
+          ? `${Math.round(value)}${item.unit}${delta}`
+          : `${value.toFixed(1)}${item.unit}${delta}`;
+        rows.push({
+          label: item.label,
+          value: valueText,
+          pill: `${item.label} ${valueText}`,
+        });
       });
-      const primary = collected.slice(0, 4);
-      primary.forEach((text) => {
+      return rows.length ? { rows } : null;
+    }
+
+    function renderMetricPills(track) {
+      const data = buildMetricData(track);
+      if (!data) return null;
+      const container = document.createElement('div');
+      container.className = 'player-track-metric-pills';
+      const primary = data.rows.slice(0, 4);
+      primary.forEach((row) => {
         const pill = document.createElement('span');
         pill.className = 'badge badge-param';
-        pill.textContent = text;
+        pill.textContent = row.pill;
         container.appendChild(pill);
       });
-      const remaining = collected.length - primary.length;
+      const remaining = data.rows.length - primary.length;
+      let overflowBtn = null;
       if (remaining > 0) {
-        const overflow = document.createElement('span');
-        overflow.className = 'badge badge-param';
-        overflow.textContent = `+${remaining}`;
-        overflow.title = collected.join(' | ');
-        container.appendChild(overflow);
+        overflowBtn = document.createElement('button');
+        overflowBtn.type = 'button';
+        overflowBtn.className = 'badge badge-param player-track-metric-toggle';
+        overflowBtn.textContent = `+${remaining}`;
+        overflowBtn.setAttribute('aria-label', 'Show all metrics');
+        container.appendChild(overflowBtn);
       }
-      return container.children.length ? container : null;
+      return { container, rows: data.rows, overflowBtn };
+    }
+
+    function renderMetricDetails(rows) {
+      const details = document.createElement('div');
+      details.className = 'player-track-details';
+      details.hidden = true;
+      const table = document.createElement('div');
+      table.className = 'player-metrics-table';
+      rows.forEach((row) => {
+        const item = document.createElement('div');
+        item.className = 'player-metrics-item';
+        const label = document.createElement('span');
+        label.className = 'player-metrics-label';
+        label.textContent = row.label;
+        const value = document.createElement('span');
+        value.className = 'player-metrics-value';
+        value.textContent = row.value;
+        item.appendChild(label);
+        item.appendChild(value);
+        table.appendChild(item);
+      });
+      details.appendChild(table);
+      return details;
     }
 
     function makePill(text, className) {
@@ -577,6 +652,10 @@
 
     if (audio) {
       audio.addEventListener('timeupdate', updateWaveTime);
+      audio.addEventListener('loadedmetadata', () => {
+        applyPendingSeek();
+        updateWaveTime();
+      });
       audio.addEventListener('play', () => {
         ensureScopeGraph();
         resumeScopeAudio();

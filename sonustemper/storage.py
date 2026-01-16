@@ -20,7 +20,6 @@ DATA_ROOT = _select_data_root()
 PRESETS_DIR = DATA_ROOT / "presets"
 LIBRARY_DIR = DATA_ROOT / "library"
 PREVIEWS_DIR = DATA_ROOT / "previews"
-LIBRARY_FILE = LIBRARY_DIR / "library.json"
 LIBRARY_DB = LIBRARY_DIR / "library.sqlite3"
 SONGS_DIR = LIBRARY_DIR / "songs"
 

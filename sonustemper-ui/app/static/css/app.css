@@ -449,8 +449,9 @@ h1{margin:0;font-size:24px;}
 }
 .library-song-actions{
   display:flex;
-  justify-content:flex-end;
+  align-items:center;
   gap:6px;
+  margin-left:auto;
 }
 .library-version-list{
   display:flex;
@@ -481,6 +482,9 @@ h1{margin:0;font-size:24px;}
   display:flex;
   gap:6px;
   flex-wrap:wrap;
+}
+.library-meta-overflow{
+  cursor:pointer;
 }
 .library-version-actions{
   margin-left:auto;
@@ -597,20 +601,68 @@ h1{margin:0;font-size:24px;}
 }
 .player-wave-body{
   position:relative;
+  width:100%;
   height:160px;
   border-radius:10px;
   overflow:hidden;
 }
 .player-waveform{
   height:160px;
+  width:100%;
   position:relative;
   z-index:1;
 }
+.player-wave-overlay{
+  position:absolute;
+  inset:0;
+  border-radius:10px;
+  pointer-events:none;
+  z-index:4;
+}
+.player-wave-danger{
+  position:absolute;
+  left:0;
+  right:0;
+  height:12%;
+  background:rgba(255,80,80,0.08);
+}
+.player-wave-danger--top{top:0;}
+.player-wave-danger--bottom{bottom:0;}
+.player-wave-line{
+  position:absolute;
+  left:0;
+  right:0;
+  height:1px;
+  background:rgba(255,255,255,0.10);
+}
+.player-wave-line--zero{
+  top:50%;
+  background:rgba(255,255,255,0.12);
+}
+.player-wave-line--clip-top{
+  top:12%;
+  background:rgba(255,80,80,0.28);
+}
+.player-wave-line--clip-bottom{
+  bottom:12%;
+  background:rgba(255,80,80,0.28);
+}
+.player-wave-label{
+  position:absolute;
+  left:8px;
+  font-size:11px;
+  color:rgba(255,255,255,0.55);
+  background:rgba(0,0,0,0.25);
+  padding:2px 6px;
+  border-radius:999px;
+}
+.player-wave-label--clip{top:calc(12% - 10px);color:rgba(255,120,120,0.85);}
+.player-wave-label--zero{top:calc(50% - 10px);}
 .player-live-scope{
   position:absolute;
   inset:0;
   pointer-events:none;
-  z-index:3;
+  z-index:5;
   opacity:0.9;
 }
 .player-wave-time{
@@ -676,6 +728,42 @@ h1{margin:0;font-size:24px;}
   gap:6px;
   flex-wrap:wrap;
   justify-content:flex-end;
+}
+.player-track-metric-toggle{
+  background:inherit;
+  border-color:inherit;
+  color:inherit;
+  cursor:pointer;
+  font:inherit;
+  padding:2px 8px;
+}
+.player-track-metric-toggle.is-open{
+  border-color:rgba(255,138,61,0.5);
+  color:var(--text);
+}
+.player-track-details{
+  border-top:1px dashed var(--line);
+  padding:6px 0;
+}
+.player-metrics-table{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(140px, 1fr));
+  gap:6px 12px;
+  font-size:11px;
+  color:var(--muted);
+}
+.player-metrics-item{
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  gap:8px;
+}
+.player-metrics-item .player-metrics-label{
+  color:var(--muted);
+}
+.player-metrics-item .player-metrics-value{
+  color:var(--text);
+  font-weight:600;
 }
 .player-track-downloads .badge{
   transition: box-shadow 0.2s ease, border-color 0.2s ease, color 0.2s ease;
@@ -1681,6 +1769,12 @@ h1{margin:0;font-size:24px;}
   border:0;
   color:#05110f;
   font-weight:800;
+}
+.btn.success{
+  background:linear-gradient(180deg, rgba(96,198,110,0.95), rgba(96,198,110,0.75));
+  border:0;
+  color:#04110a;
+  font-weight:700;
 }
 .btn.small{padding:6px 10px;font-size:13px;}
 .btn.icon{

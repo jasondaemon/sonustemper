@@ -1,5 +1,4 @@
 (() => {
-  const VIEW_KEY = 'sonustemper.libraryView';
   const SORT_KEY = 'sonustemper.librarySort';
   const EXPAND_KEY = 'sonustemper.libraryExpanded';
   const SEARCH_KEY = 'sonustemper.librarySearch';
@@ -72,7 +71,6 @@
     const module = options.module || container.dataset.module || 'generic';
     const isMastering = module === 'mastering';
     const state = {
-      view: localStorage.getItem(VIEW_KEY) || 'simple',
       sort: localStorage.getItem(SORT_KEY) || 'recent',
       expanded: loadJson(EXPAND_KEY, {}),
       search: localStorage.getItem(SEARCH_KEY) || '',
@@ -89,11 +87,7 @@
             <option value="az">A–Z</option>
             <option value="versions">Most Versions</option>
           </select>
-          <div class="pill-toggle library-view-toggle">
-            <button class="btn ghost tiny" data-view="simple" type="button">Simple</button>
-            <button class="btn ghost tiny" data-view="extended" type="button">Extended</button>
-          </div>
-          <button class="btn ghost tiny library-import-btn" type="button">Import file</button>
+          <button class="btn success tiny library-import-btn" type="button">Import Song(s)</button>
         </div>
         <div class="library-browser-list"></div>
       </div>
@@ -101,17 +95,10 @@
 
     const searchInput = container.querySelector('.library-search');
     const sortSelect = container.querySelector('.library-sort');
-    const viewToggle = container.querySelector('.library-view-toggle');
     const importBtn = container.querySelector('.library-import-btn');
     const listEl = container.querySelector('.library-browser-list');
     const unsortedWrap = null;
     const unsortedList = null;
-
-    function setView(view) {
-      state.view = view === 'extended' ? 'extended' : 'simple';
-      localStorage.setItem(VIEW_KEY, state.view);
-      renderList();
-    }
 
     function setSort(value) {
       state.sort = value;
@@ -241,12 +228,12 @@
           evt.stopPropagation();
           emit('library:add-to-input', { song });
         });
-        const playBtn = document.createElement('button');
-        playBtn.type = 'button';
-        playBtn.className = 'btn ghost tiny';
-        playBtn.textContent = '▶';
-        playBtn.title = 'Play';
-        playBtn.addEventListener('click', (evt) => {
+        const loadBtn = document.createElement('button');
+        loadBtn.type = 'button';
+        loadBtn.className = 'btn ghost tiny';
+        loadBtn.textContent = '➜';
+        loadBtn.title = 'Open Player';
+        loadBtn.addEventListener('click', (evt) => {
           evt.stopPropagation();
           emit('library:play-song', { song });
         });
@@ -260,25 +247,17 @@
           emit('library:delete-song', { song });
         });
         actions.appendChild(addBtn);
-        actions.appendChild(playBtn);
+        actions.appendChild(loadBtn);
         actions.appendChild(delBtn);
-        row.appendChild(actions);
+        header.appendChild(actions);
       }
 
-      const showVersions = state.view === 'extended' || state.view === 'simple' || state.expanded[song.song_id];
-      if (showVersions) {
+      if (state.expanded[song.song_id]) {
         const list = document.createElement('div');
         list.className = 'library-version-list';
-        if (state.view === 'simple') {
-          const latest = song.latest_version || (song.versions || []).slice(-1)[0];
-          if (latest) {
-            list.appendChild(renderVersionRow(song, { kind: 'version', ...latest }));
-          }
-        } else {
-          (song.versions || []).forEach((version) => {
-            list.appendChild(renderVersionRow(song, { kind: 'version', ...version }));
-          });
-        }
+        (song.versions || []).forEach((version) => {
+          list.appendChild(renderVersionRow(song, { kind: 'version', ...version }));
+        });
         row.appendChild(list);
       }
       return row;
@@ -296,19 +275,38 @@
       }
       const meta = document.createElement('div');
       meta.className = 'library-version-meta';
+      if (version.utility) meta.appendChild(makeBadge(version.utility, 'badge-utility'));
       if (version.summary?.voicing) meta.appendChild(makeBadge(version.summary.voicing, 'badge-voicing'));
       if (version.summary?.loudness_profile) meta.appendChild(makeBadge(version.summary.loudness_profile, 'badge-profile'));
-      const renditions = Array.isArray(version.renditions) ? version.renditions : [];
-      const lossyFormats = [];
-      renditions.forEach((item) => {
-        const fmt = String(item.format || '').toLowerCase();
-        if (isLossy(fmt) && !lossyFormats.includes(fmt)) {
-          lossyFormats.push(fmt);
+      const metaOverflow = makeBadge('⋯', 'badge-param library-meta-overflow');
+      const metaLines = [];
+      if (version.label) metaLines.push(`Label: ${version.label}`);
+      if (version.title) metaLines.push(`Title: ${version.title}`);
+      if (version.utility) metaLines.push(`Utility: ${version.utility}`);
+      if (version.summary?.voicing) metaLines.push(`Voicing: ${version.summary.voicing}`);
+      if (version.summary?.loudness_profile) metaLines.push(`Profile: ${version.summary.loudness_profile}`);
+      const metrics = version.metrics || {};
+      const metricsMap = [
+        ['LUFS', metrics.lufs_i],
+        ['TP', metrics.true_peak_dbtp ?? metrics.true_peak_db],
+        ['LRA', metrics.lra],
+        ['Crest', metrics.crest_factor],
+        ['DR', metrics.dynamic_range],
+        ['RMS', metrics.rms_level],
+        ['Peak', metrics.peak_level],
+        ['Noise', metrics.noise_floor],
+        ['Width', metrics.width],
+        ['Duration', metrics.duration_sec ? `${Math.round(metrics.duration_sec)}s` : null],
+      ];
+      metricsMap.forEach(([label, value]) => {
+        if (typeof value === 'number' || typeof value === 'string') {
+          metaLines.push(`${label}: ${typeof value === 'number' ? value.toFixed(1) : value}`);
         }
       });
-      if (lossyFormats.length) {
-        const label = lossyFormats.slice(0, 2).map((f) => f.toUpperCase()).join('+');
-        meta.appendChild(makeBadge(label, 'badge-format'));
+      if (metaLines.length) {
+        metaOverflow.title = metaLines.join('\n');
+        metaOverflow.setAttribute('aria-label', 'Show metadata');
+        meta.appendChild(metaOverflow);
       }
 
       const actions = document.createElement('div');
@@ -459,10 +457,6 @@
       if (unsortedWrap) {
         unsortedWrap.hidden = true;
       }
-      const buttons = viewToggle.querySelectorAll('button');
-      buttons.forEach((btn) => {
-        btn.classList.toggle('is-active', btn.dataset.view === state.view);
-      });
     }
 
     async function loadLibrary() {
@@ -487,14 +481,8 @@
     sortSelect.value = state.sort;
     searchInput.addEventListener('input', () => setSearch(searchInput.value));
     sortSelect.addEventListener('change', () => setSort(sortSelect.value));
-    viewToggle.addEventListener('click', (evt) => {
-      const btn = evt.target.closest('button[data-view]');
-      if (!btn) return;
-      setView(btn.dataset.view);
-    });
     importBtn.addEventListener('click', () => emit('library:action', { action: 'import-file' }));
 
-    setView(state.view);
     loadLibrary();
 
     return {

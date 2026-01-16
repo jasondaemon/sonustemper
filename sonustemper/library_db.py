@@ -194,6 +194,7 @@ def init_db() -> None:
                 conn.execute("ALTER TABLE versions ADD COLUMN voicing TEXT")
             if "loudness_profile" not in columns:
                 conn.execute("ALTER TABLE versions ADD COLUMN loudness_profile TEXT")
+            conn.execute("UPDATE songs SET source_metrics_json = '{}' WHERE source_metrics_json IS NOT NULL AND source_metrics_json != '{}'")
             rows = conn.execute(
                 "SELECT version_id, summary_json, voicing, loudness_profile FROM versions"
             ).fetchall()
@@ -219,6 +220,7 @@ def init_db() -> None:
                     "UPDATE versions SET voicing = ?, loudness_profile = ?, summary_json = ? WHERE version_id = ?",
                     (voicing, profile, "{}", row["version_id"]),
                 )
+            conn.execute("UPDATE versions SET metrics_json = '{}' WHERE metrics_json IS NOT NULL AND metrics_json != '{}'")
         finally:
             conn.close()
 
@@ -305,16 +307,12 @@ def _merge_summary_metrics(metrics: dict | None, summary: dict | None) -> dict:
     merged = dict(metrics or {})
     if not isinstance(summary, dict):
         return merged
-    if "target_lufs" in summary and "target_I" not in merged and "target_i" not in merged:
-        merged["target_I"] = summary.get("target_lufs")
-    if "target_tp" in summary and "target_TP" not in merged and "target_tp" not in merged:
-        merged["target_TP"] = summary.get("target_tp")
-    if "delta_I" in summary and "delta_I" not in merged and "delta_i" not in merged:
-        merged["delta_I"] = summary.get("delta_I")
-    if "delta_i" in summary and "delta_I" not in merged and "delta_i" not in merged:
-        merged["delta_I"] = summary.get("delta_i")
-    if "tp_margin" in summary and "tp_margin" not in merged:
-        merged["tp_margin"] = summary.get("tp_margin")
+    for key, value in summary.items():
+        if key not in METRIC_SUMMARY_KEYS:
+            continue
+        if key in merged:
+            continue
+        merged[key] = value
     return merged
 
 
@@ -588,7 +586,7 @@ def upsert_song_for_source(
     now = _now_iso()
     title = _clean_title(title_hint or Path(rel).stem)
     mapped_metrics = _map_metrics(metrics, prefer_output=False, duration_override=duration_sec)
-    raw_metrics_json = json.dumps(metrics or {})
+    raw_metrics_json = "{}"
 
     with _WRITE_LOCK:
         conn = _connect()
@@ -688,7 +686,7 @@ def upsert_song_for_source(
     return song
 
 
-def add_version(
+def create_version_with_renditions(
     song_id: str,
     kind: str,
     label: str,
@@ -716,6 +714,8 @@ def add_version(
             exists = conn.execute("SELECT song_id FROM songs WHERE song_id = ?", (song_id,)).fetchone()
             if not exists:
                 raise ValueError("song_not_found")
+            if not renditions:
+                raise ValueError("missing_renditions")
             conn.execute(
                 """
                 INSERT INTO versions (version_id, song_id, kind, title, label, utility, voicing, loudness_profile,
@@ -790,6 +790,30 @@ def add_version(
         if version.get("version_id") == version_id:
             return version
     raise ValueError("version_not_found")
+
+
+def add_version(
+    song_id: str,
+    kind: str,
+    label: str,
+    title: str,
+    summary: dict | None,
+    metrics: dict | None,
+    renditions: list[dict],
+    version_id: str | None = None,
+    utility: str | None = None,
+) -> dict:
+    return create_version_with_renditions(
+        song_id,
+        kind,
+        label,
+        title,
+        summary,
+        metrics,
+        renditions,
+        version_id=version_id,
+        utility=utility,
+    )
 
 
 def delete_song(song_id: str) -> tuple[bool, list[str]]:

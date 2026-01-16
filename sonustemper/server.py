@@ -574,7 +574,7 @@ def _import_master_outputs(song_id: str, run_dir: Path, summary: dict | None = N
         metrics = _normalize_metrics_keys(metrics)
     if renditions:
         title = song.get("title") or "Master"
-        entry = library_store.add_version(
+        entry = library_store.create_version_with_renditions(
             song_id,
             "master",
             "Master",
@@ -2683,7 +2683,7 @@ def library_add_version(payload: dict = Body(...)):
     if not normalized_renditions:
         raise HTTPException(status_code=400, detail="missing_fields")
     try:
-        version = library_store.add_version(
+        version = library_store.create_version_with_renditions(
             song_id,
             kind,
             label,
@@ -3748,16 +3748,6 @@ def analyze_resolve(song: str, out: str = "", solo: bool = False):
     processed_path = _resolve_analysis_path(version["rel"]) if version else None
     metrics_input = song_entry.get("source", {}).get("metrics") or None
     metrics_output = version.get("metrics") if version else None
-    if not metrics_input:
-        try:
-            metrics_input = basic_metrics(source_path)
-        except Exception:
-            metrics_input = None
-    if version and not metrics_output:
-        try:
-            metrics_output = basic_metrics(processed_path) if processed_path else None
-        except Exception:
-            metrics_output = None
     if solo and processed_path:
         payload = {
             "run_id": song_entry.get("song_id"),
@@ -3800,19 +3790,9 @@ def analyze_resolve_pair(src: str, proc: str):
     song, _version = _library_lookup_rel(src)
     if song and song.get("source", {}).get("metrics"):
         metrics_input = song["source"]["metrics"]
-    if not metrics_input:
-        try:
-            metrics_input = basic_metrics(source_path)
-        except Exception:
-            metrics_input = None
     _song2, version2 = _library_lookup_rel(proc)
     if version2 and version2.get("metrics"):
         metrics_output = version2["metrics"]
-    if not metrics_output:
-        try:
-            metrics_output = basic_metrics(processed_path)
-        except Exception:
-            metrics_output = None
     metrics = {"input": metrics_input, "output": metrics_output} if (metrics_input or metrics_output) else None
     payload = {
         "run_id": None,
@@ -3847,11 +3827,6 @@ def analyze_resolve_file(src: str = "", imp: str = "", path: str = ""):
         metrics = version.get("metrics")
     elif song and song.get("source", {}).get("metrics"):
         metrics = song["source"]["metrics"]
-    if metrics is None:
-        try:
-            metrics = basic_metrics(target)
-        except Exception:
-            metrics = None
     payload = {
         "run_id": None,
         "source_url": f"/api/analyze/path?path={quote(rel)}",

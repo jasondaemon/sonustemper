@@ -15,7 +15,7 @@ from fastapi import APIRouter, Request, HTTPException, Form
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from sonustemper.tools import bundle_root, is_frozen
-from sonustemper import library as library_index
+from sonustemper import library_db as library_index
 
 # New tandem UI router (mounted at root).
 
@@ -1302,13 +1302,13 @@ def _register_master_versions(song: str, items: list[dict]) -> None:
     if not source_path:
         return
     source_rel = f"in/{source_path.name}"
-    lib = library_index.load_library()
-    song_entry = library_index.ensure_song_for_source(
-        lib,
+    song_entry = library_index.upsert_song_for_source(
         source_rel,
         source_path.stem,
         None,
         source_path.suffix.lower().lstrip("."),
+        {},
+        False,
     )
     for item in items:
         primary_rel = item.get("primary_rel") or ""
@@ -1324,19 +1324,18 @@ def _register_master_versions(song: str, items: list[dict]) -> None:
                 summary["loudness_profile"] = badge.get("label") or badge.get("title")
         metrics = item.get("metrics") if isinstance(item.get("metrics"), dict) else {}
         try:
-            library_index.add_version(
-                lib,
+            fmt = Path(rel).suffix.lower().lstrip(".") or None
+            library_index.create_version_with_renditions(
                 song_entry.get("song_id"),
                 "master",
+                "Master",
                 item.get("display_title") or item.get("name") or "Master",
-                rel,
                 summary,
                 metrics,
-                [],
+                [{"format": fmt, "rel": rel}],
             )
         except Exception:
             continue
-    library_index.save_library(lib)
 
 
 def _run_outputs(song: str) -> list[dict]:
