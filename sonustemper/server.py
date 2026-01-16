@@ -527,6 +527,7 @@ FFMPEG_BIN = resolve_tool("ffmpeg")
 FFPROBE_BIN = resolve_tool("ffprobe")
 logger.debug("[startup] ffmpeg=%s ffprobe=%s", FFMPEG_BIN, FFPROBE_BIN)
 _db_info = describe_db_location()
+logger.info("[startup] SONUSTEMPER_LIBRARY_DB=%s", _db_info.get("env_db") or "")
 logger.info("[startup] LIBRARY_DB=%s mount=%s", _db_info["LIBRARY_DB"], _db_info["mount_type"])
 MAX_CONCURRENT_RUNS = int(os.getenv("MAX_CONCURRENT_RUNS", "2"))
 RUNS_IN_FLIGHT = 0

@@ -20,9 +20,9 @@ DATA_ROOT = _select_data_root()
 PRESETS_DIR = DATA_ROOT / "presets"
 LIBRARY_DIR = DATA_ROOT / "library"
 PREVIEWS_DIR = DATA_ROOT / "previews"
-_db_override = os.getenv("SONUSTEMPER_LIBRARY_DB") or ""
-if _db_override.strip():
-    LIBRARY_DB = Path(_db_override)
+_env_db = (os.getenv("SONUSTEMPER_LIBRARY_DB") or os.getenv("LIBRARY_DB_PATH") or "").strip()
+if _env_db:
+    LIBRARY_DB = Path(_env_db)
     if not LIBRARY_DB.is_absolute():
         LIBRARY_DB = DATA_ROOT / LIBRARY_DB
 else:
@@ -67,6 +67,7 @@ def detect_mount_type(p: Path) -> str:
 
 def describe_db_location() -> dict:
     return {
+        "env_db": _env_db or "",
         "LIBRARY_DB": str(LIBRARY_DB),
         "db_under_data": str(LIBRARY_DB).startswith(str(DATA_ROOT)),
         "mount_type": detect_mount_type(LIBRARY_DB),
