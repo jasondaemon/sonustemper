@@ -20,7 +20,13 @@ DATA_ROOT = _select_data_root()
 PRESETS_DIR = DATA_ROOT / "presets"
 LIBRARY_DIR = DATA_ROOT / "library"
 PREVIEWS_DIR = DATA_ROOT / "previews"
-LIBRARY_DB = LIBRARY_DIR / "library.sqlite3"
+_db_override = os.getenv("SONUSTEMPER_LIBRARY_DB") or ""
+if _db_override.strip():
+    LIBRARY_DB = Path(_db_override)
+    if not LIBRARY_DB.is_absolute():
+        LIBRARY_DB = DATA_ROOT / LIBRARY_DB
+else:
+    LIBRARY_DB = LIBRARY_DIR / "library.sqlite3"
 SONGS_DIR = LIBRARY_DIR / "songs"
 
 
@@ -29,6 +35,10 @@ def ensure_data_roots() -> None:
     LIBRARY_DIR.mkdir(parents=True, exist_ok=True)
     SONGS_DIR.mkdir(parents=True, exist_ok=True)
     PREVIEWS_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        LIBRARY_DB.parent.mkdir(parents=True, exist_ok=True)
+    except PermissionError:
+        pass
 
 
 def new_song_id() -> str:
