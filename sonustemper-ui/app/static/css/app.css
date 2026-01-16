@@ -663,6 +663,15 @@ h1{margin:0;font-size:24px;}
   padding:2px 6px;
   border-radius:999px;
 }
+.player-wave-label--clip{
+  display:flex;
+  gap:8px;
+  align-items:center;
+}
+.player-wave-clip-meta{
+  font-size:11px;
+  opacity:0.9;
+}
 .player-wave-label--clip{top:calc(12% - 10px);color:rgba(255,120,120,0.85);}
 .player-wave-label--zero{top:calc(50% - 10px);}
 .player-wave-body .player-wave-danger{

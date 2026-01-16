@@ -32,6 +32,12 @@
     return ordered.length ? ordered : list;
   }
 
+  function buildTrackUrl(rel) {
+    const url = new URL('/api/analyze/path', window.location.origin);
+    url.searchParams.set('path', rel);
+    return url.toString();
+  }
+
   function trackId(songId, kind, versionId, rel) {
     return [songId || 'song', kind || 'track', versionId || 'none', rel || ''].join('::');
   }
@@ -84,6 +90,7 @@
     const waveMeta = root.querySelector('#playerWaveMeta');
     const waveTime = root.querySelector('#playerWaveTime');
     const waveDuration = root.querySelector('#playerWaveDuration');
+    const clipMeta = root.querySelector('#playerWaveClipMeta');
     const trackList = root.querySelector('#playerTrackList');
     const scopeCanvas = root.querySelector('#playerLiveScope');
     const hintEl = document.getElementById('playerPaneHint');
@@ -94,6 +101,7 @@
       activeId: null,
       playheadTime: 0,
       waveform: null,
+      waveLoadToken: 0,
       scope: {
         node: null,
         floatData: null,
@@ -231,12 +239,15 @@
 
     function ensureWaveform(url) {
       if (!waveContainer || !audio || !window.WaveSurfer) return;
+      const token = ++state.waveLoadToken;
+      waveContainer.innerHTML = '';
       if (state.waveform) {
         state.waveform.destroy();
         state.waveform = null;
       }
       state.waveform = new PlayerWaveform(waveContainer, audio, {
         onReady: () => {
+          if (token !== state.waveLoadToken) return;
           applyPendingSeek();
           updateWaveTime();
           if (state.pendingAutoplay && state.pendingAutoplay === state.activeId) {
@@ -429,10 +440,18 @@
     function setClipState(track) {
       if (!waveBody) return;
       const metrics = normalizeMetrics(track?.metrics) || {};
-      const tp = metrics.true_peak_dbtp ?? metrics.true_peak_db ?? metrics.true_peak;
-      const peak = metrics.peak_level ?? metrics.peak_db;
+      const tp = metrics.true_peak_dbtp ?? metrics.true_peak_db ?? metrics.true_peak ?? metrics.TP;
+      const peak = metrics.peak_level ?? metrics.peak_db ?? metrics.peak;
       const clip = (typeof tp === 'number' && tp >= 0) || (typeof peak === 'number' && peak >= 0);
       waveBody.classList.toggle('is-clip', Boolean(clip));
+      if (clipMeta) {
+        const tpMargin = metrics.tp_margin;
+        if (typeof tpMargin === 'number' && Number.isFinite(tpMargin)) {
+          clipMeta.textContent = `TP Margin ${tpMargin.toFixed(1)}`;
+        } else {
+          clipMeta.textContent = 'TP Margin —';
+        }
+      }
     }
 
     function loadTrack(track, autoplay) {
@@ -451,12 +470,19 @@
       state.activeId = track.id;
       updateWaveMeta(track);
       setClipState(track);
-      const url = `/api/analyze/path?path=${encodeURIComponent(track.rel)}`;
-      const srcChanged = audio.src !== url;
+      const nextUrlAbs = buildTrackUrl(track.rel);
+      const currentAbs = String(audio.currentSrc || audio.src || '');
+      const srcChanged = currentAbs !== nextUrlAbs;
       if (srcChanged) {
-        audio.src = url;
+        if (state.waveform) state.waveform.stop();
+        audio.pause();
+        audio.removeAttribute('src');
         audio.load();
-        ensureWaveform(url);
+        audio.src = nextUrlAbs;
+        audio.load();
+        ensureWaveform(nextUrlAbs);
+      } else if (isNew) {
+        ensureWaveform(nextUrlAbs);
       } else if (state.pendingSeek !== null) {
         applyPendingSeek();
       }
