@@ -127,10 +127,11 @@
         waveColor: '#2a3a4f',
         progressColor: '#3b4f66',
         cursorColor: '#6b829a',
-        height: 150,
+        height: 160,
         barWidth: 2,
         barGap: 1,
-        normalize: true,
+        normalize: false,
+        barAlign: 'center',
         backend: 'MediaElement',
         media: this.media,
         minPxPerSec: 1,
@@ -668,8 +669,8 @@
         overflowBtn = document.createElement('button');
         overflowBtn.type = 'button';
         overflowBtn.className = 'badge badge-param player-track-metric-toggle';
-        overflowBtn.textContent = 'i';
-        overflowBtn.setAttribute('aria-label', 'Show all metrics');
+        overflowBtn.textContent = '▾';
+        overflowBtn.setAttribute('aria-label', 'Show metrics');
         container.appendChild(overflowBtn);
       }
       return { container, rows: data.rows, overflowBtn };
