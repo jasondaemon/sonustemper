@@ -102,7 +102,6 @@
       playheadTime: 0,
       waveform: null,
       waveLoadToken: 0,
-      currentUrl: null,
       scope: {
         node: null,
         floatData: null,
@@ -170,8 +169,6 @@
     PlayerWaveform.prototype.load = function load(url) {
       if (!this.wave) this.create();
       if (!this.wave) return null;
-      this.media.src = url;
-      this.media.load();
       return this.wave.load(url);
     };
 
@@ -251,7 +248,6 @@
       state.waveform = new PlayerWaveform(waveContainer, audio, {
         onReady: () => {
           if (token !== state.waveLoadToken) return;
-          state.currentUrl = url;
           applyPendingSeek();
           updateWaveTime();
           if (state.pendingAutoplay && state.pendingAutoplay === state.activeId) {
@@ -272,10 +268,6 @@
       const result = state.waveform.load(url);
       if (result && typeof result.catch === 'function') {
         result.catch(() => {});
-      }
-      if (audio) {
-        audio.src = url;
-        audio.load();
       }
     }
 
@@ -449,7 +441,7 @@
       if (!waveBody) return;
       const metrics = normalizeMetrics(track?.metrics) || {};
       const tp = metrics.true_peak_dbtp ?? metrics.true_peak_db ?? metrics.true_peak ?? metrics.TP;
-      const peak = metrics.peak_level ?? metrics.peak_db ?? metrics.peak;
+      const peak = metrics.peak_db ?? metrics.peak_level;
       const clip = (typeof tp === 'number' && tp >= 0) || (typeof peak === 'number' && peak >= 0);
       waveBody.classList.toggle('is-clip', Boolean(clip));
       if (clipMeta) {
@@ -479,14 +471,13 @@
       updateWaveMeta(track);
       setClipState(track);
       const nextUrlAbs = buildTrackUrl(track.rel);
-      const srcChanged = state.currentUrl !== nextUrlAbs;
-      if (srcChanged) {
+      if (isNew) {
         if (state.waveform) state.waveform.stop();
         audio.pause();
         audio.removeAttribute('src');
         audio.load();
-        ensureWaveform(nextUrlAbs);
-      } else if (isNew) {
+        audio.src = nextUrlAbs;
+        audio.load();
         ensureWaveform(nextUrlAbs);
       } else if (state.pendingSeek !== null) {
         applyPendingSeek();
@@ -494,7 +485,7 @@
       updateWaveTime();
       updateButtons();
       if (autoplay) {
-        if (srcChanged) {
+        if (isNew) {
           state.pendingAutoplay = track.id;
           if (state.pendingTimer) clearTimeout(state.pendingTimer);
           state.pendingTimer = setTimeout(() => {

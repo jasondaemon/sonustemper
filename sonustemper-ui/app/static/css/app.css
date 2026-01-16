@@ -679,7 +679,7 @@ h1{margin:0;font-size:24px;}
 }
 .player-wave-body .player-wave-line--clip-top,
 .player-wave-body .player-wave-line--clip-bottom{
-  opacity:0.35;
+  opacity:0.25;
 }
 .player-wave-body .player-wave-label--clip{
   opacity:0.45;

@@ -237,7 +237,7 @@
               <div class="player-wave-line player-wave-line--clip-bottom"></div>
               <div class="player-wave-label player-wave-label--clip">
                 <span class="player-wave-clip-text">CLIP</span>
-                <span class="player-wave-clip-meta muted" id="playerWaveClipMeta">—</span>
+                <span class="player-wave-clip-meta muted" id="playerWaveClipMeta">TP Margin —</span>
               </div>
               <div class="player-wave-label player-wave-label--zero">0</div>
             </div>
@@ -1681,6 +1681,21 @@
   });
 
   window.addEventListener('beforeunload', closeStatusStream);
+  window.addEventListener('pagehide', () => {
+    try { closeStatusStream(); } catch (_err) {}
+    try { closePreviewStream(); } catch (_err) {}
+    try { if (playerAudio) { playerAudio.pause(); } } catch (_err) {}
+  });
+  window.addEventListener('pageshow', (ev) => {
+    if (!ev.persisted) return;
+    try { if (libraryBrowser && libraryBrowser.reload) libraryBrowser.reload(); } catch (_err) {}
+    try {
+      if (playerAudio) {
+        playerAudio.removeAttribute('src');
+        playerAudio.load();
+      }
+    } catch (_err) {}
+  });
 })();
 </script>
 {% endblock %}

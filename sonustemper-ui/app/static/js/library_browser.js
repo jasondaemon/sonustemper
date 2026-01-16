@@ -459,12 +459,16 @@
 
     async function loadLibrary() {
       try {
-        const res = await fetch('/api/library', { cache: 'no-store' });
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 12000);
+        const res = await fetch('/api/library', { cache: 'no-store', signal: controller.signal });
+        clearTimeout(timeout);
         if (!res.ok) throw new Error('library_failed');
         const data = await res.json();
         state.songs = Array.isArray(data.songs) ? data.songs : [];
         renderList();
       } catch (_err) {
+        console.error('Library load failed', _err);
         listEl.innerHTML = '<div class="muted">Library unavailable.</div>';
       }
     }
