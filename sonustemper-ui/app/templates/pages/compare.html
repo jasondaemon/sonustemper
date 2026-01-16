@@ -23,6 +23,11 @@
         </div>
       </div>
     <div id="analyzeBrowser" class="library-browser-container" data-module="compare"></div>
+    <div class="ai-selected-summary">
+      <div class="ai-selected-label">Selected File</div>
+      <div class="ai-selected-name" id="compareSelectedName">-</div>
+      <div class="ai-selected-meta" id="compareSelectedMeta">No file selected.</div>
+    </div>
   </div>
 {% endblock %}
 {% block content %}
@@ -54,6 +59,11 @@
           </div>
         </div>
         <div class="wave-canvas" id="waveSource"></div>
+        <div class="spectro-viewport" id="spectroSourceViewport" hidden>
+          <div class="spectro-inner" id="spectroSourceInner">
+            <img id="spectroSourceImg" alt="Source spectrogram">
+          </div>
+        </div>
       </div>
 
       <div class="wave-panel" id="processedPanel">
@@ -65,6 +75,11 @@
           </div>
         </div>
         <div class="wave-canvas" id="waveProcessed"></div>
+        <div class="spectro-viewport" id="spectroProcessedViewport" hidden>
+          <div class="spectro-inner" id="spectroProcessedInner">
+            <img id="spectroProcessedImg" alt="Processed spectrogram">
+          </div>
+        </div>
         <div class="wave-empty muted" id="processedEmpty" hidden>No processed file selected.</div>
       </div>
 
@@ -94,10 +109,14 @@
           <input type="checkbox" id="toggleMatchLoudness">
           <span>Match Loudness</span>
         </label>
+        <div class="playback-modes">
+          <button class="btn ghost small is-active" id="toggleViewWaveform" type="button">Waveform</button>
+          <button class="btn ghost small" id="toggleViewSpectrogram" type="button">Spectrogram</button>
+        </div>
         <div class="zoom-control">
           <span>Zoom</span>
           <span class="zoom-label" id="zoomLabel">1x</span>
-          <input type="range" id="zoomRange" min="0" max="3" value="0" step="1">
+          <input type="range" id="zoomRange" min="0" max="5" value="0" step="1">
         </div>
         <div class="analyze-toggles">
           <label class="analyze-toggle is-active">
@@ -124,6 +143,8 @@
       </div>
 
       <div class="compare-grid" id="compareGrid"></div>
+      <audio id="compareAudioSource" preload="metadata" hidden></audio>
+      <audio id="compareAudioProcessed" preload="metadata" hidden></audio>
     </div>
   </div>
 {% endblock %}
@@ -145,6 +166,8 @@
   const analyzeSubtitle = document.getElementById('analyzeSubtitle');
   const analyzeStatusList = document.getElementById('analyzeStatusList');
   const analyzeStatusProgressBar = document.getElementById('analyzeStatusProgressBar');
+  const compareSelectedName = document.getElementById('compareSelectedName');
+  const compareSelectedMeta = document.getElementById('compareSelectedMeta');
 
   const playBtn = document.getElementById('playBtn');
   const pauseBtn = document.getElementById('pauseBtn');
@@ -161,6 +184,20 @@
   const toggleHeatmap = document.getElementById('toggleHeatmap');
   const toggleDelta = document.getElementById('toggleDelta');
   const toggleMatchLoudness = document.getElementById('toggleMatchLoudness');
+  const toggleViewWaveform = document.getElementById('toggleViewWaveform');
+  const toggleViewSpectrogram = document.getElementById('toggleViewSpectrogram');
+
+  const compareAudioSource = document.getElementById('compareAudioSource');
+  const compareAudioProcessed = document.getElementById('compareAudioProcessed');
+
+  const waveSourceEl = document.getElementById('waveSource');
+  const waveProcessedEl = document.getElementById('waveProcessed');
+  const spectroSourceViewport = document.getElementById('spectroSourceViewport');
+  const spectroSourceInner = document.getElementById('spectroSourceInner');
+  const spectroSourceImg = document.getElementById('spectroSourceImg');
+  const spectroProcessedViewport = document.getElementById('spectroProcessedViewport');
+  const spectroProcessedInner = document.getElementById('spectroProcessedInner');
+  const spectroProcessedImg = document.getElementById('spectroProcessedImg');
 
   let sourceWave = null;
   let processedWave = null;
@@ -179,8 +216,14 @@
   let libraryBrowser = null;
   let statusLines = [];
   let statusRenderPending = false;
+  let viewMode = 'waveform';
+  let scrollSyncLock = false;
+  let spectroSyncLock = false;
+  let waveScrollCleanup = [];
+  let spectroScrollCleanup = [];
+  let driftTimer = null;
 
-  const zoomSteps = [1, 2, 4, 8];
+  const zoomSteps = [1, 2, 4, 8, 16, 32];
   let fitMinPxPerSec = 1;
   let trackMode = 'both';
 
@@ -261,6 +304,7 @@
     if (sourceWave) sourceWave.zoom(minPxPerSec);
     if (processedWave) processedWave.zoom(minPxPerSec);
     updateZoomClasses(factor);
+    updateSpectrogramZoom();
     requestAnimationFrame(updateScrollHints);
   }
 
@@ -328,29 +372,28 @@
     audioCtx.resume().catch(() => {});
   }
 
-  function ensureGainNode(wave){
-    if (!wave || typeof wave.getMediaElement !== 'function') return null;
-    const existing = gainNodes.get(wave);
+  function ensureGainNodeForAudio(audioEl, key){
+    if (!audioEl) return null;
+    const existing = gainNodes.get(key);
     if (existing) return existing;
-    const media = wave.getMediaElement();
-    if (!media) return null;
     const ctx = getAudioContext();
     if (!ctx) return null;
     let source = null;
     try {
-      source = ctx.createMediaElementSource(media);
+      source = ctx.createMediaElementSource(audioEl);
     } catch (_err) {
       return null;
     }
-    if (typeof media.volume === 'number') {
-      media.volume = 1;
+    if (typeof audioEl.volume === 'number') {
+      audioEl.volume = 1;
     }
+    audioEl.muted = true;
     const gain = ctx.createGain();
-    gain.gain.value = 0;
+    gain.gain.value = 1;
     source.connect(gain);
     gain.connect(ctx.destination);
-    const state = { source, gain };
-    gainNodes.set(wave, state);
+    const state = { source, gain, audio: audioEl };
+    gainNodes.set(key, state);
     return state;
   }
 
@@ -363,39 +406,39 @@
     gainNode.gain.linearRampToValueAtTime(clamped, now + VOLUME_RAMP_MS / 1000);
   }
 
-  function rampMediaVolume(wave, target){
-    if (!wave || typeof wave.setVolume !== 'function') return;
-    const start = typeof wave.getVolume === 'function' ? wave.getVolume() : 1;
+  function rampMediaVolume(audioEl, target){
+    if (!audioEl || typeof audioEl.volume !== 'number') return;
+    const start = audioEl.volume;
     const clamped = Math.max(0, Math.min(1, target));
     if (Math.abs(clamped - start) < 0.001) {
-      wave.setVolume(clamped);
+      audioEl.volume = clamped;
       return;
     }
     const startTime = performance.now();
     const duration = VOLUME_RAMP_MS;
-    const prior = volumeRafs.get(wave);
+    const prior = volumeRafs.get(audioEl);
     if (prior) cancelAnimationFrame(prior);
     const step = (now) => {
       const t = Math.min(1, (now - startTime) / duration);
       const next = start + (clamped - start) * t;
-      wave.setVolume(next);
+      audioEl.volume = next;
       if (t < 1) {
-        volumeRafs.set(wave, requestAnimationFrame(step));
+        volumeRafs.set(audioEl, requestAnimationFrame(step));
       } else {
-        volumeRafs.delete(wave);
+        volumeRafs.delete(audioEl);
       }
     };
-    volumeRafs.set(wave, requestAnimationFrame(step));
+    volumeRafs.set(audioEl, requestAnimationFrame(step));
   }
 
-  function setWaveGain(wave, gain, allowCreate){
-    if (!wave) return;
-    const node = allowCreate ? ensureGainNode(wave) : gainNodes.get(wave);
+  function setAudioGain(audioEl, key, gain, allowCreate){
+    if (!audioEl) return;
+    const node = allowCreate ? ensureGainNodeForAudio(audioEl, key) : gainNodes.get(key);
     if (node && node.gain) {
       rampGain(node.gain, gain);
       return;
     }
-    rampMediaVolume(wave, gain);
+    rampMediaVolume(audioEl, gain);
   }
 
   function applyMatchLoudness(options = {}){
@@ -406,8 +449,8 @@
     const sourceGain = (sourceOn ? 1 : 0) * gains.source;
     const processedGain = (processedOn ? 1 : 0) * gains.processed;
     const allowCreate = options.allowCreate || matchOn;
-    setWaveGain(sourceWave, sourceGain, allowCreate);
-    setWaveGain(processedWave, processedGain, allowCreate);
+    setAudioGain(compareAudioSource, 'source', sourceGain, allowCreate);
+    setAudioGain(compareAudioProcessed, 'processed', processedGain, allowCreate);
   }
 
   function waveHost(wave){
@@ -461,6 +504,7 @@
   }
 
   function updateScrollHints(){
+    if (viewMode !== 'waveform') return;
     const zoomed = zoomSteps[currentZoomIndex()] > 1;
     [sourceWave, processedWave].forEach((wave) => {
       if (!wave || typeof wave.getWrapper !== 'function') return;
@@ -479,6 +523,154 @@
       hints.left.style.display = show && !atStart ? 'block' : 'none';
       hints.right.style.display = show && !atEnd ? 'block' : 'none';
     });
+  }
+
+  function getWaveScrollEl(wave){
+    if (!wave || typeof wave.getWrapper !== 'function') return null;
+    const wrapper = wave.getWrapper();
+    return wrapper ? wrapper.parentElement : null;
+  }
+
+  function setupWaveScrollSync(){
+    waveScrollCleanup.forEach((fn) => fn());
+    waveScrollCleanup = [];
+    const sourceScroll = getWaveScrollEl(sourceWave);
+    const processedScroll = getWaveScrollEl(processedWave);
+    if (!sourceScroll || !processedScroll) return;
+    const onSource = () => {
+      if (scrollSyncLock) return;
+      scrollSyncLock = true;
+      processedScroll.scrollLeft = sourceScroll.scrollLeft;
+      scrollSyncLock = false;
+      updateScrollHints();
+    };
+    const onProcessed = () => {
+      if (scrollSyncLock) return;
+      scrollSyncLock = true;
+      sourceScroll.scrollLeft = processedScroll.scrollLeft;
+      scrollSyncLock = false;
+      updateScrollHints();
+    };
+    sourceScroll.addEventListener('scroll', onSource, { passive: true });
+    processedScroll.addEventListener('scroll', onProcessed, { passive: true });
+    waveScrollCleanup.push(() => {
+      sourceScroll.removeEventListener('scroll', onSource);
+      processedScroll.removeEventListener('scroll', onProcessed);
+    });
+  }
+
+  function spectrogramUrl(rel, width, height){
+    if (!rel) return '';
+    const params = new URLSearchParams({
+      path: rel,
+      w: String(Math.round(width)),
+      h: String(Math.round(height)),
+      scale: 'lin',
+      drange: '155',
+      stereo: 'combined',
+    });
+    return `/api/analyze/spectrogram?${params.toString()}`;
+  }
+
+  function spectrogramHeight(){
+    return 180;
+  }
+
+  function updateSpectrogramZoom(){
+    if (viewMode !== 'spectrogram') return;
+    const factor = zoomSteps[currentZoomIndex()] || 1;
+    const height = spectrogramHeight();
+    const dpr = window.devicePixelRatio || 1;
+    const updateOne = (viewport, inner, img, rel) => {
+      if (!viewport || !inner || !img || !rel) return;
+      const viewportWidth = Math.max(1, viewport.clientWidth || 0);
+      const prevInnerWidth = Math.max(1, inner.clientWidth || viewportWidth);
+      const maxPrev = Math.max(1, prevInnerWidth - viewportWidth);
+      const ratio = maxPrev > 1 ? (viewport.scrollLeft / maxPrev) : 0;
+      const nextInnerWidth = Math.max(1, Math.round(viewportWidth * factor));
+      inner.style.width = `${nextInnerWidth}px`;
+      inner.style.height = `${height}px`;
+      viewport.style.height = `${height}px`;
+      const w = Math.max(300, Math.round(nextInnerWidth * dpr));
+      const h = Math.max(120, Math.round(height * dpr));
+      img.src = spectrogramUrl(rel, w, h);
+      const maxNext = Math.max(0, nextInnerWidth - viewportWidth);
+      viewport.scrollLeft = maxNext > 0 ? maxNext * ratio : 0;
+    };
+    updateOne(spectroSourceViewport, spectroSourceInner, spectroSourceImg, analysisData?.source_rel);
+    updateOne(spectroProcessedViewport, spectroProcessedInner, spectroProcessedImg, analysisData?.processed_rel);
+  }
+
+  function setupSpectroScrollSync(){
+    spectroScrollCleanup.forEach((fn) => fn());
+    spectroScrollCleanup = [];
+    if (!spectroSourceViewport || !spectroProcessedViewport) return;
+    const onSource = () => {
+      if (spectroSyncLock) return;
+      spectroSyncLock = true;
+      spectroProcessedViewport.scrollLeft = spectroSourceViewport.scrollLeft;
+      spectroSyncLock = false;
+    };
+    const onProcessed = () => {
+      if (spectroSyncLock) return;
+      spectroSyncLock = true;
+      spectroSourceViewport.scrollLeft = spectroProcessedViewport.scrollLeft;
+      spectroSyncLock = false;
+    };
+    spectroSourceViewport.addEventListener('scroll', onSource, { passive: true });
+    spectroProcessedViewport.addEventListener('scroll', onProcessed, { passive: true });
+    spectroScrollCleanup.push(() => {
+      spectroSourceViewport.removeEventListener('scroll', onSource);
+      spectroProcessedViewport.removeEventListener('scroll', onProcessed);
+    });
+  }
+
+  function handleSpectroClick(evt, viewport, inner){
+    if (!analysisData || !viewport || !inner) return;
+    const duration = getDurationBase();
+    if (!duration) return;
+    const rect = viewport.getBoundingClientRect();
+    const x = evt.clientX - rect.left;
+    const fullWidth = Math.max(inner.clientWidth || rect.width, rect.width);
+    const t = Math.max(0, Math.min(duration, ((x + viewport.scrollLeft) / fullWidth) * duration));
+    seekBoth(t);
+  }
+
+  function bindSpectrogramInteractions(){
+    if (spectroSourceViewport) {
+      spectroSourceViewport.addEventListener('click', (evt) => {
+        handleSpectroClick(evt, spectroSourceViewport, spectroSourceInner);
+      });
+    }
+    if (spectroProcessedViewport) {
+      spectroProcessedViewport.addEventListener('click', (evt) => {
+        handleSpectroClick(evt, spectroProcessedViewport, spectroProcessedInner);
+      });
+    }
+  }
+
+  function setViewMode(mode){
+    viewMode = mode === 'spectrogram' ? 'spectrogram' : 'waveform';
+    if (toggleViewWaveform) toggleViewWaveform.classList.toggle('is-active', viewMode === 'waveform');
+    if (toggleViewSpectrogram) toggleViewSpectrogram.classList.toggle('is-active', viewMode === 'spectrogram');
+    if (waveSourceEl) waveSourceEl.hidden = viewMode === 'spectrogram';
+    if (waveProcessedEl) waveProcessedEl.hidden = viewMode === 'spectrogram';
+    if (spectroSourceViewport) spectroSourceViewport.hidden = viewMode !== 'spectrogram';
+    if (spectroProcessedViewport) spectroProcessedViewport.hidden = viewMode !== 'spectrogram';
+    if (viewMode === 'spectrogram' && !analysisData?.processed_rel && spectroProcessedViewport) {
+      spectroProcessedViewport.hidden = true;
+    }
+    if (viewMode === 'spectrogram') {
+      waveScrollCleanup.forEach((fn) => fn());
+      waveScrollCleanup = [];
+      updateSpectrogramZoom();
+      setupSpectroScrollSync();
+    } else {
+      spectroScrollCleanup.forEach((fn) => fn());
+      spectroScrollCleanup = [];
+      updateScrollHints();
+      setupWaveScrollSync();
+    }
   }
 
   function fitPxPerSecFor(wave){
@@ -515,51 +707,113 @@
       }
     });
     transportCleanup = [];
+    stopDriftCorrection();
   }
 
-  function getMasterWave(){
-    return sourceWave || processedWave;
+  function getClockAudio(){
+    if (trackMode === 'both' && compareAudioSource?.src) return compareAudioSource;
+    if (trackMode === 'source' && compareAudioSource?.src) return compareAudioSource;
+    if (trackMode === 'processed' && compareAudioProcessed?.src) return compareAudioProcessed;
+    return compareAudioSource?.src ? compareAudioSource : (compareAudioProcessed?.src ? compareAudioProcessed : null);
   }
 
-  function getSlaveWave(){
-    const master = getMasterWave();
-    if (!master || !sourceWave || !processedWave) return null;
-    return master === sourceWave ? processedWave : sourceWave;
+  function getDurationBase(){
+    const base = analysisData?.duration_s
+      || compareAudioSource?.duration
+      || compareAudioProcessed?.duration;
+    return Number.isFinite(base) && base > 0 ? base : 0;
+  }
+
+  function updateWaveProgress(wave, time, duration){
+    if (!wave) return;
+    const renderer = typeof wave.getRenderer === 'function' ? wave.getRenderer() : wave.renderer;
+    if (!renderer || typeof renderer.renderProgress !== 'function') return;
+    const durRaw = Number.isFinite(duration) && duration > 0 ? duration : wave.getDuration();
+    const dur = Number.isFinite(durRaw) && durRaw > 0 ? durRaw : 0.001;
+    const rel = Math.max(0, Math.min(1, time / dur));
+    renderer.renderProgress(rel, false);
+  }
+
+  function syncWaveforms(){
+    const clock = getClockAudio();
+    if (!clock) return;
+    const time = clock.currentTime || 0;
+    const duration = getDurationBase() || clock.duration || 0;
+    updateWaveProgress(sourceWave, time, duration);
+    updateWaveProgress(processedWave, time, duration);
   }
 
   function seekBoth(time){
     if (transportLock) return;
     transportLock = true;
-    if (sourceWave) sourceWave.setTime(time);
-    if (processedWave) processedWave.setTime(time);
+    const duration = getDurationBase();
+    const target = duration ? clamp(time, 0, duration) : Math.max(0, time);
+    if (compareAudioSource?.src) compareAudioSource.currentTime = target;
+    if (compareAudioProcessed?.src) compareAudioProcessed.currentTime = target;
+    updateWaveProgress(sourceWave, target, duration);
+    updateWaveProgress(processedWave, target, duration);
     transportLock = false;
   }
 
+  function startDriftCorrection(){
+    if (driftTimer || !compareAudioSource || !compareAudioProcessed) return;
+    driftTimer = setInterval(() => {
+      if (trackMode !== 'both') return;
+      if (compareAudioSource.paused || compareAudioProcessed.paused) return;
+      const drift = Math.abs(compareAudioSource.currentTime - compareAudioProcessed.currentTime);
+      if (drift > 0.06) {
+        compareAudioProcessed.currentTime = compareAudioSource.currentTime;
+      }
+    }, 250);
+  }
+
+  function stopDriftCorrection(){
+    if (driftTimer) {
+      clearInterval(driftTimer);
+      driftTimer = null;
+    }
+  }
+
   function playTransport(){
-    const master = getMasterWave();
-    if (!master) return;
-    if (toggleMatchLoudness && toggleMatchLoudness.checked) {
+    const clock = getClockAudio();
+    if (!clock) return;
+    if ((toggleMatchLoudness && toggleMatchLoudness.checked) || gainNodes.size) {
       resumeAudioContext();
     }
-    const time = master.getCurrentTime();
+    const time = clock.currentTime || 0;
     seekBoth(time);
-    if (sourceWave) sourceWave.play();
-    if (processedWave) processedWave.play();
+    if ((trackMode === 'source' || trackMode === 'both') && compareAudioSource?.src) {
+      compareAudioSource.play().catch(() => {});
+    }
+    if ((trackMode === 'processed' || trackMode === 'both') && compareAudioProcessed?.src) {
+      compareAudioProcessed.play().catch(() => {});
+    }
+    if (trackMode === 'both') startDriftCorrection();
   }
 
   function pauseTransport(){
-    if (sourceWave) sourceWave.pause();
-    if (processedWave) processedWave.pause();
+    if (compareAudioSource?.src) compareAudioSource.pause();
+    if (compareAudioProcessed?.src) compareAudioProcessed.pause();
+    stopDriftCorrection();
   }
 
   function stopTransport(){
-    if (sourceWave) sourceWave.stop();
-    if (processedWave) processedWave.stop();
+    if (compareAudioSource?.src) {
+      compareAudioSource.pause();
+      compareAudioSource.currentTime = 0;
+    }
+    if (compareAudioProcessed?.src) {
+      compareAudioProcessed.pause();
+      compareAudioProcessed.currentTime = 0;
+    }
+    stopDriftCorrection();
+    updateWaveProgress(sourceWave, 0, getDurationBase());
+    updateWaveProgress(processedWave, 0, getDurationBase());
   }
 
   function updateTrackToggleUI(){
-    const hasSource = Boolean(sourceWave);
-    const hasProcessed = Boolean(processedWave);
+    const hasSource = Boolean(compareAudioSource?.src || sourceWave);
+    const hasProcessed = Boolean(compareAudioProcessed?.src || processedWave);
     const sourceOn = hasSource && (trackMode === 'source' || trackMode === 'both');
     const processedOn = hasProcessed && (trackMode === 'processed' || trackMode === 'both');
     if (toggleSourceBtn) {
@@ -588,8 +842,6 @@
   }
 
   function applyTrackState(){
-    if (sourceWave && typeof sourceWave.setMuted === 'function') sourceWave.setMuted(false);
-    if (processedWave && typeof processedWave.setMuted === 'function') processedWave.setMuted(false);
     applyMatchLoudness();
     updateTrackToggleUI();
   }
@@ -602,6 +854,7 @@
     } else {
       trackMode = mode;
     }
+    if (trackMode !== 'both') stopDriftCorrection();
     applyTrackState();
   }
 
@@ -643,11 +896,24 @@
         seekBoth(time);
       })
     );
-    transportCleanup.push(
-      wave.on('finish', () => {
-        pauseTransport();
-      })
-    );
+  }
+
+  function bindAudioEvents(audioEl){
+    if (!audioEl) return;
+    audioEl.addEventListener('timeupdate', () => {
+      if (transportLock) return;
+      syncWaveforms();
+    });
+    audioEl.addEventListener('play', () => {
+      if (gainNodes.size) resumeAudioContext();
+    });
+    audioEl.addEventListener('loadedmetadata', () => {
+      syncWaveforms();
+    });
+    audioEl.addEventListener('ended', () => {
+      pauseTransport();
+      syncWaveforms();
+    });
   }
 
   function syncToggleStyles(){
@@ -691,6 +957,9 @@
       } catch (_err) {
         // ignore disconnect errors
       }
+      if (state.audio) {
+        state.audio.muted = false;
+      }
     });
     gainNodes.clear();
   }
@@ -700,6 +969,35 @@
     const sorted = [...values].sort((a, b) => a - b);
     const idx = Math.max(0, Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * p)));
     return sorted[idx];
+  }
+
+  function seriesStats(values){
+    const clean = (values || []).filter((v) => typeof v === 'number' && !Number.isNaN(v));
+    if (!clean.length) return null;
+    const sum = clean.reduce((acc, val) => acc + val, 0);
+    const avg = sum / clean.length;
+    return {
+      len: clean.length,
+      min: Math.min(...clean),
+      max: Math.max(...clean),
+      avg,
+    };
+  }
+
+  function validateSeries(series){
+    if (!series) return;
+    const srcStats = seriesStats(series.lufs_st_source);
+    const procStats = seriesStats(series.lufs_st_processed);
+    if (!procStats) {
+      console.warn('[compare] processed ST series missing; heatmap will fall back to source');
+      return;
+    }
+    if (srcStats && procStats && srcStats.len === procStats.len) {
+      const diff = Math.abs((procStats.avg || 0) - (srcStats.avg || 0));
+      if (diff < 0.01) {
+        console.info('[compare] ST series are very similar; verify processed series mapping');
+      }
+    }
   }
 
   function ensureOverlayCanvas(wave, kind, layer){
@@ -1139,6 +1437,16 @@
       processedWave.destroy();
       processedWave = null;
     }
+    if (compareAudioSource) {
+      compareAudioSource.pause();
+      compareAudioSource.removeAttribute('src');
+      compareAudioSource.load();
+    }
+    if (compareAudioProcessed) {
+      compareAudioProcessed.pause();
+      compareAudioProcessed.removeAttribute('src');
+      compareAudioProcessed.load();
+    }
   }
 
   function initWave(containerId){
@@ -1151,9 +1459,7 @@
       progressColor: '#3b4f66',
       cursorColor: '#6b829a',
       height: 180,
-      barWidth: 2,
-      barGap: 1,
-      normalize: true,
+      normalize: false,
       backend: 'MediaElement',
       minPxPerSec: Math.max(1, fitMinPxPerSec) * zoomSteps[zoomIdx],
       fillParent: false,
@@ -1242,8 +1548,8 @@
   }
 
   function updateControls(){
-    const hasSource = sourceWave !== null;
-    const hasProcessed = processedWave !== null;
+    const hasSource = Boolean(compareAudioSource?.src || sourceWave);
+    const hasProcessed = Boolean(compareAudioProcessed?.src || processedWave);
     const processedCanvas = document.getElementById('waveProcessed');
     if (processedCanvas) processedCanvas.style.display = hasProcessed ? '' : 'none';
     if (playBtn) playBtn.disabled = !hasSource;
@@ -1253,17 +1559,59 @@
     if (processedEmpty) processedEmpty.hidden = hasProcessed;
   }
 
+  function extractRelFromUrl(url){
+    if (!url) return null;
+    try {
+      const parsed = new URL(url, window.location.origin);
+      return parsed.searchParams.get('path');
+    } catch (_err) {
+      return null;
+    }
+  }
+
+  let selectedSummaryLocked = false;
+
+  function setSelectedSummary(name, meta){
+    if (!compareSelectedName || !compareSelectedMeta) return;
+    compareSelectedName.textContent = name || '-';
+    compareSelectedMeta.textContent = meta || 'No file selected.';
+  }
+
+  function formatSelectedMeta(kind, format, duration){
+    const parts = [];
+    if (kind) parts.push(kind);
+    if (format) parts.push(String(format).toUpperCase());
+    if (typeof duration === 'number' && Number.isFinite(duration)) {
+      parts.push(`${Math.round(duration)}s`);
+    }
+    return parts.join(' • ');
+  }
+
+  function updateSelectedFromPayload(payload){
+    if (selectedSummaryLocked) return;
+    if (!payload) return;
+    const hasProcessed = Boolean(payload.processed_url);
+    const name = hasProcessed ? (payload.processed_name || payload.source_name) : payload.source_name;
+    const kind = hasProcessed ? 'Processed' : 'Source';
+    setSelectedSummary(name || '-', formatSelectedMeta(kind, null, payload.duration_s));
+  }
+
   async function applyData(payload){
     if (!payload) return;
     const input = payload.metrics?.input || null;
     const output = payload.metrics?.output || null;
     updateAnalysisLufs(payload, input, output);
     const durationFallback = payload.duration_s ?? output?.duration_sec ?? input?.duration_sec ?? null;
+    const sourceRel = extractRelFromUrl(payload.source_url);
+    const processedRel = extractRelFromUrl(payload.processed_url);
     analysisData = {
       duration_s: durationFallback,
       series: payload.series || null,
       markers: payload.markers || null,
+      source_rel: sourceRel,
+      processed_rel: processedRel,
     };
+    validateSeries(analysisData.series);
 
     if (analyzeSubtitle) {
       const name = payload.run_id ? `Run ${payload.run_id}` : 'Standalone analysis';
@@ -1282,6 +1630,23 @@
     sourceWave = initWave('waveSource');
     processedWave = payload.processed_url ? initWave('waveProcessed') : null;
 
+    if (compareAudioSource) {
+      if (payload.source_url) {
+        compareAudioSource.src = payload.source_url;
+      } else {
+        compareAudioSource.removeAttribute('src');
+      }
+      compareAudioSource.load();
+    }
+    if (compareAudioProcessed) {
+      if (payload.processed_url) {
+        compareAudioProcessed.src = payload.processed_url;
+      } else {
+        compareAudioProcessed.removeAttribute('src');
+      }
+      compareAudioProcessed.load();
+    }
+
     await loadWave(sourceWave, payload.source_url);
     if (processedWave) {
       await loadWave(processedWave, payload.processed_url);
@@ -1294,6 +1659,8 @@
     bindTransportEvents(processedWave);
     updateControls();
     setupOverlays();
+    setViewMode(viewMode);
+    updateSelectedFromPayload(payload);
   }
 
   async function resolveRun(song, out, solo){
@@ -1358,6 +1725,11 @@
 
   async function loadLibrarySelection(song, track, shouldPush){
     if (!track?.rel) return;
+    selectedSummaryLocked = true;
+    const kindLabel = track.kind === 'version' ? 'Version' : 'Source';
+    const format = track.format || primaryRendition(track.renditions)?.format || (track.kind === 'version' ? null : song?.source?.format);
+    const duration = track.duration || song?.source?.duration_sec;
+    setSelectedSummary(song?.title || track.title || 'Untitled', formatSelectedMeta(kindLabel, format, duration));
     const sourceRel = song?.source?.rel || null;
     if (track.kind === 'version' && sourceRel) {
       addStatusLine(`Loading ${song?.title || 'selection'}...`);
@@ -1392,6 +1764,7 @@
   async function selectAndLoad(item, _node, shouldPush){
     if (!item) return;
     selectedItem = item;
+    selectedSummaryLocked = false;
     try {
       if (item.kind === 'mastering_output') {
         addStatusLine(`Loading run ${item.song}...`);
@@ -1455,6 +1828,7 @@
     uploadInput.addEventListener('change', async () => {
       const file = (uploadInput.files || [])[0];
       if (!file) return;
+      selectedSummaryLocked = false;
       try {
         addStatusLine(`Uploading ${file.name}...`);
         setStatusProgress(0, true);
@@ -1522,6 +1896,7 @@
     zoomRaf = requestAnimationFrame(() => {
       zoomRaf = null;
       updateFitBaseline();
+      if (viewMode === 'spectrogram') updateSpectrogramZoom();
     });
   });
 
@@ -1579,9 +1954,22 @@
       resumeAudioContext();
     });
   }
+  if (toggleViewWaveform) {
+    toggleViewWaveform.addEventListener('click', () => {
+      setViewMode('waveform');
+    });
+  }
+  if (toggleViewSpectrogram) {
+    toggleViewSpectrogram.addEventListener('click', () => {
+      setViewMode('spectrogram');
+    });
+  }
   syncToggleStyles();
   updateFitBaseline();
   updateTrackToggleUI();
+  bindSpectrogramInteractions();
+  bindAudioEvents(compareAudioSource);
+  bindAudioEvents(compareAudioProcessed);
 
   const params = new URLSearchParams(window.location.search);
   const song = params.get('song');
