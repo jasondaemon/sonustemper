@@ -128,11 +128,14 @@
       });
       if (!res.ok) {
         const err = await res.text();
-        throw new Error(err || 'preset_failed');
+        const detail = (err || 'preset_failed').toString().trim();
+        throw new Error(detail.slice(0, 200));
       }
       notify('Noise Filter Preset created.');
+      window.dispatchEvent(new CustomEvent('sonustemper:noise-presets-changed'));
     } catch (_err) {
-      notify('Failed to create Noise Filter Preset.');
+      const message = _err?.message ? `Failed to create Noise Filter Preset: ${_err.message}` : 'Failed to create Noise Filter Preset.';
+      notify(message);
     }
   }
 
@@ -419,7 +422,9 @@
           convertBtn.textContent = 'Convert to Filter Preset';
           convertBtn.addEventListener('click', (evt) => {
             evt.stopPropagation();
-            convertNoiseProfileToPreset(song, version);
+            convertNoiseProfileToPreset(song, version).finally(() => {
+              menu.open = false;
+            });
           });
           menuList.appendChild(convertBtn);
         }
@@ -466,7 +471,9 @@
           convertBtn.textContent = 'Convert to Filter Preset';
           convertBtn.addEventListener('click', (evt) => {
             evt.stopPropagation();
-            convertNoiseProfileToPreset(song, version);
+            convertNoiseProfileToPreset(song, version).finally(() => {
+              menu.open = false;
+            });
           });
           menuList.appendChild(convertBtn);
         }

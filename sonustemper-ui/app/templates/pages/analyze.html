@@ -2149,6 +2149,10 @@
   if (noiseSaveNoiseBtn) noiseSaveNoiseBtn.addEventListener('click', saveNoiseFile);
   setPreviewEnabled(false);
 
+  window.addEventListener('sonustemper:noise-presets-changed', () => {
+    loadNoisePresets();
+  });
+
   if (analysisPlayBtn && analysisAudio) {
     analysisPlayBtn.addEventListener('click', () => {
       if (!analysisAudio.src) return;

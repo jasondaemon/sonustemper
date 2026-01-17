@@ -3653,6 +3653,12 @@ def _noise_filter_chain(payload: dict) -> tuple[str, bool]:
             f"if(lt(t\\,{t1 - fade:.3f})\\,1\\,"
             f"if(lt(t\\,{t1:.3f})\\,({t1:.3f}-t)/{fade:.3f}\\,0))))"
         )
+        if mode == "solo":
+            graph = (
+                f"[0:a]{chain}[wet];"
+                f"[wet]volume='{wet_expr}'[out]"
+            )
+            return graph, True
         dry_expr = (
             f"if(lt(t\\,{t0:.3f})\\,1\\,"
             f"if(lt(t\\,{t0 + fade:.3f})\\,1-((t-{t0:.3f})/{fade:.3f})\\,"
