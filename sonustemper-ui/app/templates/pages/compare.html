@@ -469,13 +469,10 @@
     try {
       source = ctx.createMediaElementSource(audioEl);
     } catch (_err) {
-      matchDebug('media source creation failed', { key });
+      matchDebug('ensureGainNode failed', { key, err: _err });
       return null;
     }
     audioEl.muted = false;
-    if (typeof audioEl.volume === 'number') {
-      audioEl.volume = 0;
-    }
     const gain = ctx.createGain();
     gain.gain.value = 1;
     source.connect(gain);
@@ -529,18 +526,27 @@
     if (allowCreate && !node) node = ensureGainNodeForAudio(audioEl, key);
     if (node && node.gain) {
       rampGain(node.gain, gain);
-      if (typeof audioEl.volume === 'number') {
-        audioEl.volume = 0;
-      }
       return;
     }
+    matchDebug('setAudioGain fallback', { key });
     rampMediaVolume(audioEl, gain);
   }
 
   function applyMatchLoudness(options = {}){
     const matchOn = toggleMatchLoudness && toggleMatchLoudness.checked;
-    matchDebug('toggle', { matchOn });
+    const srcLufs = analysisLufs.source;
+    const procLufs = analysisLufs.processed;
+    const target = (typeof srcLufs === 'number' && typeof procLufs === 'number')
+      ? Math.max(srcLufs, procLufs)
+      : null;
     const gains = matchOn ? computeMatchGains() : { source: 1, processed: 1 };
+    matchDebug('lufs', {
+      src: srcLufs,
+      proc: procLufs,
+      target,
+      gains,
+      enabled: matchOn,
+    });
     const sourceOn = trackMode === 'source' || trackMode === 'both';
     const processedOn = trackMode === 'processed' || trackMode === 'both';
     const sourceGain = (sourceOn ? 1 : 0) * gains.source;
