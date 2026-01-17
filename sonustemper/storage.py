@@ -91,6 +91,7 @@ def _select_data_root() -> Path:
 DATA_ROOT = _select_data_root()
 PRESETS_DIR = DATA_ROOT / "presets"
 LIBRARY_DIR = DATA_ROOT / "library"
+LIBRARY_IMPORT_DIR = LIBRARY_DIR / "import"
 PREVIEWS_DIR = DATA_ROOT / "previews"
 _env_db = (os.getenv("SONUSTEMPER_LIBRARY_DB") or os.getenv("LIBRARY_DB_PATH") or "").strip()
 if _env_db:
@@ -111,7 +112,7 @@ def ensure_data_roots() -> None:
         PRESETS_DIR / "generated",
         PRESETS_DIR / "builtin",
     ]
-    paths = preset_dirs + [LIBRARY_DIR, SONGS_DIR, PREVIEWS_DIR, LIBRARY_DB.parent]
+    paths = preset_dirs + [LIBRARY_DIR, SONGS_DIR, LIBRARY_IMPORT_DIR, PREVIEWS_DIR, LIBRARY_DB.parent]
     for path in paths:
         try:
             path.mkdir(parents=True, exist_ok=True)

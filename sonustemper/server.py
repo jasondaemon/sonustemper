@@ -38,6 +38,7 @@ from .storage import (
     allocate_version_path,
     version_dir,
     new_version_id,
+    song_source_dir,
     safe_filename,
     rel_from_path,
     resolve_rel,
@@ -553,18 +554,6 @@ logger.info("[startup] SONGS_DIR=%s", str(SONGS_DIR))
 logger.info("[startup] PREVIEWS_DIR=%s", str(PREVIEWS_DIR))
 logger.info("[startup] SONUSTEMPER_LIBRARY_DB=%s", _db_info.get("env_db") or "")
 logger.info("[startup] LIBRARY_DB=%s mount=%s", _db_info["LIBRARY_DB"], _db_info["mount_type"])
-if os.getenv("SONUSTEMPER_RECONCILE_ON_BOOT", "1") == "1":
-    try:
-        _reconcile = library_store.reconcile_library_fs()
-        logger.info(
-            "[startup] reconcile removed_songs=%s removed_versions=%s",
-            _reconcile.get("removed_songs"),
-            _reconcile.get("removed_versions"),
-        )
-    except Exception as exc:
-        logger.warning("[startup] reconcile failed: %s", exc)
-else:
-    logger.info("[startup] reconcile skipped (SONUSTEMPER_RECONCILE_ON_BOOT=0)")
 MAX_CONCURRENT_RUNS = int(os.getenv("MAX_CONCURRENT_RUNS", "2"))
 RUNS_IN_FLIGHT = 0
 
@@ -1368,64 +1357,100 @@ def _analysis_overlay_data(source_path: Path | None, processed_path: Path | None
         payload["markers"] = markers
     return payload
 
-DEMO_SEED_MARKER = DATA_DIR / ".demo_seeded"
+DEMO_SONG_ID = "demo_sonustemper"
+DEMO_SONG_TITLE = "SonusTemper Demo"
+DEMO_SONG_FILENAME = "SonusTemper.wav"
 
 def _demo_asset_dir() -> Path:
     if is_frozen():
         return bundle_root() / "assets" / "demo"
     return REPO_ROOT / "assets" / "demo"
 
+def _find_demo_asset() -> Path | None:
+    demo_dir = _demo_asset_dir()
+    if not demo_dir.exists():
+        return None
+    preferred = demo_dir / DEMO_SONG_FILENAME
+    if preferred.exists():
+        return preferred
+    for fp in demo_dir.iterdir():
+        if fp.is_file() and fp.suffix.lower() in ANALYZE_AUDIO_EXTS:
+            return fp
+    return None
+
 def _seed_demo_inputs() -> None:
     if os.getenv("DEMO_SEED_DISABLED") == "1":
         return
-    if DEMO_SEED_MARKER.exists():
+    demo_asset = _find_demo_asset()
+    if not demo_asset:
         return
-    demo_dir = _demo_asset_dir()
-    if not demo_dir.exists():
-        return
-    lib = library_store.list_library()
-    if lib.get("songs"):
-        return
-    copied = 0
-    for fp in demo_dir.iterdir():
-        if not fp.is_file() or fp.suffix.lower() not in ANALYZE_AUDIO_EXTS:
-            continue
+    song_id = DEMO_SONG_ID
+    dest_dir = song_source_dir(song_id)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest_name = safe_filename(demo_asset.name) or DEMO_SONG_FILENAME
+    dest = dest_dir / dest_name
+    file_action = "noop"
+    if not dest.exists():
         try:
-            song_id = new_song_id()
-            dest = allocate_source_path(song_id, fp.name)
-            shutil.copy2(fp, dest)
-            metrics = {}
-            analyzed = False
-            try:
-                metrics = _analyze_audio_metrics(dest)
-                analyzed = bool(metrics)
-            except Exception:
-                metrics = {}
-                analyzed = False
-            rel_path = rel_from_path(dest)
-            duration = metrics.get("duration_sec")
-            fmt = dest.suffix.lower().lstrip(".")
-            mtime = datetime.utcfromtimestamp(dest.stat().st_mtime).replace(microsecond=0).isoformat() + "Z"
-            library_store.upsert_song_for_source(
-                rel_path,
-                dest.stem,
-                duration,
-                fmt,
-                metrics,
-                analyzed,
-                song_id=song_id,
-                file_mtime_utc=mtime,
-            )
-            copied += 1
+            shutil.copy2(demo_asset, dest)
+            file_action = "created"
         except Exception:
-            continue
-    if copied:
-        try:
-            DEMO_SEED_MARKER.write_text("seeded", encoding="utf-8")
-        except Exception:
-            pass
+            return
+    existing = library_store.get_song(song_id)
+    db_action = "noop" if existing else "db_inserted"
+    metrics = {}
+    analyzed = False
+    try:
+        metrics = _analyze_audio_metrics(dest)
+        analyzed = bool(metrics)
+    except Exception:
+        metrics = {}
+        analyzed = False
+    rel_path = rel_from_path(dest)
+    duration = metrics.get("duration_sec")
+    fmt = dest.suffix.lower().lstrip(".")
+    mtime = datetime.utcfromtimestamp(dest.stat().st_mtime).replace(microsecond=0).isoformat() + "Z"
+    try:
+        library_store.upsert_song_for_source(
+            rel_path,
+            DEMO_SONG_TITLE,
+            duration,
+            fmt,
+            metrics,
+            analyzed,
+            song_id=song_id,
+            file_mtime_utc=mtime,
+            is_demo=True,
+        )
+    except Exception:
+        return
+    status = "+".join([s for s in (file_action, db_action) if s != "noop"]) or "noop"
+    logger.info(
+        "[startup] demo_seed status=%s song_id=%s file=%s",
+        status,
+        song_id,
+        rel_path,
+    )
 
-app.add_event_handler("startup", _seed_demo_inputs)
+def _startup_bootstrap() -> None:
+    _seed_demo_inputs()
+    if os.getenv("SONUSTEMPER_RECONCILE_ON_BOOT", "1") == "1":
+        try:
+            _sync = library_store.sync_library_fs()
+            logger.info(
+                "[startup] sync imported_songs=%s imported_versions=%s removed_songs=%s removed_versions=%s inbox=%s",
+                _sync.get("imported_songs"),
+                _sync.get("imported_versions"),
+                _sync.get("removed_songs"),
+                _sync.get("removed_versions"),
+                _sync.get("imported_from_inbox"),
+            )
+        except Exception as exc:
+            logger.warning("[startup] sync failed: %s", exc)
+    else:
+        logger.info("[startup] sync skipped (SONUSTEMPER_RECONCILE_ON_BOOT=0)")
+
+app.add_event_handler("startup", _startup_bootstrap)
 def measure_loudness(path: Path) -> dict:
     r = run_cmd([
         FFMPEG_BIN, "-hide_banner", "-nostats", "-i", str(path),
@@ -2669,6 +2694,12 @@ def library_import_source(payload: dict = Body(...)):
         file_mtime_utc=mtime,
     )
     return {"song": song}
+
+
+@app.post("/api/library/sync")
+def library_sync():
+    result = library_store.sync_library_fs()
+    return result
 
 
 @app.post("/api/library/use_as_source")

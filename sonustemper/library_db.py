@@ -10,10 +10,14 @@ from .storage import (
     DATA_ROOT,
     LIBRARY_DB,
     SONGS_DIR,
+    LIBRARY_IMPORT_DIR,
     ensure_data_roots,
     new_song_id,
     new_version_id,
     detect_mount_type,
+    song_source_dir,
+    safe_filename,
+    rel_from_path,
 )
 from .logging_util import log_debug, log_summary, log_error
 
@@ -93,6 +97,7 @@ METRIC_SUMMARY_KEYS = {
 }
 
 PREFERRED_RENDITION_ORDER = ["wav", "flac", "aiff", "aif", "m4a", "aac", "mp3", "ogg"]
+LIBRARY_AUDIO_EXTS = {".wav", ".flac", ".aiff", ".aif", ".mp3", ".m4a", ".aac", ".ogg"}
 
 
 def _now_iso() -> str:
@@ -157,7 +162,8 @@ def init_db() -> None:
                     duration_sec REAL,
                     source_analyzed INTEGER NOT NULL DEFAULT 0,
                     source_metrics_json TEXT NOT NULL DEFAULT "{}",
-                    file_mtime_utc TEXT
+                    file_mtime_utc TEXT,
+                    is_demo INTEGER NOT NULL DEFAULT 0
                 );
                 CREATE TABLE IF NOT EXISTS song_metrics (
                     song_id TEXT PRIMARY KEY REFERENCES songs(song_id) ON DELETE CASCADE,
@@ -228,6 +234,9 @@ def init_db() -> None:
                     conn.execute("ALTER TABLE versions ADD COLUMN voicing TEXT")
                 if "loudness_profile" not in columns:
                     conn.execute("ALTER TABLE versions ADD COLUMN loudness_profile TEXT")
+                song_cols = {row["name"] for row in conn.execute("PRAGMA table_info(songs)").fetchall()}
+                if "is_demo" not in song_cols:
+                    conn.execute("ALTER TABLE songs ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0")
                 conn.execute("UPDATE songs SET source_metrics_json = '{}' WHERE source_metrics_json IS NOT NULL AND source_metrics_json != '{}'")
                 rows = conn.execute(
                     "SELECT version_id, summary_json, voicing, loudness_profile FROM versions"
@@ -382,6 +391,27 @@ def _primary_rendition(renditions: list[dict]) -> dict | None:
     return renditions[0]
 
 
+def _iter_audio_files(folder: Path) -> list[Path]:
+    if not folder.exists() or not folder.is_dir():
+        return []
+    return [
+        fp for fp in folder.iterdir()
+        if fp.is_file() and fp.suffix.lower() in LIBRARY_AUDIO_EXTS
+    ]
+
+
+def _pick_preferred_file(files: list[Path]) -> Path | None:
+    if not files:
+        return None
+    prefer = ["wav", "flac", "aiff", "aif", "m4a", "aac", "mp3", "ogg"]
+    by_ext = {fp.suffix.lower().lstrip("."): fp for fp in files}
+    for ext in prefer:
+        hit = by_ext.get(ext)
+        if hit:
+            return hit
+    return files[0]
+
+
 def list_library() -> dict:
     init_db()
     t0 = time.monotonic()
@@ -482,6 +512,7 @@ def list_library() -> dict:
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
             "last_used_at": row["last_used_at"],
+            "is_demo": bool(row["is_demo"]) if "is_demo" in row.keys() else False,
             "chain": {},
             "tags": [],
             "source": {
@@ -580,6 +611,7 @@ def get_song(song_id: str) -> dict | None:
         "created_at": song_row["created_at"],
         "updated_at": song_row["updated_at"],
         "last_used_at": song_row["last_used_at"],
+        "is_demo": bool(song_row["is_demo"]) if "is_demo" in song_row.keys() else False,
         "chain": {},
         "tags": [],
         "source": {
@@ -670,6 +702,7 @@ def upsert_song_for_source(
     analyzed: bool,
     song_id: str | None = None,
     file_mtime_utc: str | None = None,
+    is_demo: bool | None = None,
 ) -> dict:
     init_db()
     now = _now_iso()
@@ -680,40 +713,23 @@ def upsert_song_for_source(
     with _WRITE_LOCK:
         conn = _connect()
         try:
-            existing = conn.execute("SELECT song_id FROM songs WHERE source_rel = ?", (rel,)).fetchone()
-            if existing:
-                song_id = existing["song_id"]
+            demo_value = None if is_demo is None else (1 if is_demo else 0)
+            existing_by_id = None
+            if song_id:
+                existing_by_id = conn.execute(
+                    "SELECT song_id, source_rel, is_demo FROM songs WHERE song_id = ?", (song_id,)
+                ).fetchone()
+            if existing_by_id:
+                demo_value = existing_by_id["is_demo"] if demo_value is None else demo_value
                 conn.execute(
                     """
                     UPDATE songs
-                    SET title = ?, updated_at = ?, last_used_at = ?, source_format = ?, duration_sec = ?,
-                        source_analyzed = ?, source_metrics_json = ?, file_mtime_utc = ?
+                    SET title = ?, updated_at = ?, last_used_at = ?, source_rel = ?, source_format = ?, duration_sec = ?,
+                        source_analyzed = ?, source_metrics_json = ?, file_mtime_utc = ?, is_demo = ?
                     WHERE song_id = ?
                     """,
                     (
                         title,
-                        now,
-                        now,
-                        fmt,
-                        duration_sec,
-                        1 if analyzed else 0,
-                        raw_metrics_json,
-                        file_mtime_utc,
-                        song_id,
-                    ),
-                )
-            else:
-                song_id = song_id or new_song_id()
-                conn.execute(
-                    """
-                    INSERT INTO songs (song_id, title, created_at, updated_at, last_used_at, source_rel,
-                                       source_format, duration_sec, source_analyzed, source_metrics_json, file_mtime_utc)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        song_id,
-                        title,
-                        now,
                         now,
                         now,
                         rel,
@@ -722,8 +738,60 @@ def upsert_song_for_source(
                         1 if analyzed else 0,
                         raw_metrics_json,
                         file_mtime_utc,
+                        demo_value if demo_value is not None else 0,
+                        song_id,
                     ),
                 )
+            else:
+                existing = conn.execute("SELECT song_id, is_demo FROM songs WHERE source_rel = ?", (rel,)).fetchone()
+                if existing:
+                    song_id = existing["song_id"]
+                    demo_value = existing["is_demo"] if demo_value is None else demo_value
+                    conn.execute(
+                        """
+                        UPDATE songs
+                        SET title = ?, updated_at = ?, last_used_at = ?, source_format = ?, duration_sec = ?,
+                            source_analyzed = ?, source_metrics_json = ?, file_mtime_utc = ?, is_demo = ?
+                        WHERE song_id = ?
+                        """,
+                        (
+                            title,
+                            now,
+                            now,
+                            fmt,
+                            duration_sec,
+                            1 if analyzed else 0,
+                            raw_metrics_json,
+                            file_mtime_utc,
+                            demo_value if demo_value is not None else existing["is_demo"],
+                            song_id,
+                        ),
+                    )
+                else:
+                    song_id = song_id or new_song_id()
+                    demo_value = 0 if demo_value is None else demo_value
+                    conn.execute(
+                        """
+                        INSERT INTO songs (song_id, title, created_at, updated_at, last_used_at, source_rel,
+                                           source_format, duration_sec, source_analyzed, source_metrics_json, file_mtime_utc,
+                                           is_demo)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            song_id,
+                            title,
+                            now,
+                            now,
+                            now,
+                            rel,
+                            fmt,
+                            duration_sec,
+                            1 if analyzed else 0,
+                            raw_metrics_json,
+                            file_mtime_utc,
+                            demo_value,
+                        ),
+                    )
             conn.execute(
                 """
                 INSERT INTO song_metrics
@@ -1011,7 +1079,7 @@ def reconcile_library_fs(max_log_examples: int = 10) -> dict:
     examples: list[str] = []
     conn = _connect()
     try:
-        song_rows = conn.execute("SELECT song_id, source_rel FROM songs").fetchall()
+        song_rows = conn.execute("SELECT song_id, source_rel, is_demo FROM songs").fetchall()
         version_rows = conn.execute("SELECT version_id, song_id FROM versions").fetchall()
         rendition_rows = conn.execute(
             "SELECT r.version_id, v.song_id, r.format, r.rel FROM renditions r "
@@ -1035,11 +1103,23 @@ def reconcile_library_fs(max_log_examples: int = 10) -> dict:
             source_rel = (row["source_rel"] or "").lstrip("/")
             source_path = DATA_ROOT / source_rel
             song_dir = _song_dir_from_rel(source_rel)
-            if not song_dir.exists() or not source_path.exists():
+            is_demo = bool(row["is_demo"]) if "is_demo" in row.keys() else False
+            song_dir_exists = song_dir.exists()
+            source_exists = source_path.exists()
+            if is_demo and (not song_dir_exists or not source_exists):
+                kept_songs += 1
+                if len(examples) < max_log_examples:
+                    examples.append(
+                        f"demo_keep:{song_id} dir={song_dir_exists} source={source_exists}"
+                    )
+                continue
+            if not song_dir_exists or not source_exists:
                 removed_songs.append(song_id)
                 song_missing.add(song_id)
                 if len(examples) < max_log_examples:
-                    examples.append(f"song:{song_id}")
+                    examples.append(
+                        f"song:{song_id} dir={song_dir_exists} source={source_exists}"
+                    )
             else:
                 kept_songs += 1
 
@@ -1058,16 +1138,17 @@ def reconcile_library_fs(max_log_examples: int = 10) -> dict:
             wav = next((r for r in renditions if r["format"] == "wav"), None)
             if wav:
                 wav_path = DATA_ROOT / (wav["rel"] or "").lstrip("/")
-                if not wav_path.exists():
+                wav_exists = wav_path.exists()
+                if not wav_exists:
                     removed_versions.append(version_id)
                     if len(examples) < max_log_examples:
-                        examples.append(f"version:{version_id}")
+                        examples.append(f"version:{version_id} wav={wav_exists}")
                 else:
                     kept_versions += 1
             else:
                 removed_versions.append(version_id)
                 if len(examples) < max_log_examples:
-                    examples.append(f"version:{version_id}")
+                    examples.append(f"version:{version_id} wav=missing")
 
         with _WRITE_LOCK:
             if removed_versions:
@@ -1095,4 +1176,234 @@ def reconcile_library_fs(max_log_examples: int = 10) -> dict:
         "removed_songs": len(removed_songs),
         "kept_versions": kept_versions,
         "kept_songs": kept_songs,
+    }
+
+
+def sync_library_fs(max_log_examples: int = 10) -> dict:
+    init_db()
+    ensure_data_roots()
+    t0 = time.monotonic()
+    errors: list[str] = []
+    imported_songs = 0
+    imported_versions = 0
+    removed_songs = 0
+    removed_versions = 0
+    imported_from_inbox = 0
+    examples: list[str] = []
+
+    try:
+        LIBRARY_IMPORT_DIR.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        errors.append(f"inbox_dir:{exc!r}")
+
+    for fp in _iter_audio_files(LIBRARY_IMPORT_DIR):
+        try:
+            song_id = new_song_id()
+            dest_dir = song_source_dir(song_id)
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            safe_name = safe_filename(fp.name) or fp.name
+            dest = dest_dir / safe_name
+            if dest.exists():
+                stem = dest.stem
+                suffix = dest.suffix
+                idx = 1
+                while True:
+                    candidate = dest_dir / f"{stem}-{idx}{suffix}"
+                    if not candidate.exists():
+                        dest = candidate
+                        break
+                    idx += 1
+            fp.replace(dest)
+            rel = rel_from_path(dest)
+            fmt = dest.suffix.lower().lstrip(".")
+            upsert_song_for_source(
+                rel,
+                dest.stem,
+                None,
+                fmt,
+                {},
+                False,
+                song_id=song_id,
+            )
+            imported_from_inbox += 1
+            imported_songs += 1
+        except Exception as exc:
+            errors.append(f"inbox:{fp.name}:{exc!r}")
+
+    fs_songs: dict[str, dict] = {}
+    fs_versions: dict[tuple[str, str], list[dict]] = {}
+    if SONGS_DIR.exists():
+        for song_dir in SONGS_DIR.iterdir():
+            if not song_dir.is_dir():
+                continue
+            song_id = song_dir.name
+            source_dir = song_dir / "source"
+            source_files = _iter_audio_files(source_dir)
+            source_file = _pick_preferred_file(source_files)
+            if not source_file:
+                continue
+            rel = rel_from_path(source_file)
+            fs_songs[song_id] = {
+                "source_rel": rel,
+                "title": _clean_title(source_file.stem),
+                "format": source_file.suffix.lower().lstrip("."),
+            }
+            versions_dir = song_dir / "versions"
+            if not versions_dir.exists():
+                continue
+            for version_dir in versions_dir.iterdir():
+                if not version_dir.is_dir():
+                    continue
+                version_id = version_dir.name
+                audio_files = _iter_audio_files(version_dir)
+                if not audio_files:
+                    continue
+                renditions = []
+                for af in audio_files:
+                    renditions.append({
+                        "format": af.suffix.lower().lstrip("."),
+                        "rel": rel_from_path(af),
+                    })
+                fs_versions[(song_id, version_id)] = renditions
+
+    conn = _connect()
+    try:
+        song_rows = conn.execute("SELECT song_id, source_rel, title FROM songs").fetchall()
+        version_rows = conn.execute("SELECT song_id, version_id FROM versions").fetchall()
+        rendition_rows = conn.execute("SELECT version_id, format, rel FROM renditions").fetchall()
+    except Exception as exc:
+        conn.close()
+        errors.append(f"db_read:{exc!r}")
+        return {
+            "imported_songs": imported_songs,
+            "imported_versions": imported_versions,
+            "removed_songs": removed_songs,
+            "removed_versions": removed_versions,
+            "imported_from_inbox": imported_from_inbox,
+            "errors": errors,
+        }
+
+    db_songs = {row["song_id"]: row for row in song_rows}
+    db_versions = {(row["song_id"], row["version_id"]) for row in version_rows}
+    renditions_map: dict[str, list[dict]] = {}
+    for row in rendition_rows:
+        renditions_map.setdefault(row["version_id"], []).append(
+            {"format": row["format"], "rel": row["rel"]}
+        )
+
+    for song_id, fs_entry in fs_songs.items():
+        db_row = db_songs.get(song_id)
+        title = fs_entry["title"]
+        if db_row:
+            title = db_row["title"] or title
+        else:
+            imported_songs += 1
+        db_rel = (db_row["source_rel"] if db_row else "") or ""
+        if not db_row or db_rel.lstrip("/") != fs_entry["source_rel"].lstrip("/"):
+            try:
+                upsert_song_for_source(
+                    fs_entry["source_rel"],
+                    title,
+                    None,
+                    fs_entry["format"],
+                    {},
+                    False,
+                    song_id=song_id,
+                )
+            except Exception as exc:
+                errors.append(f"song:{song_id}:{exc!r}")
+
+    for (song_id, version_id), renditions in fs_versions.items():
+        if (song_id, version_id) not in db_versions:
+            song_title = (db_songs.get(song_id, {}).get("title")
+                          or fs_songs.get(song_id, {}).get("title")
+                          or "Version")
+            kind = "master" if "master" in version_id.lower() else "version"
+            label = "Master" if kind == "master" else "Version"
+            try:
+                create_version_with_renditions(
+                    song_id,
+                    kind,
+                    label,
+                    song_title,
+                    {},
+                    {},
+                    renditions,
+                    version_id=version_id,
+                )
+                imported_versions += 1
+            except Exception as exc:
+                errors.append(f"version:{version_id}:{exc!r}")
+            continue
+        existing = renditions_map.get(version_id, [])
+        existing_rels = sorted([r.get("rel") for r in existing if r.get("rel")])
+        new_rels = sorted([r.get("rel") for r in renditions if r.get("rel")])
+        if existing_rels != new_rels:
+            try:
+                with _WRITE_LOCK:
+                    conn.execute("DELETE FROM renditions WHERE version_id = ?", (version_id,))
+                    for rendition in renditions:
+                        fmt = rendition.get("format") or _format_from_rel(rendition.get("rel"))
+                        rel = rendition.get("rel")
+                        if not fmt or not rel:
+                            continue
+                        conn.execute(
+                            "INSERT INTO renditions (version_id, format, rel) VALUES (?, ?, ?)",
+                            (version_id, fmt, rel),
+                        )
+                    conn.execute(
+                        "UPDATE versions SET updated_at = ? WHERE version_id = ?",
+                        (_now_iso(), version_id),
+                    )
+                    conn.commit()
+            except Exception as exc:
+                errors.append(f"renditions:{version_id}:{exc!r}")
+
+    for song_id in db_songs.keys():
+        if song_id not in fs_songs:
+            removed_songs += 1
+            if len(examples) < max_log_examples:
+                examples.append(f"song:{song_id}")
+    for key in db_versions:
+        if key not in fs_versions:
+            removed_versions += 1
+            if len(examples) < max_log_examples:
+                examples.append(f"version:{key[1]}")
+
+    if removed_versions or removed_songs:
+        try:
+            with _WRITE_LOCK:
+                if removed_versions:
+                    version_ids = [vid for (_sid, vid) in db_versions if ( _sid, vid) not in fs_versions]
+                    placeholders = ",".join(["?"] * len(version_ids))
+                    conn.execute(f"DELETE FROM versions WHERE version_id IN ({placeholders})", version_ids)
+                if removed_songs:
+                    song_ids = [sid for sid in db_songs.keys() if sid not in fs_songs]
+                    placeholders = ",".join(["?"] * len(song_ids))
+                    conn.execute(f"DELETE FROM songs WHERE song_id IN ({placeholders})", song_ids)
+                conn.commit()
+        except Exception as exc:
+            errors.append(f"delete:{exc!r}")
+
+    conn.close()
+    total_ms = (time.monotonic() - t0) * 1000
+    log_summary(
+        "db",
+        "sync result",
+        imported_songs=imported_songs,
+        imported_versions=imported_versions,
+        removed_songs=removed_songs,
+        removed_versions=removed_versions,
+        imported_from_inbox=imported_from_inbox,
+        ms=round(total_ms, 1),
+    )
+    if examples:
+        log_debug("db", "sync examples", examples=examples[:max_log_examples])
+    return {
+        "imported_songs": imported_songs,
+        "imported_versions": imported_versions,
+        "removed_songs": removed_songs,
+        "removed_versions": removed_versions,
+        "imported_from_inbox": imported_from_inbox,
+        "errors": errors,
     }

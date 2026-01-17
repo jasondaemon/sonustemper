@@ -3,6 +3,8 @@
   const detailEl = document.getElementById('filesDetailBody');
   const searchInput = document.getElementById('filesSearch');
   const refreshBtn = document.getElementById('filesRefresh');
+  const syncBtn = document.getElementById('filesSync');
+  const syncStatus = document.getElementById('filesSyncStatus');
   const deleteSelectedBtn = document.getElementById('filesDeleteSelected');
   const downloadSelectedBtn = document.getElementById('filesDownloadSelected');
   const deleteAllBtn = document.getElementById('filesDeleteAll');
@@ -525,6 +527,30 @@
     }
   }
 
+  async function runSync() {
+    if (!syncBtn) return;
+    syncBtn.disabled = true;
+    if (syncStatus) syncStatus.textContent = 'Scanning…';
+    try {
+      const res = await fetch('/api/library/sync', { method: 'POST' });
+      if (!res.ok) throw new Error('sync_failed');
+      const summary = await res.json();
+      await loadLibrary();
+      if (syncStatus) {
+        const parts = [];
+        parts.push(`Imported ${summary.imported_songs || 0} song(s)`);
+        parts.push(`versions ${summary.imported_versions || 0}`);
+        parts.push(`removed ${summary.removed_songs || 0}/${summary.removed_versions || 0}`);
+        parts.push(`inbox ${summary.imported_from_inbox || 0}`);
+        syncStatus.textContent = parts.join(' · ');
+      }
+    } catch (_err) {
+      if (syncStatus) syncStatus.textContent = 'Scan failed. Check logs.';
+    } finally {
+      syncBtn.disabled = false;
+    }
+  }
+
   if (searchInput) {
     searchInput.addEventListener('input', () => {
       state.search = searchInput.value || '';
@@ -532,6 +558,7 @@
     });
   }
   if (refreshBtn) refreshBtn.addEventListener('click', loadLibrary);
+  if (syncBtn) syncBtn.addEventListener('click', runSync);
   if (deleteSelectedBtn) deleteSelectedBtn.addEventListener('click', deleteSelected);
   if (downloadSelectedBtn) downloadSelectedBtn.addEventListener('click', downloadSelected);
   if (deleteAllBtn) deleteAllBtn.addEventListener('click', deleteAllSongs);
