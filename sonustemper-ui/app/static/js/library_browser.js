@@ -86,7 +86,7 @@
   }
 
   function noisePresetSettingsFromVersion(version) {
-    const noise = version?.summary?.noise || version?.noise;
+    const noise = version?.summary?.noise || version?.meta?.noise || version?.noise;
     if (!noise || typeof noise !== 'object') return null;
     const fLow = Number(noise.f_low);
     const fHigh = Number(noise.f_high);

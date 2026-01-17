@@ -194,7 +194,7 @@ def init_db() -> None:
                     loudness_profile TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
-                    summary_json TEXT NOT NULL DEFAULT "{}",
+                    meta_json TEXT NOT NULL DEFAULT "{}",
                     metrics_json TEXT NOT NULL DEFAULT "{}"
                 );
                 CREATE TABLE IF NOT EXISTS version_metrics (
@@ -238,15 +238,30 @@ def init_db() -> None:
                 if "is_demo" not in song_cols:
                     conn.execute("ALTER TABLE songs ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0")
                 conn.execute("UPDATE songs SET source_metrics_json = '{}' WHERE source_metrics_json IS NOT NULL AND source_metrics_json != '{}'")
-                rows = conn.execute(
-                    "SELECT version_id, summary_json, voicing, loudness_profile FROM versions"
-                ).fetchall()
+                if "meta_json" not in columns:
+                    conn.execute("ALTER TABLE versions ADD COLUMN meta_json TEXT NOT NULL DEFAULT '{}'")
+                summary_exists = "summary_json" in columns
+                if summary_exists:
+                    rows = conn.execute(
+                        "SELECT version_id, summary_json, meta_json, voicing, loudness_profile FROM versions"
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        "SELECT version_id, meta_json, voicing, loudness_profile FROM versions"
+                    ).fetchall()
                 for row in rows:
-                    summary_raw = row["summary_json"] or ""
-                    if not summary_raw or summary_raw == "{}":
+                    summary_raw = row["summary_json"] or "" if summary_exists else ""
+                    meta_raw = row["meta_json"] or ""
+                    base_raw = meta_raw if meta_raw and meta_raw != "{}" else summary_raw
+                    if not base_raw or base_raw == "{}":
+                        if summary_raw and summary_raw != "{}":
+                            conn.execute(
+                                "UPDATE versions SET meta_json = ? WHERE version_id = ?",
+                                ("{}", row["version_id"]),
+                            )
                         continue
                     try:
-                        summary = json.loads(summary_raw)
+                        summary = json.loads(base_raw)
                     except Exception:
                         summary = {}
                     if not isinstance(summary, dict):
@@ -258,11 +273,13 @@ def init_db() -> None:
                         for key, value in summary.items()
                         if key not in ("voicing", "loudness_profile")
                     }
-                    summary_json = json.dumps(preserved) if preserved else "{}"
+                    meta_json = json.dumps(preserved) if preserved else "{}"
                     conn.execute(
-                        "UPDATE versions SET voicing = ?, loudness_profile = ?, summary_json = ? WHERE version_id = ?",
-                        (voicing, profile, summary_json, row["version_id"]),
+                        "UPDATE versions SET voicing = ?, loudness_profile = ?, meta_json = ? WHERE version_id = ?",
+                        (voicing, profile, meta_json, row["version_id"]),
                     )
+                if rows:
+                    log_debug("db", "migrated summary_json -> meta_json", rows=len(rows))
                 conn.execute("UPDATE versions SET metrics_json = '{}' WHERE metrics_json IS NOT NULL AND metrics_json != '{}'")
             finally:
                 conn.close()
@@ -486,13 +503,16 @@ def list_library() -> dict:
     for row in version_rows:
         renditions = renditions_map.get(row["version_id"], [])
         summary = {}
+        meta_raw = row["meta_json"] if "meta_json" in row.keys() else None
         summary_raw = row["summary_json"] if "summary_json" in row.keys() else None
-        if summary_raw:
+        base_raw = meta_raw or summary_raw
+        if base_raw:
             try:
-                raw = json.loads(summary_raw)
+                raw = json.loads(base_raw)
                 if isinstance(raw, dict):
                     summary.update(raw)
-            except Exception:
+            except Exception as exc:
+                log_debug("db", "meta_json parse failed", version_id=row["version_id"], err=str(exc))
                 summary = {}
         if row["voicing"]:
             summary["voicing"] = row["voicing"]
@@ -510,6 +530,7 @@ def list_library() -> dict:
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
             "summary": summary,
+            "meta": summary,
             "metrics": metrics,
             "renditions": renditions,
         }
@@ -598,13 +619,16 @@ def get_song(song_id: str) -> dict | None:
     for row in version_rows:
         renditions = renditions_map.get(row["version_id"], [])
         summary = {}
+        meta_raw = row["meta_json"] if "meta_json" in row.keys() else None
         summary_raw = row["summary_json"] if "summary_json" in row.keys() else None
-        if summary_raw:
+        base_raw = meta_raw or summary_raw
+        if base_raw:
             try:
-                raw = json.loads(summary_raw)
+                raw = json.loads(base_raw)
                 if isinstance(raw, dict):
                     summary.update(raw)
-            except Exception:
+            except Exception as exc:
+                log_debug("db", "meta_json parse failed", version_id=row["version_id"], err=str(exc))
                 summary = {}
         if row["voicing"]:
             summary["voicing"] = row["voicing"]
@@ -622,6 +646,7 @@ def get_song(song_id: str) -> dict | None:
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
             "summary": summary,
+            "meta": summary,
             "metrics": metrics,
             "renditions": renditions,
         }
@@ -884,7 +909,7 @@ def create_version_with_renditions(
     now = _now_iso()
     summary_clean = _strip_summary_metrics(summary)
     metrics_payload = _merge_summary_metrics(metrics, summary)
-    summary_json = json.dumps(summary_clean) if summary_clean else "{}"
+    meta_json = json.dumps(summary_clean) if summary_clean else "{}"
     raw_metrics_json = "{}"
     voicing = summary_clean.get("voicing") if isinstance(summary_clean, dict) else None
     loudness_profile = summary_clean.get("loudness_profile") if isinstance(summary_clean, dict) else None
@@ -902,11 +927,11 @@ def create_version_with_renditions(
             conn.execute(
                 """
                 INSERT INTO versions (version_id, song_id, kind, title, label, utility, voicing, loudness_profile,
-                                      created_at, updated_at, summary_json, metrics_json)
+                                      created_at, updated_at, meta_json, metrics_json)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (version_id, song_id, kind, title, label, utility_value, voicing, loudness_profile,
-                 now, now, summary_json, raw_metrics_json),
+                 now, now, meta_json, raw_metrics_json),
             )
             conn.execute(
                 """
