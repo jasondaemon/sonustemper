@@ -227,6 +227,10 @@ MASTER_SCRIPT = Path(os.getenv("MASTER_SCRIPT", str(_default_pack)))
 app = FastAPI(docs_url=None, redoc_url=None)
 ensure_data_roots()
 library_store.init_db()
+try:
+    logger.info("[startup] DB schema_version=%s", library_store.get_schema_version())
+except Exception as exc:
+    logger.warning("[startup] DB schema_version check failed: %s", exc)
 for p in [
     PREVIEW_DIR,
     MASTER_RUN_DIR,

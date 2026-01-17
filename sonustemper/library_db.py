@@ -23,6 +23,7 @@ from .logging_util import log_debug, log_summary, log_error
 
 
 LIBRARY_VERSION = 1
+SCHEMA_VERSION = 1
 _WRITE_LOCK = threading.Lock()
 _INIT_LOCK = threading.Lock()
 _DB_READY = False
@@ -100,6 +101,99 @@ def _has_column(conn: sqlite3.Connection, table: str, col: str) -> bool:
     rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
     return any((row[1] if len(row) > 1 else row["name"]) == col for row in rows)
 
+
+def _get_user_version(conn: sqlite3.Connection) -> int:
+    row = conn.execute("PRAGMA user_version").fetchone()
+    if not row:
+        return 0
+    try:
+        return int(row[0])
+    except Exception:
+        return 0
+
+
+def _set_user_version(conn: sqlite3.Connection, version: int) -> None:
+    conn.execute(f"PRAGMA user_version = {int(version)}")
+
+
+def _apply_migrations(conn: sqlite3.Connection, from_v: int, to_v: int) -> None:
+    if from_v >= to_v:
+        return
+    if from_v < 1:
+        if not _has_column(conn, "versions", "meta_json"):
+            conn.execute("ALTER TABLE versions ADD COLUMN meta_json TEXT NOT NULL DEFAULT '{}'")
+            log_debug("db", "migrated", action="add_column", table="versions", column="meta_json")
+        if not _has_column(conn, "versions", "metrics_json"):
+            conn.execute("ALTER TABLE versions ADD COLUMN metrics_json TEXT NOT NULL DEFAULT '{}'")
+            log_debug("db", "migrated", action="add_column", table="versions", column="metrics_json")
+        if not _has_column(conn, "songs", "source_metrics_json"):
+            conn.execute("ALTER TABLE songs ADD COLUMN source_metrics_json TEXT NOT NULL DEFAULT '{}'")
+            log_debug("db", "migrated", action="add_column", table="songs", column="source_metrics_json")
+        if not _has_column(conn, "versions", "utility"):
+            conn.execute("ALTER TABLE versions ADD COLUMN utility TEXT")
+        if not _has_column(conn, "versions", "voicing"):
+            conn.execute("ALTER TABLE versions ADD COLUMN voicing TEXT")
+        if not _has_column(conn, "versions", "loudness_profile"):
+            conn.execute("ALTER TABLE versions ADD COLUMN loudness_profile TEXT")
+        if not _has_column(conn, "songs", "is_demo"):
+            conn.execute("ALTER TABLE songs ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0")
+
+        summary_exists = _has_column(conn, "versions", "summary_json")
+        if summary_exists:
+            res = conn.execute(
+                """
+                UPDATE versions
+                SET meta_json = summary_json
+                WHERE (meta_json IS NULL OR meta_json = '{}')
+                  AND summary_json IS NOT NULL
+                  AND summary_json != '{}'
+                """
+            )
+            log_debug("db", "migrated summary_json -> meta_json", rows=res.rowcount)
+
+        conn.execute(
+            "UPDATE songs SET source_metrics_json = '{}' "
+            "WHERE source_metrics_json IS NULL OR TRIM(source_metrics_json) = ''"
+        )
+        conn.execute(
+            "UPDATE versions SET metrics_json = '{}' "
+            "WHERE metrics_json IS NULL OR TRIM(metrics_json) = ''"
+        )
+
+        if summary_exists:
+            rows = conn.execute(
+                "SELECT version_id, summary_json, meta_json, voicing, loudness_profile FROM versions"
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT version_id, meta_json, voicing, loudness_profile FROM versions"
+            ).fetchall()
+        for row in rows:
+            summary_raw = row["summary_json"] or "" if summary_exists else ""
+            meta_raw = row["meta_json"] or ""
+            base_raw = meta_raw if meta_raw and meta_raw != "{}" else summary_raw
+            if not base_raw or base_raw == "{}":
+                continue
+            try:
+                summary = json.loads(base_raw)
+            except Exception:
+                summary = {}
+            if not isinstance(summary, dict):
+                summary = {}
+            voicing = row["voicing"] or summary.get("voicing")
+            profile = row["loudness_profile"] or summary.get("loudness_profile")
+            preserved = {
+                key: value
+                for key, value in summary.items()
+                if key not in ("voicing", "loudness_profile")
+            }
+            meta_json = json.dumps(preserved) if preserved else "{}"
+            conn.execute(
+                "UPDATE versions SET voicing = ?, loudness_profile = ?, meta_json = ? WHERE version_id = ?",
+                (voicing, profile, meta_json, row["version_id"]),
+            )
+        log_summary("db", "migration applied", from_v=from_v, to_v=to_v)
+
 PREFERRED_RENDITION_ORDER = ["wav", "flac", "aiff", "aif", "m4a", "aac", "mp3", "ogg"]
 LIBRARY_AUDIO_EXTS = {".wav", ".flac", ".aiff", ".aif", ".mp3", ".m4a", ".aac", ".ogg"}
 
@@ -129,10 +223,22 @@ def _connect() -> sqlite3.Connection:
 def init_db() -> None:
     global _DB_READY
     if _DB_READY:
-        return
+        conn = _connect()
+        try:
+            uv = _get_user_version(conn)
+            if uv == SCHEMA_VERSION and _has_column(conn, "versions", "meta_json"):
+                return
+        finally:
+            conn.close()
     with _INIT_LOCK:
         if _DB_READY:
-            return
+            conn = _connect()
+            try:
+                uv = _get_user_version(conn)
+                if uv == SCHEMA_VERSION and _has_column(conn, "versions", "meta_json"):
+                    return
+            finally:
+                conn.close()
         ensure_data_roots()
         with _WRITE_LOCK:
             conn = _connect()
@@ -231,82 +337,23 @@ def init_db() -> None:
                 CREATE INDEX IF NOT EXISTS idx_songs_title ON songs(title);
                 """
                 )
-                if not _has_column(conn, "versions", "utility"):
-                    conn.execute("ALTER TABLE versions ADD COLUMN utility TEXT")
-                if not _has_column(conn, "versions", "voicing"):
-                    conn.execute("ALTER TABLE versions ADD COLUMN voicing TEXT")
-                if not _has_column(conn, "versions", "loudness_profile"):
-                    conn.execute("ALTER TABLE versions ADD COLUMN loudness_profile TEXT")
-                if not _has_column(conn, "songs", "is_demo"):
-                    conn.execute("ALTER TABLE songs ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0")
-                if not _has_column(conn, "songs", "source_metrics_json"):
-                    conn.execute(
-                        "ALTER TABLE songs ADD COLUMN source_metrics_json TEXT NOT NULL DEFAULT '{}'"
-                    )
-                conn.execute(
-                    "UPDATE songs SET source_metrics_json = '{}' "
-                    "WHERE source_metrics_json IS NULL OR TRIM(source_metrics_json) = ''"
-                )
-                if not _has_column(conn, "versions", "metrics_json"):
-                    conn.execute(
-                        "ALTER TABLE versions ADD COLUMN metrics_json TEXT NOT NULL DEFAULT '{}'"
-                    )
-                meta_added = False
-                if not _has_column(conn, "versions", "meta_json"):
-                    conn.execute("ALTER TABLE versions ADD COLUMN meta_json TEXT NOT NULL DEFAULT '{}'")
-                    log_debug("db", "migrated", action="add_column", table="versions", column="meta_json")
-                    meta_added = True
-                summary_exists = _has_column(conn, "versions", "summary_json")
-                if meta_added and summary_exists:
-                    res = conn.execute(
-                        """
-                        UPDATE versions
-                        SET meta_json = summary_json
-                        WHERE (meta_json IS NULL OR meta_json = '{}')
-                          AND summary_json IS NOT NULL
-                          AND summary_json != '{}'
-                        """
-                    )
-                    log_debug("db", "migrated summary_json -> meta_json", rows=res.rowcount)
-                if summary_exists:
-                    rows = conn.execute(
-                        "SELECT version_id, summary_json, meta_json, voicing, loudness_profile FROM versions"
-                    ).fetchall()
-                else:
-                    rows = conn.execute(
-                        "SELECT version_id, meta_json, voicing, loudness_profile FROM versions"
-                    ).fetchall()
-                for row in rows:
-                    summary_raw = row["summary_json"] or "" if summary_exists else ""
-                    meta_raw = row["meta_json"] or ""
-                    base_raw = meta_raw if meta_raw and meta_raw != "{}" else summary_raw
-                    if not base_raw or base_raw == "{}":
-                        continue
-                    try:
-                        summary = json.loads(base_raw)
-                    except Exception:
-                        summary = {}
-                    if not isinstance(summary, dict):
-                        summary = {}
-                    voicing = row["voicing"] or summary.get("voicing")
-                    profile = row["loudness_profile"] or summary.get("loudness_profile")
-                    preserved = {
-                        key: value
-                        for key, value in summary.items()
-                        if key not in ("voicing", "loudness_profile")
-                    }
-                    meta_json = json.dumps(preserved) if preserved else "{}"
-                    conn.execute(
-                        "UPDATE versions SET voicing = ?, loudness_profile = ?, meta_json = ? WHERE version_id = ?",
-                        (voicing, profile, meta_json, row["version_id"]),
-                    )
-                conn.execute(
-                    "UPDATE versions SET metrics_json = '{}' "
-                    "WHERE metrics_json IS NULL OR TRIM(metrics_json) = ''"
-                )
+                uv = _get_user_version(conn)
+                needs_migration = uv < SCHEMA_VERSION or not _has_column(conn, "versions", "meta_json")
+                if needs_migration:
+                    _apply_migrations(conn, uv, SCHEMA_VERSION)
+                    _set_user_version(conn, SCHEMA_VERSION)
             finally:
                 conn.close()
         _DB_READY = True
+
+
+def get_schema_version() -> int:
+    init_db()
+    conn = _connect()
+    try:
+        return _get_user_version(conn)
+    finally:
+        conn.close()
 
 
 def _select_metrics(metrics: dict | None, prefer_output: bool) -> dict:
@@ -947,15 +994,28 @@ def create_version_with_renditions(
                 raise ValueError("song_not_found")
             if not renditions:
                 raise ValueError("missing_renditions")
-            conn.execute(
-                """
-                INSERT INTO versions (version_id, song_id, kind, title, label, utility, voicing, loudness_profile,
-                                      created_at, updated_at, meta_json, metrics_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (version_id, song_id, kind, title, label, utility_value, voicing, loudness_profile,
-                 now, now, meta_json, raw_metrics_json),
-            )
+            def _insert_version_row() -> None:
+                conn.execute(
+                    """
+                    INSERT INTO versions (version_id, song_id, kind, title, label, utility, voicing, loudness_profile,
+                                          created_at, updated_at, meta_json, metrics_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (version_id, song_id, kind, title, label, utility_value, voicing, loudness_profile,
+                     now, now, meta_json, raw_metrics_json),
+                )
+
+            try:
+                _insert_version_row()
+            except sqlite3.OperationalError as exc:
+                msg = str(exc).lower()
+                if "no column named meta_json" in msg or "no such column: meta_json" in msg:
+                    log_summary("db", "schema drift detected; migrating", err=str(exc))
+                    _apply_migrations(conn, _get_user_version(conn), SCHEMA_VERSION)
+                    _set_user_version(conn, SCHEMA_VERSION)
+                    _insert_version_row()
+                else:
+                    raise
             conn.execute(
                 """
                 INSERT INTO version_metrics
