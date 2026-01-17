@@ -72,6 +72,70 @@
     return util === 'noise removed' || util === 'noise cleanup' || util === 'noise removal';
   }
 
+  function isNoiseProfileUtility(utility) {
+    const util = normalizeText(utility);
+    return util === 'noise profile';
+  }
+
+  function notify(msg) {
+    if (typeof window.showToast === 'function') {
+      window.showToast(msg);
+    } else {
+      console.info(msg);
+    }
+  }
+
+  function noisePresetSettingsFromVersion(version) {
+    const noise = version?.summary?.noise;
+    if (!noise || typeof noise !== 'object') return null;
+    const fLow = Number(noise.f_low);
+    const fHigh = Number(noise.f_high);
+    if (!Number.isFinite(fLow) || !Number.isFinite(fHigh) || fHigh <= fLow) return null;
+    const bandDepth = Number.isFinite(Number(noise.band_depth_db)) ? Number(noise.band_depth_db) : -18;
+    const strength = Number.isFinite(Number(noise.afftdn_strength)) ? Number(noise.afftdn_strength) : 0.35;
+    const hp = Number.isFinite(Number(noise.hp_hz)) ? Number(noise.hp_hz) : null;
+    const lp = Number.isFinite(Number(noise.lp_hz)) ? Number(noise.lp_hz) : null;
+    const mode = normalizeText(noise.mode) === 'solo' ? 'remove' : (noise.mode || 'remove');
+    return {
+      f_low: fLow,
+      f_high: fHigh,
+      band_depth_db: bandDepth,
+      afftdn_strength: strength,
+      hp_hz: hp,
+      lp_hz: lp,
+      mode,
+    };
+  }
+
+  async function convertNoiseProfileToPreset(song, version) {
+    const settings = noisePresetSettingsFromVersion(version);
+    if (!settings) {
+      notify('Noise settings missing for this profile.');
+      return;
+    }
+    const titleBase = song?.title || version?.title || version?.label || 'Noise Filter';
+    const title = `${titleBase} Noise Filter`;
+    try {
+      const res = await fetch('/api/analyze/noise/preset/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          target_kind: 'noise_filter',
+          settings,
+          source_hint: { from_file: song?.source?.rel || version?.rel || '' },
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(err || 'preset_failed');
+      }
+      notify('Noise Filter Preset created.');
+    } catch (_err) {
+      notify('Failed to create Noise Filter Preset.');
+    }
+  }
+
   function renderLibrary(container, options = {}) {
     const module = options.module || container.dataset.module || 'generic';
     const isMastering = module === 'mastering';
@@ -349,6 +413,16 @@
           emit('library:action', { action: 'open-compare', song, version });
         });
         menuList.appendChild(compareBtn);
+        if (isNoiseProfileUtility(version.utility)) {
+          const convertBtn = document.createElement('button');
+          convertBtn.type = 'button';
+          convertBtn.textContent = 'Convert to Filter Preset';
+          convertBtn.addEventListener('click', (evt) => {
+            evt.stopPropagation();
+            convertNoiseProfileToPreset(song, version);
+          });
+          menuList.appendChild(convertBtn);
+        }
         const delBtn = document.createElement('button');
         delBtn.type = 'button';
         delBtn.textContent = 'Delete';
@@ -386,6 +460,16 @@
           emit('library:action', { action: 'open-compare', song, version });
         });
         menuList.appendChild(openCompare);
+        if (isNoiseProfileUtility(version.utility)) {
+          const convertBtn = document.createElement('button');
+          convertBtn.type = 'button';
+          convertBtn.textContent = 'Convert to Filter Preset';
+          convertBtn.addEventListener('click', (evt) => {
+            evt.stopPropagation();
+            convertNoiseProfileToPreset(song, version);
+          });
+          menuList.appendChild(convertBtn);
+        }
 
         const download = document.createElement('details');
         download.className = 'library-download-menu';

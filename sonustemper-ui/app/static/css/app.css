@@ -1394,6 +1394,9 @@ h1{margin:0;font-size:24px;}
   pointer-events:none;
   z-index:3;
 }
+.spectrogram-loading[hidden]{
+  display:none;
+}
 .spectrogram-loading--mini{
   font-size:11px;
   background:rgba(8,12,18,0.35);

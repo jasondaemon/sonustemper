@@ -486,6 +486,14 @@ def list_library() -> dict:
     for row in version_rows:
         renditions = renditions_map.get(row["version_id"], [])
         summary = {}
+        summary_raw = row["summary_json"] if "summary_json" in row.keys() else None
+        if summary_raw:
+            try:
+                raw = json.loads(summary_raw)
+                if isinstance(raw, dict):
+                    summary.update(raw)
+            except Exception:
+                summary = {}
         if row["voicing"]:
             summary["voicing"] = row["voicing"]
         if row["loudness_profile"]:
@@ -590,6 +598,14 @@ def get_song(song_id: str) -> dict | None:
     for row in version_rows:
         renditions = renditions_map.get(row["version_id"], [])
         summary = {}
+        summary_raw = row["summary_json"] if "summary_json" in row.keys() else None
+        if summary_raw:
+            try:
+                raw = json.loads(summary_raw)
+                if isinstance(raw, dict):
+                    summary.update(raw)
+            except Exception:
+                summary = {}
         if row["voicing"]:
             summary["voicing"] = row["voicing"]
         if row["loudness_profile"]:
@@ -868,7 +884,7 @@ def create_version_with_renditions(
     now = _now_iso()
     summary_clean = _strip_summary_metrics(summary)
     metrics_payload = _merge_summary_metrics(metrics, summary)
-    summary_json = "{}"
+    summary_json = json.dumps(summary_clean) if summary_clean else "{}"
     raw_metrics_json = "{}"
     voicing = summary_clean.get("voicing") if isinstance(summary_clean, dict) else None
     loudness_profile = summary_clean.get("loudness_profile") if isinstance(summary_clean, dict) else None

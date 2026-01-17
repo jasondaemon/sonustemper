@@ -4271,12 +4271,25 @@ def analyze_noise_render(payload: dict = Body(...)):
     rendition = {"format": out_path.suffix.lower().lstrip("."), "rel": rel}
     is_noise_profile = mode == "solo"
     utility_label = "Noise Profile" if is_noise_profile else "Noise Removed"
+    noise_summary = {
+        "noise_profile": utility_label,
+        "noise": {
+            "f_low": payload.get("f_low"),
+            "f_high": payload.get("f_high"),
+            "band_depth_db": payload.get("band_depth_db"),
+            "afftdn_strength": payload.get("afftdn_strength"),
+            "hp_hz": payload.get("hp_hz"),
+            "lp_hz": payload.get("lp_hz"),
+            "mode": mode,
+            "apply_scope": payload.get("apply_scope"),
+        },
+    }
     version = library_store.create_version_with_renditions(
         song_id,
         "noise_clean",
         utility_label,
         title or utility_label,
-        {"noise_profile": utility_label},
+        noise_summary,
         metrics,
         [rendition],
         version_id=version_id,
