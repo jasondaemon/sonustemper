@@ -362,7 +362,7 @@
         addBtn.classList.add('library-add-btn');
         addBtn.innerHTML = `
           <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <path d="M12 5.5v13M5.5 12h13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>
           </svg>
         `;
         addBtn.title = 'Add to Input';
