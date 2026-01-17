@@ -135,12 +135,30 @@
         <div class="analysis-selection-bar">
           <div class="analysis-selection-readouts">
             <span class="muted">Selection</span>
-            <span class="value-pill" id="noiseT0">-</span>
-            <span class="value-pill" id="noiseT1">-</span>
-            <span class="value-pill" id="noiseF0">-</span>
-            <span class="value-pill" id="noiseF1">-</span>
-            <span class="value-pill" id="noiseCenter">-</span>
-            <span class="value-pill" id="noiseBandwidth">-</span>
+            <div class="selection-item">
+              <span class="selection-label">t0 (s)</span>
+              <span class="value-pill" id="noiseT0">-</span>
+            </div>
+            <div class="selection-item">
+              <span class="selection-label">t1 (s)</span>
+              <span class="value-pill" id="noiseT1">-</span>
+            </div>
+            <div class="selection-item">
+              <span class="selection-label">f0 (Hz)</span>
+              <span class="value-pill" id="noiseF0">-</span>
+            </div>
+            <div class="selection-item">
+              <span class="selection-label">f1 (Hz)</span>
+              <span class="value-pill" id="noiseF1">-</span>
+            </div>
+            <div class="selection-item">
+              <span class="selection-label">Center (Hz)</span>
+              <span class="value-pill" id="noiseCenter">-</span>
+            </div>
+            <div class="selection-item">
+              <span class="selection-label">Bandwidth (Hz)</span>
+              <span class="value-pill" id="noiseBandwidth">-</span>
+            </div>
           </div>
           <div class="analysis-selection-actions">
             <button class="btn ghost tiny" type="button" id="noiseClearBtn">Clear selection</button>
@@ -352,7 +370,7 @@
 
   function formatHz(val){
     if (val === null || val === undefined || Number.isNaN(val)) return '-';
-    if (val >= 1000) return `${(val / 1000).toFixed(2)}k`;
+    if (val >= 1000) return `${(val / 1000).toFixed(2)} kHz`;
     return `${val.toFixed(0)} Hz`;
   }
 
