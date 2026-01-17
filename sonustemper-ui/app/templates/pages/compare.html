@@ -293,6 +293,11 @@
 
   const zoomSteps = [1, 2, 4, 8, 16, 32];
   let fitMinPxPerSec = 1;
+  let currentZoomPxPerSec = 1;
+  const ZOOM_DEBUG = localStorage.getItem('ST_DEBUG_COMPARE_ZOOM') === '1';
+  const zoomDebug = (...args) => {
+    if (ZOOM_DEBUG) console.debug('[compare][zoom]', ...args);
+  };
   let trackMode = 'both';
 
   const metricLabels = [
@@ -369,6 +374,7 @@
     const factor = zoomSteps[idx];
     if (zoomLabel) zoomLabel.textContent = `${factor}x`;
     const minPxPerSec = Math.max(1, fitMinPxPerSec) * factor;
+    currentZoomPxPerSec = minPxPerSec;
     if (sourceWave) sourceWave.zoom(minPxPerSec);
     if (processedWave) processedWave.zoom(minPxPerSec);
     const miniPxPerSec = Math.max(1, fitMinPxPerSec);
@@ -379,6 +385,42 @@
     updateMiniSpectrogram();
     updateOverviewWindow();
     requestAnimationFrame(updateScrollHints);
+    requestAnimationFrame(() => {
+      forceWaveRedraw(sourceWave);
+      forceWaveRedraw(processedWave);
+      if (ZOOM_DEBUG) {
+        [sourceWave, processedWave].forEach((wave, idxWave) => {
+          if (!wave || typeof wave.getWrapper !== 'function') return;
+          const wrapper = wave.getWrapper();
+          if (!wrapper) return;
+          const canvases = wrapper.querySelectorAll('canvas');
+          zoomDebug('zoom', {
+            kind: idxWave === 0 ? 'source' : 'processed',
+            pxPerSec: minPxPerSec,
+            duration: typeof wave.getDuration === 'function' ? wave.getDuration() : 0,
+            targetWidth: Math.ceil((wave.getDuration?.() || 0) * minPxPerSec),
+            clientWidth: wrapper.clientWidth,
+            scrollWidth: wrapper.scrollWidth,
+            canvases: Array.from(canvases).map((c) => ({ w: c.width, h: c.height })),
+          });
+        });
+      }
+    });
+  }
+
+  function forceWaveRedraw(wave){
+    if (!wave) return;
+    if (typeof wave.drawBuffer === 'function') {
+      wave.drawBuffer();
+      return;
+    }
+    if (wave.renderer && typeof wave.renderer.render === 'function') {
+      wave.renderer.render();
+      return;
+    }
+    if (typeof wave.render === 'function') {
+      wave.render();
+    }
   }
 
   function clamp(val, minVal, maxVal){
@@ -1364,7 +1406,9 @@
       node.style.position = 'relative';
       node.style.zIndex = '2';
     });
-    const width = Math.max(wrapper.scrollWidth || wrapper.clientWidth || 0, 1);
+    const duration = typeof wave.getDuration === 'function' ? wave.getDuration() : 0;
+    const target = Math.ceil((duration || 0) * (currentZoomPxPerSec || 0));
+    const width = Math.max(wrapper.clientWidth || 0, target || 0, 1);
     const height = Math.max(wrapper.clientHeight || 1, 1);
     const ratio = window.devicePixelRatio || 1;
     canvas.width = Math.max(1, Math.round(width * ratio));
@@ -1812,6 +1856,7 @@
       height: 180,
       normalize: false,
       backend: 'MediaElement',
+      scrollParent: true,
       minPxPerSec: Math.max(1, fitMinPxPerSec) * zoomSteps[zoomIdx],
       fillParent: false,
       autoScroll: false,
