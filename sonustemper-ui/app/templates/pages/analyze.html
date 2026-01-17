@@ -471,6 +471,9 @@
     }
   }
 
+  let spectroLoadToken = 0;
+  let spectroMiniLoadToken = 0;
+
   function setSpectrogramLoading(on){
     if (spectrogramLoading) spectrogramLoading.hidden = !on;
     if (spectrogramImg) spectrogramImg.classList.toggle('spectrogram-img-hidden', !!on);
@@ -491,7 +494,6 @@
 
   function renderSpectrogramViewer(spec, relPath, heightPx, preserveCenter, overrideMin){
     if (!spec || !spec.viewport || !spec.inner || !spec.img || !relPath) return;
-    if (spec.img === spectrogramImg) setSpectrogramLoading(true);
     const viewport = spec.viewport;
     const inner = spec.inner;
     const zoom = Math.max(1, spec.zoom || 1);
@@ -505,7 +507,17 @@
     const dpr = window.devicePixelRatio || 1;
     const width = Math.max(300, Math.round(innerWidth * dpr));
     const height = Math.max(200, Math.round(heightPx * dpr));
-    spec.img.src = spectrogramUrl(relPath, width, height, spec.scale, spec.drange, spec.stereo);
+    const nextUrl = spectrogramUrl(relPath, width, height, spec.scale, spec.drange, spec.stereo);
+    const sameUrl = spec.img.src === nextUrl;
+    if (spec.img === spectrogramImg && !sameUrl) {
+      const token = ++spectroLoadToken;
+      spec.img.dataset.loadToken = String(token);
+      setSpectrogramLoading(true);
+    }
+    spec.img.src = nextUrl;
+    if (spec.img === spectrogramImg && sameUrl && spec.img.complete) {
+      setSpectrogramLoading(false);
+    }
     if (preserveCenter && prevInnerWidth > 0) {
       const centerRatio = (prevScroll + baseWidth * 0.5) / prevInnerWidth;
       const nextScroll = Math.max(0, centerRatio * innerWidth - baseWidth * 0.5);
@@ -523,7 +535,6 @@
       setMiniSpectrogramLoading(false);
       return;
     }
-    setMiniSpectrogramLoading(true);
     const widthPx = Math.max(1, spectrogramMiniViewport.clientWidth);
     setSpectrogramViewport(spectrogramMiniViewport, ANALYZE_MINI_HEIGHT, true);
     spectrogramMiniInner.style.width = `${widthPx}px`;
@@ -531,7 +542,7 @@
     const dpr = window.devicePixelRatio || 1;
     const width = Math.max(300, Math.round(widthPx * dpr));
     const height = Math.max(80, Math.round(ANALYZE_MINI_HEIGHT * dpr));
-    spectrogramMiniImg.src = spectrogramUrl(
+    const miniUrl = spectrogramUrl(
       target.rel,
       width,
       height,
@@ -539,6 +550,16 @@
       analysisSpectrogram.drange,
       analysisSpectrogram.stereo
     );
+    const sameMini = spectrogramMiniImg.src === miniUrl;
+    if (!sameMini) {
+      const token = ++spectroMiniLoadToken;
+      spectrogramMiniImg.dataset.loadToken = String(token);
+      setMiniSpectrogramLoading(true);
+    }
+    spectrogramMiniImg.src = miniUrl;
+    if (sameMini && spectrogramMiniImg.complete) {
+      setMiniSpectrogramLoading(false);
+    }
     updateMiniWindow();
   }
 
@@ -1903,12 +1924,32 @@
   }
 
   if (spectrogramImg) {
-    spectrogramImg.addEventListener('load', () => setSpectrogramLoading(false));
-    spectrogramImg.addEventListener('error', () => setSpectrogramLoading(false));
+    spectrogramImg.addEventListener('load', () => {
+      const token = spectrogramImg.dataset.loadToken;
+      if (!token || token === String(spectroLoadToken)) {
+        setSpectrogramLoading(false);
+      }
+    });
+    spectrogramImg.addEventListener('error', () => {
+      const token = spectrogramImg.dataset.loadToken;
+      if (!token || token === String(spectroLoadToken)) {
+        setSpectrogramLoading(false);
+      }
+    });
   }
   if (spectrogramMiniImg) {
-    spectrogramMiniImg.addEventListener('load', () => setMiniSpectrogramLoading(false));
-    spectrogramMiniImg.addEventListener('error', () => setMiniSpectrogramLoading(false));
+    spectrogramMiniImg.addEventListener('load', () => {
+      const token = spectrogramMiniImg.dataset.loadToken;
+      if (!token || token === String(spectroMiniLoadToken)) {
+        setMiniSpectrogramLoading(false);
+      }
+    });
+    spectrogramMiniImg.addEventListener('error', () => {
+      const token = spectrogramMiniImg.dataset.loadToken;
+      if (!token || token === String(spectroMiniLoadToken)) {
+        setMiniSpectrogramLoading(false);
+      }
+    });
   }
 
   loadAnalyzeSpectrogramState(analysisSpectrogram);
