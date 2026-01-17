@@ -85,6 +85,66 @@
     }
   }
 
+  let metricsModal = null;
+  let metricsModalTitle = null;
+  let metricsModalList = null;
+  let metricsModalClose = null;
+
+  function ensureMetricsModal() {
+    if (metricsModal) return;
+    metricsModal = document.createElement('div');
+    metricsModal.className = 'library-metrics-modal';
+    metricsModal.hidden = true;
+    metricsModal.innerHTML = `
+      <div class="library-metrics-dialog" role="dialog" aria-modal="true">
+        <div class="library-metrics-head">
+          <div class="library-metrics-title"></div>
+          <button type="button" class="btn ghost tiny library-metrics-close">Close</button>
+        </div>
+        <div class="library-metrics-body"></div>
+      </div>
+    `;
+    document.body.appendChild(metricsModal);
+    metricsModalTitle = metricsModal.querySelector('.library-metrics-title');
+    metricsModalList = metricsModal.querySelector('.library-metrics-body');
+    metricsModalClose = metricsModal.querySelector('.library-metrics-close');
+    metricsModalClose.addEventListener('click', () => closeMetricsModal());
+    metricsModal.addEventListener('click', (evt) => {
+      if (evt.target === metricsModal) closeMetricsModal();
+    });
+    metricsModal.addEventListener('keydown', (evt) => {
+      if (evt.key === 'Escape') closeMetricsModal();
+    });
+  }
+
+  function openMetricsModal(title, lines) {
+    ensureMetricsModal();
+    metricsModalTitle.textContent = title || 'Metrics';
+    metricsModalList.innerHTML = '';
+    if (Array.isArray(lines) && lines.length) {
+      const list = document.createElement('ul');
+      list.className = 'library-metrics-list';
+      lines.forEach((line) => {
+        const item = document.createElement('li');
+        item.textContent = line;
+        list.appendChild(item);
+      });
+      metricsModalList.appendChild(list);
+    } else {
+      const empty = document.createElement('div');
+      empty.className = 'muted';
+      empty.textContent = 'No metrics available.';
+      metricsModalList.appendChild(empty);
+    }
+    metricsModal.hidden = false;
+    metricsModalClose.focus();
+  }
+
+  function closeMetricsModal() {
+    if (!metricsModal) return;
+    metricsModal.hidden = true;
+  }
+
   function noisePresetSettingsFromVersion(version) {
     const noise = version?.summary?.noise || version?.meta?.noise || version?.noise;
     if (!noise || typeof noise !== 'object') return null;
@@ -284,6 +344,11 @@
             });
           }
         });
+      } else {
+        header.addEventListener('click', () => {
+          if (disabled) return;
+          emit('library:play-song', { song });
+        });
       }
 
       row.appendChild(header);
@@ -294,20 +359,16 @@
         const addBtn = document.createElement('button');
         addBtn.type = 'button';
         addBtn.className = 'btn ghost tiny';
-        addBtn.textContent = '+';
+        addBtn.classList.add('library-add-btn');
+        addBtn.innerHTML = `
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M12 5.5v13M5.5 12h13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        `;
         addBtn.title = 'Add to Input';
         addBtn.addEventListener('click', (evt) => {
           evt.stopPropagation();
           emit('library:add-to-input', { song });
-        });
-        const loadBtn = document.createElement('button');
-        loadBtn.type = 'button';
-        loadBtn.className = 'btn ghost tiny';
-        loadBtn.textContent = '➜';
-        loadBtn.title = 'Open Player';
-        loadBtn.addEventListener('click', (evt) => {
-          evt.stopPropagation();
-          emit('library:play-song', { song });
         });
         const delBtn = document.createElement('button');
         delBtn.type = 'button';
@@ -319,7 +380,6 @@
           emit('library:delete-song', { song });
         });
         actions.appendChild(addBtn);
-        actions.appendChild(loadBtn);
         actions.appendChild(delBtn);
         header.appendChild(actions);
       }
@@ -354,7 +414,7 @@
       const utilityLabel = isNoiseRemovedUtility(version.utility) ? 'Noise Removed' : version.utility;
       if (utilityLabel) meta.appendChild(makeBadge(utilityLabel, 'badge-utility'));
       if (version.summary?.voicing) meta.appendChild(makeBadge(version.summary.voicing, 'badge-voicing'));
-      const metaOverflow = makeBadge('⋯', 'badge-param library-meta-overflow');
+      const metaOverflow = makeBadge('i', 'badge-param library-meta-overflow');
       const metaLines = [];
       if (version.label) metaLines.push(`Label: ${version.label}`);
       if (version.title) metaLines.push(`Title: ${version.title}`);
@@ -380,8 +440,19 @@
         }
       });
       if (metaLines.length) {
-        metaOverflow.title = metaLines.join('\n');
+        metaOverflow.setAttribute('role', 'button');
+        metaOverflow.setAttribute('tabindex', '0');
         metaOverflow.setAttribute('aria-label', 'Show metadata');
+        metaOverflow.addEventListener('click', (evt) => {
+          evt.stopPropagation();
+          openMetricsModal('Metrics', metaLines);
+        });
+        metaOverflow.addEventListener('keydown', (evt) => {
+          if (evt.key === 'Enter') {
+            evt.preventDefault();
+            openMetricsModal('Metrics', metaLines);
+          }
+        });
         meta.appendChild(metaOverflow);
       }
 

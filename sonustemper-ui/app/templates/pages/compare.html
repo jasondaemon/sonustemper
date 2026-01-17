@@ -39,6 +39,7 @@
       </div>
       <div class="analyze-actions">
         <input type="file" id="analyzeUploadInput" accept=".wav,.mp3,.flac,.aiff,.aif,.m4a,.ogg,.aac" hidden>
+        <button class="btn ghost small" id="openNoiseRemovalBtn">Open in Noise Removal</button>
         <button class="btn ghost small" id="analyzeUploadBtn">Upload</button>
       </div>
     </div>
@@ -196,6 +197,7 @@
 (() => {
   const uploadBtn = document.getElementById('analyzeUploadBtn');
   const uploadInput = document.getElementById('analyzeUploadInput');
+  const openNoiseRemovalBtn = document.getElementById('openNoiseRemovalBtn');
   const emptyState = document.getElementById('analyzeEmpty');
   const loadedState = document.getElementById('analyzeLoaded');
   const summaryPills = document.getElementById('summaryPills');
@@ -1920,6 +1922,16 @@
     syncPreserveLinks(params);
   }
 
+  function openInNoiseRemoval(){
+    if (!analysisData?.source_rel) return;
+    const url = new URL('/analyze', window.location.origin);
+    url.searchParams.set('src', analysisData.source_rel);
+    if (analysisData.processed_rel) {
+      url.searchParams.set('proc', analysisData.processed_rel);
+    }
+    window.location.assign(`${url.pathname}${url.search}`);
+  }
+
   function updateControls(){
     const hasSource = Boolean(compareAudioSource?.src || sourceWave);
     const hasProcessed = Boolean(compareAudioProcessed?.src || processedWave);
@@ -2285,6 +2297,11 @@
       } finally {
         uploadInput.value = '';
       }
+    });
+  }
+  if (openNoiseRemovalBtn) {
+    openNoiseRemovalBtn.addEventListener('click', () => {
+      openInNoiseRemoval();
     });
   }
 

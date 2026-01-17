@@ -435,6 +435,9 @@
         closeStatusStream();
         // Refresh browser list ONLY (do not auto-click a run, or you'll restart SSE forever)
         refreshMasteringRuns();
+        if (data.stage === 'complete' && currentRun) {
+          handleRunComplete(currentRun);
+        }
       }
     };
     es.onerror = ()=>{
@@ -442,6 +445,24 @@
       statusLines.push('(status unavailable)');
       scheduleStatusRender();
     };
+  }
+
+  async function handleRunComplete(songId){
+    removeInputItem(songId);
+    if (libraryBrowser) libraryBrowser.reload();
+    if (!playerPane || !songId) return;
+    try {
+      const res = await fetch('/api/library', { cache: 'no-store' });
+      if (!res.ok) return;
+      const data = await res.json();
+      const songs = Array.isArray(data.songs) ? data.songs : [];
+      const song = songs.find((entry) => entry.song_id === songId);
+      if (song) {
+        playerPane.loadSong(song, { autoplay: false });
+      }
+    } catch (_err) {
+      // ignore player refresh errors
+    }
   }
 
   function renderInputList(){

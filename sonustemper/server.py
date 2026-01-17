@@ -574,11 +574,32 @@ def _import_master_outputs(song_id: str, run_dir: Path, summary: dict | None = N
     renditions = []
     metrics = {}
     dest_paths: list[Path] = []
+    title = song.get("title") or "Master"
+    safe_title = safe_filename(title) or "Master"
+    summary = summary or {}
+    voicing = safe_filename(str(summary.get("voicing") or "")) or ""
+    profile = safe_filename(str(summary.get("loudness_profile") or "")) or ""
+    strength_val = summary.get("strength")
+    strength = ""
+    try:
+        if strength_val is not None and str(strength_val).strip() != "":
+            strength = str(int(round(float(strength_val))))
+    except Exception:
+        strength = safe_filename(str(strength_val)) if strength_val is not None else ""
+    parts = []
+    if voicing:
+        parts.append(f"v{voicing}")
+    if strength:
+        parts.append(f"s{strength}")
+    if profile:
+        parts.append(f"p{profile}")
+    parts.append(version_id)
+    base_name = safe_filename(f"{safe_title}__{'_'.join(parts)}") or safe_title
     for fp in _list_audio_files(run_dir):
         ext = fp.suffix.lower().lstrip(".")
         if not ext:
             continue
-        out_name = f"master.{ext}"
+        out_name = f"{base_name}.{ext}"
         dest = dest_dir / out_name
         try:
             shutil.move(str(fp), dest)
@@ -607,13 +628,12 @@ def _import_master_outputs(song_id: str, run_dir: Path, summary: dict | None = N
     if metrics:
         metrics = _normalize_metrics_keys(metrics)
     if renditions:
-        title = song.get("title") or "Master"
         entry = library_store.create_version_with_renditions(
             song_id,
             "master",
             "Master",
             title,
-            summary or {},
+            summary,
             metrics,
             renditions,
             version_id=version_id,
@@ -744,6 +764,7 @@ def _start_master_jobs(song_ids, presets, strength, lufs, tp, width, mono_bass, 
                     summary={
                         "voicing": voicing_name or presets,
                         "loudness_profile": loudness_profile,
+                        "strength": strength,
                     },
                 )
                 final_event = final_events.pop(rid, None)
