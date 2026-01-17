@@ -1260,6 +1260,10 @@ h1{margin:0;font-size:24px;}
 .noise-selection-hint{
   font-size:12px;
 }
+.preview-audio.is-disabled{
+  opacity:0.6;
+  pointer-events:none;
+}
 .spectrogram-wrap{
   position:relative;
   border:1px solid var(--line);

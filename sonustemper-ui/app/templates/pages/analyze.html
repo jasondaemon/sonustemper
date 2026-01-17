@@ -226,15 +226,18 @@
             <button class="btn ghost small" type="button" id="noiseModeSolo">Solo noise</button>
           </div>
         </div>
+        <div class="control-row">
+          <label class="check"><input type="checkbox" id="noiseAutoPlay"> Auto play selection</label>
+        </div>
         <div class="control-row preview-row">
           <div class="control-label small-label">Preview</div>
           <audio id="noisePreviewAudio" class="preview-audio" controls preload="none"></audio>
           <span class="muted" id="noisePreviewStatus">Preview idle</span>
         </div>
         <div class="preset-actions">
-          <button class="btn btn-primary small" type="button" id="noisePreviewBtn">Preview</button>
-          <button class="btn ghost small" type="button" id="noiseSaveNoiseBtn">Save Noise File</button>
-          <button class="btn ghost small" type="button" id="noiseRenderBtn">Save Version</button>
+          <button class="btn ghost small" type="button" id="noisePreviewBtn">Preview</button>
+          <button class="btn success small" type="button" id="noiseRenderBtn">Save Song Version</button>
+          <button class="btn success small" type="button" id="noiseSaveNoiseBtn">Save Noise Profile</button>
         </div>
       </div>
     </div>
@@ -314,6 +317,7 @@
   const noiseRenderBtn = document.getElementById('noiseRenderBtn');
   const noiseSaveBtn = document.getElementById('noiseSaveBtn');
   const noiseSaveNoiseBtn = document.getElementById('noiseSaveNoiseBtn');
+  const noiseAutoPlayToggle = document.getElementById('noiseAutoPlay');
   const noiseClearBtn = document.getElementById('noiseClearBtn');
   const noiseT0 = document.getElementById('noiseT0');
   const noiseT1 = document.getElementById('noiseT1');
@@ -342,6 +346,10 @@
   let noiseScope = 'global';
   let noisePresets = new Map();
   let lastNoiseTargetRel = null;
+  let autoPreviewTimer = null;
+  let autoPreviewAbort = null;
+  let autoPreviewRequestId = 0;
+  let autoPlaySelection = false;
   let summaryMinHeight = 0;
   const ANALYZE_SCALE_KEY = 'sonustemper.analyzeSpecScale';
   const ANALYZE_DRANGE_KEY = 'sonustemper.analyzeSpecDrange';
@@ -615,6 +623,81 @@
     if (noisePreviewStatus) noisePreviewStatus.textContent = msg || '';
   }
 
+  function setPreviewEnabled(enabled){
+    if (!noisePreviewAudio) return;
+    noisePreviewAudio.classList.toggle('is-disabled', !enabled);
+    noisePreviewAudio.setAttribute('aria-disabled', String(!enabled));
+    if (!enabled) noisePreviewAudio.pause();
+  }
+
+  function cancelAutoPreview(){
+    if (autoPreviewTimer) {
+      clearTimeout(autoPreviewTimer);
+      autoPreviewTimer = null;
+    }
+    if (autoPreviewAbort) {
+      autoPreviewAbort.abort();
+      autoPreviewAbort = null;
+    }
+  }
+
+  function scheduleAutoPreview(){
+    cancelAutoPreview();
+    if (!noiseSelection) return;
+    const span = Math.abs((noiseSelection.t1 || 0) - (noiseSelection.t0 || 0));
+    if (span < 0.25) return;
+    autoPreviewTimer = setTimeout(() => {
+      autoPreviewTimer = null;
+      runAutoPreview();
+    }, 300);
+  }
+
+  async function runAutoPreview(){
+    const payload = collectNoisePayload();
+    if (!payload) return;
+    const span = Math.abs((payload.end_sec || 0) - (payload.start_sec || 0));
+    if (span < 0.25) return;
+    payload.mode = 'solo';
+    payload.apply_scope = 'selection';
+    payload.apply_to_selection = true;
+    const requestId = ++autoPreviewRequestId;
+    if (autoPreviewAbort) autoPreviewAbort.abort();
+    const controller = new AbortController();
+    autoPreviewAbort = controller;
+    summarizeNoisePayload('Auto preview', payload);
+    addStatusLine('Auto preview: building (solo noise)…');
+    setNoiseStatus('Auto previewing...');
+    setPreviewEnabled(false);
+    try {
+      const res = await fetch('/api/analyze/noise/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(err || 'preview_failed');
+      }
+      const data = await res.json();
+      if (requestId !== autoPreviewRequestId) return;
+      if (noisePreviewAudio && data.url) {
+        noisePreviewAudio.src = data.url;
+      }
+      setPreviewEnabled(true);
+      if (autoPlaySelection) {
+        addStatusLine('Auto preview ready — playing solo noise.');
+        noisePreviewAudio?.play().catch(() => {});
+      } else {
+        addStatusLine('Auto preview ready.');
+      }
+      setNoiseStatus('Auto preview ready.');
+    } catch (err) {
+      if (err && err.name === 'AbortError') return;
+      setNoiseStatus('Auto preview failed.');
+    }
+  }
+
   function updateNoiseReadouts(selection){
     if (!noiseT0 || !noiseT1 || !noiseF0 || !noiseF1 || !noiseCenter || !noiseBandwidth) return;
     if (!selection) {
@@ -693,6 +776,7 @@
     noiseSelection = null;
     lastNoiseTargetRel = null;
     noiseSuggestedBand = null;
+    cancelAutoPreview();
     if (noisePresetHint) {
       noisePresetHint.hidden = true;
       noisePresetHint.textContent = '';
@@ -1339,6 +1423,7 @@
       }
       noiseSelection = { t0, t1, f0, f1 };
       updateNoiseReadouts(noiseSelection);
+      scheduleAutoPreview();
     };
     spectrogramOverlay.addEventListener('mousedown', (evt) => {
       if (!analysisContext.duration || !spectrogramImg?.src) return;
@@ -1401,9 +1486,11 @@
       setNoiseStatus('Select a region to preview.');
       return;
     }
+    cancelAutoPreview();
     summarizeNoisePayload('Preview', payload);
     addStatusLine('Preview: starting ffmpeg...');
     setNoiseStatus('Previewing...');
+    setPreviewEnabled(false);
     try {
       const res = await fetch('/api/analyze/noise/preview', {
         method: 'POST',
@@ -1419,6 +1506,7 @@
         noisePreviewAudio.src = data.url;
         noisePreviewAudio.play().catch(() => {});
       }
+      setPreviewEnabled(true);
       const startText = typeof data.preview_start === 'number' ? data.preview_start.toFixed(2) : '-';
       setNoiseStatus(`Preview starts at ${startText}s`);
     } catch (_err) {
@@ -1432,6 +1520,7 @@
       setNoiseStatus('Select a region to render.');
       return;
     }
+    cancelAutoPreview();
     payload.mode = 'remove';
     summarizeNoisePayload('Render Cleaned Copy', payload);
     addStatusLine('Render Cleaned Copy: starting ffmpeg...');
@@ -1481,9 +1570,10 @@
       setNoiseStatus('Select a region to save noise.');
       return;
     }
+    cancelAutoPreview();
     payload.mode = 'solo';
-    summarizeNoisePayload('Save Noise File', payload);
-    addStatusLine('Save Noise File: starting ffmpeg...');
+    summarizeNoisePayload('Save Noise Profile', payload);
+    addStatusLine('Save Noise Profile: starting ffmpeg...');
     setNoiseStatus('Saving noise file...');
     try {
       const songId = await ensureSongId();
@@ -1507,7 +1597,7 @@
         renderNoiseHistory();
       }
       addStatusLine(`Saved version: ${data.output_name || 'noise profile'}`);
-      setNoiseStatus('Noise file saved.');
+      setNoiseStatus('Noise profile saved.');
     } catch (_err) {
       setNoiseStatus('Noise file save failed.');
     }
@@ -2018,6 +2108,11 @@
   if (noiseModeSoloBtn) {
     noiseModeSoloBtn.addEventListener('click', () => setNoiseMode('solo'));
   }
+  if (noiseAutoPlayToggle) {
+    noiseAutoPlayToggle.addEventListener('change', () => {
+      autoPlaySelection = noiseAutoPlayToggle.checked;
+    });
+  }
   if (noiseScopeGlobalBtn) {
     noiseScopeGlobalBtn.addEventListener('click', () => setNoiseScope('global'));
   }
@@ -2039,6 +2134,7 @@
       noiseSelection = null;
       if (spectrogramSelection) spectrogramSelection.hidden = true;
       updateNoiseReadouts(null);
+      cancelAutoPreview();
     });
   }
   if (noisePresetSelect) {
@@ -2051,6 +2147,7 @@
   if (noiseRenderBtn) noiseRenderBtn.addEventListener('click', renderNoise);
   if (noiseSaveBtn) noiseSaveBtn.addEventListener('click', saveNoisePreset);
   if (noiseSaveNoiseBtn) noiseSaveNoiseBtn.addEventListener('click', saveNoiseFile);
+  setPreviewEnabled(false);
 
   if (analysisPlayBtn && analysisAudio) {
     analysisPlayBtn.addEventListener('click', () => {
