@@ -155,9 +155,9 @@
           <span class="legend-item"><span class="legend-swatch delta-minus"></span>Δ Loudness -</span>
         </div>
         <div class="spectro-legend" id="compareSpectroLegend" hidden aria-label="Spectrogram legend">
-          <span>Low</span>
+          <span>Low energy (-120 dB)</span>
           <div class="spectro-legend-bar" aria-hidden="true"></div>
-          <span>High</span>
+          <span>High energy (0 dB)</span>
         </div>
       </div>
 
@@ -284,6 +284,10 @@
   let waveScrollCleanup = [];
   let spectroScrollCleanup = [];
   let driftTimer = null;
+  const MATCH_DEBUG = localStorage.getItem('ST_DEBUG_COMPARE_MATCH') === '1';
+  const matchDebug = (...args) => {
+    if (MATCH_DEBUG) console.debug('[compare][match]', ...args);
+  };
 
   const zoomSteps = [1, 2, 4, 8, 16, 32];
   let fitMinPxPerSec = 1;
@@ -442,13 +446,28 @@
   function ensureGainNodeForAudio(audioEl, key){
     if (!audioEl) return null;
     const existing = gainNodes.get(key);
-    if (existing) return existing;
+    if (existing) {
+      if (existing.audio === audioEl) return existing;
+      matchDebug('replacing gain node', { key });
+      try {
+        existing.source.disconnect();
+      } catch (_err) {
+        // ignore disconnect errors
+      }
+      try {
+        existing.gain.disconnect();
+      } catch (_err) {
+        // ignore disconnect errors
+      }
+      gainNodes.delete(key);
+    }
     const ctx = getAudioContext();
     if (!ctx) return null;
     let source = null;
     try {
       source = ctx.createMediaElementSource(audioEl);
     } catch (_err) {
+      matchDebug('media source creation failed', { key });
       return null;
     }
     audioEl.muted = false;
@@ -500,7 +519,12 @@
 
   function setAudioGain(audioEl, key, gain, allowCreate){
     if (!audioEl) return;
-    const node = allowCreate ? ensureGainNodeForAudio(audioEl, key) : gainNodes.get(key);
+    let node = gainNodes.get(key);
+    if (node && node.audio !== audioEl) {
+      matchDebug('gain node mismatch', { key });
+      node = null;
+    }
+    if (allowCreate && !node) node = ensureGainNodeForAudio(audioEl, key);
     if (node && node.gain) {
       rampGain(node.gain, gain);
       if (typeof audioEl.volume === 'number') {
@@ -513,6 +537,7 @@
 
   function applyMatchLoudness(options = {}){
     const matchOn = toggleMatchLoudness && toggleMatchLoudness.checked;
+    matchDebug('toggle', { matchOn });
     const gains = matchOn ? computeMatchGains() : { source: 1, processed: 1 };
     const sourceOn = trackMode === 'source' || trackMode === 'both';
     const processedOn = trackMode === 'processed' || trackMode === 'both';
@@ -922,6 +947,7 @@
       compareSpectroLegend.style.display = viewMode === 'spectrogram' ? '' : 'none';
     }
     if (compareOverlayToggles) compareOverlayToggles.hidden = viewMode === 'spectrogram';
+    setOverlayControlsEnabled(viewMode === 'waveform');
     if (compareMiniWaveViewport) compareMiniWaveViewport.hidden = viewMode !== 'waveform';
     if (compareMiniSpectroViewport) compareMiniSpectroViewport.hidden = viewMode !== 'spectrogram';
     if (viewMode === 'spectrogram') {
@@ -1214,6 +1240,15 @@
       if (!el) return;
       const label = el.closest('.analyze-toggle');
       if (label) label.classList.toggle('is-active', el.checked);
+    });
+  }
+
+  function setOverlayControlsEnabled(enabled){
+    [togglePeakRisk, toggleHeatmap, toggleDelta].forEach((el) => {
+      if (!el) return;
+      el.disabled = !enabled;
+      const label = el.closest('.analyze-toggle');
+      if (label) label.classList.toggle('is-disabled', !enabled);
     });
   }
 
@@ -1615,9 +1650,21 @@
     }
   }
 
+  const overlayDrawRaf = { source: 0, processed: 0 };
+
+  function scheduleOverlayDraw(wave, kind){
+    if (!wave) return;
+    if (overlayDrawRaf[kind]) return;
+    overlayDrawRaf[kind] = requestAnimationFrame(() => {
+      overlayDrawRaf[kind] = 0;
+      drawOverlay(wave, kind);
+      updateScrollHints();
+    });
+  }
+
   function drawOverlays(){
-    drawOverlay(sourceWave, 'source');
-    drawOverlay(processedWave, 'processed');
+    scheduleOverlayDraw(sourceWave, 'source');
+    scheduleOverlayDraw(processedWave, 'processed');
   }
 
   function bindDragScroll(wave){
@@ -1679,15 +1726,12 @@
   function bindOverlayEvents(wave, kind){
     if (!wave) return () => {};
     const cleanup = [];
-    const draw = () => {
-      drawOverlay(wave, kind);
-      updateScrollHints();
-    };
+    const draw = () => scheduleOverlayDraw(wave, kind);
     cleanup.push(wave.on('ready', draw));
     cleanup.push(wave.on('redraw', draw));
     cleanup.push(wave.on('zoom', draw));
     cleanup.push(wave.on('resize', draw));
-    const onResize = () => drawOverlay(wave, kind);
+    const onResize = () => scheduleOverlayDraw(wave, kind);
     window.addEventListener('resize', onResize);
     cleanup.push(() => window.removeEventListener('resize', onResize));
     const wrapper = typeof wave.getWrapper === 'function' ? wave.getWrapper() : null;

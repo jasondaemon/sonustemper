@@ -1321,6 +1321,10 @@ h1{margin:0;font-size:24px;}
   background:linear-gradient(90deg,#440154,#414487,#2a788e,#22a884,#7ad151,#fde725);
   border:1px solid rgba(255,255,255,0.12);
 }
+.analyze-toggle.is-disabled{
+  opacity:0.45;
+  pointer-events:none;
+}
 .spectro-inner{
   position:relative;
   width:100%;
