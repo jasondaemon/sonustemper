@@ -253,15 +253,15 @@ def init_db() -> None:
                         summary = {}
                     voicing = row["voicing"] or summary.get("voicing")
                     profile = row["loudness_profile"] or summary.get("loudness_profile")
-                    if voicing is None and profile is None and summary_raw != "{}":
-                        conn.execute(
-                            "UPDATE versions SET summary_json = ? WHERE version_id = ?",
-                            ("{}", row["version_id"]),
-                        )
-                        continue
+                    preserved = {
+                        key: value
+                        for key, value in summary.items()
+                        if key not in ("voicing", "loudness_profile")
+                    }
+                    summary_json = json.dumps(preserved) if preserved else "{}"
                     conn.execute(
                         "UPDATE versions SET voicing = ?, loudness_profile = ?, summary_json = ? WHERE version_id = ?",
-                        (voicing, profile, "{}", row["version_id"]),
+                        (voicing, profile, summary_json, row["version_id"]),
                     )
                 conn.execute("UPDATE versions SET metrics_json = '{}' WHERE metrics_json IS NOT NULL AND metrics_json != '{}'")
             finally:

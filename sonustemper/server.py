@@ -4186,7 +4186,31 @@ def analyze_noise_preview(payload: dict = Body(...)):
     preview_len = max(4.0, min(20.0, float(preview_len)))
     mid = (start + end) * 0.5
     preview_start = max(0.0, mid - preview_len * 0.5)
-    af, use_complex = _noise_filter_chain(payload)
+    payload2 = dict(payload or {})
+    apply_scope = (payload2.get("apply_scope") or "").strip().lower()
+    apply_selection = bool(payload2.get("apply_to_selection")) or apply_scope == "selection"
+    abs_t0 = payload2.get("t0_sec") if payload2.get("t0_sec") is not None else payload2.get("start_sec")
+    abs_t1 = payload2.get("t1_sec") if payload2.get("t1_sec") is not None else payload2.get("end_sec")
+    rel_t0 = abs_t0
+    rel_t1 = abs_t1
+    if apply_selection and isinstance(abs_t0, (int, float)) and isinstance(abs_t1, (int, float)) and abs_t1 > abs_t0:
+        rel_t0 = max(0.0, float(abs_t0) - float(preview_start))
+        rel_t1 = max(0.0, float(abs_t1) - float(preview_start))
+        payload2["t0_sec"] = rel_t0
+        payload2["t1_sec"] = rel_t1
+        payload2["start_sec"] = rel_t0
+        payload2["end_sec"] = rel_t1
+    logger.debug(
+        "[noise_preview] preview_start=%.3f abs_t0=%s abs_t1=%s rel_t0=%s rel_t1=%s mode=%s apply_selection=%s",
+        preview_start,
+        abs_t0,
+        abs_t1,
+        rel_t0,
+        rel_t1,
+        (payload2.get("mode") or "").strip().lower(),
+        apply_selection,
+    )
+    af, use_complex = _noise_filter_chain(payload2)
     NOISE_PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
     preview_id = uuid.uuid4().hex
     out_path = NOISE_PREVIEW_DIR / f"{preview_id}.mp3"
