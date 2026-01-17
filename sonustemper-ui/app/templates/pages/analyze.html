@@ -104,6 +104,7 @@
         <div class="spectro-viewport spectro-viewport--large" id="spectrogramViewport">
           <div class="spectro-inner" id="spectrogramInner">
             <img id="spectrogramImg" alt="Spectrogram" />
+            <div class="spectrogram-loading" id="spectrogramLoading" hidden>Generating Spectrogram…</div>
             <div class="spectrogram-grid" id="spectrogramGrid" aria-hidden="true"></div>
             <div class="spectrogram-overlay" id="spectrogramOverlay"></div>
             <div class="spectrogram-selection" id="spectrogramSelection" hidden></div>
@@ -113,6 +114,7 @@
         <div class="spectro-viewport spectro-viewport--mini" id="spectrogramMiniViewport">
           <div class="spectro-inner" id="spectrogramMiniInner">
             <img id="spectrogramMiniImg" alt="Spectrogram overview" />
+            <div class="spectrogram-loading spectrogram-loading--mini" id="spectrogramMiniLoading" hidden>Generating…</div>
             <div class="spectro-window" id="spectrogramMiniWindow"></div>
           </div>
         </div>
@@ -135,29 +137,33 @@
         <div class="analysis-selection-bar">
           <div class="analysis-selection-readouts">
             <span class="muted">Selection</span>
-            <div class="selection-item">
-              <span class="selection-label">t0 (s)</span>
-              <span class="value-pill" id="noiseT0">-</span>
+            <div class="analysis-selection-row">
+              <div class="selection-item">
+                <span class="selection-label">t0 (s)</span>
+                <span class="value-pill" id="noiseT0">-</span>
+              </div>
+              <div class="selection-item">
+                <span class="selection-label">t1 (s)</span>
+                <span class="value-pill" id="noiseT1">-</span>
+              </div>
             </div>
-            <div class="selection-item">
-              <span class="selection-label">t1 (s)</span>
-              <span class="value-pill" id="noiseT1">-</span>
-            </div>
-            <div class="selection-item">
-              <span class="selection-label">f0 (Hz)</span>
-              <span class="value-pill" id="noiseF0">-</span>
-            </div>
-            <div class="selection-item">
-              <span class="selection-label">f1 (Hz)</span>
-              <span class="value-pill" id="noiseF1">-</span>
-            </div>
-            <div class="selection-item">
-              <span class="selection-label">Center (Hz)</span>
-              <span class="value-pill" id="noiseCenter">-</span>
-            </div>
-            <div class="selection-item">
-              <span class="selection-label">Bandwidth (Hz)</span>
-              <span class="value-pill" id="noiseBandwidth">-</span>
+            <div class="analysis-selection-row">
+              <div class="selection-item">
+                <span class="selection-label">f0 (Hz)</span>
+                <span class="value-pill" id="noiseF0">-</span>
+              </div>
+              <div class="selection-item">
+                <span class="selection-label">f1 (Hz)</span>
+                <span class="value-pill" id="noiseF1">-</span>
+              </div>
+              <div class="selection-item">
+                <span class="selection-label">Center (Hz)</span>
+                <span class="value-pill" id="noiseCenter">-</span>
+              </div>
+              <div class="selection-item">
+                <span class="selection-label">Bandwidth (Hz)</span>
+                <span class="value-pill" id="noiseBandwidth">-</span>
+              </div>
             </div>
           </div>
           <div class="analysis-selection-actions">
@@ -255,6 +261,7 @@
   const spectrogramViewport = document.getElementById('spectrogramViewport');
   const spectrogramInner = document.getElementById('spectrogramInner');
   const spectrogramImg = document.getElementById('spectrogramImg');
+  const spectrogramLoading = document.getElementById('spectrogramLoading');
   const spectrogramOverlay = document.getElementById('spectrogramOverlay');
   const spectrogramSelection = document.getElementById('spectrogramSelection');
   const spectrogramGrid = document.getElementById('spectrogramGrid');
@@ -262,6 +269,7 @@
   const spectrogramMiniViewport = document.getElementById('spectrogramMiniViewport');
   const spectrogramMiniInner = document.getElementById('spectrogramMiniInner');
   const spectrogramMiniImg = document.getElementById('spectrogramMiniImg');
+  const spectrogramMiniLoading = document.getElementById('spectrogramMiniLoading');
   const spectrogramMiniWindow = document.getElementById('spectrogramMiniWindow');
   const analysisScaleLog = document.getElementById('analysisScaleLog');
   const analysisScaleLin = document.getElementById('analysisScaleLin');
@@ -463,6 +471,16 @@
     }
   }
 
+  function setSpectrogramLoading(on){
+    if (spectrogramLoading) spectrogramLoading.hidden = !on;
+    if (spectrogramImg) spectrogramImg.classList.toggle('spectrogram-img-hidden', !!on);
+  }
+
+  function setMiniSpectrogramLoading(on){
+    if (spectrogramMiniLoading) spectrogramMiniLoading.hidden = !on;
+    if (spectrogramMiniImg) spectrogramMiniImg.classList.toggle('spectrogram-img-hidden', !!on);
+  }
+
   function setSpectrogramViewport(viewportEl, heightPx, overrideMin){
     if (!viewportEl || !heightPx) return;
     viewportEl.style.height = `${heightPx}px`;
@@ -473,6 +491,7 @@
 
   function renderSpectrogramViewer(spec, relPath, heightPx, preserveCenter, overrideMin){
     if (!spec || !spec.viewport || !spec.inner || !spec.img || !relPath) return;
+    if (spec.img === spectrogramImg) setSpectrogramLoading(true);
     const viewport = spec.viewport;
     const inner = spec.inner;
     const zoom = Math.max(1, spec.zoom || 1);
@@ -501,8 +520,10 @@
     const target = getActiveNoiseTarget();
     if (!target || !target.rel) {
       spectrogramMiniImg.removeAttribute('src');
+      setMiniSpectrogramLoading(false);
       return;
     }
+    setMiniSpectrogramLoading(true);
     const widthPx = Math.max(1, spectrogramMiniViewport.clientWidth);
     setSpectrogramViewport(spectrogramMiniViewport, ANALYZE_MINI_HEIGHT, true);
     spectrogramMiniInner.style.width = `${widthPx}px`;
@@ -616,11 +637,19 @@
     if (!spectrogramImg || !spectrogramViewport || !spectrogramInner) return;
     const target = getActiveNoiseTarget();
     if (!target || !target.rel) {
-      spectrogramImg.removeAttribute('src');
+      if (spectrogramImg) {
+        spectrogramImg.removeAttribute('src');
+        spectrogramImg.classList.add('spectrogram-img-hidden');
+      }
+      setSpectrogramLoading(false);
       noiseSelection = null;
       lastNoiseTargetRel = null;
       updateNoiseReadouts(null);
-      if (spectrogramMiniImg) spectrogramMiniImg.removeAttribute('src');
+      if (spectrogramMiniImg) {
+        spectrogramMiniImg.removeAttribute('src');
+        spectrogramMiniImg.classList.add('spectrogram-img-hidden');
+      }
+      setMiniSpectrogramLoading(false);
       if (spectrogramMiniWindow) {
         spectrogramMiniWindow.style.width = '0';
         spectrogramMiniWindow.style.left = '0';
@@ -1871,6 +1900,15 @@
         analysisUploadInput.value = '';
       }
     });
+  }
+
+  if (spectrogramImg) {
+    spectrogramImg.addEventListener('load', () => setSpectrogramLoading(false));
+    spectrogramImg.addEventListener('error', () => setSpectrogramLoading(false));
+  }
+  if (spectrogramMiniImg) {
+    spectrogramMiniImg.addEventListener('load', () => setMiniSpectrogramLoading(false));
+    spectrogramMiniImg.addEventListener('error', () => setMiniSpectrogramLoading(false));
   }
 
   loadAnalyzeSpectrogramState(analysisSpectrogram);
