@@ -1366,6 +1366,94 @@ def _demo_asset_dir() -> Path:
         return bundle_root() / "assets" / "demo"
     return REPO_ROOT / "assets" / "demo"
 
+def _seed_builtin_noise_filters() -> None:
+    root = _noise_filter_dir("builtin")
+    root.mkdir(parents=True, exist_ok=True)
+    presets = [
+        {
+            "title": "Hum 60Hz + Harmonics",
+            "noise": {
+                "f_low": 55.0,
+                "f_high": 70.0,
+                "band_depth_db": -24.0,
+                "afftdn_strength": 0.15,
+                "hp_hz": None,
+                "lp_hz": None,
+                "mode": "remove",
+            },
+            "tags": ["Hum removal", "60Hz"],
+        },
+        {
+            "title": "Hiss Reduction",
+            "noise": {
+                "f_low": 8000.0,
+                "f_high": 16000.0,
+                "band_depth_db": -14.0,
+                "afftdn_strength": 0.45,
+                "hp_hz": None,
+                "lp_hz": 16000.0,
+                "mode": "remove",
+            },
+            "tags": ["Hiss", "High-end noise"],
+        },
+        {
+            "title": "Gentle Denoise",
+            "noise": {
+                "f_low": 200.0,
+                "f_high": 12000.0,
+                "band_depth_db": -10.0,
+                "afftdn_strength": 0.25,
+                "hp_hz": 70.0,
+                "lp_hz": 16000.0,
+                "mode": "remove",
+            },
+            "tags": ["Light cleanup"],
+        },
+        {
+            "title": "Heavy Denoise",
+            "noise": {
+                "f_low": 200.0,
+                "f_high": 14000.0,
+                "band_depth_db": -18.0,
+                "afftdn_strength": 0.65,
+                "hp_hz": 70.0,
+                "lp_hz": 15000.0,
+                "mode": "remove",
+            },
+            "tags": ["Aggressive cleanup"],
+        },
+        {
+            "title": "Rumble Removal",
+            "noise": {
+                "f_low": 20.0,
+                "f_high": 80.0,
+                "band_depth_db": -18.0,
+                "afftdn_strength": 0.1,
+                "hp_hz": 80.0,
+                "lp_hz": None,
+                "mode": "remove",
+            },
+            "tags": ["Low-end rumble"],
+        },
+    ]
+    for preset in presets:
+        title = preset["title"]
+        slug = _safe_slug(title) or "noise_filter"
+        out_path = root / f"{slug}.json"
+        if out_path.exists():
+            continue
+        payload = {
+            "id": out_path.stem,
+            "meta": {
+                "title": title,
+                "kind": "noise_filter",
+                "tags": preset.get("tags", []),
+                "created_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
+            },
+            "noise": preset["noise"],
+        }
+        out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
 def _find_demo_asset() -> Path | None:
     demo_dir = _demo_asset_dir()
     if not demo_dir.exists():
@@ -1433,6 +1521,7 @@ def _seed_demo_inputs() -> None:
     )
 
 def _startup_bootstrap() -> None:
+    _seed_builtin_noise_filters()
     _seed_demo_inputs()
     if os.getenv("SONUSTEMPER_RECONCILE_ON_BOOT", "1") == "1":
         try:
@@ -2886,9 +2975,14 @@ def library_noise_filters(origin: str = "user"):
     origin = (origin or "user").strip().lower()
     if origin == "generated":
         origin = "staging"
-    root = _noise_filter_dir(origin)
+    origins = [origin]
+    if origin == "all":
+        origins = ["builtin", "user", "staging"]
     items = []
-    if root.exists():
+    for root_origin in origins:
+        root = _noise_filter_dir(root_origin)
+        if not root.exists():
+            continue
         for fp in sorted(root.glob("*.json"), key=lambda p: p.name.lower()):
             if not fp.is_file():
                 continue
@@ -2902,8 +2996,8 @@ def library_noise_filters(origin: str = "user"):
             items.append({
                 "id": item_id,
                 "name": item_id,
-                "origin": origin,
-                "readonly": origin != "user",
+                "origin": root_origin,
+                "readonly": root_origin != "user",
                 "kind": "noise_filter",
                 "meta": {
                     "title": title,
@@ -3490,11 +3584,13 @@ def _noise_filter_dir(origin: str) -> Path:
     origin = (origin or "user").strip().lower()
     if origin in {"staging", "generated"}:
         return STAGING_NOISE_FILTER_DIR
+    if origin == "builtin":
+        return PRESETS_DIR / "builtin" / "noise_filters"
     if origin == "user":
         return NOISE_FILTER_DIR
     raise HTTPException(status_code=400, detail="invalid_origin")
 
-def _noise_filter_chain(payload: dict) -> str:
+def _noise_filter_chain(payload: dict) -> tuple[str, bool]:
     mode = (payload.get("mode") or "remove").strip().lower()
     f_low = payload.get("f_low")
     f_high = payload.get("f_high")
@@ -3532,7 +3628,36 @@ def _noise_filter_chain(payload: dict) -> str:
         if strength > 0.01:
             nr = 24.0 * strength
             filters.append(f"afftdn=nr={nr:.2f}:nf=-25")
-    return ",".join(filters)
+    chain = ",".join(filters)
+    apply_scope = (payload.get("apply_scope") or "").strip().lower()
+    apply_selection = bool(payload.get("apply_to_selection")) or apply_scope == "selection"
+    t0 = payload.get("t0_sec") if payload.get("t0_sec") is not None else payload.get("start_sec")
+    t1 = payload.get("t1_sec") if payload.get("t1_sec") is not None else payload.get("end_sec")
+    if apply_selection and isinstance(t0, (int, float)) and isinstance(t1, (int, float)) and t1 > t0:
+        fade = 0.05
+        t0 = float(t0)
+        t1 = float(t1)
+        wet_expr = (
+            f"if(lt(t\\,{t0:.3f})\\,0\\,"
+            f"if(lt(t\\,{t0 + fade:.3f})\\,(t-{t0:.3f})/{fade:.3f}\\,"
+            f"if(lt(t\\,{t1 - fade:.3f})\\,1\\,"
+            f"if(lt(t\\,{t1:.3f})\\,({t1:.3f}-t)/{fade:.3f}\\,0))))"
+        )
+        dry_expr = (
+            f"if(lt(t\\,{t0:.3f})\\,1\\,"
+            f"if(lt(t\\,{t0 + fade:.3f})\\,1-((t-{t0:.3f})/{fade:.3f})\\,"
+            f"if(lt(t\\,{t1 - fade:.3f})\\,0\\,"
+            f"if(lt(t\\,{t1:.3f})\\,1-(({t1:.3f}-t)/{fade:.3f})\\,1))))"
+        )
+        graph = (
+            f"[0:a]asplit=2[dry][wet];"
+            f"[wet]{chain}[wetf];"
+            f"[wetf]volume='{wet_expr}'[wetv];"
+            f"[dry]volume='{dry_expr}'[dryv];"
+            f"[dryv][wetv]amix=inputs=2:normalize=0[out]"
+        )
+        return graph, True
+    return chain, False
 
 def _unique_output_path(directory: Path, stem: str, suffix: str) -> Path:
     safe_stem = _safe_slug(stem) or "cleaned"
@@ -4045,7 +4170,7 @@ def analyze_noise_preview(payload: dict = Body(...)):
     preview_len = max(4.0, min(20.0, float(preview_len)))
     mid = (start + end) * 0.5
     preview_start = max(0.0, mid - preview_len * 0.5)
-    af = _noise_filter_chain(payload)
+    af, use_complex = _noise_filter_chain(payload)
     NOISE_PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
     preview_id = uuid.uuid4().hex
     out_path = NOISE_PREVIEW_DIR / f"{preview_id}.mp3"
@@ -4054,7 +4179,12 @@ def analyze_noise_preview(payload: dict = Body(...)):
         "-ss", f"{preview_start:.3f}",
         "-t", f"{preview_len:.3f}",
         "-i", str(target),
-        "-af", af,
+    ]
+    if use_complex:
+        cmd += ["-filter_complex", af, "-map", "[out]"]
+    else:
+        cmd += ["-af", af]
+    cmd += [
         "-vn", "-ac", "2", "-ar", str(PREVIEW_SAMPLE_RATE),
         "-codec:a", "libmp3lame", "-b:a", f"{PREVIEW_BITRATE_KBPS}k",
         str(out_path),
@@ -4086,7 +4216,7 @@ def analyze_noise_render(payload: dict = Body(...)):
     path = payload.get("path")
     song_id = (payload.get("song_id") or "").strip()
     target = _resolve_analysis_path(path)
-    af = _noise_filter_chain(payload)
+    af, use_complex = _noise_filter_chain(payload)
     if not song_id:
         raise HTTPException(status_code=400, detail="missing_song_id")
     suffix = target.suffix.lower() if target.suffix else ".wav"
@@ -4105,7 +4235,12 @@ def analyze_noise_render(payload: dict = Body(...)):
     cmd = [
         FFMPEG_BIN, "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(target),
-        "-af", af,
+    ]
+    if use_complex:
+        cmd += ["-filter_complex", af, "-map", "[out]"]
+    else:
+        cmd += ["-af", af]
+    cmd += [
         "-vn", "-ac", "2",
         "-codec:a", codec,
         str(out_path),
@@ -4115,10 +4250,30 @@ def analyze_noise_render(payload: dict = Body(...)):
         err = (proc.stderr or proc.stdout or "").strip()
         raise HTTPException(status_code=500, detail=err or "render_failed")
     rel = rel_from_path(out_path)
+    metrics = {}
+    try:
+        metrics = _analyze_audio_metrics(out_path)
+    except Exception:
+        metrics = {}
+    song = library_store.get_song(song_id)
+    title = song.get("title") if isinstance(song, dict) else "Noise Removal"
+    rendition = {"format": out_path.suffix.lower().lstrip("."), "rel": rel}
+    version = library_store.create_version_with_renditions(
+        song_id,
+        "noise_clean",
+        "Noise Removal",
+        title or "Noise Removal",
+        {"noise_profile": "Noise Removal"},
+        metrics,
+        [rendition],
+        version_id=version_id,
+        utility="Noise Removal",
+    )
     return {
         "output_rel": rel,
         "output_name": out_path.name,
         "version_id": version_id,
+        "version": version,
         "url": f"/api/analyze/path?path={quote(rel)}",
     }
 

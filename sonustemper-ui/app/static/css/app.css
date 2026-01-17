@@ -1119,6 +1119,16 @@ h1{margin:0;font-size:24px;}
   flex-direction:column;
   gap:6px;
 }
+.analysis-version-row{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+  font-size:12px;
+}
+.analysis-summary{
+  min-height:28px;
+}
 .analysis-file-title{
   font-size:16px;
   font-weight:600;
@@ -1185,6 +1195,14 @@ h1{margin:0;font-size:24px;}
   display:flex;
   flex-direction:column;
   gap:10px;
+}
+.noise-right{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+.noise-right .control-row{
+  margin-bottom:4px;
 }
 .noise-steps{
   font-size:12px;
@@ -1299,6 +1317,19 @@ h1{margin:0;font-size:24px;}
   inset:0;
   cursor:crosshair;
 }
+.spectrogram-grid{
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  z-index:1;
+}
+.spectrogram-grid-line{
+  position:absolute;
+  left:0;
+  right:0;
+  height:1px;
+  background:rgba(255,255,255,0.08);
+}
 .spectrogram-overlay.is-hovering{
   background:
     linear-gradient(to right,
@@ -1336,6 +1367,27 @@ h1{margin:0;font-size:24px;}
   background:rgba(43,212,189,0.15);
   pointer-events:none;
   border-radius:4px;
+}
+.spectrogram-playhead{
+  position:absolute;
+  top:0;
+  bottom:0;
+  width:2px;
+  background:rgba(255,255,255,0.6);
+  pointer-events:none;
+  z-index:4;
+}
+.analysis-player{
+  margin-top:6px;
+}
+.analysis-player-controls{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.analysis-player-controls input[type=range]{
+  flex:1;
+  min-width:140px;
 }
 .noise-readouts{
   display:grid;

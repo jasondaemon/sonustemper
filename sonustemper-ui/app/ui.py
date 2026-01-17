@@ -371,9 +371,10 @@ async def compare_page(request: Request):
 
 @router.get("/analyze", response_class=HTMLResponse)
 async def analyze_page(request: Request):
+    wide = request.query_params.get("wide") == "1"
     return TEMPLATES.TemplateResponse(
         "pages/analyze.html",
-        _page_context(request, current_page="analyze"),
+        _page_context(request, current_page="analyze", wide=wide),
     )
 
 @router.get("/ai", response_class=HTMLResponse)

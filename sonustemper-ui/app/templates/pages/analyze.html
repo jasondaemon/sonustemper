@@ -1,13 +1,14 @@
 {% extends "base.html" %}
-{% block page_title %}Analyze | SonusTemper{% endblock %}
-{% block title %}Analyze{% endblock %}
-{% block subtitle %}Analyze and clean up your audio.{% endblock %}
+{% block page_title %}Noise Removal | SonusTemper{% endblock %}
+{% block title %}Noise Removal{% endblock %}
+{% block subtitle %}Remove hum, hiss, and noise from your audio.{% endblock %}
 {% block sidebar %}
+  {% if not wide %}
   <div class="card">
     <div class="card-head">
       <div>
-        <div class="card-title">Analyze Status</div>
-        <div class="muted">Selection and analysis activity.</div>
+        <div class="card-title">Noise Removal Status</div>
+        <div class="muted">Selection and cleanup activity.</div>
       </div>
     </div>
     <div class="status-list" id="analysisStatusList">(waiting)</div>
@@ -22,27 +23,41 @@
     <input type="file" id="analysisUploadInput" accept=".wav,.mp3,.flac,.aiff,.aif,.m4a,.ogg,.aac" hidden>
     <div id="analysisBrowser" class="library-browser-container" data-module="analyze"></div>
   </div>
+  {% endif %}
 {% endblock %}
 {% block content %}
+  {% if wide %}
+    <style>
+      .page-analyze .layout{ grid-template-columns: 1fr; }
+      .page-analyze .sidebar-slot{ display: none; }
+      .page-analyze .content{ max-width: 100%; }
+    </style>
+  {% endif %}
   <div class="card analyze-card">
     <div class="card-head">
       <div>
-        <div class="card-title">Analyze</div>
-        <div class="muted" id="analysisSubtitle">Analyze and clean up your audio.</div>
+        <div class="card-title">Noise Removal</div>
+        <div class="muted" id="analysisSubtitle">Remove hum, hiss, and noise from your audio.</div>
       </div>
       <div class="analyze-actions">
         <a class="btn ghost small" id="compareLink" href="/compare">Open Compare</a>
+        <a class="btn ghost small" id="analysisWideLink" href="/analyze?wide=1" target="_blank" rel="noopener">Open Wide</a>
       </div>
     </div>
 
     <div id="analysisEmpty" class="analyze-empty">
-      <div class="muted">Select a source or output to inspect.</div>
+      <div class="muted">Select a source or output to remove noise.</div>
     </div>
 
     <div id="analysisLoaded" class="analyze-loaded" hidden>
       <div class="analysis-info">
         <div class="analysis-file-title" id="analysisFileTitle">-</div>
-        <div class="metric-pills" id="analysisSummary"></div>
+        <div class="analysis-version-row" id="analysisVersionRow" hidden>
+          <span class="muted">Current Version</span>
+          <span class="value-pill" id="analysisVersionLabel">-</span>
+          <button class="btn ghost tiny" type="button" id="analysisRevertBtn">Revert to Previous</button>
+        </div>
+        <div class="metric-pills analysis-summary" id="analysisSummary"></div>
       </div>
 
       <div class="analysis-panel analysis-panel-focus" id="analysisSpectrogramPanel">
@@ -83,8 +98,10 @@
         <div class="spectro-viewport spectro-viewport--large" id="spectrogramViewport">
           <div class="spectro-inner" id="spectrogramInner">
             <img id="spectrogramImg" alt="Spectrogram" />
+            <div class="spectrogram-grid" id="spectrogramGrid" aria-hidden="true"></div>
             <div class="spectrogram-overlay" id="spectrogramOverlay"></div>
             <div class="spectrogram-selection" id="spectrogramSelection" hidden></div>
+            <div class="spectrogram-playhead" id="spectrogramPlayhead" aria-hidden="true"></div>
           </div>
         </div>
         <div class="spectro-viewport spectro-viewport--mini" id="spectrogramMiniViewport">
@@ -98,6 +115,17 @@
           <div class="spectro-legend-bar" aria-hidden="true"></div>
           <span id="spectroLegendHigh">High energy (0 dB)</span>
         </div>
+        <div class="analysis-player">
+          <div class="analysis-player-controls">
+            <button class="btn ghost small" type="button" id="analysisPlayBtn">Play</button>
+            <button class="btn ghost small" type="button" id="analysisPauseBtn">Pause</button>
+            <button class="btn ghost small" type="button" id="analysisStopBtn">Stop</button>
+            <span class="muted" id="analysisTimeCurrent">0:00</span>
+            <input type="range" id="analysisScrubber" min="0" max="1000" value="0">
+            <span class="muted" id="analysisTimeTotal">0:00</span>
+          </div>
+          <audio id="analysisAudio" preload="metadata" hidden></audio>
+        </div>
       </div>
     </div>
   </div>
@@ -105,8 +133,8 @@
   <div class="card analyze-card" id="noiseCleanupCard">
     <div class="card-head">
       <div>
-        <div class="card-title">Noise Cleanup</div>
-        <div class="muted">Select a time/frequency region and preview cleanup.</div>
+        <div class="card-title">Noise Removal</div>
+        <div class="muted">Select a time/frequency region and preview noise removal.</div>
       </div>
     </div>
     <div class="noise-cleanup">
@@ -145,6 +173,13 @@
             <button class="btn ghost small" type="button" id="noiseModeSolo">Solo noise</button>
           </div>
         </div>
+        <div class="control-row">
+          <label class="control-label">Apply Scope</label>
+          <div class="pill-toggle">
+            <button class="btn ghost small is-active" type="button" id="noiseScopeGlobal">Apply Globally</button>
+            <button class="btn ghost small" type="button" id="noiseScopeSelection">Apply to Selection</button>
+          </div>
+        </div>
         <div class="control-row compact-row">
           <div class="control-label">Filter depth (dB)</div>
           <input type="range" id="noiseDepthRange" min="-30" max="-6" step="1" value="-18">
@@ -169,7 +204,7 @@
         <div class="preset-actions">
           <button class="btn btn-primary small" type="button" id="noisePreviewBtn">Preview</button>
           <button class="btn ghost small" type="button" id="noiseRenderBtn">Render Cleaned Copy</button>
-          <button class="btn ghost small" type="button" id="noiseSaveBtn">Save as Noise Filter Preset</button>
+          <button class="btn ghost small" type="button" id="noiseSaveBtn">Save as Profile…</button>
         </div>
       </div>
     </div>
@@ -188,6 +223,7 @@
   const analyzeBrowser = document.getElementById('analysisBrowser');
   const analysisUploadInput = document.getElementById('analysisUploadInput');
   const compareLink = document.getElementById('compareLink');
+  const analysisWideLink = document.getElementById('analysisWideLink');
   const noiseCleanupCard = document.getElementById('noiseCleanupCard');
   const analysisFocusToggle = document.getElementById('analysisFocusToggle');
   const analysisFocusProcessedBtn = document.getElementById('analysisFocusProcessed');
@@ -197,6 +233,8 @@
   const spectrogramImg = document.getElementById('spectrogramImg');
   const spectrogramOverlay = document.getElementById('spectrogramOverlay');
   const spectrogramSelection = document.getElementById('spectrogramSelection');
+  const spectrogramGrid = document.getElementById('spectrogramGrid');
+  const spectrogramPlayhead = document.getElementById('spectrogramPlayhead');
   const spectrogramMiniViewport = document.getElementById('spectrogramMiniViewport');
   const spectrogramMiniInner = document.getElementById('spectrogramMiniInner');
   const spectrogramMiniImg = document.getElementById('spectrogramMiniImg');
@@ -214,10 +252,22 @@
   const analysisCursor = document.getElementById('analysisCursor');
   const spectroLegendLow = document.getElementById('spectroLegendLow');
   const spectroLegendHigh = document.getElementById('spectroLegendHigh');
+  const analysisVersionRow = document.getElementById('analysisVersionRow');
+  const analysisVersionLabel = document.getElementById('analysisVersionLabel');
+  const analysisRevertBtn = document.getElementById('analysisRevertBtn');
+  const analysisPlayBtn = document.getElementById('analysisPlayBtn');
+  const analysisPauseBtn = document.getElementById('analysisPauseBtn');
+  const analysisStopBtn = document.getElementById('analysisStopBtn');
+  const analysisScrubber = document.getElementById('analysisScrubber');
+  const analysisTimeCurrent = document.getElementById('analysisTimeCurrent');
+  const analysisTimeTotal = document.getElementById('analysisTimeTotal');
+  const analysisAudio = document.getElementById('analysisAudio');
   const noisePresetSelect = document.getElementById('noisePresetSelect');
   const noisePresetHint = document.getElementById('noisePresetHint');
   const noiseModeRemoveBtn = document.getElementById('noiseModeRemove');
   const noiseModeSoloBtn = document.getElementById('noiseModeSolo');
+  const noiseScopeGlobalBtn = document.getElementById('noiseScopeGlobal');
+  const noiseScopeSelectionBtn = document.getElementById('noiseScopeSelection');
   const noiseDepthRange = document.getElementById('noiseDepthRange');
   const noiseDepthVal = document.getElementById('noiseDepthVal');
   const noiseAfftdnRange = document.getElementById('noiseAfftdnRange');
@@ -241,13 +291,25 @@
   const noiseSelectionHint = document.getElementById('noiseSelectionHint');
   let statusLines = [];
   let libraryBrowser = null;
-  let analysisContext = { source: null, processed: null, active: null, duration: null, run_id: null, song_id: null };
+  let analysisContext = {
+    source: null,
+    processed: null,
+    active: null,
+    duration: null,
+    run_id: null,
+    song_id: null,
+    song: null,
+    versions: [],
+    active_version_id: null,
+  };
   let analysisPayload = null;
   let noiseSelection = null;
   let noiseSuggestedBand = null;
   let noiseMode = 'remove';
+  let noiseScope = 'global';
   let noisePresets = new Map();
   let lastNoiseTargetRel = null;
+  let summaryMinHeight = 0;
   const ANALYZE_SCALE_KEY = 'sonustemper.analyzeSpecScale';
   const ANALYZE_DRANGE_KEY = 'sonustemper.analyzeSpecDrange';
   const ANALYZE_HEIGHT_KEY = 'sonustemper.analyzeSpecHeight';
@@ -295,6 +357,14 @@
     return `${m}:${s}`;
   }
 
+  function formatTimeDisplay(seconds){
+    if (seconds === null || seconds === undefined || Number.isNaN(seconds)) return '0:00';
+    const total = Math.max(0, seconds);
+    const m = Math.floor(total / 60);
+    const s = Math.floor(total % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+  }
+
   function loadSetting(key, fallback){
     try {
       const stored = window.localStorage.getItem(key);
@@ -322,6 +392,50 @@
     });
     if (stereo) params.set('stereo', stereo);
     return `/api/analyze/spectrogram?${params.toString()}`;
+  }
+
+  function analysisAudioUrl(rel){
+    return `/api/analyze/path?path=${encodeURIComponent(rel)}`;
+  }
+
+  function updatePlayhead(){
+    if (!analysisAudio || !spectrogramPlayhead || !analysisContext.duration || !spectrogramInner) return;
+    const duration = analysisAudio.duration || analysisContext.duration || 0;
+    if (!duration || !Number.isFinite(duration)) return;
+    const innerWidth = spectrogramInner.getBoundingClientRect().width || 0;
+    if (!innerWidth) return;
+    const rel = Math.max(0, Math.min(1, analysisAudio.currentTime / duration));
+    spectrogramPlayhead.style.left = `${rel * innerWidth}px`;
+  }
+
+  function updateScrubber(){
+    if (!analysisAudio || !analysisScrubber) return;
+    const duration = analysisAudio.duration || analysisContext.duration || 0;
+    if (!duration || !Number.isFinite(duration)) {
+      analysisScrubber.value = '0';
+      if (analysisTimeCurrent) analysisTimeCurrent.textContent = '0:00';
+      if (analysisTimeTotal) analysisTimeTotal.textContent = '0:00';
+      return;
+    }
+    const rel = Math.max(0, Math.min(1, analysisAudio.currentTime / duration));
+    analysisScrubber.value = String(Math.round(rel * 1000));
+    if (analysisTimeCurrent) analysisTimeCurrent.textContent = formatTimeDisplay(analysisAudio.currentTime);
+    if (analysisTimeTotal) analysisTimeTotal.textContent = formatTimeDisplay(duration);
+  }
+
+  function setAudioSource(rel){
+    if (!analysisAudio) return;
+    if (!rel) {
+      analysisAudio.removeAttribute('src');
+      analysisAudio.load();
+      return;
+    }
+    const nextUrl = analysisAudioUrl(rel);
+    if (analysisAudio.src !== nextUrl) {
+      analysisAudio.pause();
+      analysisAudio.src = nextUrl;
+      analysisAudio.load();
+    }
   }
 
   function setSpectrogramViewport(viewportEl, heightPx, overrideMin){
@@ -424,6 +538,12 @@
     if (noiseDepthRange) noiseDepthRange.disabled = noiseMode !== 'remove';
   }
 
+  function setNoiseScope(scope){
+    noiseScope = scope === 'selection' ? 'selection' : 'global';
+    if (noiseScopeGlobalBtn) noiseScopeGlobalBtn.classList.toggle('is-active', noiseScope === 'global');
+    if (noiseScopeSelectionBtn) noiseScopeSelectionBtn.classList.toggle('is-active', noiseScope === 'selection');
+  }
+
   function setNoiseStatus(msg){
     if (noisePreviewStatus) noisePreviewStatus.textContent = msg || '';
   }
@@ -489,6 +609,8 @@
     renderSpectrogramViewer(analysisSpectrogram, target.rel, analysisSpectrogram.height, preserveCenter, true);
     renderMiniSpectrogram();
     renderNoiseSelectionBox();
+    renderSpectroGrid();
+    updatePlayhead();
   }
 
   function clearNoiseSelection(){
@@ -518,6 +640,11 @@
       renderPills(analysisPayload, analysisPayload.metrics?.input || null, analysisPayload.metrics?.output || null);
     }
     renderActiveSpectrogram(true);
+    if (next.rel) {
+      setAudioSource(next.rel);
+      updateScrubber();
+      updatePlayhead();
+    }
   }
 
   const analysisSpectrogram = {
@@ -560,6 +687,7 @@
     if (spec.zoomVal) spec.zoomVal.textContent = `${spec.zoom}x`;
     if (spec.scaleLog) spec.scaleLog.classList.toggle('is-active', spec.scale !== 'lin');
     if (spec.scaleLin) spec.scaleLin.classList.toggle('is-active', spec.scale === 'lin');
+    if (spec.range) spec.range.disabled = spec.scale === 'lin';
     if (spec.stereoCombinedBtn) {
       spec.stereoCombinedBtn.classList.toggle('is-active', spec.stereo !== 'separate');
     }
@@ -585,6 +713,7 @@
         saveSetting(spec.scaleKey, spec.scale);
         if (spec.scaleLog) spec.scaleLog.classList.add('is-active');
         if (spec.scaleLin) spec.scaleLin.classList.remove('is-active');
+        if (spec.range) spec.range.disabled = false;
         renderActiveSpectrogram(false);
       });
     }
@@ -594,6 +723,7 @@
         saveSetting(spec.scaleKey, spec.scale);
         if (spec.scaleLin) spec.scaleLin.classList.add('is-active');
         if (spec.scaleLog) spec.scaleLog.classList.remove('is-active');
+        if (spec.range) spec.range.disabled = true;
         renderActiveSpectrogram(false);
       });
     }
@@ -717,6 +847,58 @@
       const delta = reference ? formatDelta(val, reference[meta.key]) : '';
       addPill(`${meta.label}: ${fmt(val, 1)}${meta.suffix}${delta}`);
     });
+    const height = summaryPills.getBoundingClientRect().height;
+    if (height > summaryMinHeight) {
+      summaryMinHeight = height;
+      summaryPills.style.minHeight = `${summaryMinHeight}px`;
+    }
+  }
+
+  function updateVersionInfo(){
+    if (!analysisVersionRow || !analysisVersionLabel) return;
+    const versions = analysisContext.versions || [];
+    if (!versions.length) {
+      analysisVersionRow.hidden = true;
+      return;
+    }
+    const activeRel = analysisContext.active?.rel || null;
+    let current = null;
+    if (analysisContext.active_version_id) {
+      current = versions.find(v => v.version_id === analysisContext.active_version_id) || null;
+    }
+    if (!current && activeRel) {
+      current = versions.find((v) => {
+        const rel = primaryRendition(v.renditions)?.rel || v.rel;
+        return rel === activeRel;
+      }) || null;
+    }
+    if (!current) {
+      analysisVersionRow.hidden = true;
+      return;
+    }
+    analysisVersionLabel.textContent = current.label || current.title || 'Version';
+    const idx = versions.findIndex(v => v.version_id === current.version_id);
+    if (analysisRevertBtn) {
+      analysisRevertBtn.disabled = idx < 0 || idx >= versions.length - 1;
+    }
+    analysisVersionRow.hidden = false;
+  }
+
+  async function revertToPreviousVersion(){
+    const versions = analysisContext.versions || [];
+    if (!versions.length) return;
+    const currentIdx = versions.findIndex(v => v.version_id === analysisContext.active_version_id);
+    const nextIdx = currentIdx >= 0 ? currentIdx + 1 : -1;
+    if (nextIdx < 0 || nextIdx >= versions.length) return;
+    const prev = versions[nextIdx];
+    const rel = primaryRendition(prev.renditions)?.rel || prev.rel;
+    if (!rel || !analysisContext.song) return;
+    await loadLibrarySelection(analysisContext.song, {
+      kind: 'version',
+      rel,
+      version_id: prev.version_id,
+      label: prev.label || prev.title,
+    }, true);
   }
 
   function syncPreserveLinks(params){
@@ -775,6 +957,14 @@
     return res.json();
   }
 
+  async function fetchSong(songId){
+    if (!songId) return null;
+    const res = await fetch('/api/library', { cache: 'no-store' });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return (data.songs || []).find(song => song.song_id === songId) || null;
+  }
+
   function updateCompareLinkWithRel(srcRel, procRel){
     if (!compareLink) return;
     const url = new URL('/compare', window.location.origin);
@@ -809,6 +999,10 @@
   async function loadLibrarySelection(song, track, shouldPush){
     if (!track?.rel) return;
     const sourceRel = song?.source?.rel || null;
+    if (song) {
+      analysisContext.song = song;
+      analysisContext.versions = song.versions || [];
+    }
     if (track.kind === 'version') {
       const srcRel = sourceRel || track.rel;
       const params = new URLSearchParams();
@@ -819,8 +1013,10 @@
       const data = await resolvePair(srcRel, track.rel);
       await applyData(data);
       analysisContext.song_id = song?.song_id || null;
+      analysisContext.active_version_id = track.version_id || null;
       updateCompareLinkWithRel(srcRel, track.rel);
       addStatusLine('Analysis ready');
+      updateVersionInfo();
       return;
     }
     const parsed = normalizeLibraryRel(track.rel);
@@ -832,8 +1028,10 @@
       const data = await resolveFile(parsed.kind, parsed.rel);
       await applyData(data);
       analysisContext.song_id = song?.song_id || null;
+      analysisContext.active_version_id = null;
       updateCompareLinkWithRel(parsed.kind === 'source' ? parsed.rel : null, null);
       addStatusLine('Analysis ready');
+      updateVersionInfo();
       return;
     }
     addStatusLine('Analysis failed');
@@ -859,6 +1057,22 @@
       return NOISE_FREQ_MIN + norm * (NOISE_FREQ_MAX - NOISE_FREQ_MIN);
     }
     return yToFreq(y, height);
+  }
+
+  const GRID_FREQS = [60, 120, 250, 500, 1000, 2000, 4000, 8000, 12000, 16000];
+
+  function renderSpectroGrid(){
+    if (!spectrogramGrid || !spectrogramInner) return;
+    spectrogramGrid.innerHTML = '';
+    const height = spectrogramInner.getBoundingClientRect().height || 0;
+    if (!height) return;
+    GRID_FREQS.forEach((freq) => {
+      const y = freqToYScaled(freq, height, analysisSpectrogram.scale);
+      const line = document.createElement('div');
+      line.className = 'spectrogram-grid-line';
+      line.style.top = `${y}px`;
+      spectrogramGrid.appendChild(line);
+    });
   }
 
   function freqToYScaled(freq, height, scale){
@@ -999,9 +1213,12 @@
       path: target.rel,
       start_sec: noiseSelection.t0,
       end_sec: noiseSelection.t1,
+      t0_sec: noiseSelection.t0,
+      t1_sec: noiseSelection.t1,
       f_low: noiseSelection.f0,
       f_high: noiseSelection.f1,
       mode: noiseMode,
+      apply_scope: noiseScope,
       band_depth_db: bandDepth,
       afftdn_strength: strength,
       hp_hz: Number.isFinite(hp) ? hp : null,
@@ -1047,6 +1264,9 @@
     }
     setNoiseStatus('Rendering full file...');
     try {
+      const songId = await ensureSongId();
+      if (!songId) throw new Error('missing_song');
+      payload.song_id = songId;
       const res = await fetch('/api/analyze/noise/render', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1057,25 +1277,20 @@
         throw new Error(err || 'render_failed');
       }
       const data = await res.json();
-      const songId = await ensureSongId();
-      if (songId && data.output_rel) {
-        const rel = data.output_rel;
-        const format = (rel.split('.').pop() || '').toLowerCase();
-        await fetch('/api/library/add_version', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            song_id: songId,
-            kind: 'noise_clean',
-            label: 'Noise Clean',
-            title: 'Noise Clean',
-            renditions: [{ format, rel }],
-            summary: { noise: 'Noise Clean' },
-            tags: [],
-            version_id: data.version_id,
-          }),
-        });
-        if (libraryBrowser) libraryBrowser.reload();
+      if (libraryBrowser) libraryBrowser.reload();
+      if (analysisContext.source?.rel && data.output_rel) {
+        const song = await fetchSong(analysisContext.song_id);
+        if (song) {
+          const version = (song.versions || []).find((v) => {
+            const primary = primaryRendition(v.renditions);
+            return (primary?.rel || v.rel) === data.output_rel;
+          });
+          analysisContext.song = song;
+          analysisContext.versions = song.versions || [];
+          analysisContext.active_version_id = version?.version_id || null;
+        }
+        const dataPayload = await resolvePair(analysisContext.source.rel, data.output_rel);
+        await applyData(dataPayload);
       }
       if (typeof showToast === 'function') {
         showToast(`Cleaned copy ready: ${data.output_name || 'output'}`);
@@ -1165,18 +1380,29 @@
     noisePresetSelect.innerHTML = '<option value="">No preset</option>';
     noisePresets = new Map();
     try {
-      const res = await fetch('/api/library/noise_filters?origin=user', { cache: 'no-store' });
-      if (!res.ok) throw new Error('preset_failed');
-      const data = await res.json();
-      const items = data.items || [];
-      items.forEach((item) => {
-        const title = item.meta?.title || item.id || 'Noise Filter';
-        const option = document.createElement('option');
-        option.value = item.id || '';
-        option.textContent = title;
-        noisePresetSelect.appendChild(option);
-        noisePresets.set(option.value, item);
-      });
+      const [builtinRes, userRes] = await Promise.all([
+        fetch('/api/library/noise_filters?origin=builtin', { cache: 'no-store' }),
+        fetch('/api/library/noise_filters?origin=user', { cache: 'no-store' }),
+      ]);
+      if (!builtinRes.ok || !userRes.ok) throw new Error('preset_failed');
+      const builtinData = await builtinRes.json();
+      const userData = await userRes.json();
+      const appendGroup = (items, label) => {
+        if (!items.length) return;
+        const group = document.createElement('optgroup');
+        group.label = label;
+        items.forEach((item) => {
+          const title = item.meta?.title || item.id || 'Noise Filter';
+          const option = document.createElement('option');
+          option.value = item.id || '';
+          option.textContent = title;
+          group.appendChild(option);
+          noisePresets.set(option.value, item);
+        });
+        noisePresetSelect.appendChild(group);
+      };
+      appendGroup(builtinData.items || [], 'Built-in');
+      appendGroup(userData.items || [], 'Your Presets');
     } catch (_err) {
       addStatusLine('Failed to load noise presets.');
     }
@@ -1288,6 +1514,10 @@
       processed: processedEntry,
       active: null,
       run_id: payload.run_id || null,
+      song_id: analysisContext.song_id || null,
+      song: analysisContext.song || null,
+      versions: analysisContext.versions || [],
+      active_version_id: analysisContext.active_version_id || null,
     };
     if (analysisFocusToggle) {
       analysisFocusToggle.hidden = !(sourceEntry && processedEntry);
@@ -1301,6 +1531,7 @@
       renderPills(payload, input, output);
       renderActiveSpectrogram(false);
     }
+    updateVersionInfo();
   }
 
   async function selectAndLoad(item, node, shouldPush){
@@ -1345,6 +1576,12 @@
 
   if (compareLink && window.location.search) {
     compareLink.href = `/compare${window.location.search}`;
+  }
+  if (analysisWideLink) {
+    const url = new URL('/analyze', window.location.origin);
+    if (window.location.search) url.search = window.location.search;
+    url.searchParams.set('wide', '1');
+    analysisWideLink.href = `${url.pathname}${url.search}`;
   }
 
   const params = new URLSearchParams(window.location.search);
@@ -1469,6 +1706,17 @@
   }
   if (spectrogramViewport) {
     spectrogramViewport.addEventListener('scroll', () => updateMiniWindow());
+    spectrogramViewport.addEventListener('wheel', (evt) => {
+      if (!analysisSpectrogram.zoomRange) return;
+      evt.preventDefault();
+      const delta = evt.deltaY;
+      const step = delta > 0 ? -1 : 1;
+      const next = Math.max(1, Math.min(16, (analysisSpectrogram.zoom || 1) + step));
+      analysisSpectrogram.zoom = next;
+      analysisSpectrogram.zoomRange.value = String(next);
+      if (analysisSpectrogram.zoomVal) analysisSpectrogram.zoomVal.textContent = `${next}x`;
+      renderActiveSpectrogram(true);
+    }, { passive: false });
   }
   if (spectrogramMiniViewport) {
     let miniDragging = false;
@@ -1512,6 +1760,12 @@
   if (noiseModeSoloBtn) {
     noiseModeSoloBtn.addEventListener('click', () => setNoiseMode('solo'));
   }
+  if (noiseScopeGlobalBtn) {
+    noiseScopeGlobalBtn.addEventListener('click', () => setNoiseScope('global'));
+  }
+  if (noiseScopeSelectionBtn) {
+    noiseScopeSelectionBtn.addEventListener('click', () => setNoiseScope('selection'));
+  }
   if (noiseDepthRange) {
     noiseDepthRange.addEventListener('input', () => {
       if (noiseDepthVal) noiseDepthVal.textContent = noiseDepthRange.value;
@@ -1539,8 +1793,59 @@
   if (noiseRenderBtn) noiseRenderBtn.addEventListener('click', renderNoise);
   if (noiseSaveBtn) noiseSaveBtn.addEventListener('click', saveNoisePreset);
 
+  if (analysisPlayBtn && analysisAudio) {
+    analysisPlayBtn.addEventListener('click', () => {
+      if (!analysisAudio.src) return;
+      analysisAudio.play().catch(() => {});
+    });
+  }
+  if (analysisPauseBtn && analysisAudio) {
+    analysisPauseBtn.addEventListener('click', () => {
+      analysisAudio.pause();
+    });
+  }
+  if (analysisStopBtn && analysisAudio) {
+    analysisStopBtn.addEventListener('click', () => {
+      analysisAudio.pause();
+      analysisAudio.currentTime = 0;
+      updateScrubber();
+      updatePlayhead();
+    });
+  }
+  if (analysisScrubber && analysisAudio) {
+    analysisScrubber.addEventListener('input', () => {
+      const duration = analysisAudio.duration || analysisContext.duration || 0;
+      if (!duration || !Number.isFinite(duration)) return;
+      const rel = Math.max(0, Math.min(1, parseFloat(analysisScrubber.value || '0') / 1000));
+      analysisAudio.currentTime = rel * duration;
+      updateScrubber();
+      updatePlayhead();
+    });
+  }
+  if (analysisAudio) {
+    analysisAudio.addEventListener('loadedmetadata', () => {
+      if (!analysisContext.duration && Number.isFinite(analysisAudio.duration)) {
+        analysisContext.duration = analysisAudio.duration;
+      }
+      updateScrubber();
+      updatePlayhead();
+    });
+    analysisAudio.addEventListener('timeupdate', () => {
+      updateScrubber();
+      updatePlayhead();
+    });
+    analysisAudio.addEventListener('ended', () => {
+      updateScrubber();
+      updatePlayhead();
+    });
+  }
+  if (analysisRevertBtn) {
+    analysisRevertBtn.addEventListener('click', () => revertToPreviousVersion());
+  }
+
   bindSpectrogramSelection();
   setNoiseMode('remove');
+  setNoiseScope('global');
   updateNoiseButtonState();
   loadNoisePresets();
 })();
