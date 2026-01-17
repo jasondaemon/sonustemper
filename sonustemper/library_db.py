@@ -96,6 +96,10 @@ METRIC_SUMMARY_KEYS = {
     "width",
 }
 
+def _has_column(conn: sqlite3.Connection, table: str, col: str) -> bool:
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return any((row[1] if len(row) > 1 else row["name"]) == col for row in rows)
+
 PREFERRED_RENDITION_ORDER = ["wav", "flac", "aiff", "aif", "m4a", "aac", "mp3", "ogg"]
 LIBRARY_AUDIO_EXTS = {".wav", ".flac", ".aiff", ".aif", ".mp3", ".m4a", ".aac", ".ogg"}
 
@@ -227,20 +231,32 @@ def init_db() -> None:
                 CREATE INDEX IF NOT EXISTS idx_songs_title ON songs(title);
                 """
                 )
-                columns = {row["name"] for row in conn.execute("PRAGMA table_info(versions)").fetchall()}
-                if "utility" not in columns:
+                if not _has_column(conn, "versions", "utility"):
                     conn.execute("ALTER TABLE versions ADD COLUMN utility TEXT")
-                if "voicing" not in columns:
+                if not _has_column(conn, "versions", "voicing"):
                     conn.execute("ALTER TABLE versions ADD COLUMN voicing TEXT")
-                if "loudness_profile" not in columns:
+                if not _has_column(conn, "versions", "loudness_profile"):
                     conn.execute("ALTER TABLE versions ADD COLUMN loudness_profile TEXT")
-                song_cols = {row["name"] for row in conn.execute("PRAGMA table_info(songs)").fetchall()}
-                if "is_demo" not in song_cols:
+                if not _has_column(conn, "songs", "is_demo"):
                     conn.execute("ALTER TABLE songs ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0")
                 conn.execute("UPDATE songs SET source_metrics_json = '{}' WHERE source_metrics_json IS NOT NULL AND source_metrics_json != '{}'")
-                if "meta_json" not in columns:
+                meta_added = False
+                if not _has_column(conn, "versions", "meta_json"):
                     conn.execute("ALTER TABLE versions ADD COLUMN meta_json TEXT NOT NULL DEFAULT '{}'")
-                summary_exists = "summary_json" in columns
+                    log_debug("db", "migrated", action="add_column", table="versions", column="meta_json")
+                    meta_added = True
+                summary_exists = _has_column(conn, "versions", "summary_json")
+                if meta_added and summary_exists:
+                    res = conn.execute(
+                        """
+                        UPDATE versions
+                        SET meta_json = summary_json
+                        WHERE (meta_json IS NULL OR meta_json = '{}')
+                          AND summary_json IS NOT NULL
+                          AND summary_json != '{}'
+                        """
+                    )
+                    log_debug("db", "migrated summary_json -> meta_json", rows=res.rowcount)
                 if summary_exists:
                     rows = conn.execute(
                         "SELECT version_id, summary_json, meta_json, voicing, loudness_profile FROM versions"
@@ -278,8 +294,6 @@ def init_db() -> None:
                         "UPDATE versions SET voicing = ?, loudness_profile = ?, meta_json = ? WHERE version_id = ?",
                         (voicing, profile, meta_json, row["version_id"]),
                     )
-                if rows:
-                    log_debug("db", "migrated summary_json -> meta_json", rows=len(rows))
                 conn.execute("UPDATE versions SET metrics_json = '{}' WHERE metrics_json IS NOT NULL AND metrics_json != '{}'")
             finally:
                 conn.close()
