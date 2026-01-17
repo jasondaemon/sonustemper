@@ -2,6 +2,8 @@ services:
   sonustemper:
     container_name: sonustemper-app
     hostname: sonustemper
+    image: ghcr.io/jasondaemon/sonustemper:${SONUSTEMPER_TAG:-edge}
+    # Do not publish app ports; proxy is the perimeter
     build:
       context: .
       dockerfile: Dockerfile
@@ -9,21 +11,17 @@ services:
         APP_UID: "${APP_UID:-1000}"
         APP_GID: "${APP_GID:-1000}"
     restart: unless-stopped
-    networks:
-      default:
-        aliases:
-          - sonustemper
-          - sonustemper-app
     environment:
-      # Shared audio/presets live on /data (can be NFS).
       DATA_DIR: "/data"
       SONUSTEMPER_DATA_ROOT: "/data"
-      SONUSTEMPER_REQUIRE_DATA_ROOT: "${SONUSTEMPER_REQUIRE_DATA_ROOT:-1}"
-      MASTERING_BUILD: "dev"
-
-      # SQLite DB must be local (NOT NFS). Mount host-local storage to /db.
+      SONUSTEMPER_REQUIRE_DATA_ROOT: "1"
+      MASTERING_BUILD: "docker"
+      # NOTE:
+      # SQLite database MUST be on local storage.
+      # Putting library.sqlite3 on NFS causes WAL lock stalls
+      # and breaks /api/library with multi-second delays.
+      # Keep /db on host-local storage.
       SONUSTEMPER_LIBRARY_DB: "/db/library.sqlite3"
-
       API_KEY: "${API_KEY:-}"
       API_AUTH_DISABLED: "${API_AUTH_DISABLED:-0}"
       PROXY_SHARED_SECRET: "${PROXY_SHARED_SECRET:-changeme-proxy}"
@@ -31,20 +29,21 @@ services:
       LOG_LEVEL: "${LOG_LEVEL:-error}"
       EVENT_LOG_LEVEL: "${EVENT_LOG_LEVEL:-}"
     volumes:
-      # Host path for shared audio/presets (OK if NFS). Override on remote:
-      #   SONUSTEMPER_DATA_HOST_DIR=/nfs/sonustemper/data
-      - "${SONUSTEMPER_DATA_HOST_DIR:-./data}:/data"
-
+      - ./data:/data
       # IMPORTANT: SQLite DB MUST be local (NOT NFS).
-      # On remote, set:
-      #   SONUSTEMPER_DB_HOST_DIR=/var/lib/sonustemper/db
-      - "${SONUSTEMPER_DB_HOST_DIR:-./dockerconfig/localdb}:/db"
+      # WAL + NFS causes 10–60s stalls and /api/library timeouts.
+      # Audio lives on /data (can be NFS); DB lives on /db (host-local bind).
+      - ./dockerconfig/localdb:/db
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8383/health').read()"]
       interval: 30s
       timeout: 5s
       retries: 3
-
+    networks:
+      default:
+        aliases:
+          - sonustemper
+          - sonustemper-app
   proxy:
     container_name: sonustemper-proxy
     image: nginx:1.25-alpine
@@ -64,3 +63,8 @@ services:
       BASIC_AUTH_PASS: "${BASIC_AUTH_PASS:-CHANGEME}"
       PROXY_SHARED_SECRET: "${PROXY_SHARED_SECRET:-changeme-proxy}"
     entrypoint: ["/bin/sh", "/entrypoint.sh"]
+
+# NOTE:
+# Docker bind mounts use host paths directly. Ensure ./dockerconfig/localdb
+# is on local disk. If your Docker data-root is on NFS, even "local" volumes
+# will be on NFS and stalls will persist.

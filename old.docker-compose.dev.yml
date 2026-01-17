@@ -15,15 +15,8 @@ services:
           - sonustemper
           - sonustemper-app
     environment:
-      # Shared audio/presets live on /data (can be NFS).
       DATA_DIR: "/data"
-      SONUSTEMPER_DATA_ROOT: "/data"
-      SONUSTEMPER_REQUIRE_DATA_ROOT: "${SONUSTEMPER_REQUIRE_DATA_ROOT:-1}"
       MASTERING_BUILD: "dev"
-
-      # SQLite DB must be local (NOT NFS). Mount host-local storage to /db.
-      SONUSTEMPER_LIBRARY_DB: "/db/library.sqlite3"
-
       API_KEY: "${API_KEY:-}"
       API_AUTH_DISABLED: "${API_AUTH_DISABLED:-0}"
       PROXY_SHARED_SECRET: "${PROXY_SHARED_SECRET:-changeme-proxy}"
@@ -31,20 +24,12 @@ services:
       LOG_LEVEL: "${LOG_LEVEL:-error}"
       EVENT_LOG_LEVEL: "${EVENT_LOG_LEVEL:-}"
     volumes:
-      # Host path for shared audio/presets (OK if NFS). Override on remote:
-      #   SONUSTEMPER_DATA_HOST_DIR=/nfs/sonustemper/data
-      - "${SONUSTEMPER_DATA_HOST_DIR:-./data}:/data"
-
-      # IMPORTANT: SQLite DB MUST be local (NOT NFS).
-      # On remote, set:
-      #   SONUSTEMPER_DB_HOST_DIR=/var/lib/sonustemper/db
-      - "${SONUSTEMPER_DB_HOST_DIR:-./dockerconfig/localdb}:/db"
+      - ./data:/data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8383/health').read()"]
       interval: 30s
       timeout: 5s
       retries: 3
-
   proxy:
     container_name: sonustemper-proxy
     image: nginx:1.25-alpine
