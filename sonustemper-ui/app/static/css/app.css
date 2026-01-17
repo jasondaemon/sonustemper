@@ -1129,6 +1129,28 @@ h1{margin:0;font-size:24px;}
 .analysis-summary{
   min-height:28px;
 }
+.analysis-selection-bar{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  margin-top:8px;
+}
+.analysis-selection-readouts{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  align-items:center;
+}
+.analysis-selection-actions{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:8px;
+  font-size:12px;
+  color:var(--muted);
+}
 .analysis-file-title{
   font-size:16px;
   font-weight:600;
@@ -1201,8 +1223,9 @@ h1{margin:0;font-size:24px;}
   flex-direction:column;
   gap:12px;
 }
+.noise-left .control-row,
 .noise-right .control-row{
-  margin-bottom:4px;
+  margin-bottom:6px;
 }
 .noise-steps{
   font-size:12px;
@@ -1330,6 +1353,18 @@ h1{margin:0;font-size:24px;}
   height:1px;
   background:rgba(255,255,255,0.08);
 }
+.spectrogram-grid-label{
+  position:absolute;
+  left:6px;
+  transform:translateY(-50%);
+  font-size:10px;
+  color:var(--muted);
+  background:rgba(0,0,0,0.35);
+  padding:1px 6px;
+  border-radius:999px;
+  z-index:2;
+  pointer-events:none;
+}
 .spectrogram-overlay.is-hovering{
   background:
     linear-gradient(to right,
@@ -1388,6 +1423,39 @@ h1{margin:0;font-size:24px;}
 .analysis-player-controls input[type=range]{
   flex:1;
   min-width:140px;
+}
+.noise-history{
+  margin-top:12px;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+.noise-history-list{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+.noise-history-row{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  justify-content:space-between;
+  background:#0f151d;
+  border:1px solid var(--line);
+  border-radius:10px;
+  padding:6px 8px;
+  font-size:12px;
+}
+.noise-history-row.is-primary{
+  border-color:rgba(63,184,255,0.4);
+}
+.noise-history-label{
+  font-weight:600;
+}
+.noise-history-meta{
+  flex:1;
+  color:var(--muted);
+  font-size:11px;
 }
 .noise-readouts{
   display:grid;
@@ -2685,6 +2753,10 @@ h1{margin:0;font-size:24px;}
 /* UI cohesion: sliders, selects, and text fields */
 input[type="range"]{
   accent-color: var(--accent);
+}
+input[type="range"]:disabled{
+  opacity:0.55;
+  cursor:not-allowed;
 }
 select,
 .stage-card select,

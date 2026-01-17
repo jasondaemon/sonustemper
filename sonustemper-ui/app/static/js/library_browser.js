@@ -67,6 +67,11 @@
     return parts.join(' · ');
   }
 
+  function isNoiseRemovedUtility(utility) {
+    const util = normalizeText(utility);
+    return util === 'noise removed' || util === 'noise cleanup' || util === 'noise removal';
+  }
+
   function renderLibrary(container, options = {}) {
     const module = options.module || container.dataset.module || 'generic';
     const isMastering = module === 'mastering';
@@ -255,7 +260,17 @@
       if (state.expanded[song.song_id]) {
         const list = document.createElement('div');
         list.className = 'library-version-list';
-        (song.versions || []).forEach((version) => {
+        const versions = Array.isArray(song.versions) ? song.versions : [];
+        const filtered = [];
+        let noiseRemovedKept = false;
+        versions.forEach((version) => {
+          if (isNoiseRemovedUtility(version.utility)) {
+            if (noiseRemovedKept) return;
+            noiseRemovedKept = true;
+          }
+          filtered.push(version);
+        });
+        filtered.forEach((version) => {
           list.appendChild(renderVersionRow(song, { kind: 'version', ...version }));
         });
         row.appendChild(list);
@@ -269,13 +284,14 @@
       const renditions = Array.isArray(version.renditions) ? version.renditions : [];
       const meta = document.createElement('div');
       meta.className = 'library-version-meta';
-      if (version.utility) meta.appendChild(makeBadge(version.utility, 'badge-utility'));
+      const utilityLabel = isNoiseRemovedUtility(version.utility) ? 'Noise Removed' : version.utility;
+      if (utilityLabel) meta.appendChild(makeBadge(utilityLabel, 'badge-utility'));
       if (version.summary?.voicing) meta.appendChild(makeBadge(version.summary.voicing, 'badge-voicing'));
       const metaOverflow = makeBadge('⋯', 'badge-param library-meta-overflow');
       const metaLines = [];
       if (version.label) metaLines.push(`Label: ${version.label}`);
       if (version.title) metaLines.push(`Title: ${version.title}`);
-      if (version.utility) metaLines.push(`Utility: ${version.utility}`);
+      if (utilityLabel) metaLines.push(`Utility: ${utilityLabel}`);
       if (version.summary?.voicing) metaLines.push(`Voicing: ${version.summary.voicing}`);
       if (version.summary?.loudness_profile) metaLines.push(`Profile: ${version.summary.loudness_profile}`);
       const metrics = version.metrics || {};

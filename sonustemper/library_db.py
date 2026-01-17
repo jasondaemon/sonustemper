@@ -373,10 +373,20 @@ def _utility_from_kind(kind: str | None) -> str:
         "aitk": "AITK",
         "ai_tool": "AITK",
         "eq": "EQ",
-        "noise_clean": "Noise Cleanup",
+        "noise_clean": "Noise Removed",
         "manual": "Manual",
     }
     return mapping.get(kind, (kind or "Utility").upper())
+
+
+def _normalize_utility_label(utility: str | None, kind: str | None) -> str:
+    if utility:
+        cleaned = str(utility).strip()
+        low = cleaned.lower()
+        if low in {"noise removal", "noise cleanup", "noise removed"}:
+            return "Noise Removed"
+        return cleaned
+    return _utility_from_kind(kind)
 
 
 def _primary_rendition(renditions: list[dict]) -> dict | None:
@@ -481,7 +491,7 @@ def list_library() -> dict:
         if row["loudness_profile"]:
             summary["loudness_profile"] = row["loudness_profile"]
         metrics = _metrics_from_row(version_metrics.get(row["version_id"]))
-        utility = row["utility"] or _utility_from_kind(row["kind"])
+        utility = _normalize_utility_label(row["utility"], row["kind"])
         version = {
             "version_id": row["version_id"],
             "song_id": row["song_id"],
@@ -585,7 +595,7 @@ def get_song(song_id: str) -> dict | None:
         if row["loudness_profile"]:
             summary["loudness_profile"] = row["loudness_profile"]
         metrics = _metrics_from_row(version_metrics.get(row["version_id"]))
-        utility = row["utility"] or _utility_from_kind(row["kind"])
+        utility = _normalize_utility_label(row["utility"], row["kind"])
         version = {
             "version_id": row["version_id"],
             "song_id": row["song_id"],
@@ -1021,6 +1031,33 @@ def delete_version(song_id: str, version_id: str) -> tuple[bool, list[str]]:
         finally:
             conn.close()
     return True, rels
+
+
+def promote_version(version_id: str) -> bool:
+    init_db()
+    now = _now_iso()
+    with _WRITE_LOCK:
+        conn = _connect()
+        try:
+            row = conn.execute(
+                "SELECT song_id FROM versions WHERE version_id = ?",
+                (version_id,),
+            ).fetchone()
+            if not row:
+                return False
+            song_id = row["song_id"]
+            conn.execute(
+                "UPDATE versions SET created_at = ?, updated_at = ? WHERE version_id = ?",
+                (now, now, version_id),
+            )
+            conn.execute(
+                "UPDATE songs SET updated_at = ?, last_used_at = ? WHERE song_id = ?",
+                (now, now, song_id),
+            )
+            conn.commit()
+            return True
+        finally:
+            conn.close()
 
 
 def rename_song(song_id: str, title: str) -> bool:

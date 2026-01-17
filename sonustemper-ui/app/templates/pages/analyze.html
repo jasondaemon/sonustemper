@@ -22,6 +22,17 @@
     </div>
     <input type="file" id="analysisUploadInput" accept=".wav,.mp3,.flac,.aiff,.aif,.m4a,.ogg,.aac" hidden>
     <div id="analysisBrowser" class="library-browser-container" data-module="analyze"></div>
+    <div class="ai-selected-summary">
+      <div class="ai-selected-label">Selected File</div>
+      <div class="ai-selected-name" id="noiseSelectedName">-</div>
+      <div class="ai-selected-meta" id="noiseSelectedMeta">No file selected.</div>
+    </div>
+    <div class="noise-history">
+      <div class="ai-selected-label">Noise Removed History</div>
+      <div class="noise-history-list" id="noiseHistoryList">
+        <div class="muted">No history yet.</div>
+      </div>
+    </div>
   </div>
   {% endif %}
 {% endblock %}
@@ -52,11 +63,6 @@
     <div id="analysisLoaded" class="analyze-loaded" hidden>
       <div class="analysis-info">
         <div class="analysis-file-title" id="analysisFileTitle">-</div>
-        <div class="analysis-version-row" id="analysisVersionRow" hidden>
-          <span class="muted">Current Version</span>
-          <span class="value-pill" id="analysisVersionLabel">-</span>
-          <button class="btn ghost tiny" type="button" id="analysisRevertBtn">Revert to Previous</button>
-        </div>
         <div class="metric-pills analysis-summary" id="analysisSummary"></div>
       </div>
 
@@ -126,6 +132,21 @@
           </div>
           <audio id="analysisAudio" preload="metadata" hidden></audio>
         </div>
+        <div class="analysis-selection-bar">
+          <div class="analysis-selection-readouts">
+            <span class="muted">Selection</span>
+            <span class="value-pill" id="noiseT0">-</span>
+            <span class="value-pill" id="noiseT1">-</span>
+            <span class="value-pill" id="noiseF0">-</span>
+            <span class="value-pill" id="noiseF1">-</span>
+            <span class="value-pill" id="noiseCenter">-</span>
+            <span class="value-pill" id="noiseBandwidth">-</span>
+          </div>
+          <div class="analysis-selection-actions">
+            <button class="btn ghost tiny" type="button" id="noiseClearBtn">Clear selection</button>
+            <span class="muted" id="noiseSelectionHint">No selection yet — drag on the spectrogram above.</span>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -139,39 +160,12 @@
     </div>
     <div class="noise-cleanup">
       <div class="noise-left">
-        <div class="noise-steps">
-          <div>1) Drag a box on the spectrogram to select the noise (time + frequency)</div>
-          <div>2) Choose Remove or Solo + adjust strength</div>
-          <div>3) Preview, then Render a cleaned copy</div>
-        </div>
-        <div class="noise-selection-actions">
-          <button class="btn ghost tiny" type="button" id="noiseClearBtn">Clear selection</button>
-          <span class="muted">Select a region in the spectrogram above.</span>
-        </div>
-        <div class="muted noise-selection-hint" id="noiseSelectionHint">No selection yet — drag on the spectrogram above.</div>
-        <div class="noise-readouts">
-          <div class="noise-readout"><span>t0</span><span id="noiseT0">-</span></div>
-          <div class="noise-readout"><span>t1</span><span id="noiseT1">-</span></div>
-          <div class="noise-readout"><span>f0</span><span id="noiseF0">-</span></div>
-          <div class="noise-readout"><span>f1</span><span id="noiseF1">-</span></div>
-          <div class="noise-readout"><span>Center</span><span id="noiseCenter">-</span></div>
-          <div class="noise-readout"><span>Bandwidth</span><span id="noiseBandwidth">-</span></div>
-        </div>
-      </div>
-      <div class="noise-right">
         <div class="control-row">
           <label class="control-label">Noise Filter Preset</label>
           <select id="noisePresetSelect" class="full-width-select">
             <option value="">No preset</option>
           </select>
           <div class="muted noise-preset-hint" id="noisePresetHint" hidden></div>
-        </div>
-        <div class="control-row">
-          <label class="control-label">Preview Mode</label>
-          <div class="pill-toggle">
-            <button class="btn ghost small is-active" type="button" id="noiseModeRemove">Remove noise</button>
-            <button class="btn ghost small" type="button" id="noiseModeSolo">Solo noise</button>
-          </div>
         </div>
         <div class="control-row">
           <label class="control-label">Apply Scope</label>
@@ -196,6 +190,18 @@
           <label class="check"><input type="checkbox" id="noiseLpToggle"> Low-pass</label>
           <input type="number" id="noiseLpValue" min="1000" max="20000" step="10" value="16000">
         </div>
+        <div class="control-row">
+          <button class="btn ghost small" type="button" id="noiseSaveBtn">Save as Profile…</button>
+        </div>
+      </div>
+      <div class="noise-right">
+        <div class="control-row">
+          <label class="control-label">Preview Mode</label>
+          <div class="pill-toggle">
+            <button class="btn ghost small is-active" type="button" id="noiseModeRemove">Remove noise</button>
+            <button class="btn ghost small" type="button" id="noiseModeSolo">Solo noise</button>
+          </div>
+        </div>
         <div class="control-row preview-row">
           <div class="control-label small-label">Preview</div>
           <audio id="noisePreviewAudio" class="preview-audio" controls preload="none"></audio>
@@ -203,8 +209,8 @@
         </div>
         <div class="preset-actions">
           <button class="btn btn-primary small" type="button" id="noisePreviewBtn">Preview</button>
-          <button class="btn ghost small" type="button" id="noiseRenderBtn">Render Cleaned Copy</button>
-          <button class="btn ghost small" type="button" id="noiseSaveBtn">Save as Profile…</button>
+          <button class="btn ghost small" type="button" id="noiseSaveNoiseBtn">Save Noise File</button>
+          <button class="btn ghost small" type="button" id="noiseRenderBtn">Save Version</button>
         </div>
       </div>
     </div>
@@ -252,9 +258,9 @@
   const analysisCursor = document.getElementById('analysisCursor');
   const spectroLegendLow = document.getElementById('spectroLegendLow');
   const spectroLegendHigh = document.getElementById('spectroLegendHigh');
-  const analysisVersionRow = document.getElementById('analysisVersionRow');
-  const analysisVersionLabel = document.getElementById('analysisVersionLabel');
-  const analysisRevertBtn = document.getElementById('analysisRevertBtn');
+  const noiseSelectedName = document.getElementById('noiseSelectedName');
+  const noiseSelectedMeta = document.getElementById('noiseSelectedMeta');
+  const noiseHistoryList = document.getElementById('noiseHistoryList');
   const analysisPlayBtn = document.getElementById('analysisPlayBtn');
   const analysisPauseBtn = document.getElementById('analysisPauseBtn');
   const analysisStopBtn = document.getElementById('analysisStopBtn');
@@ -281,6 +287,7 @@
   const noisePreviewBtn = document.getElementById('noisePreviewBtn');
   const noiseRenderBtn = document.getElementById('noiseRenderBtn');
   const noiseSaveBtn = document.getElementById('noiseSaveBtn');
+  const noiseSaveNoiseBtn = document.getElementById('noiseSaveNoiseBtn');
   const noiseClearBtn = document.getElementById('noiseClearBtn');
   const noiseT0 = document.getElementById('noiseT0');
   const noiseT1 = document.getElementById('noiseT1');
@@ -580,6 +587,7 @@
     if (noisePreviewBtn) noisePreviewBtn.disabled = !ok;
     if (noiseRenderBtn) noiseRenderBtn.disabled = !ok;
     if (noiseSaveBtn) noiseSaveBtn.disabled = !ok;
+    if (noiseSaveNoiseBtn) noiseSaveNoiseBtn.disabled = !ok;
   }
 
   function getActiveNoiseTarget(){
@@ -644,6 +652,15 @@
       setAudioSource(next.rel);
       updateScrubber();
       updatePlayhead();
+      const ext = next.rel ? next.rel.split('.').pop() : '';
+      const metrics = next.kind === 'processed' ? analysisPayload?.metrics?.output : analysisPayload?.metrics?.input;
+      updateSelectedFileDisplay(analysisContext.song, {
+        kind: next.kind,
+        rel: next.rel,
+        format: ext,
+        metrics,
+        title: next.name || '',
+      });
     }
   }
 
@@ -854,51 +871,108 @@
     }
   }
 
-  function updateVersionInfo(){
-    if (!analysisVersionRow || !analysisVersionLabel) return;
-    const versions = analysisContext.versions || [];
-    if (!versions.length) {
-      analysisVersionRow.hidden = true;
-      return;
-    }
-    const activeRel = analysisContext.active?.rel || null;
-    let current = null;
-    if (analysisContext.active_version_id) {
-      current = versions.find(v => v.version_id === analysisContext.active_version_id) || null;
-    }
-    if (!current && activeRel) {
-      current = versions.find((v) => {
-        const rel = primaryRendition(v.renditions)?.rel || v.rel;
-        return rel === activeRel;
-      }) || null;
-    }
-    if (!current) {
-      analysisVersionRow.hidden = true;
-      return;
-    }
-    analysisVersionLabel.textContent = current.label || current.title || 'Version';
-    const idx = versions.findIndex(v => v.version_id === current.version_id);
-    if (analysisRevertBtn) {
-      analysisRevertBtn.disabled = idx < 0 || idx >= versions.length - 1;
-    }
-    analysisVersionRow.hidden = false;
+  function normalizeUtility(value){
+    return String(value || '').trim().toLowerCase();
   }
 
-  async function revertToPreviousVersion(){
-    const versions = analysisContext.versions || [];
-    if (!versions.length) return;
-    const currentIdx = versions.findIndex(v => v.version_id === analysisContext.active_version_id);
-    const nextIdx = currentIdx >= 0 ? currentIdx + 1 : -1;
-    if (nextIdx < 0 || nextIdx >= versions.length) return;
-    const prev = versions[nextIdx];
-    const rel = primaryRendition(prev.renditions)?.rel || prev.rel;
-    if (!rel || !analysisContext.song) return;
-    await loadLibrarySelection(analysisContext.song, {
-      kind: 'version',
-      rel,
-      version_id: prev.version_id,
-      label: prev.label || prev.title,
-    }, true);
+  function isNoiseRemoved(version){
+    const util = normalizeUtility(version?.utility);
+    return util === 'noise removed' || util === 'noise cleanup' || util === 'noise removal';
+  }
+
+  function updateSelectedFileDisplay(song, track){
+    if (!noiseSelectedName || !noiseSelectedMeta) return;
+    if (!song && !track) {
+      noiseSelectedName.textContent = '-';
+      noiseSelectedMeta.textContent = 'No file selected.';
+      return;
+    }
+    const title = song?.title || track?.label || track?.title || 'Selected file';
+    noiseSelectedName.textContent = title;
+    const parts = [];
+    if (track?.kind === 'version') {
+      parts.push('Version');
+    } else if (track?.kind === 'source') {
+      parts.push('Source');
+    }
+    const fmt = track?.format || (track?.rel ? track.rel.split('.').pop() : '');
+    if (fmt) parts.push(fmt.toUpperCase());
+    const duration = track?.metrics?.duration_sec || song?.source?.duration_sec;
+    if (typeof duration === 'number' && Number.isFinite(duration)) {
+      parts.push(formatTimeDisplay(duration));
+    }
+    noiseSelectedMeta.textContent = parts.length ? parts.join(' · ') : 'Selected file';
+  }
+
+  function renderNoiseHistory(){
+    if (!noiseHistoryList) return;
+    const versions = Array.isArray(analysisContext.versions) ? analysisContext.versions : [];
+    const noiseVersions = versions.filter(isNoiseRemoved);
+    if (!noiseVersions.length) {
+      noiseHistoryList.innerHTML = '<div class="muted">No history yet.</div>';
+      return;
+    }
+    const sorted = noiseVersions.slice().sort((a, b) => {
+      const aKey = a.created_at || '';
+      const bKey = b.created_at || '';
+      return aKey.localeCompare(bKey);
+    });
+    const primary = sorted[sorted.length - 1];
+    noiseHistoryList.innerHTML = '';
+    sorted.forEach((version, idx) => {
+      const row = document.createElement('div');
+      row.className = 'noise-history-row';
+      if (primary && primary.version_id === version.version_id) {
+        row.classList.add('is-primary');
+      }
+      const label = document.createElement('div');
+      label.className = 'noise-history-label';
+      label.textContent = `Noise Removed ${idx + 1}`;
+      const meta = document.createElement('div');
+      meta.className = 'noise-history-meta';
+      meta.textContent = version.created_at ? new Date(version.created_at).toLocaleString() : '—';
+      const action = document.createElement('button');
+      action.type = 'button';
+      action.className = 'btn ghost tiny';
+      action.textContent = primary && primary.version_id === version.version_id ? 'Primary' : 'Make Primary';
+      action.disabled = primary && primary.version_id === version.version_id;
+      action.addEventListener('click', () => promoteNoiseVersion(version));
+      row.appendChild(label);
+      row.appendChild(meta);
+      row.appendChild(action);
+      noiseHistoryList.appendChild(row);
+    });
+  }
+
+  async function promoteNoiseVersion(version){
+    if (!version?.version_id) return;
+    addStatusLine('Promoting noise-removed version...');
+    try {
+      const res = await fetch('/api/library/promote-version', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ version_id: version.version_id }),
+      });
+      if (!res.ok) throw new Error('promote_failed');
+      if (libraryBrowser) libraryBrowser.reload();
+      const song = await fetchSong(analysisContext.song_id);
+      if (song) {
+        analysisContext.song = song;
+        analysisContext.versions = song.versions || [];
+      }
+      const rel = primaryRendition(version.renditions)?.rel || version.rel;
+      if (rel && analysisContext.song) {
+        await loadLibrarySelection(analysisContext.song, {
+          kind: 'version',
+          rel,
+          version_id: version.version_id,
+          label: version.label || version.title,
+        }, true);
+      }
+      addStatusLine('Noise Removed version promoted.');
+    } catch (_err) {
+      addStatusLine('Failed to promote version.');
+    }
   }
 
   function syncPreserveLinks(params){
@@ -1016,7 +1090,8 @@
       analysisContext.active_version_id = track.version_id || null;
       updateCompareLinkWithRel(srcRel, track.rel);
       addStatusLine('Analysis ready');
-      updateVersionInfo();
+      updateSelectedFileDisplay(song, track);
+      renderNoiseHistory();
       return;
     }
     const parsed = normalizeLibraryRel(track.rel);
@@ -1031,7 +1106,8 @@
       analysisContext.active_version_id = null;
       updateCompareLinkWithRel(parsed.kind === 'source' ? parsed.rel : null, null);
       addStatusLine('Analysis ready');
-      updateVersionInfo();
+      updateSelectedFileDisplay(song, track);
+      renderNoiseHistory();
       return;
     }
     addStatusLine('Analysis failed');
@@ -1061,6 +1137,14 @@
 
   const GRID_FREQS = [60, 120, 250, 500, 1000, 2000, 4000, 8000, 12000, 16000];
 
+  function formatGridLabel(freq){
+    if (freq >= 1000) {
+      const val = freq >= 10000 ? (freq / 1000).toFixed(0) : (freq / 1000).toFixed(1);
+      return `${val.replace(/\.0$/, '')}k`;
+    }
+    return `${freq} Hz`;
+  }
+
   function renderSpectroGrid(){
     if (!spectrogramGrid || !spectrogramInner) return;
     spectrogramGrid.innerHTML = '';
@@ -1072,6 +1156,11 @@
       line.className = 'spectrogram-grid-line';
       line.style.top = `${y}px`;
       spectrogramGrid.appendChild(line);
+      const label = document.createElement('div');
+      label.className = 'spectrogram-grid-label';
+      label.textContent = formatGridLabel(freq);
+      label.style.top = `${y}px`;
+      spectrogramGrid.appendChild(label);
     });
   }
 
@@ -1227,12 +1316,25 @@
     };
   }
 
+  function summarizeNoisePayload(prefix, payload){
+    if (!payload) return;
+    const hp = payload.hp_hz ? `${Math.round(payload.hp_hz)}Hz` : 'off';
+    const lp = payload.lp_hz ? `${Math.round(payload.lp_hz)}Hz` : 'off';
+    addStatusLine(`${prefix}: building filter chain...`);
+    addStatusLine(
+      `${prefix}: mode=${payload.mode} f0=${formatHz(payload.f_low)} f1=${formatHz(payload.f_high)} ` +
+      `depth=${payload.band_depth_db} denoise=${payload.afftdn_strength} hp=${hp} lp=${lp}`
+    );
+  }
+
   async function previewNoise(){
     const payload = collectNoisePayload();
     if (!payload) {
       setNoiseStatus('Select a region to preview.');
       return;
     }
+    summarizeNoisePayload('Preview', payload);
+    addStatusLine('Preview: starting ffmpeg...');
     setNoiseStatus('Previewing...');
     try {
       const res = await fetch('/api/analyze/noise/preview', {
@@ -1262,6 +1364,9 @@
       setNoiseStatus('Select a region to render.');
       return;
     }
+    payload.mode = 'remove';
+    summarizeNoisePayload('Render Cleaned Copy', payload);
+    addStatusLine('Render Cleaned Copy: starting ffmpeg...');
     setNoiseStatus('Rendering full file...');
     try {
       const songId = await ensureSongId();
@@ -1295,9 +1400,48 @@
       if (typeof showToast === 'function') {
         showToast(`Cleaned copy ready: ${data.output_name || 'output'}`);
       }
+      addStatusLine(`Saved version: ${data.output_name || 'output'}`);
       setNoiseStatus('Render complete.');
     } catch (_err) {
       setNoiseStatus('Render failed.');
+    }
+  }
+
+  async function saveNoiseFile(){
+    const payload = collectNoisePayload();
+    if (!payload) {
+      setNoiseStatus('Select a region to save noise.');
+      return;
+    }
+    payload.mode = 'solo';
+    summarizeNoisePayload('Save Noise File', payload);
+    addStatusLine('Save Noise File: starting ffmpeg...');
+    setNoiseStatus('Saving noise file...');
+    try {
+      const songId = await ensureSongId();
+      if (!songId) throw new Error('missing_song');
+      payload.song_id = songId;
+      const res = await fetch('/api/analyze/noise/render', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(err || 'render_failed');
+      }
+      const data = await res.json();
+      if (libraryBrowser) libraryBrowser.reload();
+      const song = await fetchSong(analysisContext.song_id);
+      if (song) {
+        analysisContext.song = song;
+        analysisContext.versions = song.versions || [];
+        renderNoiseHistory();
+      }
+      addStatusLine(`Saved version: ${data.output_name || 'noise profile'}`);
+      setNoiseStatus('Noise file saved.');
+    } catch (_err) {
+      setNoiseStatus('Noise file save failed.');
     }
   }
 
@@ -1466,6 +1610,7 @@
     }
     const title = prompt('Noise filter name', 'Noise Cleanup');
     if (!title) return;
+    addStatusLine('Save Noise Profile: starting...');
     setNoiseStatus('Saving preset...');
     try {
       const res = await fetch('/api/analyze/noise/preset/save', {
@@ -1531,7 +1676,16 @@
       renderPills(payload, input, output);
       renderActiveSpectrogram(false);
     }
-    updateVersionInfo();
+    const active = analysisContext.active;
+    let track = null;
+    if (active) {
+      const rel = active.rel || '';
+      const ext = rel ? rel.split('.').pop() : '';
+      const metrics = active.kind === 'processed' ? output : input;
+      track = { kind: active.kind, rel, format: ext, metrics, title: active.name || '' };
+    }
+    updateSelectedFileDisplay(analysisContext.song, track);
+    renderNoiseHistory();
   }
 
   async function selectAndLoad(item, node, shouldPush){
@@ -1684,6 +1838,13 @@
           analysisContext.song_id = data.song?.song_id || null;
           updateCompareLinkWithRel(data.rel, null);
           if (libraryBrowser) libraryBrowser.reload();
+          updateSelectedFileDisplay(data.song || null, {
+            kind: 'source',
+            rel: data.rel,
+            format: data.rel ? data.rel.split('.').pop() : '',
+            metrics: payload?.metrics?.input || null,
+          });
+          renderNoiseHistory();
         }
         addStatusLine('Upload complete');
       } catch (_err) {
@@ -1792,6 +1953,7 @@
   if (noisePreviewBtn) noisePreviewBtn.addEventListener('click', previewNoise);
   if (noiseRenderBtn) noiseRenderBtn.addEventListener('click', renderNoise);
   if (noiseSaveBtn) noiseSaveBtn.addEventListener('click', saveNoisePreset);
+  if (noiseSaveNoiseBtn) noiseSaveNoiseBtn.addEventListener('click', saveNoiseFile);
 
   if (analysisPlayBtn && analysisAudio) {
     analysisPlayBtn.addEventListener('click', () => {
@@ -1839,10 +2001,6 @@
       updatePlayhead();
     });
   }
-  if (analysisRevertBtn) {
-    analysisRevertBtn.addEventListener('click', () => revertToPreviousVersion());
-  }
-
   bindSpectrogramSelection();
   setNoiseMode('remove');
   setNoiseScope('global');

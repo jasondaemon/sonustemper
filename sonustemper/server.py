@@ -2913,6 +2913,16 @@ def library_delete_version(payload: dict = Body(...)):
     return {"deleted": version_id}
 
 
+@app.post("/api/library/promote-version")
+def library_promote_version(payload: dict = Body(...)):
+    version_id = (payload.get("version_id") or "").strip()
+    if not version_id:
+        raise HTTPException(status_code=400, detail="missing_version_id")
+    if not library_store.promote_version(version_id):
+        raise HTTPException(status_code=404, detail="version_not_found")
+    return {"ok": True, "version_id": version_id}
+
+
 @app.post("/api/library/delete_song")
 def library_delete_song(payload: dict = Body(...)):
     song_id = (payload.get("song_id") or "").strip()
@@ -4216,6 +4226,7 @@ def analyze_noise_render(payload: dict = Body(...)):
     path = payload.get("path")
     song_id = (payload.get("song_id") or "").strip()
     target = _resolve_analysis_path(path)
+    mode = (payload.get("mode") or "remove").strip().lower()
     af, use_complex = _noise_filter_chain(payload)
     if not song_id:
         raise HTTPException(status_code=400, detail="missing_song_id")
@@ -4256,18 +4267,20 @@ def analyze_noise_render(payload: dict = Body(...)):
     except Exception:
         metrics = {}
     song = library_store.get_song(song_id)
-    title = song.get("title") if isinstance(song, dict) else "Noise Removal"
+    title = song.get("title") if isinstance(song, dict) else "Noise Removed"
     rendition = {"format": out_path.suffix.lower().lstrip("."), "rel": rel}
+    is_noise_profile = mode == "solo"
+    utility_label = "Noise Profile" if is_noise_profile else "Noise Removed"
     version = library_store.create_version_with_renditions(
         song_id,
         "noise_clean",
-        "Noise Removal",
-        title or "Noise Removal",
-        {"noise_profile": "Noise Removal"},
+        utility_label,
+        title or utility_label,
+        {"noise_profile": utility_label},
         metrics,
         [rendition],
         version_id=version_id,
-        utility="Noise Removal",
+        utility=utility_label,
     )
     return {
         "output_rel": rel,
