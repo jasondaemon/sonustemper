@@ -222,8 +222,8 @@
         <div class="control-row">
           <label class="control-label">Preview Mode</label>
           <div class="pill-toggle">
-            <button class="btn ghost small is-active" type="button" id="noiseModeRemove">Remove noise</button>
-            <button class="btn ghost small" type="button" id="noiseModeSolo">Solo noise</button>
+            <button class="btn ghost small" type="button" id="noiseModeRemove">Remove noise</button>
+            <button class="btn ghost small is-active" type="button" id="noiseModeSolo">Solo noise</button>
           </div>
         </div>
         <div class="control-row">
@@ -342,7 +342,7 @@
   let analysisPayload = null;
   let noiseSelection = null;
   let noiseSuggestedBand = null;
-  let noiseMode = 'remove';
+  let noiseMode = 'solo';
   let noiseScope = 'global';
   let noisePresets = new Map();
   let lastNoiseTargetRel = null;
@@ -646,6 +646,7 @@
     if (!noiseSelection) return;
     const span = Math.abs((noiseSelection.t1 || 0) - (noiseSelection.t0 || 0));
     if (span < 0.25) return;
+    console.debug('[noise] auto preview scheduled', { t0: noiseSelection.t0, t1: noiseSelection.t1 });
     autoPreviewTimer = setTimeout(() => {
       autoPreviewTimer = null;
       runAutoPreview();
@@ -660,6 +661,7 @@
     payload.mode = 'solo';
     payload.apply_scope = 'selection';
     payload.apply_to_selection = true;
+    console.debug('[noise] auto preview request', payload);
     const requestId = ++autoPreviewRequestId;
     if (autoPreviewAbort) autoPreviewAbort.abort();
     const controller = new AbortController();
@@ -683,8 +685,10 @@
       if (requestId !== autoPreviewRequestId) return;
       if (noisePreviewAudio && data.url) {
         noisePreviewAudio.src = data.url;
+        console.debug('[noise] auto preview src', data.url);
       }
       setPreviewEnabled(true);
+      console.debug('[noise] auto preview response', data);
       if (autoPlaySelection) {
         addStatusLine('Auto preview ready — playing solo noise.');
         noisePreviewAudio?.play().catch(() => {});
@@ -2200,7 +2204,7 @@
     });
   }
   bindSpectrogramSelection();
-  setNoiseMode('remove');
+  setNoiseMode('solo');
   setNoiseScope('global');
   updateNoiseButtonState();
   loadNoisePresets();

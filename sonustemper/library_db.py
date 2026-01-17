@@ -239,7 +239,18 @@ def init_db() -> None:
                     conn.execute("ALTER TABLE versions ADD COLUMN loudness_profile TEXT")
                 if not _has_column(conn, "songs", "is_demo"):
                     conn.execute("ALTER TABLE songs ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0")
-                conn.execute("UPDATE songs SET source_metrics_json = '{}' WHERE source_metrics_json IS NOT NULL AND source_metrics_json != '{}'")
+                if not _has_column(conn, "songs", "source_metrics_json"):
+                    conn.execute(
+                        "ALTER TABLE songs ADD COLUMN source_metrics_json TEXT NOT NULL DEFAULT '{}'"
+                    )
+                conn.execute(
+                    "UPDATE songs SET source_metrics_json = '{}' "
+                    "WHERE source_metrics_json IS NULL OR TRIM(source_metrics_json) = ''"
+                )
+                if not _has_column(conn, "versions", "metrics_json"):
+                    conn.execute(
+                        "ALTER TABLE versions ADD COLUMN metrics_json TEXT NOT NULL DEFAULT '{}'"
+                    )
                 meta_added = False
                 if not _has_column(conn, "versions", "meta_json"):
                     conn.execute("ALTER TABLE versions ADD COLUMN meta_json TEXT NOT NULL DEFAULT '{}'")
@@ -270,11 +281,6 @@ def init_db() -> None:
                     meta_raw = row["meta_json"] or ""
                     base_raw = meta_raw if meta_raw and meta_raw != "{}" else summary_raw
                     if not base_raw or base_raw == "{}":
-                        if summary_raw and summary_raw != "{}":
-                            conn.execute(
-                                "UPDATE versions SET meta_json = ? WHERE version_id = ?",
-                                ("{}", row["version_id"]),
-                            )
                         continue
                     try:
                         summary = json.loads(base_raw)
@@ -294,7 +300,10 @@ def init_db() -> None:
                         "UPDATE versions SET voicing = ?, loudness_profile = ?, meta_json = ? WHERE version_id = ?",
                         (voicing, profile, meta_json, row["version_id"]),
                     )
-                conn.execute("UPDATE versions SET metrics_json = '{}' WHERE metrics_json IS NOT NULL AND metrics_json != '{}'")
+                conn.execute(
+                    "UPDATE versions SET metrics_json = '{}' "
+                    "WHERE metrics_json IS NULL OR TRIM(metrics_json) = ''"
+                )
             finally:
                 conn.close()
         _DB_READY = True

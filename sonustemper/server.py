@@ -4200,14 +4200,21 @@ def analyze_noise_preview(payload: dict = Body(...)):
         payload2["t1_sec"] = rel_t1
         payload2["start_sec"] = rel_t0
         payload2["end_sec"] = rel_t1
+    if apply_selection:
+        payload2["apply_scope"] = "global"
+        payload2["apply_to_selection"] = False
+        apply_scope = "global"
+        apply_selection = False
     logger.debug(
-        "[noise_preview] preview_start=%.3f abs_t0=%s abs_t1=%s rel_t0=%s rel_t1=%s mode=%s apply_selection=%s",
+        "[noise_preview] preview_start=%.3f preview_len=%.3f abs_t0=%s abs_t1=%s rel_t0=%s rel_t1=%s mode=%s apply_scope=%s apply_selection=%s",
         preview_start,
+        preview_len,
         abs_t0,
         abs_t1,
         rel_t0,
         rel_t1,
         (payload2.get("mode") or "").strip().lower(),
+        apply_scope,
         apply_selection,
     )
     af, use_complex = _noise_filter_chain(payload2)
@@ -4229,6 +4236,13 @@ def analyze_noise_preview(payload: dict = Body(...)):
         "-codec:a", "libmp3lame", "-b:a", f"{PREVIEW_BITRATE_KBPS}k",
         str(out_path),
     ]
+    logger.debug(
+        "[noise_preview] ffmpeg ss=%s t=%s %s=%s",
+        f"{preview_start:.3f}",
+        f"{preview_len:.3f}",
+        "-filter_complex" if use_complex else "-af",
+        af,
+    )
     proc = run_cmd(cmd)
     if proc.returncode != 0 or not out_path.exists():
         err = (proc.stderr or proc.stdout or "").strip()
