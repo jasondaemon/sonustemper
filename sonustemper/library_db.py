@@ -194,6 +194,19 @@ def _apply_migrations(conn: sqlite3.Connection, from_v: int, to_v: int) -> None:
             )
         log_summary("db", "migration applied", from_v=from_v, to_v=to_v)
 
+
+def _row_get(obj: Any, key: str, default: Any = None) -> Any:
+    try:
+        if obj is None:
+            return default
+        if isinstance(obj, dict):
+            return obj.get(key, default)
+        if hasattr(obj, "keys") and key in obj.keys():
+            return obj[key]
+        return default
+    except Exception:
+        return default
+
 PREFERRED_RENDITION_ORDER = ["wav", "flac", "aiff", "aif", "m4a", "aac", "mp3", "ogg"]
 LIBRARY_AUDIO_EXTS = {".wav", ".flac", ".aiff", ".aif", ".mp3", ".m4a", ".aac", ".ogg"}
 
@@ -342,6 +355,14 @@ def init_db() -> None:
                 if needs_migration:
                     _apply_migrations(conn, uv, SCHEMA_VERSION)
                     _set_user_version(conn, SCHEMA_VERSION)
+                conn.commit()
+                has_meta = _has_column(conn, "versions", "meta_json")
+                log_debug(
+                    "db",
+                    "init_db committed",
+                    user_version=_get_user_version(conn),
+                    has_meta_json=has_meta,
+                )
             finally:
                 conn.close()
         _DB_READY = True
@@ -1476,9 +1497,12 @@ def sync_library_fs(max_log_examples: int = 10) -> dict:
 
     for (song_id, version_id), renditions in fs_versions.items():
         if (song_id, version_id) not in db_versions:
-            song_title = (db_songs.get(song_id, {}).get("title")
-                          or fs_songs.get(song_id, {}).get("title")
-                          or "Version")
+            db_row = db_songs.get(song_id)
+            song_title = (
+                _row_get(db_row, "title", None)
+                or _row_get(fs_songs.get(song_id), "title", None)
+                or "Version"
+            )
             kind = "master" if "master" in version_id.lower() else "version"
             label = "Master" if kind == "master" else "Version"
             try:
