@@ -465,8 +465,8 @@ h1{margin:0;font-size:24px;}
   justify-content:center;
 }
 .library-add-btn svg{
-  width:16px;
-  height:16px;
+  width:20px;
+  height:20px;
 }
 .library-version-list{
   display:flex;
@@ -526,6 +526,9 @@ h1{margin:0;font-size:24px;}
   align-items:center;
   justify-content:center;
   z-index:2000;
+}
+.library-metrics-modal[hidden]{
+  display:none;
 }
 .library-metrics-dialog{
   background:#0f151d;
