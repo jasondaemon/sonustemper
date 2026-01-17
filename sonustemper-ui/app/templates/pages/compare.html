@@ -375,19 +375,32 @@
     if (zoomLabel) zoomLabel.textContent = `${factor}x`;
     const minPxPerSec = Math.max(1, fitMinPxPerSec) * factor;
     currentZoomPxPerSec = minPxPerSec;
+    const prevContent = getContentWidth(sourceWave);
+    const prevViewport = getViewportWidth(sourceWave);
+    const prevScroll = getScrollLeft(sourceWave);
+    const prevCenter = prevContent && prevViewport
+      ? (prevScroll + prevViewport / 2) / prevContent
+      : 0;
     if (sourceWave) sourceWave.zoom(minPxPerSec);
     if (processedWave) processedWave.zoom(minPxPerSec);
     const miniPxPerSec = Math.max(1, fitMinPxPerSec);
     if (miniSourceWave) miniSourceWave.zoom(miniPxPerSec);
     if (miniProcessedWave) miniProcessedWave.zoom(miniPxPerSec);
     updateZoomClasses(factor);
-    updateSpectrogramZoom();
-    updateMiniSpectrogram();
-    updateOverviewWindow();
-    requestAnimationFrame(updateScrollHints);
-    requestAnimationFrame(() => {
-      forceWaveRedraw(sourceWave);
-      forceWaveRedraw(processedWave);
+    const postZoomWork = () => {
+      if (viewMode === 'waveform') {
+        const nextContent = getContentWidth(sourceWave);
+        const nextViewport = getViewportWidth(sourceWave);
+        const maxScroll = Math.max(0, nextContent - nextViewport);
+        const targetLeft = clamp(prevCenter * nextContent - nextViewport / 2, 0, maxScroll);
+        setScrollLeft(sourceWave, targetLeft);
+        setScrollLeft(processedWave, targetLeft);
+        drawOverlays();
+        updateScrollHints();
+      }
+      updateSpectrogramZoom();
+      updateMiniSpectrogram();
+      updateOverviewWindow();
       if (ZOOM_DEBUG) {
         [sourceWave, processedWave].forEach((wave, idxWave) => {
           if (!wave || typeof wave.getWrapper !== 'function') return;
@@ -398,14 +411,29 @@
             kind: idxWave === 0 ? 'source' : 'processed',
             pxPerSec: minPxPerSec,
             duration: typeof wave.getDuration === 'function' ? wave.getDuration() : 0,
-            targetWidth: Math.ceil((wave.getDuration?.() || 0) * minPxPerSec),
-            clientWidth: wrapper.clientWidth,
-            scrollWidth: wrapper.scrollWidth,
+            targetWidth: getContentWidth(wave),
+            clientWidth: getViewportWidth(wave),
+            scrollWidth: getContentWidth(wave),
             canvases: Array.from(canvases).map((c) => ({ w: c.width, h: c.height })),
           });
         });
       }
-    });
+    };
+    if (sourceWave && typeof sourceWave.once === 'function') {
+      let fired = false;
+      sourceWave.once('redrawcomplete', () => {
+        if (fired) return;
+        fired = true;
+        postZoomWork();
+      });
+      setTimeout(() => {
+        if (fired) return;
+        fired = true;
+        postZoomWork();
+      }, 80);
+    } else {
+      setTimeout(postZoomWork, 0);
+    }
   }
 
   function forceWaveRedraw(wave){
@@ -654,26 +682,51 @@
     [sourceWave, processedWave].forEach((wave) => {
       if (!wave || typeof wave.getWrapper !== 'function') return;
       const wrapper = wave.getWrapper();
-      const scrollEl = wrapper ? wrapper.parentElement : null;
+      const scrollEl = getScrollEl(wave);
       const host = waveHost(wave);
       if (!wrapper || !scrollEl || !host) return;
-      const scrollable = wrapper.scrollWidth > scrollEl.clientWidth + 1;
+      const contentWidth = getContentWidth(wave);
+      const viewportWidth = getViewportWidth(wave);
+      const scrollable = contentWidth > viewportWidth + 1;
       host.classList.toggle('is-scrollable', scrollable);
       const hints = ensureScrollHintEls(scrollEl);
       if (!hints) return;
-      const maxScroll = Math.max(0, wrapper.scrollWidth - scrollEl.clientWidth);
+      const maxScroll = Math.max(0, contentWidth - viewportWidth);
       const show = zoomed && scrollable && maxScroll > 1;
-      const atStart = scrollEl.scrollLeft <= 1;
-      const atEnd = scrollEl.scrollLeft >= maxScroll - 1;
+      const atStart = getScrollLeft(wave) <= 1;
+      const atEnd = getScrollLeft(wave) >= maxScroll - 1;
       hints.left.style.display = show && !atStart ? 'block' : 'none';
       hints.right.style.display = show && !atEnd ? 'block' : 'none';
     });
   }
 
+  function getScrollEl(wave){
+    return wave?.getScroll?.() || wave?.getWrapper?.()?.parentElement || null;
+  }
+
+  function getViewportWidth(wave){
+    const scrollEl = getScrollEl(wave);
+    return scrollEl ? scrollEl.clientWidth : 0;
+  }
+
+  function getContentWidth(wave){
+    const scrollEl = getScrollEl(wave);
+    if (scrollEl) return scrollEl.scrollWidth || 0;
+    return wave?.getWrapper?.()?.scrollWidth || 0;
+  }
+
+  function getScrollLeft(wave){
+    const scrollEl = getScrollEl(wave);
+    return scrollEl ? scrollEl.scrollLeft : 0;
+  }
+
+  function setScrollLeft(wave, x){
+    const scrollEl = getScrollEl(wave);
+    if (scrollEl) scrollEl.scrollLeft = x;
+  }
+
   function getWaveScrollEl(wave){
-    if (!wave || typeof wave.getWrapper !== 'function') return null;
-    const wrapper = wave.getWrapper();
-    return wrapper ? wrapper.parentElement : null;
+    return getScrollEl(wave);
   }
 
   function setupWaveScrollSync(){
@@ -799,14 +852,13 @@
       };
     }
     if (!sourceWave || typeof sourceWave.getWrapper !== 'function') return null;
-    const wrapper = sourceWave.getWrapper();
-    const scrollEl = wrapper ? wrapper.parentElement : null;
-    if (!wrapper || !scrollEl) return null;
+    const scrollEl = getScrollEl(sourceWave);
+    if (!scrollEl) return null;
     return {
       viewport: scrollEl,
-      scrollLeft: scrollEl.scrollLeft,
-      viewportWidth: scrollEl.clientWidth || 0,
-      contentWidth: wrapper.scrollWidth || wrapper.clientWidth || 0,
+      scrollLeft: getScrollLeft(sourceWave),
+      viewportWidth: getViewportWidth(sourceWave),
+      contentWidth: getContentWidth(sourceWave),
     };
   }
 
@@ -836,8 +888,8 @@
       if (spectroProcessedViewport) spectroProcessedViewport.scrollLeft = target;
       spectroSyncLock = false;
     } else {
-      const scrollEl = sourceWave?.getWrapper?.().parentElement;
-      const procScroll = processedWave?.getWrapper?.().parentElement;
+      const scrollEl = getScrollEl(sourceWave);
+      const procScroll = getScrollEl(processedWave);
       if (!scrollEl) return;
       waveSyncLock = true;
       scrollEl.scrollLeft = target;
@@ -1020,7 +1072,7 @@
     const duration = wave.getDuration();
     if (!duration || duration <= 0) return null;
     const wrapper = wave.getWrapper();
-    const scrollEl = wrapper ? wrapper.parentElement : null;
+    const scrollEl = getScrollEl(wave);
     const width = scrollEl?.clientWidth || wrapper?.clientWidth || 0;
     if (!width) return null;
     const fit = width / duration;
@@ -1385,6 +1437,7 @@
     if (!wave || typeof wave.getWrapper !== 'function') return null;
     const wrapper = wave.getWrapper();
     if (!wrapper) return null;
+    const scrollEl = getScrollEl(wave);
     const layerClass = `analysis-overlay-${kind}-${layer}`;
     let canvas = wrapper.querySelector(`canvas.${layerClass}`);
     if (!canvas) {
@@ -1402,9 +1455,7 @@
       }
     }
     canvas.style.zIndex = layer === 'heatmap' ? '0' : '5';
-    const duration = typeof wave.getDuration === 'function' ? wave.getDuration() : 0;
-    const target = Math.ceil((duration || 0) * (currentZoomPxPerSec || 0));
-    const width = Math.max(wrapper.clientWidth || 0, target || 0, 1);
+    const width = Math.max(scrollEl?.scrollWidth || wrapper.clientWidth || 0, 1);
     const height = Math.max(wrapper.clientHeight || 1, 1);
     const ratio = window.devicePixelRatio || 1;
     canvas.width = Math.max(1, Math.round(width * ratio));
@@ -1479,7 +1530,7 @@
     const box = ensureReferenceLines(wave, kind);
     if (!wrapper || !box) return;
     const height = Math.max(wrapper.clientHeight || 0, 1);
-    const width = Math.max(wrapper.scrollWidth || wrapper.clientWidth || 0, 1);
+    const width = Math.max(getContentWidth(wave) || wrapper.clientWidth || 0, 1);
     box.style.width = `${width}px`;
     box.style.height = `${height}px`;
     const lines = box.querySelectorAll('.wave-ref-line');
@@ -1638,7 +1689,7 @@
     const duration = analysisData.duration_s || (kind === 'source' ? sourceWave?.getDuration() : processedWave?.getDuration());
     if (!duration) return;
     const x = evt.clientX - rect.left;
-    const fullWidth = Math.max(wrapper.scrollWidth || rect.width, rect.width);
+    const fullWidth = Math.max(scrollEl.scrollWidth || rect.width, rect.width);
     const scrollLeft = scrollEl.scrollLeft || 0;
     const t = Math.max(0, Math.min(duration, ((x + scrollLeft) / fullWidth) * duration));
     const seriesT = analysisData.series.t || [];
@@ -1717,8 +1768,7 @@
 
   function bindDragScroll(wave){
     if (!wave || typeof wave.getWrapper !== 'function') return () => {};
-    const wrapper = wave.getWrapper();
-    const scrollEl = wrapper ? wrapper.parentElement : null;
+    const scrollEl = getScrollEl(wave);
     const host = waveHost(wave);
     if (!scrollEl || !host) return () => {};
     let dragging = false;
@@ -1783,7 +1833,7 @@
     window.addEventListener('resize', onResize);
     cleanup.push(() => window.removeEventListener('resize', onResize));
     const wrapper = typeof wave.getWrapper === 'function' ? wave.getWrapper() : null;
-    const scrollEl = wrapper ? wrapper.parentElement : null;
+    const scrollEl = getScrollEl(wave);
     if (scrollEl && wrapper) {
       const onMove = (evt) => updateTooltip(evt, kind, scrollEl, wrapper);
       const onLeave = () => { scrollEl.title = ''; };
