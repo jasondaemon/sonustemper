@@ -1,6 +1,7 @@
 import os
 import logging
 import re
+import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -12,27 +13,53 @@ def _uid_gid() -> tuple[str, str]:
     gid = str(os.getegid()) if hasattr(os, "getegid") else "n/a"
     return uid, gid
 
+_LAST_WRITE_ERR: str | None = None
+
+def _mount_info(path: Path) -> str:
+    try:
+        target = path.resolve()
+    except Exception:
+        target = path
+    best = ("", "")
+    try:
+        with open("/proc/mounts", "r", encoding="utf-8") as handle:
+            for line in handle:
+                parts = line.split()
+                if len(parts) < 4:
+                    continue
+                mountpoint = parts[1]
+                opts = parts[3]
+                if str(target) == mountpoint or str(target).startswith(mountpoint.rstrip("/") + "/"):
+                    if len(mountpoint) > len(best[0]):
+                        best = (mountpoint, opts)
+    except Exception:
+        return "unknown"
+    if best[0]:
+        return f"{best[0]} opts={best[1]}"
+    return "unknown"
+
+def _stat_summary(path: Path) -> str:
+    try:
+        st = path.stat()
+    except Exception as exc:
+        return f"stat_error={exc!r}"
+    return f"mode={oct(st.st_mode)} uid={st.st_uid} gid={st.st_gid}"
+
 def _can_write(root: Path) -> bool:
+    global _LAST_WRITE_ERR
     test_dir = root / ".sonustemper_write_test"
     test_file = test_dir / "x"
     try:
         test_dir.mkdir(parents=True, exist_ok=True)
         test_file.write_text("ok", encoding="utf-8")
-        test_file.unlink()
-        test_dir.rmdir()
         return True
-    except Exception:
-        try:
-            if test_file.exists():
-                test_file.unlink()
-        except Exception:
-            pass
-        try:
-            if test_dir.exists():
-                test_dir.rmdir()
-        except Exception:
-            pass
+    except Exception as exc:
+        err_no = getattr(exc, "errno", None)
+        _LAST_WRITE_ERR = f"{exc!r} errno={err_no}"
+        logger.warning("[storage] write test failed at %s err=%r errno=%s", root, exc, err_no)
         return False
+    finally:
+        shutil.rmtree(test_dir, ignore_errors=True)
 
 def _select_data_root() -> Path:
     env_root = os.getenv("DATA_DIR") or os.getenv("SONUSTEMPER_DATA_ROOT")
@@ -45,7 +72,14 @@ def _select_data_root() -> Path:
     if _can_write(root):
         return root
     if require_root:
-        raise RuntimeError(f"DATA_ROOT not writable: {root}")
+        uid, gid = _uid_gid()
+        detail = _LAST_WRITE_ERR or "unknown"
+        mount = _mount_info(root)
+        stat_line = _stat_summary(root)
+        raise RuntimeError(
+            "DATA_ROOT not writable: "
+            f"path={root} err={detail} uid={uid} gid={gid} stat={stat_line} mount={mount}"
+        )
     fallback = Path.cwd() / "data"
     try:
         fallback.mkdir(parents=True, exist_ok=True)
@@ -81,18 +115,26 @@ def ensure_data_roots() -> None:
     for path in paths:
         try:
             path.mkdir(parents=True, exist_ok=True)
-        except PermissionError:
+        except PermissionError as exc:
             logger.warning(
-                "[storage] Permission denied creating %s (DATA_ROOT=%s uid=%s gid=%s). "
+                "[storage] Permission denied creating %s (DATA_ROOT=%s uid=%s gid=%s err=%r). "
                 "Fix bind mount permissions or run container with matching uid/gid.",
                 path,
                 DATA_ROOT,
                 uid,
                 gid,
+                exc,
             )
             failures.append(path)
     if failures:
-        raise RuntimeError(f"DATA_ROOT not writable: {DATA_ROOT}")
+        detail = _LAST_WRITE_ERR or "unknown"
+        mount = _mount_info(DATA_ROOT)
+        stat_line = _stat_summary(DATA_ROOT)
+        raise RuntimeError(
+            "DATA_ROOT not writable: "
+            f"path={DATA_ROOT} err={detail} uid={uid} gid={gid} stat={stat_line} mount={mount} "
+            f"failed={','.join(str(p) for p in failures)}"
+        )
 
 
 def detect_mount_type(p: Path) -> str:
