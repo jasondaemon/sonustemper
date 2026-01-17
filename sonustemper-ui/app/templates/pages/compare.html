@@ -290,6 +290,10 @@
   const matchDebug = (...args) => {
     if (MATCH_DEBUG) console.debug('[compare][match]', ...args);
   };
+  const DEBUG_COMPARE_SYNC = false;
+  const syncDebug = (...args) => {
+    if (DEBUG_COMPARE_SYNC) console.debug('[compare][sync]', ...args);
+  };
 
   const zoomSteps = [1, 2, 4, 8, 16, 32];
   let fitMinPxPerSec = 1;
@@ -397,6 +401,13 @@
         setScrollLeft(processedWave, targetLeft);
         drawOverlays();
         updateScrollHints();
+        syncDebug('zoom', {
+          factor,
+          pxPerSec: minPxPerSec,
+          scrollLeft: getScrollLeft(sourceWave),
+          contentWidth: nextContent,
+          viewportWidth: nextViewport,
+        });
       }
       updateSpectrogramZoom();
       updateMiniSpectrogram();
@@ -744,6 +755,7 @@
       }
       updateScrollHints();
       updateOverviewWindow();
+      syncDebug('scrollSync', { source: sourceScroll.scrollLeft, processed: processedScroll?.scrollLeft || 0 });
     };
     sourceScroll.addEventListener('scroll', onSource, { passive: true });
     waveScrollCleanup.push(() => {
@@ -757,6 +769,7 @@
         scrollSyncLock = false;
         updateScrollHints();
         updateOverviewWindow();
+        syncDebug('scrollSync', { source: sourceScroll.scrollLeft, processed: processedScroll.scrollLeft });
       };
       processedScroll.addEventListener('scroll', onProcessed, { passive: true });
       waveScrollCleanup.push(() => {
@@ -873,6 +886,7 @@
     const ratioWidth = Math.min(1, viewportWidth / contentWidth);
     windowEl.style.left = `${ratioStart * 100}%`;
     windowEl.style.width = `${ratioWidth * 100}%`;
+    syncDebug('overview', { scrollLeft, viewportWidth, contentWidth, ratioStart, ratioWidth });
   }
 
   function scrollMainToRatio(ratio){
@@ -888,15 +902,13 @@
       if (spectroProcessedViewport) spectroProcessedViewport.scrollLeft = target;
       spectroSyncLock = false;
     } else {
-      const scrollEl = getScrollEl(sourceWave);
-      const procScroll = getScrollEl(processedWave);
-      if (!scrollEl) return;
-      waveSyncLock = true;
-      scrollEl.scrollLeft = target;
-      if (procScroll) procScroll.scrollLeft = target;
-      waveSyncLock = false;
+      scrollSyncLock = true;
+      setScrollLeft(sourceWave, target);
+      setScrollLeft(processedWave, target);
+      scrollSyncLock = false;
     }
     updateOverviewWindow();
+    syncDebug('scrollMainToRatio', { ratio, target, viewMode });
   }
 
   function updateMiniSpectrogram(){
@@ -1171,6 +1183,7 @@
     updateWaveProgress(processedWave, target, duration);
     updateSpectroScrubLine(spectroSourceScrub, spectroSourceInner, target, duration);
     updateSpectroScrubLine(spectroProcessedScrub, spectroProcessedInner, target, duration);
+    syncDebug('seek', { target, duration, trackMode });
     transportLock = false;
   }
 
