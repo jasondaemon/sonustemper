@@ -1637,6 +1637,12 @@ h1{margin:0;font-size:24px;}
 .page-compare .browse-card .file-browser-sections{
   flex:0 0 auto;
 }
+.page-compare img,
+.page-compare canvas,
+.page-compare .wave-canvas{
+  user-select:none;
+  -webkit-user-drag:none;
+}
 .wave-panel{
   border:1px solid var(--line);
   border-radius:12px;

@@ -1401,11 +1401,7 @@
         wrapper.appendChild(canvas);
       }
     }
-    canvas.style.zIndex = layer === 'heatmap' ? '1' : '3';
-    wrapper.querySelectorAll('canvas:not(.analysis-overlay)').forEach((node) => {
-      node.style.position = 'relative';
-      node.style.zIndex = '2';
-    });
+    canvas.style.zIndex = layer === 'heatmap' ? '0' : '5';
     const duration = typeof wave.getDuration === 'function' ? wave.getDuration() : 0;
     const target = Math.ceil((duration || 0) * (currentZoomPxPerSec || 0));
     const width = Math.max(wrapper.clientWidth || 0, target || 0, 1);
