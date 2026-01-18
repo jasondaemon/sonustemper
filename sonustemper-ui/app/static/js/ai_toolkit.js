@@ -873,6 +873,7 @@
       })
       .then((data) => {
         if (reqId !== state.recoReqId) return;
+        console.debug('detect response', data);
         const findings = Array.isArray(data.findings) ? data.findings : [];
         const suggestions = findings.slice(0, 3).map((finding) => {
           const toolId = finding.suggested_tool_id;
@@ -907,6 +908,7 @@
         if (aiRecoEmpty) {
           aiRecoEmpty.textContent = 'Recommendations unavailable.';
         }
+        console.debug('detect error', err?.name, err?.message);
         addStatusLine(`Recommendations: ${err.message || 'unavailable'}`);
         console.warn('[ai_toolkit] detect failed', err);
       })

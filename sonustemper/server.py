@@ -3966,7 +3966,7 @@ def _ai_astats_segment(path: Path, start: float, duration: float, pre_filters: l
     filters.append(f"astats=measure_overall={want}:measure_perchannel=none:reset=0")
     filt = ",".join(filters)
     cmd = [
-        FFMPEG_BIN, "-hide_banner", "-v", "verbose", "-nostats",
+        FFMPEG_BIN, "-hide_banner", "-v", "info", "-nostats", "-vn", "-sn", "-dn",
         "-ss", f"{start:.3f}",
         "-t", f"{duration:.3f}",
         "-i", str(path),
@@ -4035,12 +4035,11 @@ def _ai_astats_segment(path: Path, start: float, duration: float, pre_filters: l
     return out
 
 def _ai_astats_full(path: Path, pre_filters: list[str] | None = None) -> dict:
-    want = "Peak_level+RMS_level+RMS_peak+Number_of_clipped_samples+Number_of_samples"
     filters = list(pre_filters or [])
-    filters.append(f"astats=measure_overall={want}:measure_perchannel=none:reset=0")
+    filters.append("astats=metadata=0:reset=0:measure_perchannel=none")
     filt = ",".join(filters)
     cmd = [
-        FFMPEG_BIN, "-hide_banner", "-v", "verbose", "-nostats",
+        FFMPEG_BIN, "-hide_banner", "-v", "info", "-nostats", "-vn", "-sn", "-dn",
         "-i", str(path),
         "-af", filt,
         "-f", "null", "-",
@@ -4088,6 +4087,9 @@ def _ai_astats_full(path: Path, pre_filters: list[str] | None = None) -> dict:
             continue
         if key in {"peak_level", "rms_level", "rms_peak"}:
             out[key] = num
+            continue
+        if key in {"crest_factor"}:
+            out["crest_factor"] = num
             continue
         if key in {"number_of_clipped_samples", "clipped_samples", "number_of_clips"}:
             out["clipped_samples"] = int(round(num))
@@ -4931,6 +4933,14 @@ def ai_tool_detect(path: str, mode: str = "fast"):
     full_rms_level = full_song.get("rms_level") if isinstance(full_song, dict) else None
     full_crest = full_song.get("crest_factor") if isinstance(full_song, dict) else None
     full_clipped = full_song.get("clipped_samples") if isinstance(full_song, dict) else 0
+    if full_peak is None and isinstance(peak, (int, float)):
+        full_peak = peak
+    if full_rms_level is None and isinstance(full_rms, (int, float)):
+        full_rms_level = full_rms
+    if full_crest is None and isinstance(crest, (int, float)):
+        full_crest = crest
+    if (not full_clipped) and isinstance(clipped, int) and clipped > 0:
+        full_clipped = clipped
     if full_peak is None or full_rms_level is None:
         logger.warning(
             "[ai-tool][detect] full_astats missing stats peak=%s rms=%s",
