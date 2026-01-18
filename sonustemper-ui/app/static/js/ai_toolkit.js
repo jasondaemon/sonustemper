@@ -805,7 +805,7 @@
           .map((tool) => tool.title);
         const rel = data.output_rel;
         const format = (rel.split('.').pop() || '').toLowerCase();
-        await fetch('/api/library/add_version', {
+        const addRes = await fetch('/api/library/add_version', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -813,12 +813,16 @@
             kind: 'aitk',
             label: 'AI Toolkit',
             title: 'AI Toolkit',
+            utility: 'AITK',
             renditions: [{ format, rel }],
             summary: { aitk: 'AI Toolkit' },
             tags: activeTools,
             version_id: data.version_id,
           }),
         });
+        if (!addRes.ok) {
+          throw new Error('library_register_failed');
+        }
         if (libraryBrowser) libraryBrowser.reload();
       }
       if (aiSaveStatus) aiSaveStatus.textContent = 'Cleaned copy saved.';
