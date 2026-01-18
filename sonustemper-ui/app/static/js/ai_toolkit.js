@@ -95,6 +95,31 @@
     return `${m}:${s}`;
   }
 
+  function normalizeRelPath(rel) {
+    if (!rel) return '';
+    const trimmed = String(rel).trim();
+    if (!trimmed) return '';
+    if (trimmed.includes('/api/analyze/path')) {
+      try {
+        const url = new URL(trimmed, window.location.origin);
+        const param = url.searchParams.get('path');
+        if (param) return param;
+      } catch (_err) {
+        // ignore
+      }
+    }
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      try {
+        const url = new URL(trimmed);
+        const param = url.searchParams.get('path');
+        if (param) return param;
+      } catch (_err) {
+        // ignore
+      }
+    }
+    return trimmed.replace(/^\/+/, '');
+  }
+
   function setPlayState(playing) {
     if (!aiPlayBtn) return;
     aiPlayBtn.textContent = playing ? 'Pause' : 'Play';
@@ -815,7 +840,8 @@
       renderRecommendations([]);
     };
 
-    if (!rel) {
+    const detectRel = normalizeRelPath(rel);
+    if (!detectRel) {
       setClipRisk(false);
       applyDefaults();
       return;
@@ -828,12 +854,17 @@
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 12000);
 
-    fetch(`/api/ai-tool/detect?path=${encodeURIComponent(rel)}&mode=fast`, {
+    fetch(`/api/ai-tool/detect?path=${encodeURIComponent(detectRel)}&mode=fast`, {
       cache: 'no-store',
       signal: controller.signal,
     })
       .then((res) => {
-        if (!res.ok) throw new Error('detect_failed');
+        if (!res.ok) {
+          return res.text().then((text) => {
+            const detail = (text || '').trim().slice(0, 200);
+            throw new Error(`detect_failed:${res.status}${detail ? `:${detail}` : ''}`);
+          });
+        }
         return res.json();
       })
       .then((data) => {
@@ -870,6 +901,7 @@
         if (aiRecoEmpty) {
           aiRecoEmpty.textContent = 'Recommendations unavailable.';
         }
+        addStatusLine(`Recommendations: ${err.message || 'unavailable'}`);
         console.warn('[ai_toolkit] detect failed', err);
       })
       .finally(() => {
