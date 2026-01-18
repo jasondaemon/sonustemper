@@ -899,6 +899,7 @@
 
   function renderPlaylistDetail() {
     if (!detailEl) return;
+    const snapshot = capturePlayback();
     const currentSrc = state.visualizer.audio?.currentSrc || state.visualizer.audio?.src || '';
     const matchIdx = playlistIndexForSrc(currentSrc);
     if (matchIdx >= 0) {
@@ -940,6 +941,7 @@
       audio.src = `/api/analyze/path?path=${encodeURIComponent(item.rendition.rel)}`;
     }
     attachAudioEvents(audio);
+    restorePlayback(snapshot);
     detailEl.querySelector('#filesPlaylistPrev')?.addEventListener('click', () => playPrev());
     detailEl.querySelector('#filesPlaylistNext')?.addEventListener('click', () => playNext());
     detailEl.querySelector('#filesPlaylistShuffle')?.addEventListener('click', () => {
