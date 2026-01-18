@@ -13,6 +13,7 @@
   const visualizerEl = document.getElementById('filesVisualizer');
   const visualizerCanvas = document.getElementById('filesVisualizerCanvas');
   const visualizerClose = document.getElementById('filesVisualizerClose');
+  const visualizerFullscreen = document.getElementById('filesVisualizerFullscreen');
   const visualizerMode = document.getElementById('filesVisualizerMode');
 
   const state = {
@@ -25,6 +26,12 @@
     active: null,
     search: '',
     libraryBrowser: null,
+    playlist: {
+      items: [],
+      index: 0,
+      shuffle: false,
+      active: false,
+    },
     visualizer: {
       ctx: null,
       analyser: null,
@@ -33,6 +40,7 @@
       idleTimer: null,
       chromeHidden: false,
       audio: null,
+      particles: [],
     },
   };
 
@@ -42,6 +50,65 @@
     } else {
       console.info(msg);
     }
+  }
+
+  function playlistKey(songId, versionId) {
+    return `${songId || ''}::${versionId || ''}`;
+  }
+
+  function playlistHas(songId, versionId) {
+    return state.playlist.items.some(item => item.song_id === songId && item.version_id === versionId);
+  }
+
+  function addToPlaylist(song, version) {
+    if (!song?.song_id || !version?.version_id) return;
+    if (playlistHas(song.song_id, version.version_id)) {
+      notify('Already in playlist.');
+      return;
+    }
+    const rendition = primaryRendition(version.renditions || []);
+    if (!rendition?.rel) {
+      notify('No playable rendition for this version.');
+      return;
+    }
+    state.playlist.items.push({
+      song_id: song.song_id,
+      version_id: version.version_id,
+      title: song.title || 'Untitled',
+      label: version.label || version.title || 'Version',
+      utility: version.utility || '',
+      summary: version.summary || {},
+      metrics: version.metrics || {},
+      rendition,
+    });
+    notify('Added to playlist.');
+  }
+
+  function ensurePlaylistIndex() {
+    if (!state.playlist.items.length) {
+      state.playlist.index = 0;
+      return;
+    }
+    if (state.playlist.index < 0) state.playlist.index = 0;
+    if (state.playlist.index >= state.playlist.items.length) {
+      state.playlist.index = state.playlist.items.length - 1;
+    }
+  }
+
+  function nextPlaylistIndex() {
+    if (!state.playlist.items.length) return 0;
+    if (state.playlist.shuffle) {
+      return Math.floor(Math.random() * state.playlist.items.length);
+    }
+    return (state.playlist.index + 1) % state.playlist.items.length;
+  }
+
+  function prevPlaylistIndex() {
+    if (!state.playlist.items.length) return 0;
+    if (state.playlist.shuffle) {
+      return Math.floor(Math.random() * state.playlist.items.length);
+    }
+    return (state.playlist.index - 1 + state.playlist.items.length) % state.playlist.items.length;
   }
 
   function formatDuration(seconds) {
@@ -230,6 +297,7 @@
     title.textContent = song.title || 'Untitled';
     title.title = song.title || '';
     title.addEventListener('click', () => {
+      state.playlist.active = false;
       state.active = { kind: 'song', songId: song.song_id };
       renderList();
       renderSongDetail(song);
@@ -291,6 +359,7 @@
     title.className = 'files-row-title';
     title.textContent = version.label || version.title || 'Version';
     title.addEventListener('click', () => {
+      state.playlist.active = false;
       state.active = { kind: 'version', songId: song.song_id, versionId: version.version_id };
       renderList();
       renderVersionDetail(song, version);
@@ -302,6 +371,16 @@
     if (version.utility) meta.appendChild(makeBadge(version.utility, 'badge-utility'));
     if (version.summary?.voicing) meta.appendChild(makeBadge(version.summary.voicing, 'badge-voicing'));
     if (version.summary?.loudness_profile) meta.appendChild(makeBadge(version.summary.loudness_profile, 'badge-profile'));
+    const playlistBtn = document.createElement('button');
+    playlistBtn.type = 'button';
+    playlistBtn.className = 'btn ghost tiny';
+    playlistBtn.textContent = '+Playlist';
+    playlistBtn.addEventListener('click', (evt) => {
+      evt.stopPropagation();
+      addToPlaylist(song, version);
+      refreshActiveDetail();
+    });
+    meta.appendChild(playlistBtn);
     row.appendChild(meta);
 
     if (state.selectedVersions.has(versionKey)) row.classList.add('is-selected');
@@ -346,10 +425,36 @@
       link.setAttribute('download', '');
       link.click();
     });
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'btn danger tiny';
+    delBtn.textContent = 'Delete';
+    delBtn.addEventListener('click', async (evt) => {
+      evt.stopPropagation();
+      if (!confirm('Delete this format?')) return;
+      const res = await fetch('/api/library/delete_rendition', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          song_id: song.song_id,
+          version_id: version.version_id,
+          rel: rendition.rel,
+        }),
+      });
+      if (!res.ok) {
+        const msg = await res.text();
+        notify(`Failed to delete format: ${msg}`);
+        return;
+      }
+      await loadLibrary();
+      refreshBrowser();
+    });
     meta.appendChild(download);
+    meta.appendChild(delBtn);
     row.appendChild(meta);
 
     row.addEventListener('click', () => {
+      state.playlist.active = false;
       state.active = { kind: 'rendition', songId: song.song_id, versionId: version.version_id, rel: rendition.rel };
       renderList();
       renderRenditionDetail(song, version, rendition);
@@ -474,6 +579,13 @@
       const util = version.utility ? `(${version.utility})` : '';
       return `<div class="files-history-row">${escapeHtml(label)} ${escapeHtml(util)}</div>`;
     }).join('');
+    const playlistCount = state.playlist.items.length;
+    const playlistRow = playlistCount ? `
+      <div class="files-playlist-row">
+        <div class="muted">Playlist: ${playlistCount} item(s)</div>
+        <button type="button" class="btn ghost tiny" id="filesPlaylistPlay">Play Playlist</button>
+      </div>
+    ` : '';
     detailEl.innerHTML = `
       <div class="detail-section">
         <div class="detail-title">Song</div>
@@ -496,6 +608,7 @@
           <button type="button" class="btn ghost tiny" id="filesSongEq">Open in EQ</button>
           <button type="button" class="btn ghost tiny visualizer-glow" id="filesVisualizerOpen">Visualizer</button>
         </div>
+        ${playlistRow}
         <div class="detail-subtitle">History</div>
         <div class="files-history-list">${history || '<div class="muted">No versions yet.</div>'}</div>
       </div>
@@ -504,6 +617,7 @@
     if (audio && song?.source?.rel) {
       audio.src = `/api/analyze/path?path=${encodeURIComponent(song.source.rel)}`;
     }
+    attachAudioEvents(audio);
     detailEl.querySelector('#filesSongAnalyze')?.addEventListener('click', () => {
       if (!song?.source?.rel) return;
       const url = new URL('/analyze', window.location.origin);
@@ -531,6 +645,9 @@
     detailEl.querySelector('#filesVisualizerOpen')?.addEventListener('click', () => {
       openVisualizer(audio);
     });
+    detailEl.querySelector('#filesPlaylistPlay')?.addEventListener('click', () => {
+      playPlaylist(0);
+    });
   }
 
   function renderVersionDetail(song, version) {
@@ -538,6 +655,13 @@
     const renditions = Array.isArray(version?.renditions) ? version.renditions : [];
     const primary = primaryRendition(renditions) || {};
     const metrics = version?.metrics || {};
+    const playlistCount = state.playlist.items.length;
+    const playlistRow = playlistCount ? `
+      <div class="files-playlist-row">
+        <div class="muted">Playlist: ${playlistCount} item(s)</div>
+        <button type="button" class="btn ghost tiny" id="filesPlaylistPlay">Play Playlist</button>
+      </div>
+    ` : '';
     const downloads = collectRenditionFormats(renditions).map((rendition) => {
       if (!rendition.rel) return '';
       return `<a href="/api/analyze/path?path=${encodeURIComponent(rendition.rel)}" class="badge badge-format" download>${escapeHtml(String(rendition.format || 'FILE').toUpperCase())}</a>`;
@@ -563,12 +687,14 @@
           <button type="button" class="btn ghost tiny visualizer-glow" id="filesVisualizerOpen">Visualizer</button>
           <button type="button" class="btn danger tiny" id="filesVersionDelete">Delete Version</button>
         </div>
+        ${playlistRow}
       </div>
     `;
     const audio = detailEl.querySelector('#filesDetailAudio');
     if (audio && primary.rel) {
       audio.src = `/api/analyze/path?path=${encodeURIComponent(primary.rel)}`;
     }
+    attachAudioEvents(audio);
     detailEl.querySelector('#filesVersionAnalyze')?.addEventListener('click', () => {
       if (!primary.rel) return;
       const url = new URL('/analyze', window.location.origin);
@@ -608,10 +734,20 @@
     detailEl.querySelector('#filesVisualizerOpen')?.addEventListener('click', () => {
       openVisualizer(audio);
     });
+    detailEl.querySelector('#filesPlaylistPlay')?.addEventListener('click', () => {
+      playPlaylist(0);
+    });
   }
 
   function renderRenditionDetail(song, version, rendition) {
     if (!detailEl) return;
+    const playlistCount = state.playlist.items.length;
+    const playlistRow = playlistCount ? `
+      <div class="files-playlist-row">
+        <div class="muted">Playlist: ${playlistCount} item(s)</div>
+        <button type="button" class="btn ghost tiny" id="filesPlaylistPlay">Play Playlist</button>
+      </div>
+    ` : '';
     detailEl.innerHTML = `
       <div class="detail-section">
         <div class="detail-title">Format</div>
@@ -626,12 +762,14 @@
           <button type="button" class="btn ghost tiny visualizer-glow" id="filesVisualizerOpen">Visualizer</button>
           <button type="button" class="btn danger tiny" id="filesRenditionDelete">Delete Format</button>
         </div>
+        ${playlistRow}
       </div>
     `;
     const audio = detailEl.querySelector('#filesDetailAudio');
     if (audio && rendition?.rel) {
       audio.src = `/api/analyze/path?path=${encodeURIComponent(rendition.rel)}`;
     }
+    attachAudioEvents(audio);
     detailEl.querySelector('#filesRenditionDelete')?.addEventListener('click', async () => {
       if (!confirm('Delete this format?')) return;
       const res = await fetch('/api/library/delete_rendition', {
@@ -651,6 +789,126 @@
     detailEl.querySelector('#filesVisualizerOpen')?.addEventListener('click', () => {
       openVisualizer(audio);
     });
+    detailEl.querySelector('#filesPlaylistPlay')?.addEventListener('click', () => {
+      playPlaylist(0);
+    });
+  }
+
+  function attachAudioEvents(audio) {
+    if (!audio) return;
+    state.visualizer.audio = audio;
+    audio.onended = () => {
+      if (state.playlist.active && state.playlist.items.length) {
+        playNext();
+      }
+    };
+  }
+
+  function renderPlaylistDetail() {
+    if (!detailEl) return;
+    ensurePlaylistIndex();
+    const item = state.playlist.items[state.playlist.index];
+    const metrics = item?.metrics || {};
+    const meta = item
+      ? `${escapeHtml(item.title)} · ${escapeHtml(item.label || 'Version')}`
+      : 'Playlist is empty.';
+    const rows = state.playlist.items.map((entry, idx) => {
+      const active = idx === state.playlist.index ? 'is-active' : '';
+      return `<div class="files-playlist-item ${active}" data-index="${idx}">${escapeHtml(entry.title)} · ${escapeHtml(entry.label || 'Version')}</div>`;
+    }).join('') || '<div class="muted">No items in playlist.</div>';
+    detailEl.innerHTML = `
+      <div class="detail-section">
+        <div class="detail-title">Playlist</div>
+        <div class="detail-row">
+          <div class="detail-value">${meta}</div>
+        </div>
+        <div class="detail-player">
+          <audio id="filesDetailAudio" controls preload="metadata"></audio>
+        </div>
+        <div class="pill-row">${renderMetricPills(metrics)}</div>
+        <div class="files-playlist-controls">
+          <button type="button" class="btn ghost tiny" id="filesPlaylistPrev">Previous</button>
+          <button type="button" class="btn ghost tiny" id="filesPlaylistNext">Next</button>
+          <button type="button" class="btn ghost tiny" id="filesPlaylistShuffle">${state.playlist.shuffle ? 'Shuffle On' : 'Shuffle'}</button>
+          <button type="button" class="btn ghost tiny" id="filesPlaylistExit">Exit Playlist</button>
+          <button type="button" class="btn ghost tiny visualizer-glow" id="filesVisualizerOpen">Visualizer</button>
+        </div>
+        <div class="files-playlist-list">${rows}</div>
+      </div>
+    `;
+    const audio = detailEl.querySelector('#filesDetailAudio');
+    if (audio && item?.rendition?.rel) {
+      audio.src = `/api/analyze/path?path=${encodeURIComponent(item.rendition.rel)}`;
+    }
+    attachAudioEvents(audio);
+    detailEl.querySelector('#filesPlaylistPrev')?.addEventListener('click', () => playPrev());
+    detailEl.querySelector('#filesPlaylistNext')?.addEventListener('click', () => playNext());
+    detailEl.querySelector('#filesPlaylistShuffle')?.addEventListener('click', () => {
+      state.playlist.shuffle = !state.playlist.shuffle;
+      renderPlaylistDetail();
+    });
+    detailEl.querySelector('#filesPlaylistExit')?.addEventListener('click', () => {
+      state.playlist.active = false;
+      refreshActiveDetail();
+    });
+    detailEl.querySelector('#filesVisualizerOpen')?.addEventListener('click', () => {
+      openVisualizer(audio);
+    });
+    detailEl.querySelectorAll('.files-playlist-item').forEach((row) => {
+      row.addEventListener('click', () => {
+        const idx = Number(row.dataset.index);
+        if (Number.isFinite(idx)) {
+          playPlaylist(idx);
+        }
+      });
+    });
+  }
+
+  function playPlaylist(index) {
+    if (!state.playlist.items.length) return;
+    state.playlist.active = true;
+    state.playlist.index = Math.min(Math.max(index, 0), state.playlist.items.length - 1);
+    renderPlaylistDetail();
+    const audio = detailEl.querySelector('#filesDetailAudio');
+    if (audio) {
+      audio.play().catch(() => {});
+    }
+  }
+
+  function playNext() {
+    if (!state.playlist.items.length) return;
+    state.playlist.index = nextPlaylistIndex();
+    renderPlaylistDetail();
+    const audio = detailEl.querySelector('#filesDetailAudio');
+    if (audio) audio.play().catch(() => {});
+  }
+
+  function playPrev() {
+    if (!state.playlist.items.length) return;
+    state.playlist.index = prevPlaylistIndex();
+    renderPlaylistDetail();
+    const audio = detailEl.querySelector('#filesDetailAudio');
+    if (audio) audio.play().catch(() => {});
+  }
+
+  function refreshActiveDetail() {
+    if (state.playlist.active) {
+      renderPlaylistDetail();
+      return;
+    }
+    if (state.active?.kind === 'song') {
+      const song = state.library.songs.find(s => s.song_id === state.active.songId);
+      if (song) renderSongDetail(song);
+    } else if (state.active?.kind === 'version') {
+      const song = state.library.songs.find(s => s.song_id === state.active.songId);
+      const version = song?.versions?.find(v => v.version_id === state.active.versionId);
+      if (song && version) renderVersionDetail(song, version);
+    } else if (state.active?.kind === 'rendition') {
+      const song = state.library.songs.find(s => s.song_id === state.active.songId);
+      const version = song?.versions?.find(v => v.version_id === state.active.versionId);
+      const rendition = version?.renditions?.find(r => r.rel === state.active.rel);
+      if (song && version && rendition) renderRenditionDetail(song, version, rendition);
+    }
   }
 
   function collectRenditionFormats(renditions) {
@@ -722,15 +980,21 @@
     visualizerCanvas.width = Math.floor(width * dpr);
     visualizerCanvas.height = Math.floor(height * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, width, height);
 
     const mode = visualizerMode?.value || 'osc';
     const analyser = state.visualizer.analyser;
-    if (mode === 'osc') {
+    if (mode === 'trail') {
+      ctx.fillStyle = 'rgba(8, 12, 18, 0.18)';
+      ctx.fillRect(0, 0, width, height);
+    } else {
+      ctx.clearRect(0, 0, width, height);
+    }
+
+    if (mode === 'osc' || mode === 'trail') {
       const buffer = new Float32Array(analyser.fftSize);
       analyser.getFloatTimeDomainData(buffer);
-      ctx.strokeStyle = '#3fe0c5';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = mode === 'trail' ? '#ffb347' : '#3fe0c5';
+      ctx.lineWidth = mode === 'trail' ? 2.4 : 2;
       ctx.beginPath();
       buffer.forEach((val, idx) => {
         const x = (idx / (buffer.length - 1)) * width;
@@ -738,39 +1002,99 @@
         if (idx === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
       });
       ctx.stroke();
+      if (mode === 'trail') {
+        ctx.strokeStyle = 'rgba(255, 208, 92, 0.35)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    } else if (mode === 'neon') {
+      const buffer = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteFrequencyData(buffer);
+      const barCount = Math.floor(width / 6);
+      const step = Math.max(1, Math.floor(buffer.length / barCount));
+      for (let i = 0; i < barCount; i += 1) {
+        const idx = i * step;
+        const val = buffer[idx] / 255;
+        const x = i * (width / barCount);
+        const h = val * height;
+        const hue = 220 - (val * 160);
+        ctx.fillStyle = `hsla(${hue}, 100%, 60%, 0.9)`;
+        ctx.fillRect(x, height - h, Math.max(2, width / barCount - 2), h);
+      }
+    } else if (mode === 'rings') {
+      const buffer = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteFrequencyData(buffer);
+      const cx = width / 2;
+      const cy = height / 2;
+      const maxR = Math.min(width, height) * 0.45;
+      const rings = 5;
+      for (let i = 0; i < rings; i += 1) {
+        const idx = Math.floor((i / rings) * buffer.length);
+        const energy = buffer[idx] / 255;
+        const r = (i + 1) / rings * maxR;
+        ctx.strokeStyle = `rgba(99, 198, 255, ${0.15 + energy * 0.6})`;
+        ctx.lineWidth = 2 + energy * 3;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r + energy * 20, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    } else if (mode === 'particles') {
+      const buffer = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteFrequencyData(buffer);
+      const bass = buffer.slice(0, Math.floor(buffer.length * 0.1));
+      const bassEnergy = bass.reduce((a, b) => a + b, 0) / (bass.length * 255 || 1);
+      const count = Math.max(40, Math.floor(width / 18));
+      if (state.visualizer.particles.length !== count) {
+        state.visualizer.particles = Array.from({ length: count }, () => ({
+          x: Math.random() * width,
+          y: Math.random() * height,
+          vx: (Math.random() - 0.5) * 0.6,
+          vy: (Math.random() - 0.5) * 0.6,
+          size: 1 + Math.random() * 2.5,
+        }));
+      }
+      ctx.fillStyle = 'rgba(42, 227, 180, 0.9)';
+      state.visualizer.particles.forEach((p) => {
+        p.x += p.vx * (1 + bassEnergy * 6);
+        p.y += p.vy * (1 + bassEnergy * 6);
+        if (p.x < 0 || p.x > width || p.y < 0 || p.y > height) {
+          p.x = Math.random() * width;
+          p.y = Math.random() * height;
+        }
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size + bassEnergy * 4, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    } else if (mode === 'heatmap') {
+      const buffer = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteFrequencyData(buffer);
+      const bands = Math.floor(height / 3);
+      const step = Math.max(1, Math.floor(buffer.length / bands));
+      for (let i = 0; i < bands; i += 1) {
+        const idx = i * step;
+        const val = buffer[idx] / 255;
+        const y = height - (i + 1) * (height / bands);
+        const hue = 270 - val * 200;
+        ctx.fillStyle = `hsla(${hue}, 90%, ${45 + val * 35}%, 0.9)`;
+        ctx.fillRect(0, y, width, Math.ceil(height / bands));
+      }
     } else {
       const buffer = new Uint8Array(analyser.frequencyBinCount);
       analyser.getByteFrequencyData(buffer);
-      if (mode === 'bars') {
-        const barWidth = Math.max(2, width / buffer.length * 2.5);
-        buffer.forEach((val, idx) => {
-          const x = idx * barWidth;
-          const h = (val / 255) * height;
-          ctx.fillStyle = '#4b7bec';
-          ctx.fillRect(x, height - h, barWidth - 1, h);
-        });
-      } else {
-        const cx = width / 2;
-        const cy = height / 2;
-        const radius = Math.min(width, height) * 0.2;
-        buffer.forEach((val, idx) => {
-          const angle = (idx / buffer.length) * Math.PI * 2;
-          const mag = (val / 255) * radius;
-          const x = cx + Math.cos(angle) * (radius + mag);
-          const y = cy + Math.sin(angle) * (radius + mag);
-          ctx.strokeStyle = '#ffb347';
-          ctx.beginPath();
-          ctx.moveTo(cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius);
-          ctx.lineTo(x, y);
-          ctx.stroke();
-        });
-      }
+      const barWidth = Math.max(2, width / buffer.length * 2.5);
+      buffer.forEach((val, idx) => {
+        const x = idx * barWidth;
+        const h = (val / 255) * height;
+        ctx.fillStyle = '#4b7bec';
+        ctx.fillRect(x, height - h, barWidth - 1, h);
+      });
     }
     state.visualizer.raf = requestAnimationFrame(drawVisualizer);
   }
 
   function bindVisualizerEvents() {
     if (!visualizerEl) return;
+    const panel = visualizerEl.querySelector('.files-visualizer-panel');
     visualizerEl.addEventListener('mousemove', resetVisualizerIdleTimer);
     visualizerEl.addEventListener('click', (evt) => {
       if (evt.target === visualizerEl || evt.target.classList.contains('files-visualizer-backdrop')) {
@@ -778,9 +1102,27 @@
       }
     });
     document.addEventListener('keydown', (evt) => {
-      if (evt.key === 'Escape' && !visualizerEl.hidden) closeVisualizer();
+      if (evt.key === 'Escape' && !visualizerEl.hidden) {
+        if (document.fullscreenElement) {
+          document.exitFullscreen().catch(() => {});
+          return;
+        }
+        closeVisualizer();
+      }
     });
     visualizerClose?.addEventListener('click', closeVisualizer);
+    visualizerFullscreen?.addEventListener('click', async () => {
+      if (!panel) return;
+      try {
+        if (document.fullscreenElement) {
+          await document.exitFullscreen();
+        } else {
+          await panel.requestFullscreen();
+        }
+      } catch (_err) {
+        return;
+      }
+    });
   }
 
   async function uploadFiles(files) {
@@ -835,19 +1177,7 @@
       state.library = data || { songs: [] };
       renderList();
       updateBulkButtons();
-      if (state.active?.kind === 'song') {
-        const song = state.library.songs.find(s => s.song_id === state.active.songId);
-        if (song) renderSongDetail(song);
-      } else if (state.active?.kind === 'version') {
-        const song = state.library.songs.find(s => s.song_id === state.active.songId);
-        const version = song?.versions?.find(v => v.version_id === state.active.versionId);
-        if (song && version) renderVersionDetail(song, version);
-      } else if (state.active?.kind === 'rendition') {
-        const song = state.library.songs.find(s => s.song_id === state.active.songId);
-        const version = song?.versions?.find(v => v.version_id === state.active.versionId);
-        const rendition = version?.renditions?.find(r => r.rel === state.active.rel);
-        if (song && version && rendition) renderRenditionDetail(song, version, rendition);
-      }
+      refreshActiveDetail();
     } catch (_err) {
       if (listEl) listEl.innerHTML = '<div class="muted">Library unavailable.</div>';
     }
@@ -865,6 +1195,7 @@
       const song = evt.detail?.song;
       const track = evt.detail?.track;
       if (!song) return;
+      state.playlist.active = false;
       if (track?.kind === 'source' || !track?.version_id) {
         state.active = { kind: 'song', songId: song.song_id };
         renderList();
