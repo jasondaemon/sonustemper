@@ -741,9 +741,13 @@
     const px = currentZoomPxPerSec || wave?.options?.minPxPerSec || fitMinPxPerSec;
     const computed = Math.max(wrapper?.clientWidth || 0, Math.floor(duration * px));
     if (scrollEl && typeof scrollEl.scrollWidth === 'number' && scrollEl.scrollWidth) {
-      return scrollEl.scrollWidth;
+      if (!computed) return scrollEl.scrollWidth;
+      const diff = Math.abs(scrollEl.scrollWidth - computed);
+      if (diff / computed < 0.1) {
+        return scrollEl.scrollWidth;
+      }
     }
-    return computed || 0;
+    return computed || scrollEl?.scrollWidth || 0;
   }
 
   function getScrollLeft(wave){
@@ -2232,7 +2236,7 @@
       await loadMiniWave(miniProcessedWave, payload.processed_url);
     }
     updateFitBaseline();
-    trackMode = processedWave ? 'both' : 'source';
+    trackMode = processedWave ? 'processed' : 'source';
     applyTrackState();
     cleanupTransport();
     bindTransportEvents(sourceWave);
