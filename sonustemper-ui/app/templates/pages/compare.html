@@ -1114,7 +1114,12 @@
     if (!duration || duration <= 0) return null;
     const wrapper = wave.getWrapper();
     const scrollEl = getScrollEl(wave);
-    const width = scrollEl?.clientWidth || wrapper?.clientWidth || 0;
+    const host = waveHost(wave);
+    const width = (typeof wave.getWidth === 'function' ? wave.getWidth() : 0)
+      || host?.clientWidth
+      || scrollEl?.clientWidth
+      || wrapper?.clientWidth
+      || 0;
     if (!width) return null;
     const fit = width / duration;
     return clamp(fit, 1, 200);
