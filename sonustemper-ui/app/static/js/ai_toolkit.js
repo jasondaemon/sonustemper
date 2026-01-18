@@ -81,6 +81,7 @@
     tools: {},
     recommendations: [],
     resizing: null,
+    recoReqId: 0,
   };
   let libraryBrowser = null;
   let statusLines = [];
@@ -823,13 +824,20 @@
       aiRecoEmpty.textContent = 'Analyzing…';
       aiRecoEmpty.hidden = false;
     }
+    const reqId = ++state.recoReqId;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
 
-    fetch(`/api/ai-tool/detect?path=${encodeURIComponent(rel)}&mode=fast`, { cache: 'no-store' })
+    fetch(`/api/ai-tool/detect?path=${encodeURIComponent(rel)}&mode=fast`, {
+      cache: 'no-store',
+      signal: controller.signal,
+    })
       .then((res) => {
         if (!res.ok) throw new Error('detect_failed');
         return res.json();
       })
       .then((data) => {
+        if (reqId !== state.recoReqId) return;
         const findings = Array.isArray(data.findings) ? data.findings : [];
         const suggestions = findings.slice(0, 3).map((finding) => {
           const toolId = finding.suggested_tool_id;
@@ -856,12 +864,20 @@
         renderRecommendations(suggestions);
       })
       .catch((err) => {
+        if (reqId !== state.recoReqId) return;
         setClipRisk(false);
         applyDefaults();
         if (aiRecoEmpty) {
           aiRecoEmpty.textContent = 'Recommendations unavailable.';
         }
         console.warn('[ai_toolkit] detect failed', err);
+      })
+      .finally(() => {
+        clearTimeout(timeoutId);
+        if (reqId !== state.recoReqId) return;
+        if (aiRecoEmpty && aiRecoEmpty.textContent === 'Analyzing…') {
+          aiRecoEmpty.textContent = 'Recommendations unavailable.';
+        }
       });
   }
 
