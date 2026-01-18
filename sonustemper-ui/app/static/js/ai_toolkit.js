@@ -894,9 +894,9 @@
         setClipRisk(hasClipRisk(data?.metrics?.fullband));
         applyDefaults();
         renderRecommendations(suggestions);
-        if (!suggestions.length && aiRecoEmpty) {
-          aiRecoEmpty.textContent = 'No recommendations for this track.';
-          aiRecoEmpty.hidden = false;
+        if (aiRecoEmpty) {
+          aiRecoEmpty.textContent = suggestions.length ? '' : 'No recommendations for this track.';
+          aiRecoEmpty.hidden = !!suggestions.length;
         }
         addStatusLine(`Recommendations: ${suggestions.length ? `${suggestions.length} suggestion(s)` : 'none'}.`);
       })
