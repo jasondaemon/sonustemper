@@ -4899,13 +4899,12 @@ def ai_tool_detect(path: str, mode: str = "fast"):
             start = min(30.0, duration / 3.0)
             if start + seg > duration:
                 start = max(0.0, duration - seg)
-
-    full = _ai_astats_segment(target, start, seg, [])
-    hf = _ai_astats_segment(target, start, seg, ["highpass=f=8000"])
-    lf = _ai_astats_segment(target, start, seg, ["lowpass=f=80"])
-    lowmid = _ai_astats_segment(target, start, seg, ["highpass=f=150", "lowpass=f=350"])
-    presence = _ai_astats_segment(target, start, seg, ["highpass=f=2500", "lowpass=f=6000"])
-    full_song = _ai_astats_full(target, [])
+        full = _ai_astats_segment(target, start, seg, [])
+        hf = _ai_astats_segment(target, start, seg, ["highpass=f=8000"])
+        lf = _ai_astats_segment(target, start, seg, ["lowpass=f=80"])
+        lowmid = _ai_astats_segment(target, start, seg, ["highpass=f=150", "lowpass=f=350"])
+        presence = _ai_astats_segment(target, start, seg, ["highpass=f=2500", "lowpass=f=6000"])
+        full_song = _ai_astats_full(target, [])
     except HTTPException:
         logger.exception("[ai-tool][detect] error path=%s", path)
         raise
