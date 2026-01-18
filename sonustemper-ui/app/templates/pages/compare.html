@@ -391,6 +391,12 @@
     if (miniSourceWave) miniSourceWave.zoom(miniPxPerSec);
     if (miniProcessedWave) miniProcessedWave.zoom(miniPxPerSec);
     updateZoomClasses(factor);
+    const clampScroll = (wave) => {
+      const scrollEl = getScrollEl(wave);
+      if (!scrollEl) return;
+      const max = Math.max(0, scrollEl.scrollWidth - scrollEl.clientWidth);
+      if (scrollEl.scrollLeft > max) scrollEl.scrollLeft = max;
+    };
     const postZoomWork = () => {
       if (viewMode === 'waveform') {
         const nextContent = getContentWidth(sourceWave);
@@ -399,6 +405,8 @@
         const targetLeft = clamp(prevCenter * nextContent - nextViewport / 2, 0, maxScroll);
         setScrollLeft(sourceWave, targetLeft);
         setScrollLeft(processedWave, targetLeft);
+        clampScroll(sourceWave);
+        clampScroll(processedWave);
         drawOverlays();
         updateScrollHints();
         syncDebug('zoom', {
@@ -722,8 +730,12 @@
 
   function getContentWidth(wave){
     const scrollEl = getScrollEl(wave);
-    if (scrollEl) return scrollEl.scrollWidth || 0;
-    return wave?.getWrapper?.()?.scrollWidth || 0;
+    if (scrollEl && scrollEl.scrollWidth) return scrollEl.scrollWidth;
+    const wrapper = wave?.getWrapper?.();
+    const duration = wave?.getDuration ? (wave.getDuration() || 0) : 0;
+    const px = wave?.options?.minPxPerSec || fitMinPxPerSec;
+    const fallback = Math.max(wrapper?.clientWidth || 0, Math.floor(duration * px));
+    return fallback || 0;
   }
 
   function getScrollLeft(wave){
@@ -867,11 +879,12 @@
     if (!sourceWave || typeof sourceWave.getWrapper !== 'function') return null;
     const scrollEl = getScrollEl(sourceWave);
     if (!scrollEl) return null;
+    const contentWidth = scrollEl.scrollWidth || getContentWidth(sourceWave);
     return {
       viewport: scrollEl,
       scrollLeft: getScrollLeft(sourceWave),
       viewportWidth: getViewportWidth(sourceWave),
-      contentWidth: getContentWidth(sourceWave),
+      contentWidth,
     };
   }
 
@@ -881,8 +894,7 @@
     if (!state || !windowEl) return;
     const { scrollLeft, viewportWidth, contentWidth } = state;
     if (!contentWidth || !viewportWidth) return;
-    const maxScroll = Math.max(1, contentWidth - viewportWidth);
-    const ratioStart = maxScroll > 0 ? scrollLeft / maxScroll : 0;
+    const ratioStart = contentWidth > 0 ? (scrollLeft / contentWidth) : 0;
     const ratioWidth = Math.min(1, viewportWidth / contentWidth);
     windowEl.style.left = `${ratioStart * 100}%`;
     windowEl.style.width = `${ratioWidth * 100}%`;
@@ -1916,6 +1928,8 @@
       normalize: false,
       backend: 'MediaElement',
       scrollParent: true,
+      interact: false,
+      dragToSeek: false,
       minPxPerSec: Math.max(1, fitMinPxPerSec) * zoomSteps[zoomIdx],
       fillParent: false,
       autoScroll: false,
