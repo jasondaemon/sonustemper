@@ -121,7 +121,8 @@
 
   function muteDryOutput() {
     if (!aiAudio) return;
-    aiAudio.muted = true;
+    aiAudio.muted = false;
+    aiAudio.volume = 1;
   }
 
   function drawScopeFrame() {
@@ -399,6 +400,17 @@
       ctx.onstatechange = () => updateEngineIndicator();
     }
     resetSpectrumBuffers();
+  }
+
+  function syncWaveToAudio() {
+    if (!state.wave || !aiAudio) return;
+    const wave = state.wave;
+    const renderer = typeof wave.getRenderer === 'function' ? wave.getRenderer() : wave.renderer;
+    if (!renderer || typeof renderer.renderProgress !== 'function') return;
+    const durRaw = aiAudio.duration || wave.getDuration() || 0;
+    const duration = Number.isFinite(durRaw) && durRaw > 0 ? durRaw : 0.001;
+    const progress = Math.max(0, Math.min(1, aiAudio.currentTime / duration));
+    renderer.renderProgress(progress, false);
   }
 
   function updateFilters() {
@@ -690,20 +702,33 @@
       height: 160,
       barWidth: 2,
       barGap: 1,
-      normalize: true,
+      normalize: false,
       backend: 'MediaElement',
-      media: aiAudio,
+      mediaControls: false,
       minPxPerSec: 1,
       fillParent: true,
       autoScroll: false,
       autoCenter: false,
       dragToSeek: true,
     });
+    const wsMedia = state.wave.getMediaElement ? state.wave.getMediaElement() : null;
+    if (wsMedia) {
+      wsMedia.muted = true;
+      wsMedia.volume = 0;
+      wsMedia.pause();
+    }
     state.wave.on('ready', () => {
       state.duration = state.wave.getDuration();
       updateTimeLabel();
+      syncWaveToAudio();
     });
-    state.wave.on('interaction', () => updateTimeLabel());
+    state.wave.on('interaction', (time) => {
+      const durRaw = aiAudio?.duration || state.wave?.getDuration?.() || 0;
+      const duration = Number.isFinite(durRaw) && durRaw > 0 ? durRaw : 0;
+      if (!duration || !aiAudio || !Number.isFinite(time)) return;
+      aiAudio.currentTime = Math.max(0, Math.min(time, duration));
+      updateTimeLabel();
+    });
   }
 
   async function uploadAnyFile(file) {
@@ -800,7 +825,10 @@
   }
 
   if (aiAudio) {
-    aiAudio.addEventListener('timeupdate', updateTimeLabel);
+    aiAudio.addEventListener('timeupdate', () => {
+      updateTimeLabel();
+      syncWaveToAudio();
+    });
     aiAudio.addEventListener('durationchange', updateTimeLabel);
     aiAudio.addEventListener('error', () => {
       console.warn('AI Toolkit audio error', aiAudio.error);
