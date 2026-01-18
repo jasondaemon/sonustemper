@@ -924,7 +924,7 @@ h1{margin:0;font-size:24px;}
 .files-bulk-actions{
   display:flex;
   gap:8px;
-  flex-wrap:wrap;
+  flex-wrap:nowrap;
 }
 .files-library-list{
   display:flex;
