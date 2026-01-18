@@ -399,10 +399,6 @@
     };
     const postZoomWork = () => {
       if (viewMode === 'waveform') {
-        ensureWaveContentWidth(sourceWave);
-        ensureWaveContentWidth(processedWave);
-        forceWaveRedraw(sourceWave);
-        forceWaveRedraw(processedWave);
         const nextContent = getContentWidth(sourceWave);
         const nextViewport = getViewportWidth(sourceWave);
         const maxScroll = Math.max(0, nextContent - nextViewport);
@@ -745,23 +741,9 @@
     const px = currentZoomPxPerSec || wave?.options?.minPxPerSec || fitMinPxPerSec;
     const computed = Math.max(wrapper?.clientWidth || 0, Math.floor(duration * px));
     if (scrollEl && typeof scrollEl.scrollWidth === 'number' && scrollEl.scrollWidth) {
-      if (!computed) return scrollEl.scrollWidth;
-      const diff = Math.abs(scrollEl.scrollWidth - computed);
-      if (diff / computed < 0.1) {
-        return scrollEl.scrollWidth;
-      }
+      return scrollEl.scrollWidth;
     }
-    return computed || scrollEl?.scrollWidth || 0;
-  }
-
-  function ensureWaveContentWidth(wave){
-    if (!wave || typeof wave.getWrapper !== 'function') return;
-    const wrapper = wave.getWrapper();
-    if (!wrapper) return;
-    const duration = wave.getDuration ? (wave.getDuration() || 0) : 0;
-    if (!duration) return;
-    const width = Math.max(wrapper.clientWidth || 0, Math.floor(duration * (currentZoomPxPerSec || fitMinPxPerSec)));
-    wrapper.style.width = `${width}px`;
+    return computed || 0;
   }
 
   function getScrollLeft(wave){
