@@ -853,8 +853,11 @@
     const reqId = ++state.recoReqId;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 12000);
+    addStatusLine(`Recommendations: analyzing ${detectRel}`);
+    console.debug('[ai_toolkit] detect start', { rel: detectRel, reqId });
 
-    fetch(`/api/ai-tool/detect?path=${encodeURIComponent(detectRel)}&mode=fast`, {
+    const detectUrl = `/api/ai-tool/detect?path=${encodeURIComponent(detectRel)}&mode=fast`;
+    fetch(detectUrl, {
       cache: 'no-store',
       signal: controller.signal,
     })
@@ -865,6 +868,7 @@
             throw new Error(`detect_failed:${res.status}${detail ? `:${detail}` : ''}`);
           });
         }
+        console.debug('[ai_toolkit] detect ok', { rel: detectRel, reqId });
         return res.json();
       })
       .then((data) => {
