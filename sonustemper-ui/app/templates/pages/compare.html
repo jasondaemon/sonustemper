@@ -730,10 +730,12 @@
 
   function getContentWidth(wave){
     const scrollEl = getScrollEl(wave);
-    if (scrollEl && scrollEl.scrollWidth) return scrollEl.scrollWidth;
+    if (scrollEl && scrollEl.scrollWidth > (scrollEl.clientWidth + 1)) {
+      return scrollEl.scrollWidth;
+    }
     const wrapper = wave?.getWrapper?.();
     const duration = wave?.getDuration ? (wave.getDuration() || 0) : 0;
-    const px = wave?.options?.minPxPerSec || fitMinPxPerSec;
+    const px = currentZoomPxPerSec || wave?.options?.minPxPerSec || fitMinPxPerSec;
     const fallback = Math.max(wrapper?.clientWidth || 0, Math.floor(duration * px));
     return fallback || 0;
   }
@@ -1033,46 +1035,6 @@
     });
   }
 
-  function bindWaveScrub(wave){
-    if (!wave || typeof wave.getWrapper !== 'function') return () => {};
-    const wrapper = wave.getWrapper();
-    const scrollEl = getScrollEl(wave);
-    if (!scrollEl || !wrapper) return () => {};
-    let dragging = false;
-    const onMove = (evt) => {
-      if (!dragging) return;
-      handleWaveScrub(evt, scrollEl, wrapper);
-    };
-    const onDown = (evt) => {
-      dragging = true;
-      scrollEl.style.cursor = 'pointer';
-      evt.preventDefault();
-      handleWaveScrub(evt, scrollEl, wrapper);
-    };
-    const onUp = () => {
-      dragging = false;
-    };
-    scrollEl.addEventListener('mousedown', onDown);
-    scrollEl.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    return () => {
-      scrollEl.removeEventListener('mousedown', onDown);
-      scrollEl.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-  }
-
-  function handleWaveScrub(evt, scrollEl, wrapper){
-    if (!analysisData || !scrollEl || !wrapper) return;
-    const duration = getDurationBase();
-    if (!duration) return;
-    const rect = scrollEl.getBoundingClientRect();
-    const x = evt.clientX - rect.left;
-    const fullWidth = Math.max(getContentWidth(sourceWave) || scrollEl.scrollWidth || rect.width, rect.width);
-    const scrollLeft = scrollEl.scrollLeft || 0;
-    const t = Math.max(0, Math.min(duration, ((x + scrollLeft) / fullWidth) * duration));
-    seekBoth(t);
-  }
 
   function bindSpectrogramInteractions(){
     if (spectroSourceViewport) {
@@ -1913,7 +1875,6 @@
         scrollEl.removeEventListener('scroll', onScroll);
       });
     }
-    cleanup.push(bindWaveScrub(wave));
     return () => cleanup.forEach((fn) => fn && fn());
   }
 
