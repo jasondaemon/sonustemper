@@ -3,17 +3,17 @@
   {% set active = util or "mastering" %}
   <button class="sideItem {% if active=='mastering' %}active{% endif %}" 
           hx-get="/partials/files_sections?util=mastering"
-          hx-target="#sections" hx-swap="outerHTML" hx-push-url="/files?util=mastering">
+          hx-target="#sections" hx-swap="outerHTML" hx-push-url="/library?util=mastering">
     Mastering
   </button>
   <button class="sideItem {% if active=='tagging' %}active{% endif %}" 
           hx-get="/partials/files_sections?util=tagging"
-          hx-target="#sections" hx-swap="outerHTML" hx-push-url="/files?util=tagging">
+          hx-target="#sections" hx-swap="outerHTML" hx-push-url="/library?util=tagging">
     Tagging
   </button>
   <button class="sideItem {% if active=='presets' %}active{% endif %}" 
           hx-get="/partials/files_sections?util=presets"
-          hx-target="#sections" hx-swap="outerHTML" hx-push-url="/files?util=presets">
+          hx-target="#sections" hx-swap="outerHTML" hx-push-url="/library?util=presets">
     Voicing Profiles
   </button>
   <button class="sideItem disabled">

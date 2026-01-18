@@ -12,7 +12,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import List
 from fastapi import APIRouter, Request, HTTPException, Form
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sonustemper.tools import bundle_root, is_frozen
 from sonustemper import library_db as library_index
@@ -300,12 +300,17 @@ def _sections_for(util: str):
     return []
 
 
-@router.get("/files", response_class=HTMLResponse)
+@router.get("/files")
 async def files(request: Request, util: str = "mastering"):
+    return RedirectResponse(url=f"/library?util={util}")
+
+
+@router.get("/library", response_class=HTMLResponse)
+async def library_manager(request: Request, util: str = "mastering"):
     util = util if util in ("mastering", "tagging", "presets", "analysis") else "mastering"
     return TEMPLATES.TemplateResponse(
-        "pages/files.html",
-        _page_context(request, util=util, current_page="files"),
+        "pages/library_manager.html",
+        _page_context(request, util=util, current_page="library"),
     )
 
 
@@ -1528,7 +1533,7 @@ def _list_processed_outputs_groups(q: str) -> list[dict]:
 def _file_manager_data(category: str, q: str = "") -> dict:
     category = (category or "").strip().lower()
     groups = []
-    title = "Files"
+    title = "Song Library"
     util = "mastering"
     section = "source"
 
@@ -1658,7 +1663,7 @@ def _file_manager_data(category: str, q: str = "") -> dict:
             items = [i for i in items if ql in i["title"].lower()]
         groups = [{"title": None, "items": items}]
     else:
-        title = "Files"
+        title = "Song Library"
         util, section = "mastering", "source"
         groups = [{"title": None, "items": []}]
 
