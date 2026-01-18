@@ -282,6 +282,13 @@
       renderList();
     }
 
+    function expandSong(songId) {
+      if (!songId) return;
+      state.expanded[songId] = true;
+      saveJson(EXPAND_KEY, state.expanded);
+      renderList();
+    }
+
     function renderSongRow(song) {
       const row = document.createElement('div');
       row.className = 'library-song';
@@ -668,6 +675,7 @@
     return {
       reload: loadLibrary,
       setDisabledSongIds,
+      expandSong,
     };
   }
 

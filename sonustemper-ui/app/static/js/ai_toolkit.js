@@ -893,10 +893,12 @@
         }).filter(item => item.toolId);
         setClipRisk(hasClipRisk(data?.metrics?.fullband));
         applyDefaults();
+        renderRecommendations(suggestions);
         if (!suggestions.length && aiRecoEmpty) {
           aiRecoEmpty.textContent = 'No recommendations for this track.';
+          aiRecoEmpty.hidden = false;
         }
-        renderRecommendations(suggestions);
+        addStatusLine(`Recommendations: ${suggestions.length ? `${suggestions.length} suggestion(s)` : 'none'}.`);
       })
       .catch((err) => {
         if (reqId !== state.recoReqId) return;
@@ -1087,7 +1089,12 @@
         if (!addRes.ok) {
           throw new Error('library_register_failed');
         }
-        if (libraryBrowser) libraryBrowser.reload();
+        if (libraryBrowser) {
+          if (state.selectedSongId && typeof libraryBrowser.expandSong === 'function') {
+            libraryBrowser.expandSong(state.selectedSongId);
+          }
+          libraryBrowser.reload();
+        }
         addStatusLine('Save: registered in library.');
         window.dispatchEvent(new CustomEvent('sonustemper:library-changed'));
       }
