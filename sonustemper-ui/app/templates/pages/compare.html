@@ -881,7 +881,7 @@
     if (!sourceWave || typeof sourceWave.getWrapper !== 'function') return null;
     const scrollEl = getScrollEl(sourceWave);
     if (!scrollEl) return null;
-    const contentWidth = scrollEl.scrollWidth || getContentWidth(sourceWave);
+    const contentWidth = getContentWidth(sourceWave);
     return {
       viewport: scrollEl,
       scrollLeft: getScrollLeft(sourceWave),
