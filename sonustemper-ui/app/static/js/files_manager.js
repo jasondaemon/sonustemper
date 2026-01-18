@@ -71,6 +71,8 @@
       notify('No playable rendition for this version.');
       return;
     }
+    const audio = detailEl?.querySelector('#filesDetailAudio');
+    const wasPlaying = audio ? !audio.paused : false;
     state.playlist.items.push({
       song_id: song.song_id,
       version_id: version.version_id,
@@ -82,6 +84,21 @@
       rendition,
     });
     notify('Added to playlist.');
+    state.playlist.active = true;
+    if (state.playlist.items.length === 1) {
+      state.playlist.index = 0;
+    } else {
+      ensurePlaylistIndex();
+    }
+    renderPlaylistDetail();
+    if (wasPlaying) {
+      const nextAudio = detailEl?.querySelector('#filesDetailAudio');
+      nextAudio?.play().catch(() => {});
+    }
+  }
+
+  function shouldShowPlaylist() {
+    return state.playlist.items.length > 0;
   }
 
   function ensurePlaylistIndex() {
@@ -572,6 +589,11 @@
 
   function renderSongDetail(song) {
     if (!detailEl) return;
+    if (shouldShowPlaylist()) {
+      state.playlist.active = true;
+      renderPlaylistDetail();
+      return;
+    }
     const metrics = song?.source?.metrics || {};
     const duration = formatDuration(song?.source?.duration_sec);
     const history = (song.versions || []).map((version) => {
@@ -652,6 +674,11 @@
 
   function renderVersionDetail(song, version) {
     if (!detailEl) return;
+    if (shouldShowPlaylist()) {
+      state.playlist.active = true;
+      renderPlaylistDetail();
+      return;
+    }
     const renditions = Array.isArray(version?.renditions) ? version.renditions : [];
     const primary = primaryRendition(renditions) || {};
     const metrics = version?.metrics || {};
@@ -741,6 +768,11 @@
 
   function renderRenditionDetail(song, version, rendition) {
     if (!detailEl) return;
+    if (shouldShowPlaylist()) {
+      state.playlist.active = true;
+      renderPlaylistDetail();
+      return;
+    }
     const playlistCount = state.playlist.items.length;
     const playlistRow = playlistCount ? `
       <div class="files-playlist-row">
@@ -830,6 +862,7 @@
           <button type="button" class="btn ghost tiny" id="filesPlaylistPrev">Previous</button>
           <button type="button" class="btn ghost tiny" id="filesPlaylistNext">Next</button>
           <button type="button" class="btn ghost tiny" id="filesPlaylistShuffle">${state.playlist.shuffle ? 'Shuffle On' : 'Shuffle'}</button>
+          <button type="button" class="btn ghost tiny" id="filesPlaylistClear">Clear Playlist</button>
           <button type="button" class="btn ghost tiny" id="filesPlaylistExit">Exit Playlist</button>
           <button type="button" class="btn ghost tiny visualizer-glow" id="filesVisualizerOpen">Visualizer</button>
         </div>
@@ -846,6 +879,13 @@
     detailEl.querySelector('#filesPlaylistShuffle')?.addEventListener('click', () => {
       state.playlist.shuffle = !state.playlist.shuffle;
       renderPlaylistDetail();
+    });
+    detailEl.querySelector('#filesPlaylistClear')?.addEventListener('click', () => {
+      state.playlist.items = [];
+      state.playlist.index = 0;
+      state.playlist.shuffle = false;
+      state.playlist.active = false;
+      refreshActiveDetail();
     });
     detailEl.querySelector('#filesPlaylistExit')?.addEventListener('click', () => {
       state.playlist.active = false;
@@ -892,7 +932,8 @@
   }
 
   function refreshActiveDetail() {
-    if (state.playlist.active) {
+    if (shouldShowPlaylist()) {
+      state.playlist.active = true;
       renderPlaylistDetail();
       return;
     }
