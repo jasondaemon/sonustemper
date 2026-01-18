@@ -3961,7 +3961,7 @@ def _ai_confidence(severity: float) -> str:
     return "low"
 
 def _ai_astats_segment(path: Path, start: float, duration: float, pre_filters: list[str] | None = None) -> dict:
-    want = "Peak_level+RMS_level+RMS_peak+Number_of_clipped_samples+Number_of_samples"
+    want = "Peak_level+RMS_level+RMS_peak+Number_of_samples"
     filters = list(pre_filters or [])
     filters.append(f"astats=measure_overall={want}:measure_perchannel=none:reset=0")
     filt = ",".join(filters)
@@ -4013,6 +4013,8 @@ def _ai_astats_segment(path: Path, start: float, duration: float, pre_filters: l
             num = float(m.group(1))
         except Exception:
             continue
+        if not math.isfinite(num):
+            num = None
         if key == "rms_peak":
             out["rms_peak"] = num
             continue
@@ -4021,13 +4023,13 @@ def _ai_astats_segment(path: Path, start: float, duration: float, pre_filters: l
             continue
         if key in {"number_of_clipped_samples", "clipped_samples", "number_of_clips"}:
             try:
-                out["clipped_samples"] = int(num)
+                out["clipped_samples"] = int(num) if num is not None else 0
             except Exception:
                 out["clipped_samples"] = 0
             continue
         if key in {"number_of_samples", "samples"}:
             try:
-                out["samples"] = int(num)
+                out["samples"] = int(num) if num is not None else None
             except Exception:
                 out["samples"] = None
     if out.get("peak_level") is not None and out.get("rms_level") is not None:
@@ -4085,6 +4087,8 @@ def _ai_astats_full(path: Path, pre_filters: list[str] | None = None) -> dict:
             num = float(m.group(1))
         except Exception:
             continue
+        if not math.isfinite(num):
+            num = None
         if key in {"peak_level", "rms_level", "rms_peak"}:
             out[key] = num
             continue
@@ -4092,14 +4096,23 @@ def _ai_astats_full(path: Path, pre_filters: list[str] | None = None) -> dict:
             out["crest_factor"] = num
             continue
         if key in {"number_of_clipped_samples", "clipped_samples", "number_of_clips"}:
-            out["clipped_samples"] = int(round(num))
+            out["clipped_samples"] = int(round(num)) if num is not None else 0
             continue
         if key in {"number_of_samples", "samples"}:
-            out["samples"] = int(round(num))
+            out["samples"] = int(round(num)) if num is not None else None
             continue
     if isinstance(out.get("peak_level"), (int, float)) and isinstance(out.get("rms_level"), (int, float)):
         out["crest_factor"] = float(out["peak_level"]) - float(out["rms_level"])
     return out
+
+def _ai_sanitize(obj):
+    if isinstance(obj, dict):
+        return {k: _ai_sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_ai_sanitize(v) for v in obj]
+    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        return None
+    return obj
 
 @app.get("/api/analyze-source")
 def analyze_source(song: str):
@@ -5046,7 +5059,8 @@ def ai_tool_detect(path: str, mode: str = "fast"):
     }
     elapsed_ms = (time.time() - t0) * 1000.0
     logger.info("[ai-tool][detect] ok path=%s ms=%.1f findings=%s", path, elapsed_ms, len(findings))
-    return {"track": track, "metrics": metrics, "findings": findings}
+    payload = {"track": track, "metrics": metrics, "findings": findings}
+    return _ai_sanitize(payload)
 @app.get("/api/analyze-sources")
 def analyze_sources():
     lib = library_store.list_library()
