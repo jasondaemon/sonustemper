@@ -75,6 +75,7 @@
       smooth: null,
       raf: null,
       last: 0,
+      flatCount: 0,
     },
     strengths: {},
     resizing: null,
@@ -121,7 +122,7 @@
 
   function muteDryOutput() {
     if (!aiAudio) return;
-    aiAudio.muted = false;
+    aiAudio.muted = true;
     aiAudio.volume = 1;
   }
 
@@ -164,6 +165,21 @@
       scopeNode.getFloatTimeDomainData(data);
     } else {
       scopeNode.getByteTimeDomainData(data);
+    }
+    if (aiAudio && !aiAudio.paused) {
+      const flat = useFloat ? data.every((v) => Math.abs(v) < 0.0001) : data.every((v) => v === 128);
+      if (flat) {
+        state.scope.flatCount = (state.scope.flatCount || 0) + 1;
+        if (state.scope.flatCount === 12) {
+          console.warn('[ai_toolkit] analyser flatline (scope)', {
+            ctx: state.audioCtx?.state,
+            muted: aiAudio.muted,
+            readyState: aiAudio.readyState,
+          });
+        }
+      } else {
+        state.scope.flatCount = 0;
+      }
     }
 
     const rootStyle = getComputedStyle(document.documentElement);
@@ -537,6 +553,21 @@
 
     if (state.analyser && state.spectrum.data && state.spectrum.smooth) {
       state.analyser.getByteFrequencyData(state.spectrum.data);
+      if (aiAudio && !aiAudio.paused) {
+        const flat = state.spectrum.data.every((v) => v === 0);
+        if (flat) {
+          state.spectrum.flatCount = (state.spectrum.flatCount || 0) + 1;
+          if (state.spectrum.flatCount === 12) {
+            console.warn('[ai_toolkit] analyser flatline (spectrum)', {
+              ctx: state.audioCtx?.state,
+              muted: aiAudio.muted,
+              readyState: aiAudio.readyState,
+            });
+          }
+        } else {
+          state.spectrum.flatCount = 0;
+        }
+      }
       for (let i = 0; i < state.spectrum.data.length; i += 1) {
         const next = state.spectrum.data[i];
         state.spectrum.smooth[i] = state.spectrum.smooth[i] * 0.85 + next * 0.15;
@@ -678,6 +709,8 @@
       stopSpectrum();
       return;
     }
+    aiAudio.pause();
+    aiAudio.currentTime = 0;
     muteDryOutput();
     const url = `/api/analyze/path?path=${encodeURIComponent(selected.rel)}`;
     aiAudio.src = url;
@@ -705,18 +738,13 @@
       normalize: false,
       backend: 'MediaElement',
       mediaControls: false,
+      media: aiAudio,
       minPxPerSec: 1,
       fillParent: true,
       autoScroll: false,
       autoCenter: false,
       dragToSeek: true,
     });
-    const wsMedia = state.wave.getMediaElement ? state.wave.getMediaElement() : null;
-    if (wsMedia) {
-      wsMedia.muted = true;
-      wsMedia.volume = 0;
-      wsMedia.pause();
-    }
     state.wave.on('ready', () => {
       state.duration = state.wave.getDuration();
       updateTimeLabel();
@@ -863,14 +891,14 @@
       buildAudioGraph();
       muteDryOutput();
       const ctx = ensureAudioContext();
-      if (ctx && ctx.state === 'suspended') {
-        ctx.resume().catch(() => {});
-      }
-      if (aiAudio.paused) {
-        aiAudio.play().catch(() => {});
-      } else {
-        aiAudio.pause();
-      }
+      const resume = ctx && ctx.state === 'suspended' ? ctx.resume().catch(() => {}) : Promise.resolve();
+      resume.finally(() => {
+        if (aiAudio.paused) {
+          aiAudio.play().catch(() => {});
+        } else {
+          aiAudio.pause();
+        }
+      });
     });
   }
 
