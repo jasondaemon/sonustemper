@@ -897,13 +897,16 @@
     };
   }
 
-  function renderPlaylistDetail() {
+  function renderPlaylistDetail(opts = {}) {
     if (!detailEl) return;
-    const snapshot = capturePlayback();
-    const currentSrc = state.visualizer.audio?.currentSrc || state.visualizer.audio?.src || '';
-    const matchIdx = playlistIndexForSrc(currentSrc);
-    if (matchIdx >= 0) {
-      state.playlist.index = matchIdx;
+    const preservePlayback = opts.preservePlayback !== false;
+    const snapshot = preservePlayback ? capturePlayback() : null;
+    if (preservePlayback) {
+      const currentSrc = state.visualizer.audio?.currentSrc || state.visualizer.audio?.src || '';
+      const matchIdx = playlistIndexForSrc(currentSrc);
+      if (matchIdx >= 0) {
+        state.playlist.index = matchIdx;
+      }
     }
     ensurePlaylistIndex();
     const item = state.playlist.items[state.playlist.index];
@@ -941,7 +944,9 @@
       audio.src = `/api/analyze/path?path=${encodeURIComponent(item.rendition.rel)}`;
     }
     attachAudioEvents(audio);
-    restorePlayback(snapshot);
+    if (preservePlayback) {
+      restorePlayback(snapshot);
+    }
     detailEl.querySelector('#filesPlaylistPrev')?.addEventListener('click', () => playPrev());
     detailEl.querySelector('#filesPlaylistNext')?.addEventListener('click', () => playNext());
     detailEl.querySelector('#filesPlaylistShuffle')?.addEventListener('click', () => {
@@ -974,7 +979,7 @@
     if (!state.playlist.items.length) return;
     state.playlist.active = true;
     state.playlist.index = Math.min(Math.max(index, 0), state.playlist.items.length - 1);
-    renderPlaylistDetail();
+    renderPlaylistDetail({ preservePlayback: false });
     const audio = detailEl.querySelector('#filesDetailAudio');
     if (audio) {
       audio.play().catch(() => {});
@@ -984,7 +989,7 @@
   function playNext() {
     if (!state.playlist.items.length) return;
     state.playlist.index = nextPlaylistIndex();
-    renderPlaylistDetail();
+    renderPlaylistDetail({ preservePlayback: false });
     const audio = detailEl.querySelector('#filesDetailAudio');
     if (audio) audio.play().catch(() => {});
   }
@@ -992,7 +997,7 @@
   function playPrev() {
     if (!state.playlist.items.length) return;
     state.playlist.index = prevPlaylistIndex();
-    renderPlaylistDetail();
+    renderPlaylistDetail({ preservePlayback: false });
     const audio = detailEl.querySelector('#filesDetailAudio');
     if (audio) audio.play().catch(() => {});
   }
