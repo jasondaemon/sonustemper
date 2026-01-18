@@ -4728,11 +4728,17 @@ def ai_tool_render_combo(payload: dict = Body(...)):
         err = (proc.stderr or proc.stdout or "").strip()
         raise HTTPException(status_code=500, detail=err or "render_failed")
     rel = rel_from_path(out_path)
+    metrics = {}
+    try:
+        metrics = _analyze_audio_metrics(out_path)
+    except Exception:
+        metrics = {}
     return {
         "output_rel": rel,
         "output_name": out_path.name,
         "version_id": version_id,
         "url": f"/api/analyze/path?path={quote(rel)}",
+        "metrics": metrics,
     }
 
 @app.get("/api/ai-tool/preset/list")

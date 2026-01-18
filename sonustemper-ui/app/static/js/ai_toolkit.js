@@ -1043,6 +1043,7 @@
             utility: 'AITK',
             renditions: [{ format, rel }],
             summary: { aitk: 'AI Toolkit' },
+            metrics: data.metrics || {},
             tags: activeTools,
             version_id: data.version_id,
           }),
