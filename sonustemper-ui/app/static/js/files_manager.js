@@ -86,7 +86,7 @@
     if (state.playlist.items.length === 1) {
       state.playlist.index = 0;
     } else {
-      const matchIdx = state.playlist.items.findIndex(item => currentSrc.includes(item.rendition?.rel || ''));
+      const matchIdx = playlistIndexForSrc(currentSrc);
       if (matchIdx >= 0) {
         state.playlist.index = matchIdx;
       } else {
@@ -105,6 +105,15 @@
 
   function shouldShowPlaylist() {
     return state.playlist.items.length > 0;
+  }
+
+  function playlistIndexForSrc(src) {
+    if (!src) return -1;
+    return state.playlist.items.findIndex(item => {
+      const rel = item.rendition?.rel || '';
+      if (!rel) return false;
+      return src.includes(rel) || src.includes(encodeURIComponent(rel));
+    });
   }
 
   function ensurePlaylistIndex() {
@@ -140,6 +149,30 @@
     const mins = Math.floor(value / 60);
     const secs = Math.round(value % 60).toString().padStart(2, '0');
     return `${mins}:${secs}`;
+  }
+
+  function capturePlayback() {
+    const audio = detailEl?.querySelector('#filesDetailAudio');
+    if (!audio) return null;
+    return {
+      src: audio.currentSrc || audio.src || '',
+      time: Number.isFinite(audio.currentTime) ? audio.currentTime : 0,
+      playing: !audio.paused && !audio.ended,
+    };
+  }
+
+  function restorePlayback(snapshot) {
+    if (!snapshot || !snapshot.src) return;
+    const audio = detailEl?.querySelector('#filesDetailAudio');
+    if (!audio) return;
+    if ((audio.currentSrc || audio.src || '') !== snapshot.src) return;
+    if (Number.isFinite(snapshot.time)) {
+      const dur = Number.isFinite(audio.duration) ? audio.duration : snapshot.time;
+      audio.currentTime = Math.min(snapshot.time, dur);
+    }
+    if (snapshot.playing) {
+      audio.play().catch(() => {});
+    }
   }
 
   function escapeHtml(value) {
@@ -535,6 +568,7 @@
   }
 
   async function deleteSelected() {
+    const snapshot = capturePlayback();
     const selections = collectSelections();
     if (!selections.length) return;
     if (!confirm(`Delete ${selections.length} selected item(s)?`)) return;
@@ -572,6 +606,7 @@
     state.selectedRenditions.clear();
     await loadLibrary();
     refreshBrowser();
+    restorePlayback(snapshot);
   }
 
   function downloadSelected() {
@@ -602,6 +637,7 @@
   }
 
   async function deleteAllSongs() {
+    const snapshot = capturePlayback();
     if (!confirm('Delete ALL songs from the library?')) return;
     for (const song of state.library.songs || []) {
       await fetch('/api/library/delete_song', {
@@ -615,6 +651,7 @@
     state.selectedRenditions.clear();
     await loadLibrary();
     refreshBrowser();
+    restorePlayback(snapshot);
   }
 
   function renderSongDetail(song) {
@@ -862,6 +899,11 @@
 
   function renderPlaylistDetail() {
     if (!detailEl) return;
+    const currentSrc = state.visualizer.audio?.currentSrc || state.visualizer.audio?.src || '';
+    const matchIdx = playlistIndexForSrc(currentSrc);
+    if (matchIdx >= 0) {
+      state.playlist.index = matchIdx;
+    }
     ensurePlaylistIndex();
     const item = state.playlist.items[state.playlist.index];
     const metrics = item?.metrics || {};
@@ -1068,6 +1110,23 @@
         ctx.lineWidth = 1;
         ctx.stroke();
       }
+    } else if (mode === 'circle') {
+      const buffer = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteFrequencyData(buffer);
+      const cx = width / 2;
+      const cy = height / 2;
+      const radius = Math.min(width, height) * 0.2;
+      buffer.forEach((val, idx) => {
+        const angle = (idx / buffer.length) * Math.PI * 2;
+        const mag = (val / 255) * radius;
+        const x = cx + Math.cos(angle) * (radius + mag);
+        const y = cy + Math.sin(angle) * (radius + mag);
+        ctx.strokeStyle = '#ffb347';
+        ctx.beginPath();
+        ctx.moveTo(cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+      });
     } else if (mode === 'neon') {
       const buffer = new Uint8Array(analyser.frequencyBinCount);
       analyser.getByteFrequencyData(buffer);
@@ -1160,6 +1219,7 @@
   });
 
   async function uploadFiles(files) {
+    const snapshot = capturePlayback();
     if (!files || !files.length) return;
     if (syncStatus) syncStatus.textContent = 'Uploading…';
     for (const file of files) {
@@ -1173,9 +1233,11 @@
     if (syncStatus) syncStatus.textContent = 'Upload complete.';
     await loadLibrary();
     refreshBrowser();
+    restorePlayback(snapshot);
   }
 
   async function runSync() {
+    const snapshot = capturePlayback();
     if (!syncBtn) return;
     syncBtn.disabled = true;
     if (syncStatus) syncStatus.textContent = 'Scanning…';
@@ -1200,10 +1262,12 @@
       if (syncStatus) syncStatus.textContent = 'Scan failed. Check logs.';
     } finally {
       syncBtn.disabled = false;
+      restorePlayback(snapshot);
     }
   }
 
   async function loadLibrary() {
+    const snapshot = capturePlayback();
     try {
       const res = await fetch('/api/library', { cache: 'no-store' });
       if (!res.ok) throw new Error('library_failed');
@@ -1212,6 +1276,7 @@
       renderList();
       updateBulkButtons();
       refreshActiveDetail();
+      restorePlayback(snapshot);
     } catch (_err) {
       if (listEl) listEl.innerHTML = '<div class="muted">Library unavailable.</div>';
     }
