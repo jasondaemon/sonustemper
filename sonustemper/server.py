@@ -4055,6 +4055,7 @@ def _ai_astats_full(path: Path, pre_filters: list[str] | None = None) -> dict:
         "rms_peak": None,
         "clipped_samples": 0,
         "samples": None,
+        "crest_factor": None,
     }
     section = None
     for raw in txt.splitlines():
@@ -4085,8 +4086,17 @@ def _ai_astats_full(path: Path, pre_filters: list[str] | None = None) -> dict:
             num = float(m.group(1))
         except Exception:
             continue
-        if key in out:
+        if key in {"peak_level", "rms_level", "rms_peak"}:
             out[key] = num
+            continue
+        if key in {"number_of_clipped_samples", "clipped_samples", "number_of_clips"}:
+            out["clipped_samples"] = int(round(num))
+            continue
+        if key in {"number_of_samples", "samples"}:
+            out["samples"] = int(round(num))
+            continue
+    if isinstance(out.get("peak_level"), (int, float)) and isinstance(out.get("rms_level"), (int, float)):
+        out["crest_factor"] = float(out["peak_level"]) - float(out["rms_level"])
     return out
 
 @app.get("/api/analyze-source")
@@ -4921,6 +4931,12 @@ def ai_tool_detect(path: str, mode: str = "fast"):
     full_rms_level = full_song.get("rms_level") if isinstance(full_song, dict) else None
     full_crest = full_song.get("crest_factor") if isinstance(full_song, dict) else None
     full_clipped = full_song.get("clipped_samples") if isinstance(full_song, dict) else 0
+    if full_peak is None or full_rms_level is None:
+        logger.warning(
+            "[ai-tool][detect] full_astats missing stats peak=%s rms=%s",
+            full_peak,
+            full_rms_level,
+        )
     logger.info(
         "[ai-tool][detect] full_astats duration=%.2fs peak=%s rms=%s crest=%s clipped=%s",
         duration,
