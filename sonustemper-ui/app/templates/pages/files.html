@@ -44,29 +44,6 @@
     </div>
   </div>
 
-  <div class="files-visualizer" id="filesVisualizer" hidden>
-    <div class="files-visualizer-backdrop"></div>
-    <div class="files-visualizer-panel" role="dialog" aria-modal="true">
-      <div class="files-visualizer-head">
-        <div class="files-visualizer-title">Visualizer</div>
-        <div class="files-visualizer-menu">
-          <select id="filesVisualizerMode">
-            <option value="osc">Oscilloscope</option>
-            <option value="bars">Frequency Bars</option>
-            <option value="circle">Circle Pulse</option>
-            <option value="neon">Neon Spectrum</option>
-            <option value="trail">Trail Oscilloscope</option>
-            <option value="rings">Radial Rings</option>
-            <option value="particles">Particles</option>
-            <option value="heatmap">Heatmap FFT</option>
-          </select>
-          <button type="button" class="btn ghost tiny" id="filesVisualizerFullscreen">Full Screen</button>
-          <button type="button" class="btn ghost tiny" id="filesVisualizerClose">Close</button>
-        </div>
-      </div>
-      <canvas id="filesVisualizerCanvas"></canvas>
-    </div>
-  </div>
 {% endblock %}
 {% block extra_js %}
   <script src="/static/js/files_manager.js"></script>

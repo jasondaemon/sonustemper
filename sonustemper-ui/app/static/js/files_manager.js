@@ -10,11 +10,6 @@
   const deleteAllBtn = document.getElementById('filesDeleteAll');
   const uploadInput = document.getElementById('filesUploadInput');
   const uploadBtn = document.getElementById('filesUploadBtn');
-  const visualizerEl = document.getElementById('filesVisualizer');
-  const visualizerCanvas = document.getElementById('filesVisualizerCanvas');
-  const visualizerClose = document.getElementById('filesVisualizerClose');
-  const visualizerFullscreen = document.getElementById('filesVisualizerFullscreen');
-  const visualizerMode = document.getElementById('filesVisualizerMode');
 
   const state = {
     library: { songs: [] },
@@ -37,10 +32,11 @@
       analyser: null,
       source: null,
       raf: null,
-      idleTimer: null,
-      chromeHidden: false,
       audio: null,
       particles: [],
+      canvas: null,
+      modeSelect: null,
+      fullscreenBtn: null,
     },
   };
 
@@ -73,6 +69,8 @@
     }
     const audio = detailEl?.querySelector('#filesDetailAudio');
     const wasPlaying = audio ? !audio.paused : false;
+    const currentSrc = audio?.currentSrc || audio?.src || '';
+    const currentTime = audio?.currentTime || 0;
     state.playlist.items.push({
       song_id: song.song_id,
       version_id: version.version_id,
@@ -88,11 +86,19 @@
     if (state.playlist.items.length === 1) {
       state.playlist.index = 0;
     } else {
-      ensurePlaylistIndex();
+      const matchIdx = state.playlist.items.findIndex(item => currentSrc.includes(item.rendition?.rel || ''));
+      if (matchIdx >= 0) {
+        state.playlist.index = matchIdx;
+      } else {
+        ensurePlaylistIndex();
+      }
     }
     renderPlaylistDetail();
     if (wasPlaying) {
       const nextAudio = detailEl?.querySelector('#filesDetailAudio');
+      if (nextAudio && currentSrc && nextAudio.src === currentSrc) {
+        nextAudio.currentTime = currentTime;
+      }
       nextAudio?.play().catch(() => {});
     }
   }
@@ -178,6 +184,30 @@
     if (typeof metrics.peak_level === 'number') pills.push(`Peak ${metrics.peak_level.toFixed(1)}`);
     if (typeof metrics.noise_floor === 'number') pills.push(`Noise ${metrics.noise_floor.toFixed(1)}`);
     return pills.map(text => `<span class="badge badge-param">${text}</span>`).join('');
+  }
+
+  function visualizerMarkup() {
+    return `
+      <div class="files-visualizer-card">
+        <div class="files-visualizer-head">
+          <div class="files-visualizer-title">Visualizer</div>
+          <div class="files-visualizer-menu">
+            <select id="filesVisualizerMode">
+              <option value="osc">Oscilloscope</option>
+              <option value="bars">Frequency Bars</option>
+              <option value="circle">Circle Pulse</option>
+              <option value="neon">Neon Spectrum</option>
+              <option value="trail">Trail Oscilloscope</option>
+              <option value="rings">Radial Rings</option>
+              <option value="particles">Particles</option>
+              <option value="heatmap">Heatmap FFT</option>
+            </select>
+            <button type="button" class="btn ghost tiny" id="filesVisualizerFullscreen">Full Screen</button>
+          </div>
+        </div>
+        <canvas id="filesVisualizerCanvas"></canvas>
+      </div>
+    `;
   }
 
   function makeKey(...parts) {
@@ -618,6 +648,7 @@
         <div class="detail-player">
           <audio id="filesDetailAudio" controls preload="metadata"></audio>
         </div>
+        ${visualizerMarkup()}
         <div class="pill-row">
           ${duration ? `<span class="badge badge-format">${duration}</span>` : ''}
           ${song?.source?.format ? `<span class="badge badge-format">${escapeHtml(String(song.source.format).toUpperCase())}</span>` : ''}
@@ -628,7 +659,6 @@
           <button type="button" class="btn ghost tiny" id="filesSongCompare">Compare</button>
           <button type="button" class="btn ghost tiny" id="filesSongAi">AI Toolkit</button>
           <button type="button" class="btn ghost tiny" id="filesSongEq">Open in EQ</button>
-          <button type="button" class="btn ghost tiny visualizer-glow" id="filesVisualizerOpen">Visualizer</button>
         </div>
         ${playlistRow}
         <div class="detail-subtitle">History</div>
@@ -664,9 +694,7 @@
       url.searchParams.set('path', song.source.rel);
       window.location.assign(`${url.pathname}${url.search}`);
     });
-    detailEl.querySelector('#filesVisualizerOpen')?.addEventListener('click', () => {
-      openVisualizer(audio);
-    });
+    setupVisualizerElements(audio);
     detailEl.querySelector('#filesPlaylistPlay')?.addEventListener('click', () => {
       playPlaylist(0);
     });
@@ -704,6 +732,7 @@
         <div class="detail-player">
           <audio id="filesDetailAudio" controls preload="metadata"></audio>
         </div>
+        ${visualizerMarkup()}
         <div class="pill-row">${renderMetricPills(metrics)}</div>
         <div class="detail-downloads">${downloads || '<span class="muted">No renditions.</span>'}</div>
         <div class="detail-actions">
@@ -711,7 +740,6 @@
           <button type="button" class="btn ghost tiny" id="filesVersionCompare">Compare</button>
           <button type="button" class="btn ghost tiny" id="filesVersionAi">AI Toolkit</button>
           <button type="button" class="btn ghost tiny" id="filesVersionEq">Open in EQ</button>
-          <button type="button" class="btn ghost tiny visualizer-glow" id="filesVisualizerOpen">Visualizer</button>
           <button type="button" class="btn danger tiny" id="filesVersionDelete">Delete Version</button>
         </div>
         ${playlistRow}
@@ -758,9 +786,7 @@
       await loadLibrary();
       refreshBrowser();
     });
-    detailEl.querySelector('#filesVisualizerOpen')?.addEventListener('click', () => {
-      openVisualizer(audio);
-    });
+    setupVisualizerElements(audio);
     detailEl.querySelector('#filesPlaylistPlay')?.addEventListener('click', () => {
       playPlaylist(0);
     });
@@ -789,9 +815,9 @@
         <div class="detail-player">
           <audio id="filesDetailAudio" controls preload="metadata"></audio>
         </div>
+        ${visualizerMarkup()}
         <div class="detail-actions">
           <a class="btn ghost tiny" href="/api/analyze/path?path=${encodeURIComponent(rendition.rel || '')}" download>Download</a>
-          <button type="button" class="btn ghost tiny visualizer-glow" id="filesVisualizerOpen">Visualizer</button>
           <button type="button" class="btn danger tiny" id="filesRenditionDelete">Delete Format</button>
         </div>
         ${playlistRow}
@@ -818,9 +844,7 @@
       await loadLibrary();
       refreshBrowser();
     });
-    detailEl.querySelector('#filesVisualizerOpen')?.addEventListener('click', () => {
-      openVisualizer(audio);
-    });
+    setupVisualizerElements(audio);
     detailEl.querySelector('#filesPlaylistPlay')?.addEventListener('click', () => {
       playPlaylist(0);
     });
@@ -857,6 +881,7 @@
         <div class="detail-player">
           <audio id="filesDetailAudio" controls preload="metadata"></audio>
         </div>
+        ${visualizerMarkup()}
         <div class="pill-row">${renderMetricPills(metrics)}</div>
         <div class="files-playlist-controls">
           <button type="button" class="btn ghost tiny" id="filesPlaylistPrev">Previous</button>
@@ -864,7 +889,6 @@
           <button type="button" class="btn ghost tiny" id="filesPlaylistShuffle">${state.playlist.shuffle ? 'Shuffle On' : 'Shuffle'}</button>
           <button type="button" class="btn ghost tiny" id="filesPlaylistClear">Clear Playlist</button>
           <button type="button" class="btn ghost tiny" id="filesPlaylistExit">Exit Playlist</button>
-          <button type="button" class="btn ghost tiny visualizer-glow" id="filesVisualizerOpen">Visualizer</button>
         </div>
         <div class="files-playlist-list">${rows}</div>
       </div>
@@ -891,9 +915,7 @@
       state.playlist.active = false;
       refreshActiveDetail();
     });
-    detailEl.querySelector('#filesVisualizerOpen')?.addEventListener('click', () => {
-      openVisualizer(audio);
-    });
+    setupVisualizerElements(audio);
     detailEl.querySelectorAll('.files-playlist-item').forEach((row) => {
       row.addEventListener('click', () => {
         const idx = Number(row.dataset.index);
@@ -964,21 +986,12 @@
     return ordered.length ? ordered : list;
   }
 
-  function setVisualizerChromeHidden(hidden) {
-    if (!visualizerEl) return;
-    visualizerEl.classList.toggle('is-idle', hidden);
-    state.visualizer.chromeHidden = hidden;
-  }
-
-  function resetVisualizerIdleTimer() {
-    if (!visualizerEl) return;
-    if (state.visualizer.idleTimer) clearTimeout(state.visualizer.idleTimer);
-    setVisualizerChromeHidden(false);
-    state.visualizer.idleTimer = setTimeout(() => setVisualizerChromeHidden(true), 10000);
-  }
-
-  function openVisualizer(audioEl) {
-    if (!visualizerEl || !visualizerCanvas || !audioEl) return;
+  function setupVisualizerElements(audioEl) {
+    if (!detailEl) return;
+    state.visualizer.canvas = detailEl.querySelector('#filesVisualizerCanvas');
+    state.visualizer.modeSelect = detailEl.querySelector('#filesVisualizerMode');
+    state.visualizer.fullscreenBtn = detailEl.querySelector('#filesVisualizerFullscreen');
+    if (!state.visualizer.canvas) return;
     state.visualizer.audio = audioEl;
     if (!state.visualizer.ctx) {
       state.visualizer.ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -988,7 +1001,7 @@
     if (state.visualizer.ctx.state === 'suspended') {
       state.visualizer.ctx.resume().catch(() => {});
     }
-    if (!state.visualizer.source || state.visualizer.mediaEl !== audioEl) {
+    if (audioEl && (!state.visualizer.source || state.visualizer.mediaEl !== audioEl)) {
       try {
         if (state.visualizer.source) state.visualizer.source.disconnect();
         state.visualizer.source = state.visualizer.ctx.createMediaElementSource(audioEl);
@@ -999,30 +1012,37 @@
         // ignore duplicate node errors
       }
     }
-    visualizerEl.hidden = false;
-    resetVisualizerIdleTimer();
-    drawVisualizer();
-  }
-
-  function closeVisualizer() {
-    if (!visualizerEl) return;
-    visualizerEl.hidden = true;
-    if (state.visualizer.raf) cancelAnimationFrame(state.visualizer.raf);
-    state.visualizer.raf = null;
+    state.visualizer.fullscreenBtn?.addEventListener('click', async () => {
+      const panel = state.visualizer.canvas?.closest('.files-visualizer-card');
+      if (!panel) return;
+      try {
+        if (document.fullscreenElement) {
+          await document.exitFullscreen();
+        } else {
+          await panel.requestFullscreen();
+        }
+      } catch (_err) {
+        return;
+      }
+    });
+    if (!state.visualizer.raf) {
+      state.visualizer.raf = requestAnimationFrame(drawVisualizer);
+    }
   }
 
   function drawVisualizer() {
-    if (!visualizerEl || visualizerEl.hidden || !visualizerCanvas || !state.visualizer.analyser) return;
-    const ctx = visualizerCanvas.getContext('2d');
+    const canvas = state.visualizer.canvas;
+    if (!canvas || !state.visualizer.analyser) return;
+    const ctx = canvas.getContext('2d');
     if (!ctx) return;
     const dpr = window.devicePixelRatio || 1;
-    const width = visualizerCanvas.clientWidth || 600;
-    const height = visualizerCanvas.clientHeight || 300;
-    visualizerCanvas.width = Math.floor(width * dpr);
-    visualizerCanvas.height = Math.floor(height * dpr);
+    const width = canvas.clientWidth || 600;
+    const height = canvas.clientHeight || 300;
+    canvas.width = Math.floor(width * dpr);
+    canvas.height = Math.floor(height * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    const mode = visualizerMode?.value || 'osc';
+    const mode = state.visualizer.modeSelect?.value || 'osc';
     const analyser = state.visualizer.analyser;
     if (mode === 'trail') {
       ctx.fillStyle = 'rgba(8, 12, 18, 0.18)';
@@ -1133,38 +1153,11 @@
     state.visualizer.raf = requestAnimationFrame(drawVisualizer);
   }
 
-  function bindVisualizerEvents() {
-    if (!visualizerEl) return;
-    const panel = visualizerEl.querySelector('.files-visualizer-panel');
-    visualizerEl.addEventListener('mousemove', resetVisualizerIdleTimer);
-    visualizerEl.addEventListener('click', (evt) => {
-      if (evt.target === visualizerEl || evt.target.classList.contains('files-visualizer-backdrop')) {
-        closeVisualizer();
-      }
-    });
-    document.addEventListener('keydown', (evt) => {
-      if (evt.key === 'Escape' && !visualizerEl.hidden) {
-        if (document.fullscreenElement) {
-          document.exitFullscreen().catch(() => {});
-          return;
-        }
-        closeVisualizer();
-      }
-    });
-    visualizerClose?.addEventListener('click', closeVisualizer);
-    visualizerFullscreen?.addEventListener('click', async () => {
-      if (!panel) return;
-      try {
-        if (document.fullscreenElement) {
-          await document.exitFullscreen();
-        } else {
-          await panel.requestFullscreen();
-        }
-      } catch (_err) {
-        return;
-      }
-    });
-  }
+  document.addEventListener('keydown', (evt) => {
+    if (evt.key === 'Escape' && document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+  });
 
   async function uploadFiles(files) {
     if (!files || !files.length) return;
@@ -1253,8 +1246,6 @@
       }
     });
   }
-
-  bindVisualizerEvents();
 
   searchInput?.addEventListener('input', () => {
     state.search = searchInput.value || '';
