@@ -120,11 +120,7 @@
     aiEngineIndicator.classList.remove('is-on');
   }
 
-  function muteDryOutput() {
-    if (!aiAudio) return;
-    aiAudio.muted = true;
-    aiAudio.volume = 1;
-  }
+  function muteDryOutput() {}
 
   function drawScopeFrame() {
     if (!aiLiveScope || !state.scope.node) return;
@@ -325,7 +321,7 @@
     } catch (_err) {
       return;
     }
-    muteDryOutput();
+    if (aiAudio) aiAudio.muted = false;
     const bassHp = ctx.createBiquadFilter();
     bassHp.type = 'highpass';
     bassHp.frequency.value = 25;
@@ -410,7 +406,7 @@
     state.scope.node = scope;
     state.scope.floatData = new Float32Array(scope.fftSize);
     state.scope.byteData = new Uint8Array(scope.fftSize);
-    muteDryOutput();
+    if (aiAudio) aiAudio.muted = false;
     updateEngineIndicator();
     if (ctx) {
       ctx.onstatechange = () => updateEngineIndicator();
@@ -711,7 +707,6 @@
     }
     aiAudio.pause();
     aiAudio.currentTime = 0;
-    muteDryOutput();
     const url = `/api/analyze/path?path=${encodeURIComponent(selected.rel)}`;
     aiAudio.src = url;
     aiAudio.load();
@@ -889,10 +884,15 @@
     aiPlayBtn.addEventListener('click', () => {
       if (!state.selected || !aiAudio) return;
       buildAudioGraph();
-      muteDryOutput();
       const ctx = ensureAudioContext();
       const resume = ctx && ctx.state === 'suspended' ? ctx.resume().catch(() => {}) : Promise.resolve();
       resume.finally(() => {
+        console.debug('[ai_toolkit] play', {
+          ctx: ctx ? ctx.state : 'none',
+          muted: aiAudio.muted,
+          paused: aiAudio.paused,
+          time: aiAudio.currentTime,
+        });
         if (aiAudio.paused) {
           aiAudio.play().catch(() => {});
         } else {
