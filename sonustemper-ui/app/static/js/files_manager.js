@@ -483,7 +483,6 @@
         </div>
         <div class="detail-player">
           <audio id="filesDetailAudio" controls preload="metadata"></audio>
-          <button type="button" class="btn ghost tiny" id="filesVisualizerOpen">Visualizer</button>
         </div>
         <div class="pill-row">
           ${duration ? `<span class="badge badge-format">${duration}</span>` : ''}
@@ -495,6 +494,7 @@
           <button type="button" class="btn ghost tiny" id="filesSongCompare">Compare</button>
           <button type="button" class="btn ghost tiny" id="filesSongAi">AI Toolkit</button>
           <button type="button" class="btn ghost tiny" id="filesSongEq">Open in EQ</button>
+          <button type="button" class="btn ghost tiny visualizer-glow" id="filesVisualizerOpen">Visualizer</button>
         </div>
         <div class="detail-subtitle">History</div>
         <div class="files-history-list">${history || '<div class="muted">No versions yet.</div>'}</div>
@@ -552,7 +552,6 @@
         </div>
         <div class="detail-player">
           <audio id="filesDetailAudio" controls preload="metadata"></audio>
-          <button type="button" class="btn ghost tiny" id="filesVisualizerOpen">Visualizer</button>
         </div>
         <div class="pill-row">${renderMetricPills(metrics)}</div>
         <div class="detail-downloads">${downloads || '<span class="muted">No renditions.</span>'}</div>
@@ -561,6 +560,7 @@
           <button type="button" class="btn ghost tiny" id="filesVersionCompare">Compare</button>
           <button type="button" class="btn ghost tiny" id="filesVersionAi">AI Toolkit</button>
           <button type="button" class="btn ghost tiny" id="filesVersionEq">Open in EQ</button>
+          <button type="button" class="btn ghost tiny visualizer-glow" id="filesVisualizerOpen">Visualizer</button>
           <button type="button" class="btn danger tiny" id="filesVersionDelete">Delete Version</button>
         </div>
       </div>
@@ -620,10 +620,10 @@
         </div>
         <div class="detail-player">
           <audio id="filesDetailAudio" controls preload="metadata"></audio>
-          <button type="button" class="btn ghost tiny" id="filesVisualizerOpen">Visualizer</button>
         </div>
         <div class="detail-actions">
           <a class="btn ghost tiny" href="/api/analyze/path?path=${encodeURIComponent(rendition.rel || '')}" download>Download</a>
+          <button type="button" class="btn ghost tiny visualizer-glow" id="filesVisualizerOpen">Visualizer</button>
           <button type="button" class="btn danger tiny" id="filesRenditionDelete">Delete Format</button>
         </div>
       </div>

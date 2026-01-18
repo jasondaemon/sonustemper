@@ -1012,6 +1012,11 @@ h1{margin:0;font-size:24px;}
   font-size:12px;
   color:var(--muted);
 }
+.visualizer-glow{
+  box-shadow:0 0 0 1px rgba(255, 208, 92, 0.45), 0 0 10px rgba(255, 208, 92, 0.25);
+  border-color:rgba(255, 208, 92, 0.55);
+  color:var(--text);
+}
 .files-visualizer{
   position:fixed;
   inset:0;
