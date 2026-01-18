@@ -9,7 +9,7 @@
       <div class="card files-panel">
         <div class="card-head">
           <div>
-            <div class="card-title">File Management</div>
+            <div class="card-title">Song Library</div>
             <div class="muted">Select songs, versions, or formats for bulk actions.</div>
           </div>
           <div class="files-bulk-actions">
@@ -40,17 +40,6 @@
         </div>
       </div>
     </div>
-    <div class="files-right">
-      <div class="card files-browser-panel">
-        <div class="card-head">
-          <div>
-            <div class="card-title">Song Library</div>
-            <div class="muted">Browse the library and open items.</div>
-          </div>
-        </div>
-        <div id="filesLibraryBrowser" class="library-browser-container" data-module="files"></div>
-      </div>
-    </div>
   </div>
 
   <div class="files-visualizer" id="filesVisualizer" hidden>
@@ -72,6 +61,5 @@
   </div>
 {% endblock %}
 {% block extra_js %}
-  <script src="/static/js/library_browser.js"></script>
   <script src="/static/js/files_manager.js"></script>
 {% endblock %}
