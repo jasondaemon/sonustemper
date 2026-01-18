@@ -4805,24 +4805,33 @@ def ai_tool_preset_delete(preset_id: str):
 
 @app.get("/api/ai-tool/detect")
 def ai_tool_detect(path: str, mode: str = "fast"):
-    target = _resolve_analysis_path(path)
-    mode = (mode or "fast").strip().lower()
-    mode = "full" if mode == "full" else "fast"
-    duration = _duration_seconds(target) or 0.0
-    seg = 30.0 if mode == "fast" else 60.0
-    if duration and duration < seg:
-        seg = max(5.0, duration)
-    start = 0.0
-    if duration and duration > seg:
-        start = min(30.0, duration / 3.0)
-        if start + seg > duration:
-            start = max(0.0, duration - seg)
+    t0 = time.time()
+    logger.info("[ai-tool][detect] start path=%s mode=%s", path, mode)
+    try:
+        target = _resolve_analysis_path(path)
+        mode = (mode or "fast").strip().lower()
+        mode = "full" if mode == "full" else "fast"
+        duration = _duration_seconds(target) or 0.0
+        seg = 30.0 if mode == "fast" else 60.0
+        if duration and duration < seg:
+            seg = max(5.0, duration)
+        start = 0.0
+        if duration and duration > seg:
+            start = min(30.0, duration / 3.0)
+            if start + seg > duration:
+                start = max(0.0, duration - seg)
 
-    full = _ai_astats_segment(target, start, seg, [])
-    hf = _ai_astats_segment(target, start, seg, ["highpass=f=8000"])
-    lf = _ai_astats_segment(target, start, seg, ["lowpass=f=80"])
-    lowmid = _ai_astats_segment(target, start, seg, ["highpass=f=150", "lowpass=f=350"])
-    presence = _ai_astats_segment(target, start, seg, ["highpass=f=2500", "lowpass=f=6000"])
+        full = _ai_astats_segment(target, start, seg, [])
+        hf = _ai_astats_segment(target, start, seg, ["highpass=f=8000"])
+        lf = _ai_astats_segment(target, start, seg, ["lowpass=f=80"])
+        lowmid = _ai_astats_segment(target, start, seg, ["highpass=f=150", "lowpass=f=350"])
+        presence = _ai_astats_segment(target, start, seg, ["highpass=f=2500", "lowpass=f=6000"])
+    except HTTPException:
+        logger.exception("[ai-tool][detect] error path=%s", path)
+        raise
+    except Exception as exc:
+        logger.exception("[ai-tool][detect] failed path=%s err=%s", path, exc)
+        raise HTTPException(status_code=500, detail="detect_failed")
 
     full_rms = full.get("rms_level") if isinstance(full, dict) else None
     peak = full.get("peak_level") if isinstance(full, dict) else None
@@ -4914,6 +4923,8 @@ def ai_tool_detect(path: str, mode: str = "fast"):
         "sr": info.get("sample_rate"),
         "channels": info.get("channels"),
     }
+    elapsed_ms = (time.time() - t0) * 1000.0
+    logger.info("[ai-tool][detect] ok path=%s ms=%.1f findings=%s", path, elapsed_ms, len(findings))
     return {"track": track, "metrics": metrics, "findings": findings}
 @app.get("/api/analyze-sources")
 def analyze_sources():
