@@ -3992,7 +3992,7 @@ def _ai_astats_segment(path: Path, start: float, duration: float, pre_filters: l
         if not line:
             continue
         low = line.lower()
-        if low == "overall":
+        if low.startswith("overall"):
             section = "overall"
             continue
         if low.startswith("channel:") or low.startswith("channel "):
@@ -4032,6 +4032,61 @@ def _ai_astats_segment(path: Path, start: float, duration: float, pre_filters: l
                 out["samples"] = None
     if out.get("peak_level") is not None and out.get("rms_level") is not None:
         out["crest_factor"] = out["peak_level"] - out["rms_level"]
+    return out
+
+def _ai_astats_full(path: Path, pre_filters: list[str] | None = None) -> dict:
+    want = "Peak_level+RMS_level+RMS_peak+Number_of_clipped_samples+Number_of_samples"
+    filters = list(pre_filters or [])
+    filters.append(f"astats=measure_overall={want}:measure_perchannel=none:reset=0")
+    filt = ",".join(filters)
+    cmd = [
+        FFMPEG_BIN, "-hide_banner", "-v", "verbose", "-nostats",
+        "-i", str(path),
+        "-af", filt,
+        "-f", "null", "-",
+    ]
+    r = run_cmd(cmd)
+    if r.returncode != 0:
+        return {}
+    txt = (r.stderr or "") + "\n" + (r.stdout or "")
+    out = {
+        "peak_level": None,
+        "rms_level": None,
+        "rms_peak": None,
+        "clipped_samples": 0,
+        "samples": None,
+    }
+    section = None
+    for raw in txt.splitlines():
+        line = raw.strip()
+        if "]" in line and line.startswith("["):
+            line = line.split("]", 1)[1].strip()
+        if not line:
+            continue
+        low = line.lower()
+        if low.startswith("overall"):
+            section = "overall"
+            continue
+        if low.startswith("channel:") or low.startswith("channel "):
+            section = "channel"
+            continue
+        if section != "overall":
+            continue
+        if ":" not in line:
+            continue
+        k, v = line.split(":", 1)
+        key = k.strip().lower().replace(" ", "_")
+        if key.endswith("_db"):
+            key = key[:-3]
+        m = re.match(r"^([-0-9\\.]+)", v.strip())
+        if not m:
+            continue
+        try:
+            num = float(m.group(1))
+        except Exception:
+            continue
+        if key in out:
+            out[key] = num
     return out
 
 @app.get("/api/analyze-source")
@@ -4387,6 +4442,12 @@ def analyze_noise_render(payload: dict = Body(...)):
     }
     codec = codec_map.get(suffix, "pcm_s16le")
     version_id, out_path = allocate_version_path(song_id, "noise_clean", suffix, filename="cleaned")
+    song = library_store.get_song(song_id)
+    title = song.get("title") if isinstance(song, dict) else "Noise Removed"
+    safe_title = safe_filename(title) or "Noise_Removed"
+    tag = "noise_profile" if mode == "solo" else "noise_removed"
+    base_name = safe_filename(f"{safe_title}__{tag}_{version_id}") or safe_title
+    out_path = out_path.with_name(f"{base_name}{suffix}")
     cmd = [
         FFMPEG_BIN, "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(target),
@@ -4666,6 +4727,11 @@ def ai_tool_render(payload: dict = Body(...)):
         suffix,
         filename=tool_suffix,
     )
+    song = library_store.get_song(song_id)
+    title = song.get("title") if isinstance(song, dict) else "AI Toolkit"
+    safe_title = safe_filename(title) or "AI_Toolkit"
+    base_name = safe_filename(f"{safe_title}__{tool_suffix}_{version_id}") or safe_title
+    out_path = out_path.with_name(f"{base_name}{suffix}")
     cmd = [
         FFMPEG_BIN, "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(target),
@@ -4712,6 +4778,19 @@ def ai_tool_render_combo(payload: dict = Body(...)):
     }
     codec = codec_map.get(suffix, "pcm_s16le")
     version_id, out_path = allocate_version_path(song_id, "aitk", suffix, filename="ai-cleaned")
+    song = library_store.get_song(song_id)
+    title = song.get("title") if isinstance(song, dict) else "AI Toolkit"
+    safe_title = safe_filename(title) or "AI_Toolkit"
+    enabled_tools = []
+    for key, val in settings.items():
+        if not isinstance(val, dict):
+            continue
+        if val.get("enabled") is False:
+            continue
+        enabled_tools.append(str(key).replace("ai_", ""))
+    tools_tag = "_".join(enabled_tools) if enabled_tools else "aitk"
+    base_name = safe_filename(f"{safe_title}__{tools_tag}_{version_id}") or safe_title
+    out_path = out_path.with_name(f"{base_name}{suffix}")
     cmd = [
         FFMPEG_BIN, "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(target),
@@ -4821,11 +4900,12 @@ def ai_tool_detect(path: str, mode: str = "fast"):
             if start + seg > duration:
                 start = max(0.0, duration - seg)
 
-        full = _ai_astats_segment(target, start, seg, [])
-        hf = _ai_astats_segment(target, start, seg, ["highpass=f=8000"])
-        lf = _ai_astats_segment(target, start, seg, ["lowpass=f=80"])
-        lowmid = _ai_astats_segment(target, start, seg, ["highpass=f=150", "lowpass=f=350"])
-        presence = _ai_astats_segment(target, start, seg, ["highpass=f=2500", "lowpass=f=6000"])
+    full = _ai_astats_segment(target, start, seg, [])
+    hf = _ai_astats_segment(target, start, seg, ["highpass=f=8000"])
+    lf = _ai_astats_segment(target, start, seg, ["lowpass=f=80"])
+    lowmid = _ai_astats_segment(target, start, seg, ["highpass=f=150", "lowpass=f=350"])
+    presence = _ai_astats_segment(target, start, seg, ["highpass=f=2500", "lowpass=f=6000"])
+    full_song = _ai_astats_full(target, [])
     except HTTPException:
         logger.exception("[ai-tool][detect] error path=%s", path)
         raise
@@ -4837,6 +4917,19 @@ def ai_tool_detect(path: str, mode: str = "fast"):
     peak = full.get("peak_level") if isinstance(full, dict) else None
     crest = full.get("crest_factor") if isinstance(full, dict) else None
     clipped = full.get("clipped_samples") if isinstance(full, dict) else 0
+
+    full_peak = full_song.get("peak_level") if isinstance(full_song, dict) else None
+    full_rms_level = full_song.get("rms_level") if isinstance(full_song, dict) else None
+    full_crest = full_song.get("crest_factor") if isinstance(full_song, dict) else None
+    full_clipped = full_song.get("clipped_samples") if isinstance(full_song, dict) else 0
+    logger.info(
+        "[ai-tool][detect] full_astats duration=%.2fs peak=%s rms=%s crest=%s clipped=%s",
+        duration,
+        f"{full_peak:.2f}" if isinstance(full_peak, (int, float)) else "n/a",
+        f"{full_rms_level:.2f}" if isinstance(full_rms_level, (int, float)) else "n/a",
+        f"{full_crest:.2f}" if isinstance(full_crest, (int, float)) else "n/a",
+        full_clipped if isinstance(full_clipped, int) else "n/a",
+    )
 
     hf_ratio = _ai_db_ratio(hf.get("rms_level") if isinstance(hf, dict) else None, full_rms)
     lf_ratio = _ai_db_ratio(lf.get("rms_level") if isinstance(lf, dict) else None, full_rms)
@@ -4891,27 +4984,30 @@ def ai_tool_detect(path: str, mode: str = "fast"):
         })
 
     clip_sev = 0.0
-    if isinstance(clipped, int) and clipped > 0:
+    if isinstance(full_clipped, int) and full_clipped > 0:
         clip_sev = 0.95
-    if isinstance(peak, (int, float)):
-        if peak > -0.2:
+    if isinstance(full_peak, (int, float)):
+        if full_peak > -1.2:
             clip_sev = max(clip_sev, 0.7)
-        elif peak > -0.8:
-            clip_sev = max(clip_sev, 0.4)
-    if isinstance(crest, (int, float)):
-        if crest < 6.0:
+    if isinstance(full_crest, (int, float)) and isinstance(full_rms_level, (int, float)):
+        if full_crest < 10.0 and full_rms_level > -16.0:
             clip_sev = max(clip_sev, 0.85)
-        elif crest < 7.5:
-            clip_sev = max(clip_sev, 0.65)
-        elif crest < 9.0:
-            clip_sev = max(clip_sev, 0.4)
+        elif full_crest < 11.0 and full_rms_level > -18.0:
+            clip_sev = max(clip_sev, 0.6)
     if clip_sev > 0:
+        if clip_sev >= 0.85:
+            suggested_target = -18.0
+        elif clip_sev >= 0.6:
+            suggested_target = -16.0
+        else:
+            suggested_target = -14.0
         findings.append({
             "id": "limited_clipping",
             "severity": round(clip_sev, 3),
             "confidence": _ai_confidence(clip_sev),
             "summary": "Likely clipping or over-limited dynamics.",
             "suggested_tool_id": "ai_platform_safe",
+            "suggested_value": suggested_target,
         })
 
     findings.sort(key=lambda f: f.get("severity", 0), reverse=True)
