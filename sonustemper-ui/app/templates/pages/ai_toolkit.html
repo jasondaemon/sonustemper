@@ -63,6 +63,15 @@
       <canvas id="aiSpectrumCanvas" class="ai-spectrum-canvas"></canvas>
     </div>
 
+    <div class="ai-reco" id="aiRecommendations">
+      <div class="ai-reco-head">
+        <div class="ai-reco-title">Recommendations</div>
+        <button type="button" class="btn ghost tiny" id="aiRecoApplyAll" disabled>Apply all</button>
+      </div>
+      <div class="ai-reco-empty muted" id="aiRecoEmpty">Load a track to see suggestions.</div>
+      <div class="ai-reco-list" id="aiRecoList"></div>
+    </div>
+
     <div class="ai-tools">
       <div class="ai-tools-hint">Play the track, move sliders to hear changes, then Save Cleaned Copy.</div>
       <div class="ai-tool-row" data-tool-id="ai_deglass">
@@ -71,8 +80,12 @@
           <div class="ai-tool-sub">Soften brittle top-end and reduce hiss.</div>
         </div>
         <div class="ai-tool-control">
-          <input type="range" min="0" max="100" value="35" data-role="strength">
-          <span class="value-pill" data-role="strength-value">35</span>
+          <label class="ai-tool-toggle">
+            <input type="checkbox" data-role="enabled">
+            <span>Enabled</span>
+          </label>
+          <input type="range" min="-6" max="3" step="0.1" value="0" data-role="value">
+          <span class="value-pill" data-role="value-pill">0.0 dB</span>
         </div>
       </div>
       <div class="ai-tool-row" data-tool-id="ai_vocal_smooth">
@@ -81,8 +94,12 @@
           <div class="ai-tool-sub">Tame harsh presence and sibilant edges.</div>
         </div>
         <div class="ai-tool-control">
-          <input type="range" min="0" max="100" value="30" data-role="strength">
-          <span class="value-pill" data-role="strength-value">30</span>
+          <label class="ai-tool-toggle">
+            <input type="checkbox" data-role="enabled">
+            <span>Enabled</span>
+          </label>
+          <input type="range" min="-5" max="3" step="0.1" value="0" data-role="value">
+          <span class="value-pill" data-role="value-pill">0.0 dB</span>
         </div>
       </div>
       <div class="ai-tool-row" data-tool-id="ai_bass_tight">
@@ -91,8 +108,12 @@
           <div class="ai-tool-sub">Clean sub rumble and low-mid mud.</div>
         </div>
         <div class="ai-tool-control">
-          <input type="range" min="0" max="100" value="40" data-role="strength">
-          <span class="value-pill" data-role="strength-value">40</span>
+          <label class="ai-tool-toggle">
+            <input type="checkbox" data-role="enabled">
+            <span>Enabled</span>
+          </label>
+          <input type="range" min="-6" max="6" step="0.1" value="0" data-role="value">
+          <span class="value-pill" data-role="value-pill">0.0 dB</span>
         </div>
       </div>
       <div class="ai-tool-row" data-tool-id="ai_transient_soften">
@@ -101,8 +122,12 @@
           <div class="ai-tool-sub">Soften clicky transients and harsh bite.</div>
         </div>
         <div class="ai-tool-control">
-          <input type="range" min="0" max="100" value="25" data-role="strength">
-          <span class="value-pill" data-role="strength-value">25</span>
+          <label class="ai-tool-toggle">
+            <input type="checkbox" data-role="enabled">
+            <span>Enabled</span>
+          </label>
+          <input type="range" min="-6" max="4" step="0.1" value="0" data-role="value">
+          <span class="value-pill" data-role="value-pill">0.0 dB</span>
         </div>
       </div>
       <div class="ai-tool-row" data-tool-id="ai_platform_safe">
@@ -111,8 +136,12 @@
           <div class="ai-tool-sub">Safer loudness for streaming without harsh clipping.</div>
         </div>
         <div class="ai-tool-control">
-          <input type="range" min="0" max="100" value="0" data-role="strength">
-          <span class="value-pill" data-role="strength-value">0</span>
+          <label class="ai-tool-toggle">
+            <input type="checkbox" data-role="enabled">
+            <span>Enabled</span>
+          </label>
+          <input type="range" min="-18" max="-10" step="0.1" value="-14" data-role="value">
+          <span class="value-pill" data-role="value-pill">-14.0 LUFS</span>
         </div>
       </div>
     </div>

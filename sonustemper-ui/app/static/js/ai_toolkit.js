@@ -4,31 +4,31 @@
       id: 'ai_deglass',
       title: 'Reduce AI Hiss / Glass',
       subtitle: 'Soften brittle top-end and reduce hiss.',
-      fallback: 35,
+      fallback: 0,
     },
     {
       id: 'ai_vocal_smooth',
       title: 'Smooth Harsh Vocals',
       subtitle: 'Tame harsh presence and sibilant edges.',
-      fallback: 30,
+      fallback: 0,
     },
     {
       id: 'ai_bass_tight',
       title: 'Tighten Bass / Remove Rumble',
       subtitle: 'Clean sub rumble and low-mid mud.',
-      fallback: 40,
+      fallback: 0,
     },
     {
       id: 'ai_transient_soften',
       title: 'Reduce Pumping / Over-Transients',
       subtitle: 'Soften clicky transients and harsh bite.',
-      fallback: 25,
+      fallback: 0,
     },
     {
       id: 'ai_platform_safe',
       title: 'Platform Ready (AI Safe Loudness)',
       subtitle: 'Safer loudness for streaming without harsh clipping.',
-      fallback: 0,
+      fallback: -14,
     },
   ];
 
@@ -77,7 +77,8 @@
       last: 0,
       flatCount: 0,
     },
-    strengths: {},
+    tools: {},
+    recommendations: [],
     resizing: null,
   };
   let libraryBrowser = null;
@@ -432,41 +433,85 @@
     }
     const ctx = state.audioCtx;
     if (!ctx) return;
-    const s = state.strengths;
-    const deglass = (s.ai_deglass || 0) / 100;
-    const vocal = (s.ai_vocal_smooth || 0) / 100;
-    const bass = (s.ai_bass_tight || 0) / 100;
-    const trans = (s.ai_transient_soften || 0) / 100;
-    const platform = (s.ai_platform_safe || 0) / 100;
+    const deglass = ensureToolState('ai_deglass');
+    const vocal = ensureToolState('ai_vocal_smooth');
+    const bass = ensureToolState('ai_bass_tight');
+    const trans = ensureToolState('ai_transient_soften');
+    const platform = ensureToolState('ai_platform_safe');
 
-    const hpFreq = 25 + 30 * bass;
-    setParam(state.nodes.bassHp.frequency, hpFreq);
-    setParam(state.nodes.bassMud.gain, -3 * bass);
+    if (deglass.enabled) {
+      setParam(state.nodes.deglassShelf.gain, deglass.value);
+      if (deglass.value <= -2) {
+        const lp = 20000 - (Math.min(6, Math.abs(deglass.value)) - 2) / 4 * 6000;
+        setParam(state.nodes.deglassLp.frequency, Math.max(14000, lp));
+      } else {
+        setParam(state.nodes.deglassLp.frequency, 20000);
+      }
+    } else {
+      setParam(state.nodes.deglassShelf.gain, 0);
+      setParam(state.nodes.deglassLp.frequency, 20000);
+    }
 
-    setParam(state.nodes.vocalSmooth.gain, -4 * vocal);
-    const sBoost = Math.max(0, (s.ai_vocal_smooth || 0) - 60) / 40;
-    setParam(state.nodes.sibilant.gain, -2 * sBoost);
+    if (vocal.enabled) {
+      setParam(state.nodes.vocalSmooth.gain, vocal.value);
+      if (vocal.value <= -3) {
+        const extra = Math.min(2, Math.abs(vocal.value) - 3);
+        setParam(state.nodes.sibilant.gain, -0.5 - extra);
+      } else {
+        setParam(state.nodes.sibilant.gain, 0);
+      }
+    } else {
+      setParam(state.nodes.vocalSmooth.gain, 0);
+      setParam(state.nodes.sibilant.gain, 0);
+    }
 
-    setParam(state.nodes.deglassShelf.gain, -4 * deglass);
-    const lpFreq = deglass > 0.3 ? 18000 - 3000 * ((deglass - 0.3) / 0.7) : 20000;
-    setParam(state.nodes.deglassLp.frequency, lpFreq);
+    if (bass.enabled) {
+      if (bass.value < 0) {
+        const hp = 30 + (Math.min(6, Math.abs(bass.value)) / 6) * 40;
+        setParam(state.nodes.bassHp.frequency, hp);
+        setParam(state.nodes.bassMud.gain, -3 * (Math.abs(bass.value) / 6));
+      } else {
+        const hp = 25 + (bass.value / 6) * 10;
+        setParam(state.nodes.bassHp.frequency, hp);
+        setParam(state.nodes.bassMud.gain, 0);
+      }
+    } else {
+      setParam(state.nodes.bassHp.frequency, 25);
+      setParam(state.nodes.bassMud.gain, 0);
+    }
 
-    const transThreshold = -18 - (6 * trans);
-    const transRatio = 2 + trans;
-    setParam(state.nodes.transientComp.threshold, transThreshold);
-    setParam(state.nodes.transientComp.ratio, transRatio);
+    if (trans.enabled) {
+      if (trans.value < 0) {
+        const depth = Math.min(6, Math.abs(trans.value));
+        setParam(state.nodes.transientComp.threshold, -18 - depth * 2);
+        setParam(state.nodes.transientComp.ratio, 2 + depth * 0.4);
+      } else {
+        const lift = Math.min(4, trans.value);
+        setParam(state.nodes.transientComp.threshold, -10 + lift * 1.5);
+        setParam(state.nodes.transientComp.ratio, 1.2 + lift * 0.2);
+      }
+    } else {
+      setParam(state.nodes.transientComp.threshold, -10);
+      setParam(state.nodes.transientComp.ratio, 1.2);
+    }
 
-    const platformThreshold = -14 - (8 * platform);
-    const platformRatio = 2 + platform * 1.2;
-    setParam(state.nodes.platformComp.threshold, platformThreshold);
-    setParam(state.nodes.platformComp.ratio, platformRatio);
-
-    const gainDb = -3 * platform;
-    const gain = Math.pow(10, gainDb / 20);
-    setParam(state.nodes.outputGain.gain, gain);
+    if (platform.enabled) {
+      const delta = platform.value - (-14);
+      const gainDb = Math.max(-6, Math.min(6, delta));
+      const gain = Math.pow(10, gainDb / 20);
+      setParam(state.nodes.outputGain.gain, gain);
+      const intensity = Math.max(0, Math.min(8, (platform.value + 14)));
+      setParam(state.nodes.platformComp.threshold, -14 + intensity * 1.2);
+      setParam(state.nodes.platformComp.ratio, 2 + intensity * 0.2);
+    } else {
+      setParam(state.nodes.outputGain.gain, 1);
+      setParam(state.nodes.platformComp.threshold, -14);
+      setParam(state.nodes.platformComp.ratio, 2);
+    }
     if (aiEngineDebug) {
-      const deglassDb = -4 * deglass;
-      aiEngineDebug.textContent = `Deglass shelf: ${deglassDb.toFixed(2)} dB`;
+      const deglassMsg = deglass.enabled ? `${deglass.value.toFixed(1)} dB` : 'off';
+      const platformMsg = platform.enabled ? `${platform.value.toFixed(1)} LUFS` : 'off';
+      aiEngineDebug.textContent = `Deglass: ${deglassMsg} | Loudness target: ${platformMsg}`;
     }
   }
 
@@ -477,12 +522,11 @@
     const maxF = 20000;
     const logMin = Math.log10(minF);
     const logMax = Math.log10(maxF);
-    const s = state.strengths;
-    const deglass = (s.ai_deglass || 0) / 100;
-    const vocal = (s.ai_vocal_smooth || 0) / 100;
-    const bass = (s.ai_bass_tight || 0) / 100;
-    const trans = (s.ai_transient_soften || 0) / 100;
-    const platform = (s.ai_platform_safe || 0) / 100;
+    const deglass = ensureToolState('ai_deglass');
+    const vocal = ensureToolState('ai_vocal_smooth');
+    const bass = ensureToolState('ai_bass_tight');
+    const trans = ensureToolState('ai_transient_soften');
+    const platform = ensureToolState('ai_platform_safe');
     const range = 6;
 
     const gauss = (x, sigma) => Math.exp(-(x * x) / (2 * sigma * sigma));
@@ -492,28 +536,46 @@
       const f = Math.pow(10, logMin + (logMax - logMin) * t);
       let db = 0;
 
-      const hp = 25 + 30 * bass;
-      if (f < hp && bass > 0) {
-        db += -3 * (1 - f / hp) * bass;
-      }
-      db += -3 * bass * gauss(Math.log2(f / 220), 0.6);
-
-      db += -4 * vocal * gauss(Math.log2(f / 4500), 0.5);
-      if ((s.ai_vocal_smooth || 0) > 60) {
-        const extra = ((s.ai_vocal_smooth || 0) - 60) / 40;
-        db += -2 * extra * gauss(Math.log2(f / 7500), 0.45);
-      }
-
-      const shelf = 1 / (1 + Math.exp(-5 * Math.log2(f / 11000)));
-      db += -4 * deglass * shelf;
-      if (deglass > 0.3 && f > 15000) {
-        db += -2 * (deglass - 0.3);
+      if (bass.enabled) {
+        if (bass.value < 0) {
+          const hp = 30 + (Math.min(6, Math.abs(bass.value)) / 6) * 40;
+          if (f < hp) {
+            db += -3 * (1 - f / hp) * (Math.abs(bass.value) / 6);
+          }
+          db += -3 * (Math.abs(bass.value) / 6) * gauss(Math.log2(f / 220), 0.6);
+        } else if (bass.value > 0) {
+          db += 2 * (bass.value / 6) * gauss(Math.log2(f / 90), 0.5);
+        }
       }
 
-      db += -2 * trans * gauss(Math.log2(f / 3200), 0.5);
-      db += -2 * trans * gauss(Math.log2(f / 8000), 0.6);
+      if (vocal.enabled) {
+        db += vocal.value * gauss(Math.log2(f / 4500), 0.5);
+        if (vocal.value <= -3) {
+          db += -(Math.abs(vocal.value) / 6) * gauss(Math.log2(f / 7500), 0.45);
+        }
+      }
 
-      db += -3 * platform;
+      if (deglass.enabled) {
+        const shelf = 1 / (1 + Math.exp(-5 * Math.log2(f / 11000)));
+        db += deglass.value * shelf;
+        if (deglass.value <= -2 && f > 15000) {
+          db += -2 * (Math.abs(deglass.value) / 6);
+        }
+      }
+
+      if (trans.enabled) {
+        if (trans.value < 0) {
+          db += -2 * (Math.abs(trans.value) / 6) * gauss(Math.log2(f / 3200), 0.5);
+          db += -1.5 * (Math.abs(trans.value) / 6) * gauss(Math.log2(f / 8000), 0.6);
+        } else if (trans.value > 0) {
+          db += 1.5 * (trans.value / 4) * gauss(Math.log2(f / 3200), 0.5);
+        }
+      }
+
+      if (platform.enabled) {
+        const delta = platform.value - (-14);
+        db += -(delta / 6);
+      }
 
       db = Math.max(-range, Math.min(range, db));
       const x = t * width;
@@ -619,31 +681,58 @@
     }
   }
 
-  function updateSliderRow(row) {
-    const slider = row.querySelector('[data-role="strength"]');
-    const label = row.querySelector('[data-role="strength-value"]');
-    if (!slider || !label) return;
-    label.textContent = slider.value;
+  function formatDb(value) {
+    if (!Number.isFinite(value)) return '0.0 dB';
+    return `${value.toFixed(1)} dB`;
   }
 
-  function setToolStrength(id, value) {
-    const row = toolRows.find((r) => r.dataset.toolId === id);
+  function formatLufs(value) {
+    if (!Number.isFinite(value)) return '-14.0 LUFS';
+    return `${value.toFixed(1)} LUFS`;
+  }
+
+  function formatValue(toolId, value) {
+    if (toolId === 'ai_platform_safe') return formatLufs(value);
+    return formatDb(value);
+  }
+
+  function ensureToolState(toolId) {
+    if (!state.tools[toolId]) {
+      const def = toolDefs.find((tool) => tool.id === toolId);
+      state.tools[toolId] = {
+        enabled: false,
+        value: def ? def.fallback : 0,
+      };
+    }
+    return state.tools[toolId];
+  }
+
+  function updateToolRow(row) {
+    const toolId = row.dataset.toolId;
+    const slider = row.querySelector('[data-role="value"]');
+    const label = row.querySelector('[data-role="value-pill"]');
+    const enabled = row.querySelector('[data-role="enabled"]');
+    if (!slider || !label || !enabled) return;
+    const tool = ensureToolState(toolId);
+    tool.enabled = Boolean(enabled.checked);
+    tool.value = parseFloat(slider.value);
+    label.textContent = formatValue(toolId, tool.value);
+  }
+
+  function updateAllTools() {
+    toolRows.forEach((row) => updateToolRow(row));
+  }
+
+  function setToolValue(toolId, value, enabled) {
+    const row = toolRows.find((r) => r.dataset.toolId === toolId);
     if (!row) return;
-    const slider = row.querySelector('[data-role="strength"]');
-    if (!slider) return;
-    slider.value = String(value);
-    updateSliderRow(row);
-    state.strengths[id] = parseInt(slider.value || '0', 10) || 0;
-  }
-
-  function updateAllStrengths() {
-    toolRows.forEach((row) => {
-      const slider = row.querySelector('[data-role="strength"]');
-      if (!slider) return;
-      const val = parseInt(slider.value || '0', 10) || 0;
-      state.strengths[row.dataset.toolId] = val;
-      updateSliderRow(row);
-    });
+    const slider = row.querySelector('[data-role="value"]');
+    const label = row.querySelector('[data-role="value-pill"]');
+    const check = row.querySelector('[data-role="enabled"]');
+    if (slider) slider.value = String(value);
+    if (check && typeof enabled === 'boolean') check.checked = enabled;
+    if (label) label.textContent = formatValue(toolId, parseFloat(slider?.value || '0'));
+    updateToolRow(row);
   }
 
   function updateSpectrumOnce() {
@@ -652,17 +741,54 @@
     drawSpectrumFrame();
   }
 
+  function renderRecommendations(items) {
+    if (!aiRecoPanel || !aiRecoList || !aiRecoEmpty || !aiRecoApplyAll) return;
+    state.recommendations = Array.isArray(items) ? items : [];
+    aiRecoList.innerHTML = '';
+    if (!state.recommendations.length) {
+      aiRecoEmpty.hidden = false;
+      aiRecoApplyAll.disabled = true;
+      return;
+    }
+    aiRecoEmpty.hidden = true;
+    aiRecoApplyAll.disabled = false;
+    state.recommendations.forEach((item) => {
+      const tool = toolDefs.find((t) => t.id === item.toolId);
+      const row = document.createElement('div');
+      row.className = 'ai-reco-item';
+      row.innerHTML = `
+        <div class="ai-reco-meta">
+          <div class="ai-reco-summary">${item.summary || tool?.title || item.toolId}</div>
+          <div class="ai-reco-sub">Severity ${(item.severity || 0).toFixed(2)} · ${String(item.confidence || 'low')}</div>
+          <div class="ai-reco-sub">Suggested: ${formatValue(item.toolId, item.value)}</div>
+        </div>
+        <div class="ai-reco-actions">
+          <button type="button" class="btn ghost tiny" data-action="apply">Apply</button>
+        </div>
+      `;
+      row.querySelector('[data-action="apply"]')?.addEventListener('click', () => {
+        setToolValue(item.toolId, item.value, true);
+        updateAllTools();
+        updateFilters();
+        updateSpectrumOnce();
+      });
+      aiRecoList.appendChild(row);
+    });
+  }
+
   function applyDetectorDefaults(rel) {
     const defaults = {};
     toolDefs.forEach((tool) => {
       defaults[tool.id] = tool.fallback;
+      ensureToolState(tool.id);
     });
 
     const applyDefaults = () => {
-      Object.entries(defaults).forEach(([id, value]) => setToolStrength(id, value));
-      updateAllStrengths();
+      Object.entries(defaults).forEach(([id, value]) => setToolValue(id, value, false));
+      updateAllTools();
       updateFilters();
       updateSpectrumOnce();
+      renderRecommendations([]);
     };
 
     if (!rel) {
@@ -678,15 +804,26 @@
       })
       .then((data) => {
         const findings = Array.isArray(data.findings) ? data.findings : [];
-        findings.forEach((finding) => {
+        const suggestions = findings.slice(0, 3).map((finding) => {
           const toolId = finding.suggested_tool_id;
-          if (!toolId || !(toolId in defaults)) return;
           const severity = Number(finding.severity || 0);
-          const strength = Math.min(70, Math.max(0, Math.round(severity * 80)));
-          defaults[toolId] = Math.max(defaults[toolId], strength);
-        });
+          let value = 0;
+          if (toolId === 'ai_deglass') value = -1.5 - severity * 2.5;
+          if (toolId === 'ai_vocal_smooth') value = -1 - severity * 2.5;
+          if (toolId === 'ai_bass_tight') value = -1 - severity * 3;
+          if (toolId === 'ai_transient_soften') value = -0.5 - severity * 2.5;
+          if (toolId === 'ai_platform_safe') value = severity > 0.6 ? -16 : -14;
+          return {
+            toolId,
+            severity,
+            confidence: finding.confidence || 'low',
+            summary: finding.summary || '',
+            value,
+          };
+        }).filter(item => item.toolId);
         setClipRisk(hasClipRisk(data?.metrics?.fullband));
         applyDefaults();
+        renderRecommendations(suggestions);
       })
       .catch(() => {
         setClipRisk(false);
@@ -774,7 +911,7 @@
   }
 
   function updateStrengthFromUI() {
-    updateAllStrengths();
+    updateAllTools();
     buildAudioGraph();
     updateFilters();
     updateSpectrumOnce();
@@ -785,7 +922,8 @@
     if (aiSaveStatus) aiSaveStatus.textContent = 'Rendering cleaned copy...';
     const settings = {};
     toolDefs.forEach((tool) => {
-      settings[tool.id] = { strength: state.strengths[tool.id] || 0 };
+      const toolState = ensureToolState(tool.id);
+      settings[tool.id] = { enabled: toolState.enabled, value: toolState.value };
     });
     try {
       const res = await fetch('/api/ai-tool/render_combo', {
@@ -801,7 +939,7 @@
       const data = await res.json();
       if (state.selectedSongId && data.output_rel) {
         const activeTools = toolDefs
-          .filter((tool) => (state.strengths[tool.id] || 0) > 0)
+          .filter((tool) => ensureToolState(tool.id).enabled)
           .map((tool) => tool.title);
         const rel = data.output_rel;
         const format = (rel.split('.').pop() || '').toLowerCase();
@@ -917,17 +1055,37 @@
   }
 
   toolRows.forEach((row) => {
-    updateSliderRow(row);
-    const slider = row.querySelector('[data-role="strength"]');
-    if (!slider) return;
-    slider.addEventListener('input', () => {
-      updateSliderRow(row);
-      updateStrengthFromUI();
-    });
+    updateToolRow(row);
+    const slider = row.querySelector('[data-role="value"]');
+    const checkbox = row.querySelector('[data-role="enabled"]');
+    if (slider) {
+      slider.addEventListener('input', () => {
+        updateToolRow(row);
+        updateStrengthFromUI();
+      });
+    }
+    if (checkbox) {
+      checkbox.addEventListener('change', () => {
+        updateToolRow(row);
+        updateStrengthFromUI();
+      });
+    }
   });
 
   if (aiSaveBtn) {
     aiSaveBtn.addEventListener('click', saveCleanedCopy);
+  }
+
+  if (aiRecoApplyAll) {
+    aiRecoApplyAll.addEventListener('click', () => {
+      if (!state.recommendations.length) return;
+      state.recommendations.forEach((item) => {
+        setToolValue(item.toolId, item.value, true);
+      });
+      updateAllTools();
+      updateFilters();
+      updateSpectrumOnce();
+    });
   }
 
   if (aiLibraryBrowser && window.LibraryBrowser) {

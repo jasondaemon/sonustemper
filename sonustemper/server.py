@@ -3823,7 +3823,7 @@ def _ai_opt_float(opts: dict, key: str, default: float | None = None) -> float |
         return float(raw)
     return default
 
-def _ai_tool_filter_chain(tool_id: str, strength: int, options: dict | None) -> str:
+def _ai_tool_filter_chain(tool_id: str, value: float, options: dict | None) -> str:
     tool = (tool_id or "").strip().lower()
     if tool in {"original", "none", ""}:
         return ""
@@ -3831,86 +3831,75 @@ def _ai_tool_filter_chain(tool_id: str, strength: int, options: dict | None) -> 
         raise HTTPException(status_code=400, detail="invalid_tool")
     opts = options if isinstance(options, dict) else {}
     filters: list[str] = []
+    try:
+        value = float(value)
+    except Exception:
+        value = 0.0
 
     if tool == "ai_deglass":
-        lp_enabled = _ai_opt_bool(opts, "lp_enabled", True)
-        preserve_air = _ai_opt_bool(opts, "preserve_air", False)
-        lp_hz = _ai_opt_float(opts, "lp_hz")
-        if lp_hz is None:
-            lp_hz = 18000.0 - (20.0 * strength)
-        lp_hz = max(14000.0, min(20000.0, float(lp_hz)))
-        if lp_enabled:
-            filters.append(f"lowpass=f={lp_hz:.0f}")
         shelf_freq = _ai_opt_float(opts, "shelf_hz", 11000.0) or 11000.0
         shelf_freq = max(6000.0, min(18000.0, shelf_freq))
-        cut_db = -0.5 - (3.5 * (strength / 100.0))
-        if preserve_air:
-            cut_db *= 0.6
-        filters.append(f"treble=g={cut_db:.2f}:f={shelf_freq:.0f}:w=0.7")
+        filters.append(f"treble=g={value:.2f}:f={shelf_freq:.0f}:w=0.7")
+        if value <= -2.0:
+            lp_hz = 20000.0 - ((min(6.0, abs(value)) - 2.0) / 4.0) * 6000.0
+            lp_hz = max(14000.0, min(20000.0, lp_hz))
+            filters.append(f"lowpass=f={lp_hz:.0f}")
         afftdn = _ai_opt_float(opts, "afftdn_strength")
-        if afftdn is None:
-            afftdn = min(0.6, 0.1 + (strength / 100.0) * 0.5)
-        afftdn = max(0.0, min(1.0, afftdn))
-        if afftdn > 0.01:
+        if afftdn is None and value < 0:
+            afftdn = min(0.6, (abs(value) / 6.0) * 0.5)
+        afftdn = max(0.0, min(1.0, afftdn or 0.0))
+        if afftdn > 0.01 and value < 0:
             nr = 24.0 * afftdn
             filters.append(f"afftdn=nr={nr:.2f}:nf=-25")
 
     elif tool == "ai_vocal_smooth":
         center = _ai_opt_float(opts, "center_hz", 4500.0) or 4500.0
         center = max(2500.0, min(8000.0, center))
-        main_gain = -0.5 - (2.5 * (strength / 100.0))
-        filters.append(f"equalizer=f={center:.0f}:t=q:w=1.2:g={main_gain:.2f}")
-        s_cut = _ai_opt_bool(opts, "s_cut", False)
-        if s_cut:
+        filters.append(f"equalizer=f={center:.0f}:t=q:w=1.2:g={value:.2f}")
+        if value <= -3.0:
             s_freq = _ai_opt_float(opts, "s_hz", 7500.0) or 7500.0
             s_freq = max(5500.0, min(11000.0, s_freq))
-            s_gain = -0.5 - (1.5 * (strength / 100.0))
+            depth = min(1.0, (abs(value) - 3.0) / 3.0)
+            s_gain = -0.5 - (1.5 * depth)
             filters.append(f"equalizer=f={s_freq:.0f}:t=q:w=2.0:g={s_gain:.2f}")
-        afftdn = _ai_opt_float(opts, "afftdn_strength", 0.0) or 0.0
-        afftdn = max(0.0, min(1.0, afftdn))
-        if afftdn > 0.01:
-            nr = 20.0 * afftdn
-            filters.append(f"afftdn=nr={nr:.2f}:nf=-30")
 
     elif tool == "ai_bass_tight":
-        hp_hz = _ai_opt_float(opts, "hp_hz")
-        if hp_hz is None:
-            hp_hz = 30.0 + (20.0 * (strength / 100.0))
-        hp_hz = max(20.0, min(80.0, hp_hz))
-        filters.append(f"highpass=f={hp_hz:.0f}")
         mud_freq = _ai_opt_float(opts, "mud_hz", 220.0) or 220.0
         mud_freq = max(120.0, min(400.0, mud_freq))
-        mud_gain = -0.5 - (2.0 * (strength / 100.0))
-        filters.append(f"equalizer=f={mud_freq:.0f}:t=q:w=1.0:g={mud_gain:.2f}")
-        punch = _ai_opt_bool(opts, "punch", False)
-        if punch:
-            punch_gain = 0.5 + max(0.0, (45.0 - strength) / 45.0) * 1.0
-            punch_gain = max(0.5, min(1.5, punch_gain))
+        if value < 0:
+            hp_hz = 30.0 + (abs(value) / 6.0) * 50.0
+            hp_hz = max(30.0, min(80.0, hp_hz))
+            filters.append(f"highpass=f={hp_hz:.0f}")
+            mud_gain = -3.0 * (abs(value) / 6.0)
+            filters.append(f"equalizer=f={mud_freq:.0f}:t=q:w=1.0:g={mud_gain:.2f}")
+        elif value > 0:
+            hp_hz = 25.0 + (value / 6.0) * 10.0
+            filters.append(f"highpass=f={hp_hz:.0f}")
+            punch_gain = 3.0 * (value / 6.0)
             filters.append(f"bass=g={punch_gain:.2f}:f=90:w=0.7")
 
     elif tool == "ai_transient_soften":
-        keep_punch = _ai_opt_bool(opts, "keep_punch", False)
-        presence_gain = -0.3 - (1.2 * (strength / 100.0))
-        shelf_gain = -0.3 - (1.5 * (strength / 100.0))
-        filters.append(f"equalizer=f=3200:t=q:w=1.0:g={presence_gain:.2f}")
-        filters.append(f"treble=g={shelf_gain:.2f}:f=8000:w=0.7")
-        if not keep_punch:
-            ratio = 1.4 + (1.6 * (strength / 100.0))
-            threshold = -18.0 - (6.0 * (strength / 100.0))
+        if value < 0:
+            depth = min(6.0, abs(value))
+            presence_gain = -0.3 - (1.2 * (depth / 6.0))
+            shelf_gain = -0.3 - (1.5 * (depth / 6.0))
+            filters.append(f"equalizer=f=3200:t=q:w=1.0:g={presence_gain:.2f}")
+            filters.append(f"treble=g={shelf_gain:.2f}:f=8000:w=0.7")
+            ratio = 1.8 + (depth / 6.0) * 1.2
+            threshold = -18.0 - (depth / 6.0) * 6.0
             filters.append(f"acompressor=threshold={threshold:.1f}dB:ratio={ratio:.2f}:attack=20:release=250:makeup=0")
+        elif value > 0:
+            lift = min(4.0, value)
+            presence_gain = 1.5 * (lift / 4.0)
+            filters.append(f"equalizer=f=3200:t=q:w=1.0:g={presence_gain:.2f}")
 
     elif tool == "ai_platform_safe":
-        preset = (opts.get("preset") or "streaming").strip().lower()
-        if preset in {"dynamic", "dynamic_preserve", "preserve"}:
-            target_i = -16.0
-            tp = -1.2
-        elif preset in {"youtube", "yt"}:
-            target_i = -14.0
+        target_i = max(-18.0, min(-10.0, value))
+        tp = -1.2
+        if target_i > -12.0:
             tp = -1.0
-        else:
-            target_i = -14.0
-            tp = -1.2
-        tp = max(-2.0, tp - (0.4 * (strength / 100.0)))
+        if target_i <= -16.0:
+            tp = -1.4
         filters.append(f"loudnorm=I={target_i:.1f}:TP={tp:.1f}:LRA=11")
         limit = math.pow(10.0, tp / 20.0)
         limit = max(0.0625, min(1.0, limit))
@@ -3932,12 +3921,18 @@ def _ai_tool_combo_chain(settings: dict | None) -> str:
     for tool_id in order:
         entry = settings.get(tool_id, {})
         if not isinstance(entry, dict):
-            entry = {"strength": entry}
-        strength = _ai_tool_strength(entry.get("strength"), 0)
-        if strength <= 0:
+            entry = {"value": entry}
+        enabled = entry.get("enabled")
+        if enabled is False:
+            continue
+        value = entry.get("value")
+        if value is None:
+            value = entry.get("strength")
+            value = float(value) if isinstance(value, (int, float)) else 0.0
+        if value == 0 and tool_id != "ai_platform_safe":
             continue
         options = entry.get("options") if isinstance(entry.get("options"), dict) else {}
-        chain = _ai_tool_filter_chain(tool_id, strength, options)
+        chain = _ai_tool_filter_chain(tool_id, value, options)
         if chain:
             chains.append(chain)
     return ",".join(chains)
@@ -4573,7 +4568,14 @@ def ai_tool_info(path: str):
 def ai_tool_preview(payload: dict = Body(...)):
     path = payload.get("path")
     tool_id = payload.get("tool_id")
-    strength = _ai_tool_strength(payload.get("strength"), 30)
+    enabled = payload.get("enabled")
+    value = payload.get("value")
+    if value is None:
+        value = _ai_tool_strength(payload.get("strength"), 0)
+    try:
+        value = float(value)
+    except Exception:
+        value = 0.0
     options = payload.get("options") if isinstance(payload.get("options"), dict) else {}
     target = _resolve_analysis_path(path)
     preview_len = payload.get("preview_len_sec")
@@ -4585,7 +4587,9 @@ def ai_tool_preview(payload: dict = Body(...)):
         preview_start = max(0.0, float(focus) - preview_len * 0.5)
     else:
         preview_start = 0.0
-    chain = _ai_tool_filter_chain(tool_id, strength, options)
+    chain = ""
+    if enabled is not False:
+        chain = _ai_tool_filter_chain(tool_id, value, options)
     AI_TOOL_PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
     preview_id = uuid.uuid4().hex
     out_path = AI_TOOL_PREVIEW_DIR / f"{preview_id}.mp3"
@@ -4628,10 +4632,19 @@ def ai_tool_render(payload: dict = Body(...)):
     path = payload.get("path")
     song_id = (payload.get("song_id") or "").strip()
     tool_id = (payload.get("tool_id") or "").strip().lower()
-    strength = _ai_tool_strength(payload.get("strength"), 30)
+    enabled = payload.get("enabled")
+    value = payload.get("value")
+    if value is None:
+        value = _ai_tool_strength(payload.get("strength"), 0)
+    try:
+        value = float(value)
+    except Exception:
+        value = 0.0
     options = payload.get("options") if isinstance(payload.get("options"), dict) else {}
     target = _resolve_analysis_path(path)
-    chain = _ai_tool_filter_chain(tool_id, strength, options)
+    chain = ""
+    if enabled is not False:
+        chain = _ai_tool_filter_chain(tool_id, value, options)
     if not song_id:
         raise HTTPException(status_code=400, detail="missing_song_id")
     suffix = target.suffix.lower() if target.suffix else ".wav"
