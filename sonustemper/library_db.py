@@ -1178,6 +1178,43 @@ def delete_version(song_id: str, version_id: str) -> tuple[bool, list[str]]:
     return True, rels
 
 
+def remove_rendition(song_id: str, version_id: str, rel: str) -> tuple[bool, list[str], str | None]:
+    init_db()
+    if not rel:
+        return False, [], "missing_rel"
+    removed: list[str] = []
+    with _WRITE_LOCK:
+        conn = _connect()
+        try:
+            row = conn.execute(
+                "SELECT version_id FROM versions WHERE song_id = ? AND version_id = ?",
+                (song_id, version_id),
+            ).fetchone()
+            if not row:
+                return False, [], "version_not_found"
+            renditions = conn.execute(
+                "SELECT rel FROM renditions WHERE version_id = ?",
+                (version_id,),
+            ).fetchall()
+            if len(renditions) <= 1:
+                return False, [], "last_rendition"
+            deleted = conn.execute(
+                "DELETE FROM renditions WHERE version_id = ? AND rel = ?",
+                (version_id, rel),
+            )
+            if deleted.rowcount == 0:
+                return False, [], "rendition_not_found"
+            conn.execute(
+                "UPDATE versions SET updated_at = ? WHERE version_id = ?",
+                (_now_iso(), version_id),
+            )
+            conn.commit()
+            removed.append(rel)
+        finally:
+            conn.close()
+    return True, removed, None
+
+
 def promote_version(version_id: str) -> bool:
     init_db()
     now = _now_iso()

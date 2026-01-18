@@ -4,40 +4,74 @@
 {% block subtitle %}Manage songs and mastered versions.{% endblock %}
 {% block sidebar %}{% endblock %}
 {% block content %}
-  <div class="files-grid">
-    <div class="card files-panel">
-      <div class="card-head">
-        <div>
-          <div class="card-title">Library Manager</div>
-          <div class="muted">Select songs or versions for bulk actions.</div>
+  <div class="files-layout">
+    <div class="files-left">
+      <div class="card files-panel">
+        <div class="card-head">
+          <div>
+            <div class="card-title">File Management</div>
+            <div class="muted">Select songs, versions, or formats for bulk actions.</div>
+          </div>
+          <div class="files-bulk-actions">
+            <button type="button" class="btn danger tiny" id="filesDeleteSelected" disabled>Delete Selected</button>
+            <button type="button" class="btn ghost tiny" id="filesDownloadSelected" disabled>Download Selected</button>
+            <button type="button" class="btn danger tiny" id="filesDeleteAll">Delete All</button>
+          </div>
         </div>
-        <div class="files-bulk-actions">
-          <button type="button" class="btn danger tiny" id="filesDeleteSelected" disabled>Delete Selected</button>
-          <button type="button" class="btn ghost tiny" id="filesDownloadSelected" disabled>Download Selected</button>
-          <button type="button" class="btn danger tiny" id="filesDeleteAll">Delete All</button>
+        <div class="files-library-controls">
+          <input type="search" id="filesSearch" placeholder="Search songs or versions" aria-label="Search library">
+          <input type="file" id="filesUploadInput" accept=".wav,.mp3,.flac,.aiff,.aif,.m4a,.ogg,.aac" multiple hidden>
+          <button type="button" class="btn ghost tiny" id="filesRefresh">Refresh</button>
+          <button type="button" class="btn success tiny" id="filesUploadBtn">Upload Songs</button>
+          <button type="button" class="btn success tiny" id="filesSync">Scan &amp; Import</button>
         </div>
+        <div class="muted files-sync-status" id="filesSyncStatus"></div>
+        <div id="filesLibraryList" class="files-library-list"></div>
       </div>
-      <div class="files-library-controls">
-        <input type="search" id="filesSearch" placeholder="Search songs or versions" aria-label="Search library">
-        <button type="button" class="btn ghost tiny" id="filesRefresh">Refresh</button>
-        <button type="button" class="btn success tiny" id="filesSync">Scan &amp; Import</button>
-      </div>
-      <div class="muted files-sync-status" id="filesSyncStatus"></div>
-      <div id="filesLibraryList" class="files-library-list"></div>
-    </div>
-    <div class="card files-detail-panel">
-      <div class="card-head">
-        <div>
-          <div class="card-title">Details</div>
+      <div class="card files-detail-panel">
+        <div class="card-head">
+          <div>
+            <div class="card-title">Selected Item</div>
+            <div class="muted">Details, playback, and utilities.</div>
+          </div>
+        </div>
+        <div id="filesDetailBody" class="files-detail-body">
           <div class="muted">Select a song or version to view details.</div>
         </div>
       </div>
-      <div id="filesDetailBody" class="files-detail-body">
-        <div class="muted">Select a song or version to view details.</div>
+    </div>
+    <div class="files-right">
+      <div class="card files-browser-panel">
+        <div class="card-head">
+          <div>
+            <div class="card-title">Song Library</div>
+            <div class="muted">Browse the library and open items.</div>
+          </div>
+        </div>
+        <div id="filesLibraryBrowser" class="library-browser-container" data-module="files"></div>
       </div>
+    </div>
+  </div>
+
+  <div class="files-visualizer" id="filesVisualizer" hidden>
+    <div class="files-visualizer-backdrop"></div>
+    <div class="files-visualizer-panel" role="dialog" aria-modal="true">
+      <div class="files-visualizer-head">
+        <div class="files-visualizer-title">Visualizer</div>
+        <div class="files-visualizer-menu">
+          <select id="filesVisualizerMode">
+            <option value="osc">Oscilloscope</option>
+            <option value="bars">Frequency Bars</option>
+            <option value="circle">Circle Pulse</option>
+          </select>
+          <button type="button" class="btn ghost tiny" id="filesVisualizerClose">Close</button>
+        </div>
+      </div>
+      <canvas id="filesVisualizerCanvas"></canvas>
     </div>
   </div>
 {% endblock %}
 {% block scripts %}
+  <script src="/static/js/library_browser.js"></script>
   <script src="/static/js/files_manager.js"></script>
 {% endblock %}

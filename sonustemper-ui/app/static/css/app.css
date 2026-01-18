@@ -893,10 +893,16 @@ h1{margin:0;font-size:24px;}
   height:100%;
   display:block;
 }
-.files-grid{
-  display:grid;
-  grid-template-columns:minmax(0, 1fr) minmax(0, 1fr);
+.files-layout{
+  display:flex;
   gap:16px;
+  align-items:flex-start;
+}
+.files-left,
+.files-right{
+  flex:1 1 0;
+  min-width:0;
+  width:50%;
 }
 .files-panel,
 .files-detail-panel{
@@ -934,6 +940,9 @@ h1{margin:0;font-size:24px;}
 }
 .files-row--version{
   margin-left:22px;
+}
+.files-row--rendition{
+  margin-left:44px;
 }
 .files-row.is-active{
   box-shadow:inset 0 0 0 1px rgba(255,138,61,0.3);
@@ -975,6 +984,78 @@ h1{margin:0;font-size:24px;}
 .files-row-spacer{
   width:22px;
   height:22px;
+}
+.files-row-spacer--deep{
+  width:36px;
+}
+.files-row-title--rendition{
+  font-size:11px;
+  font-weight:500;
+}
+.files-sync-status{
+  min-height:18px;
+  margin-bottom:6px;
+}
+.files-history-list{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  padding:8px 0 0;
+}
+.files-history-row{
+  font-size:12px;
+  color:var(--muted);
+}
+.files-visualizer{
+  position:fixed;
+  inset:0;
+  z-index:2200;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.files-visualizer[hidden]{
+  display:none;
+}
+.files-visualizer-backdrop{
+  position:absolute;
+  inset:0;
+  background:rgba(6,10,15,0.75);
+}
+.files-visualizer-panel{
+  position:relative;
+  z-index:2;
+  width:min(90vw, 960px);
+  height:min(70vh, 560px);
+  background:#0f151d;
+  border:1px solid var(--line);
+  border-radius:16px;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+.files-visualizer-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:12px 16px;
+  border-bottom:1px solid var(--line);
+}
+.files-visualizer-menu{
+  display:flex;
+  gap:8px;
+  align-items:center;
+}
+.files-visualizer-panel canvas{
+  flex:1 1 auto;
+  width:100%;
+  height:100%;
+  background:#0b1119;
+}
+.files-visualizer.is-idle .files-visualizer-menu,
+.files-visualizer.is-idle .files-visualizer-head{
+  opacity:0;
+  pointer-events:none;
 }
 .files-detail-body{
   display:flex;

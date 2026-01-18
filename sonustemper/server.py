@@ -33,6 +33,7 @@ from .storage import (
     LIBRARY_DIR,
     SONGS_DIR,
     PREVIEWS_DIR,
+    LIBRARY_IMPORT_DIR,
     ensure_data_roots,
     allocate_source_path,
     allocate_version_path,
@@ -2816,6 +2817,65 @@ def library_sync():
     return result
 
 
+@app.post("/api/library/import_scan")
+def library_import_scan(payload: dict = Body(default={})):
+    delete_after_import = payload.get("delete_after_import", True)
+    imported = 0
+    skipped = 0
+    errors: list[str] = []
+    import_dir = DATA_ROOT / "import"
+    try:
+        import_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        import_dir = LIBRARY_IMPORT_DIR
+    import_dir.mkdir(parents=True, exist_ok=True)
+    allowed = {".wav", ".mp3", ".flac", ".aiff", ".aif", ".m4a", ".aac", ".ogg"}
+    for fp in import_dir.iterdir():
+        if not fp.is_file():
+            continue
+        if fp.suffix.lower() not in allowed:
+            skipped += 1
+            continue
+        try:
+            song_id = new_song_id()
+            dest = allocate_source_path(song_id, fp.name)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if delete_after_import:
+                fp.replace(dest)
+            else:
+                shutil.copy2(fp, dest)
+            metrics = {}
+            analyzed = False
+            try:
+                metrics = _analyze_audio_metrics(dest)
+                analyzed = bool(metrics)
+            except Exception:
+                metrics = {}
+                analyzed = False
+            rel_path = rel_from_path(dest)
+            fmt = dest.suffix.lower().lstrip(".")
+            duration = metrics.get("duration_sec")
+            mtime = datetime.utcfromtimestamp(dest.stat().st_mtime).replace(microsecond=0).isoformat() + "Z"
+            library_store.upsert_song_for_source(
+                rel_path,
+                dest.stem,
+                duration,
+                fmt,
+                metrics,
+                analyzed,
+                song_id=song_id,
+                file_mtime_utc=mtime,
+            )
+            imported += 1
+        except Exception as exc:
+            errors.append(f"{fp.name}:{exc!r}")
+    return {
+        "imported": imported,
+        "skipped": skipped,
+        "errors": errors,
+    }
+
+
 @app.post("/api/library/use_as_source")
 def library_use_as_source(payload: dict = Body(...)):
     rel = (payload.get("path") or "").strip()
@@ -2936,6 +2996,26 @@ def library_delete_version(payload: dict = Body(...)):
         if target.exists() and target.is_file():
             target.unlink()
     return {"deleted": version_id}
+
+
+@app.post("/api/library/delete_rendition")
+def library_delete_rendition(payload: dict = Body(...)):
+    song_id = (payload.get("song_id") or "").strip()
+    version_id = (payload.get("version_id") or "").strip()
+    rel = (payload.get("rel") or "").strip()
+    if not song_id or not version_id or not rel:
+        raise HTTPException(status_code=400, detail="missing_fields")
+    deleted, rels, reason = library_store.remove_rendition(song_id, version_id, rel)
+    if not deleted:
+        raise HTTPException(status_code=400, detail=reason or "delete_failed")
+    for rel_path in rels:
+        try:
+            target = resolve_rel(rel_path)
+        except ValueError:
+            continue
+        if target.exists() and target.is_file():
+            target.unlink()
+    return {"deleted": rels}
 
 
 @app.post("/api/library/promote-version")
