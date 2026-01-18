@@ -36,6 +36,7 @@
   const aiLibraryUploadInput = document.getElementById('aiLibraryUploadInput');
   const aiSelectedName = document.getElementById('aiSelectedName');
   const aiSelectedMeta = document.getElementById('aiSelectedMeta');
+  const aiStatusList = document.getElementById('aiStatusList');
   const aiWaveform = document.getElementById('aiWaveform');
   const aiLiveScope = document.getElementById('aiLiveScope');
   const aiAudio = document.getElementById('aiAudio');
@@ -82,6 +83,8 @@
     resizing: null,
   };
   let libraryBrowser = null;
+  let statusLines = [];
+  let statusRenderPending = false;
 
   function formatTime(raw) {
     const secs = Number(raw);
@@ -122,6 +125,25 @@
   }
 
   function muteDryOutput() {}
+
+  function renderStatus() {
+    if (statusRenderPending) return;
+    statusRenderPending = true;
+    requestAnimationFrame(() => {
+      statusRenderPending = false;
+      if (!aiStatusList) return;
+      aiStatusList.textContent = statusLines.length ? statusLines.join('\n') : '(waiting)';
+      aiStatusList.scrollTop = aiStatusList.scrollHeight;
+    });
+  }
+
+  function addStatusLine(message) {
+    if (!message) return;
+    const ts = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    statusLines.push(`${ts} ${message}`);
+    if (statusLines.length > 200) statusLines = statusLines.slice(-200);
+    renderStatus();
+  }
 
   function drawScopeFrame() {
     if (!aiLiveScope || !state.scope.node) return;
@@ -717,6 +739,7 @@
     tool.enabled = Boolean(enabled.checked);
     tool.value = parseFloat(slider.value);
     label.textContent = formatValue(toolId, tool.value);
+    slider.disabled = !tool.enabled;
   }
 
   function updateAllTools() {
@@ -796,6 +819,10 @@
       applyDefaults();
       return;
     }
+    if (aiRecoEmpty) {
+      aiRecoEmpty.textContent = 'Analyzing…';
+      aiRecoEmpty.hidden = false;
+    }
 
     fetch(`/api/ai-tool/detect?path=${encodeURIComponent(rel)}&mode=fast`, { cache: 'no-store' })
       .then((res) => {
@@ -823,11 +850,18 @@
         }).filter(item => item.toolId);
         setClipRisk(hasClipRisk(data?.metrics?.fullband));
         applyDefaults();
+        if (!suggestions.length && aiRecoEmpty) {
+          aiRecoEmpty.textContent = 'No recommendations for this track.';
+        }
         renderRecommendations(suggestions);
       })
-      .catch(() => {
+      .catch((err) => {
         setClipRisk(false);
         applyDefaults();
+        if (aiRecoEmpty) {
+          aiRecoEmpty.textContent = 'Recommendations unavailable.';
+        }
+        console.warn('[ai_toolkit] detect failed', err);
       });
   }
 
@@ -896,16 +930,31 @@
     fd.append('file', file, file.name);
     const xhr = new XMLHttpRequest();
     return new Promise((resolve, reject) => {
+      addStatusLine('Upload: starting...');
       xhr.open('POST', '/api/analyze-upload', true);
       xhr.responseType = 'json';
+      let lastPct = -1;
+      xhr.upload.addEventListener('progress', (evt) => {
+        if (!evt.lengthComputable) return;
+        const pct = Math.floor((evt.loaded / evt.total) * 100);
+        if (pct >= lastPct + 10 || pct === 100) {
+          lastPct = pct;
+          addStatusLine(`Upload: ${pct}%`);
+        }
+      });
       xhr.addEventListener('load', () => {
         if (xhr.status >= 200 && xhr.status < 300) {
+          addStatusLine('Upload: complete.');
           resolve(xhr.response || {});
         } else {
+          addStatusLine('Upload: failed.');
           reject(new Error('upload_failed'));
         }
       });
-      xhr.addEventListener('error', () => reject(new Error('upload_failed')));
+      xhr.addEventListener('error', () => {
+        addStatusLine('Upload: failed.');
+        reject(new Error('upload_failed'));
+      });
       xhr.send(fd);
     });
   }
@@ -920,6 +969,30 @@
   async function saveCleanedCopy() {
     if (!state.selected?.rel) return;
     if (aiSaveStatus) aiSaveStatus.textContent = 'Rendering cleaned copy...';
+    addStatusLine('Save: rendering cleaned copy...');
+    if (!state.selectedSongId) {
+      try {
+        const res = await fetch('/api/library/import_source', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            path: state.selected.rel,
+            title: state.selected.name || 'AI Toolkit',
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          state.selectedSongId = data?.song?.song_id || null;
+        }
+      } catch (_err) {
+        state.selectedSongId = null;
+      }
+      if (!state.selectedSongId) {
+        if (aiSaveStatus) aiSaveStatus.textContent = 'Save failed (missing song).';
+        addStatusLine('Save failed: missing song.');
+        return;
+      }
+    }
     const settings = {};
     toolDefs.forEach((tool) => {
       const toolState = ensureToolState(tool.id);
@@ -962,6 +1035,8 @@
           throw new Error('library_register_failed');
         }
         if (libraryBrowser) libraryBrowser.reload();
+        addStatusLine('Save: registered in library.');
+        window.dispatchEvent(new CustomEvent('sonustemper:library-changed'));
       }
       if (aiSaveStatus) aiSaveStatus.textContent = 'Cleaned copy saved.';
       if (aiSaveResult) {
@@ -985,7 +1060,7 @@
       }
     } catch (_err) {
       if (aiSaveStatus) aiSaveStatus.textContent = 'Save failed.';
-      if (typeof showToast === 'function') showToast('Save failed');
+      addStatusLine('Save failed.');
     }
   }
 
@@ -1186,9 +1261,9 @@
             });
             browser.reload();
           }
-          if (typeof showToast === 'function') showToast('Upload complete');
+          addStatusLine('Upload: ready.');
         } catch (_err) {
-          if (typeof showToast === 'function') showToast('Upload failed');
+          addStatusLine('Upload: failed.');
         } finally {
           aiLibraryUploadInput.value = '';
         }
@@ -1209,7 +1284,7 @@
   }
 
   initWaveSurfer();
-  updateAllStrengths();
+  updateAllTools();
   updateFilters();
   updateSpectrumOnce();
   updateScopeOnce();
