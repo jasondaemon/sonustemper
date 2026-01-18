@@ -661,10 +661,10 @@
     });
   }
 
-  function ensureScrollHintEls(scrollEl){
-    if (!scrollEl) return null;
-    scrollEl.style.position = 'relative';
-    let left = scrollEl.querySelector('.scroll-hint-left');
+  function ensureScrollHintEls(scrollEl, host){
+    if (!scrollEl || !host) return null;
+    host.style.position = 'relative';
+    let left = host.querySelector('.scroll-hint-left');
     if (!left) {
       left = document.createElement('div');
       left.className = 'scroll-hint-left';
@@ -676,9 +676,9 @@
       left.style.pointerEvents = 'none';
       left.style.zIndex = '6';
       left.style.background = 'linear-gradient(90deg, rgba(11,15,20,0.9), rgba(11,15,20,0))';
-      scrollEl.appendChild(left);
+      host.appendChild(left);
     }
-    let right = scrollEl.querySelector('.scroll-hint-right');
+    let right = host.querySelector('.scroll-hint-right');
     if (!right) {
       right = document.createElement('div');
       right.className = 'scroll-hint-right';
@@ -690,7 +690,7 @@
       right.style.pointerEvents = 'none';
       right.style.zIndex = '6';
       right.style.background = 'linear-gradient(270deg, rgba(11,15,20,0.9), rgba(11,15,20,0))';
-      scrollEl.appendChild(right);
+      host.appendChild(right);
     }
     return { left, right };
   }
@@ -708,7 +708,7 @@
       const viewportWidth = getViewportWidth(wave);
       const scrollable = contentWidth > viewportWidth + 1;
       host.classList.toggle('is-scrollable', scrollable);
-      const hints = ensureScrollHintEls(scrollEl);
+      const hints = ensureScrollHintEls(scrollEl, host);
       if (!hints) return;
       const maxScroll = Math.max(0, contentWidth - viewportWidth);
       const show = zoomed && scrollable && maxScroll > 1;
