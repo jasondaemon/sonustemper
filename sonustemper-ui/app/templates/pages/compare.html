@@ -399,6 +399,8 @@
     };
     const postZoomWork = () => {
       if (viewMode === 'waveform') {
+        forceWaveRedraw(sourceWave);
+        forceWaveRedraw(processedWave);
         const nextContent = getContentWidth(sourceWave);
         const nextViewport = getViewportWidth(sourceWave);
         const maxScroll = Math.max(0, nextContent - nextViewport);
@@ -730,14 +732,18 @@
 
   function getContentWidth(wave){
     const scrollEl = getScrollEl(wave);
-    if (scrollEl && scrollEl.scrollWidth > (scrollEl.clientWidth + 1)) {
-      return scrollEl.scrollWidth;
-    }
     const wrapper = wave?.getWrapper?.();
     const duration = wave?.getDuration ? (wave.getDuration() || 0) : 0;
     const px = currentZoomPxPerSec || wave?.options?.minPxPerSec || fitMinPxPerSec;
-    const fallback = Math.max(wrapper?.clientWidth || 0, Math.floor(duration * px));
-    return fallback || 0;
+    const computed = Math.max(wrapper?.clientWidth || 0, Math.floor(duration * px));
+    if (scrollEl && scrollEl.scrollWidth) {
+      if (!computed) return scrollEl.scrollWidth;
+      const diff = Math.abs(scrollEl.scrollWidth - computed);
+      if (diff / computed < 0.1) {
+        return scrollEl.scrollWidth;
+      }
+    }
+    return computed || scrollEl?.scrollWidth || 0;
   }
 
   function getScrollLeft(wave){
