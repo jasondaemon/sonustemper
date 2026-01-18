@@ -50,6 +50,10 @@
   const aiSaveBtn = document.getElementById('aiSaveBtn');
   const aiSaveStatus = document.getElementById('aiSaveStatus');
   const aiSaveResult = document.getElementById('aiSaveResult');
+  const aiRecoPanel = document.getElementById('aiRecommendations');
+  const aiRecoList = document.getElementById('aiRecoList');
+  const aiRecoEmpty = document.getElementById('aiRecoEmpty');
+  const aiRecoApplyAll = document.getElementById('aiRecoApplyAll');
 
   const toolRows = Array.from(document.querySelectorAll('.ai-tool-row'));
 
@@ -874,32 +878,37 @@
       .then((data) => {
         if (reqId !== state.recoReqId) return;
         console.debug('detect response', data);
-        const findings = Array.isArray(data.findings) ? data.findings : [];
-        const suggestions = findings.slice(0, 3).map((finding) => {
-          const toolId = finding.suggested_tool_id;
-          const severity = Number(finding.severity || 0);
-          let value = 0;
-          if (toolId === 'ai_deglass') value = -1.5 - severity * 2.5;
-          if (toolId === 'ai_vocal_smooth') value = -1 - severity * 2.5;
-          if (toolId === 'ai_bass_tight') value = -1 - severity * 3;
-          if (toolId === 'ai_transient_soften') value = -0.5 - severity * 2.5;
-          if (toolId === 'ai_platform_safe') value = severity > 0.6 ? -16 : -14;
-          return {
-            toolId,
-            severity,
-            confidence: finding.confidence || 'low',
-            summary: finding.summary || '',
-            value,
-          };
-        }).filter(item => item.toolId);
-        setClipRisk(hasClipRisk(data?.metrics?.fullband));
-        applyDefaults();
-        renderRecommendations(suggestions);
-        if (aiRecoEmpty) {
-          aiRecoEmpty.textContent = suggestions.length ? '' : 'No recommendations for this track.';
-          aiRecoEmpty.hidden = !!suggestions.length;
+        try {
+          const findings = Array.isArray(data.findings) ? data.findings : [];
+          const suggestions = findings.slice(0, 3).map((finding) => {
+            const toolId = finding.suggested_tool_id;
+            const severity = Number(finding.severity || 0);
+            let value = 0;
+            if (toolId === 'ai_deglass') value = -1.5 - severity * 2.5;
+            if (toolId === 'ai_vocal_smooth') value = -1 - severity * 2.5;
+            if (toolId === 'ai_bass_tight') value = -1 - severity * 3;
+            if (toolId === 'ai_transient_soften') value = -0.5 - severity * 2.5;
+            if (toolId === 'ai_platform_safe') value = severity > 0.6 ? -16 : -14;
+            return {
+              toolId,
+              severity,
+              confidence: finding.confidence || 'low',
+              summary: finding.summary || '',
+              value,
+            };
+          }).filter(item => item.toolId);
+          setClipRisk(hasClipRisk(data?.metrics?.fullband));
+          applyDefaults();
+          renderRecommendations(suggestions);
+          if (aiRecoEmpty) {
+            aiRecoEmpty.textContent = suggestions.length ? '' : 'No recommendations for this track.';
+            aiRecoEmpty.hidden = !!suggestions.length;
+          }
+          addStatusLine(`Recommendations: ${suggestions.length ? `${suggestions.length} suggestion(s)` : 'none'}.`);
+        } catch (e) {
+          console.error('[ai_toolkit] reco render failed', e);
+          throw e;
         }
-        addStatusLine(`Recommendations: ${suggestions.length ? `${suggestions.length} suggestion(s)` : 'none'}.`);
       })
       .catch((err) => {
         if (reqId !== state.recoReqId) return;
