@@ -399,6 +399,8 @@
     };
     const postZoomWork = () => {
       if (viewMode === 'waveform') {
+        ensureWaveContentWidth(sourceWave);
+        ensureWaveContentWidth(processedWave);
         forceWaveRedraw(sourceWave);
         forceWaveRedraw(processedWave);
         const nextContent = getContentWidth(sourceWave);
@@ -722,12 +724,18 @@
   }
 
   function getScrollEl(wave){
-    return wave?.getScroll?.() || wave?.getWrapper?.()?.parentElement || null;
+    const raw = wave?.getScroll?.();
+    if (raw && typeof raw === 'object' && 'scrollLeft' in raw) return raw;
+    const wrapper = wave?.getWrapper?.();
+    if (wrapper?.parentElement) return wrapper.parentElement;
+    return null;
   }
 
   function getViewportWidth(wave){
     const scrollEl = getScrollEl(wave);
-    return scrollEl ? scrollEl.clientWidth : 0;
+    if (scrollEl && typeof scrollEl.clientWidth === 'number') return scrollEl.clientWidth;
+    const wrapper = wave?.getWrapper?.();
+    return wrapper?.clientWidth || 0;
   }
 
   function getContentWidth(wave){
@@ -736,7 +744,7 @@
     const duration = wave?.getDuration ? (wave.getDuration() || 0) : 0;
     const px = currentZoomPxPerSec || wave?.options?.minPxPerSec || fitMinPxPerSec;
     const computed = Math.max(wrapper?.clientWidth || 0, Math.floor(duration * px));
-    if (scrollEl && scrollEl.scrollWidth) {
+    if (scrollEl && typeof scrollEl.scrollWidth === 'number' && scrollEl.scrollWidth) {
       if (!computed) return scrollEl.scrollWidth;
       const diff = Math.abs(scrollEl.scrollWidth - computed);
       if (diff / computed < 0.1) {
@@ -746,14 +754,32 @@
     return computed || scrollEl?.scrollWidth || 0;
   }
 
+  function ensureWaveContentWidth(wave){
+    if (!wave || typeof wave.getWrapper !== 'function') return;
+    const wrapper = wave.getWrapper();
+    if (!wrapper) return;
+    const duration = wave.getDuration ? (wave.getDuration() || 0) : 0;
+    if (!duration) return;
+    const width = Math.max(wrapper.clientWidth || 0, Math.floor(duration * (currentZoomPxPerSec || fitMinPxPerSec)));
+    wrapper.style.width = `${width}px`;
+  }
+
   function getScrollLeft(wave){
     const scrollEl = getScrollEl(wave);
-    return scrollEl ? scrollEl.scrollLeft : 0;
+    if (scrollEl && typeof scrollEl.scrollLeft === 'number') return scrollEl.scrollLeft;
+    const raw = wave?.getScroll?.();
+    return typeof raw === 'number' ? raw : 0;
   }
 
   function setScrollLeft(wave, x){
     const scrollEl = getScrollEl(wave);
-    if (scrollEl) scrollEl.scrollLeft = x;
+    if (scrollEl && typeof scrollEl.scrollLeft === 'number') {
+      scrollEl.scrollLeft = x;
+      return;
+    }
+    if (typeof wave?.setScroll === 'function') {
+      wave.setScroll(x);
+    }
   }
 
   function getWaveScrollEl(wave){
