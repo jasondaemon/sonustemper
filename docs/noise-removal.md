@@ -31,12 +31,16 @@ Noise Removal isolates and reduces unwanted noise using presets or a marquee sel
 4) Save the cleaned song (creates a new version).
 5) Save as Preset if you want to reuse the settings.
 
+![voicing](img/nr-marquee.png)
+
 ## Controls and functions
 
 ### Inspection & diagnostics
 - **Metrics**: LUFS‑I, TP dBTP, LRA, crest, RMS, DR, noise floor.
 - **Spectrogram**: Frequency‑time view for locating hiss, hum, or broadband noise.
 - **Waveform**: Time‑domain context for selection placement.
+
+![spectrogram](img/nr-spectrogram.png)
 
 ### Preset workflow (left)
 - **Noise Filter Preset**: Select a preset (e.g., Gentle Denoise).
@@ -45,6 +49,8 @@ Noise Removal isolates and reduces unwanted noise using presets or a marquee sel
 - **High‑pass / Low‑pass**: Optional bounds on the processing.
 - **Preview**: Audition preset settings on the full song.
 - **Save Song**: Renders a cleaned version.
+
+![[presets]](img/nr-presets.png)
 
 ### Selected workflow (right)
 - **Marquee selection**: Select time + frequency region.
@@ -55,8 +61,12 @@ Noise Removal isolates and reduces unwanted noise using presets or a marquee sel
 - **Save Song**: Renders a cleaned version.
 - **Save as Preset**: Stores current settings as a user preset.
 
+![select](img/nr-select.png)
+
 ### Selection readout
 - Shows time range, frequency range, bandwidth, and clear selection action.
+
+![select-readout](img/nr-select-readout.png)
 
 > **Note:** Preset workflow applies across the full song; Selected workflow applies only within the marquee.
 
