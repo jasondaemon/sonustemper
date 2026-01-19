@@ -15,6 +15,7 @@ from fastapi import APIRouter, Request, HTTPException, Form
 from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sonustemper.tools import bundle_root, is_frozen
+from sonustemper.storage import DATA_ROOT
 from sonustemper import library_db as library_index
 
 # New tandem UI router (mounted at root).
@@ -27,7 +28,7 @@ def _static_url(path: str) -> str:
 
 TEMPLATES.env.globals["static_url"] = _static_url
 
-DATA_DIR = Path(os.getenv("DATA_DIR") or os.getenv("SONUSTEMPER_DATA_ROOT") or "/data")
+DATA_DIR = DATA_ROOT
 MASTER_IN_DIR = Path(os.getenv("MASTER_IN_DIR", str(DATA_DIR / "mastering" / "in")))
 MASTER_OUT_DIR = Path(os.getenv("MASTER_OUT_DIR", str(DATA_DIR / "mastering" / "out")))
 TAG_IN_DIR = Path(os.getenv("TAG_IN_DIR", str(DATA_DIR / "tagging" / "in")))
