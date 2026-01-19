@@ -50,6 +50,42 @@
   const voiceDeharshListen = document.getElementById('eqVoiceDeharshListen');
   let libraryBrowser = null;
 
+  const EQ_DEBUG = new URLSearchParams(window.location.search).get('debug') === '1'
+    || localStorage.getItem('st_eq_debug') === '1';
+  const SEND_UI_LOGS = EQ_DEBUG && (new URLSearchParams(window.location.search).get('debug_server') === '1'
+    || localStorage.getItem('st_eq_debug_server') === '1');
+
+  function sendUiLog(level, msg, data) {
+    if (!SEND_UI_LOGS) return;
+    try {
+      fetch('/api/ui-log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          level,
+          tag: 'EQ',
+          msg,
+          data: data || {},
+        }),
+      }).catch(() => {});
+    } catch (_) {}
+  }
+
+  function eqLog(...args) {
+    if (!EQ_DEBUG) return;
+    console.debug('[EQ]', ...args);
+    sendUiLog('debug', String(args[0] || ''), args[1]);
+  }
+  function eqWarn(...args) {
+    if (!EQ_DEBUG) return;
+    console.warn('[EQ]', ...args);
+    sendUiLog('warn', String(args[0] || ''), args[1]);
+  }
+  function eqErr(...args) {
+    console.error('[EQ]', ...args);
+    sendUiLog('error', String(args[0] || ''), args[1]);
+  }
+
   const state = {
     wave: null,
     audioCtx: null,
@@ -83,6 +119,9 @@
     listenGain: null,
     normalGain: null,
     trackMode: 'any',
+    rebuildTimes: [],
+    paramUpdateTimes: [],
+    lastDragLog: {},
   };
 
   function formatTime(total) {
@@ -96,6 +135,30 @@
     if (!Number.isFinite(freq)) return '-';
     if (freq >= 1000) return `${(freq / 1000).toFixed(2)}k`;
     return `${Math.round(freq)}`;
+  }
+
+  function recordRebuild(reason, details) {
+    const now = performance.now();
+    state.rebuildTimes = state.rebuildTimes.filter((t) => now - t < 2000);
+    state.rebuildTimes.push(now);
+    if (state.rebuildTimes.length > 10) {
+      eqWarn('rebuild storm', { count: state.rebuildTimes.length, windowMs: 2000, reason });
+    }
+    eqWarn('rebuildFilterChain', { reason, ...details });
+  }
+
+  function recordParamUpdate(kind, data) {
+    const now = performance.now();
+    state.paramUpdateTimes = state.paramUpdateTimes.filter((t) => now - t < 1000);
+    state.paramUpdateTimes.push(now);
+    if (state.paramUpdateTimes.length > 60) {
+      eqWarn('param update storm', { count: state.paramUpdateTimes.length, windowMs: 1000 });
+    }
+    const last = state.lastDragLog[kind] || 0;
+    if (now - last > 500) {
+      state.lastDragLog[kind] = now;
+      eqLog('drag updates', { type: kind, ...data });
+    }
   }
 
   function resetPlaybackState() {
@@ -131,6 +194,10 @@
   function ensureAudioContext() {
     if (!state.audioCtx) {
       state.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      eqLog('AudioContext created', { sampleRate: state.audioCtx.sampleRate, state: state.audioCtx.state });
+      state.audioCtx.onstatechange = () => {
+        eqWarn('AudioContext statechange', state.audioCtx.state);
+      };
     }
     return state.audioCtx;
   }
@@ -141,9 +208,10 @@
     try {
       state.sourceNode = ctx.createMediaElementSource(audioEl);
     } catch (err) {
-      console.warn('[eq] createMediaElementSource failed', err);
+      eqWarn('createMediaElementSource failed', { err: String(err) });
       return;
     }
+    eqLog('audio graph init', { sampleRate: ctx.sampleRate });
     state.analyser = ctx.createAnalyser();
     state.analyser.fftSize = 2048;
     state.analyser.smoothingTimeConstant = 0.85;
@@ -151,7 +219,7 @@
     state.normalGain.gain.value = 1;
     state.listenGain = ctx.createGain();
     state.listenGain.gain.value = 0;
-    rebuildFilterChain();
+    rebuildFilterChain('graph_init');
   }
 
   function updateVoiceSummary() {
@@ -168,7 +236,9 @@
     state.voiceNodes.forEach((node) => {
       try {
         node.disconnect();
-      } catch (_) {}
+      } catch (err) {
+        eqErr('voice disconnect failed', err);
+      }
     });
     state.voiceNodes = [];
     let last = inputNode;
@@ -180,7 +250,11 @@
       node.frequency.value = Math.max(3000, Math.min(10000, deesser.freq_hz));
       node.Q.value = 2.0;
       node.gain.value = deesser.amount_db;
-      last.connect(node);
+      try {
+        last.connect(node);
+      } catch (err) {
+        eqErr('voice connect failed', err);
+      }
       last = node;
       state.voiceNodes.push(node);
     }
@@ -191,7 +265,11 @@
       node.frequency.value = 4500;
       node.Q.value = 1.2;
       node.gain.value = vocal.amount_db;
-      last.connect(node);
+      try {
+        last.connect(node);
+      } catch (err) {
+        eqErr('voice connect failed', err);
+      }
       last = node;
       state.voiceNodes.push(node);
     }
@@ -202,7 +280,11 @@
       node.frequency.value = Math.max(1500, Math.min(6000, deharsh.freq_hz));
       node.Q.value = 1.5;
       node.gain.value = deharsh.amount_db;
-      last.connect(node);
+      try {
+        last.connect(node);
+      } catch (err) {
+        eqErr('voice connect failed', err);
+      }
       last = node;
       state.voiceNodes.push(node);
     }
@@ -221,19 +303,25 @@
       state.voice.vocal_smooth.listen = false;
       state.voice.deharsh.listen = false;
     }
+    eqLog('listen toggle', { kind, enabled });
     syncVoiceControls();
     ensureListenChain();
   }
 
-  function rebuildFilterChain() {
+  function rebuildFilterChain(reason = 'unknown') {
     if (!state.sourceNode || !state.analyser) return;
+    const t0 = performance.now();
     try {
       state.sourceNode.disconnect();
-    } catch (_) {}
+    } catch (err) {
+      eqErr('source disconnect failed', err);
+    }
     state.bandNodes.forEach((node) => {
       try {
         node.disconnect();
-      } catch (_) {}
+      } catch (err) {
+        eqErr('band disconnect failed', err);
+      }
     });
     state.bandNodes.clear();
     let lastNode = buildVoiceChain(state.sourceNode);
@@ -247,15 +335,34 @@
         if (node.type === 'peaking' || node.type === 'lowshelf' || node.type === 'highshelf') {
           node.gain.value = band.gain_db;
         }
-        lastNode.connect(node);
+        try {
+          lastNode.connect(node);
+        } catch (err) {
+          eqErr('eq connect failed', err);
+        }
         lastNode = node;
         state.bandNodes.set(band.id, node);
       });
     }
-    lastNode.connect(state.analyser);
-    state.analyser.connect(state.normalGain);
-    state.normalGain.connect(state.audioCtx.destination);
+    try {
+      lastNode.connect(state.analyser);
+      state.analyser.connect(state.normalGain);
+      state.normalGain.connect(state.audioCtx.destination);
+    } catch (err) {
+      eqErr('chain connect failed', err);
+    }
     ensureListenChain();
+    const eqEnabled = state.bands.filter((band) => band.enabled).length;
+    const voiceEnabled = ['deesser', 'vocal_smooth', 'deharsh']
+      .filter((key) => state.voice[key].enabled).length;
+    recordRebuild(reason, {
+      eqEnabled,
+      voiceEnabled,
+      bypassEQ: state.bypass,
+      voiceBypass: state.voice.bypass,
+      listen: state.voiceListenActive,
+      ms: Number((performance.now() - t0).toFixed(1)),
+    });
   }
 
   function setGain(node, value) {
@@ -270,7 +377,9 @@
     if (state.listenBand) {
       try {
         state.listenBand.disconnect();
-      } catch (_) {}
+      } catch (err) {
+        eqErr('listen disconnect failed', err);
+      }
       state.listenBand = null;
     }
     if (!state.voiceListenActive) {
@@ -295,9 +404,13 @@
     band.type = 'bandpass';
     band.frequency.value = center;
     band.Q.value = q;
-    state.sourceNode.connect(band);
-    band.connect(state.listenGain);
-    state.listenGain.connect(state.audioCtx.destination);
+    try {
+      state.sourceNode.connect(band);
+      band.connect(state.listenGain);
+      state.listenGain.connect(state.audioCtx.destination);
+    } catch (err) {
+      eqErr('listen connect failed', err);
+    }
     state.listenBand = band;
     setGain(state.normalGain, 0);
     setGain(state.listenGain, 1);
@@ -318,7 +431,7 @@
     if (state.bands.length >= 8) return;
     state.bands.push(band);
     state.selectedBandId = band.id;
-    rebuildFilterChain();
+    rebuildFilterChain('band_add');
     renderBands();
     drawSpectrumOnce();
   }
@@ -330,7 +443,7 @@
     if (state.selectedBandId === id) {
       state.selectedBandId = state.bands[idx]?.id || state.bands[idx - 1]?.id || null;
     }
-    rebuildFilterChain();
+    rebuildFilterChain('band_remove');
     renderBands();
     drawSpectrumOnce();
   }
@@ -390,7 +503,7 @@
       enable.addEventListener('click', (evt) => {
         evt.stopPropagation();
         band.enabled = enable.checked;
-        rebuildFilterChain();
+        rebuildFilterChain('band_enable_toggle');
         renderBands();
         drawSpectrumOnce();
       });
@@ -487,7 +600,7 @@
         const band = selectedBand();
         if (!band) return;
         band.enabled = bandEnabled.checked;
-        rebuildFilterChain();
+        rebuildFilterChain('band_enable_toggle');
         renderBands();
         drawSpectrumOnce();
       });
@@ -498,34 +611,40 @@
     bandFreq.addEventListener('input', () => {
       updateSelectedBand({ freq_hz: freqFromRange(bandFreq.value) });
       bandFreqRange.value = bandFreq.value;
+      recordParamUpdate('band', { freq: freqFromRange(bandFreq.value) });
     });
     bandFreqRange.addEventListener('input', () => {
       updateSelectedBand({ freq_hz: freqFromRange(bandFreqRange.value) });
       bandFreq.value = bandFreqRange.value;
+      recordParamUpdate('band', { freq: freqFromRange(bandFreqRange.value) });
     });
     bandGain.addEventListener('input', () => {
       let next = gainFromRange(bandGain.value);
       if (Math.abs(next) <= 0.3) next = 0;
       updateSelectedBand({ gain_db: next });
       bandGainRange.value = next;
+      recordParamUpdate('band', { gain: next });
     });
     bandGainRange.addEventListener('input', () => {
       let next = gainFromRange(bandGainRange.value);
       if (Math.abs(next) <= 0.3) next = 0;
       updateSelectedBand({ gain_db: next });
       bandGain.value = next;
+      recordParamUpdate('band', { gain: next });
     });
     bandQ.addEventListener('input', () => {
       updateSelectedBand({ q: qFromRange(bandQ.value) });
       bandQRange.value = bandQ.value;
+      recordParamUpdate('band', { q: qFromRange(bandQ.value) });
     });
     bandQRange.addEventListener('input', () => {
       updateSelectedBand({ q: qFromRange(bandQRange.value) });
       bandQ.value = bandQRange.value;
+      recordParamUpdate('band', { q: qFromRange(bandQRange.value) });
     });
     bypassToggle.addEventListener('change', () => {
       state.bypass = bypassToggle.checked;
-      rebuildFilterChain();
+      rebuildFilterChain('bypass_toggle');
     });
   }
 
@@ -540,7 +659,7 @@
           state.voice.deesser.listen = false;
           if (state.voiceListenActive === 'deesser') state.voiceListenActive = null;
         }
-        rebuildFilterChain();
+        rebuildFilterChain('voice_enable_toggle');
         updateVoiceSummary();
         drawSpectrumOnce();
         ensureListenChain();
@@ -549,7 +668,8 @@
     if (voiceDeesserFreq) {
       voiceDeesserFreq.addEventListener('input', () => {
         state.voice.deesser.freq_hz = Math.max(3000, Math.min(10000, Number(voiceDeesserFreq.value)));
-        rebuildFilterChain();
+        rebuildFilterChain('voice_param_change');
+        recordParamUpdate('deesser', { freq: state.voice.deesser.freq_hz, amount: state.voice.deesser.amount_db });
         drawSpectrumOnce();
       });
     }
@@ -557,7 +677,8 @@
       voiceDeesserAmount.addEventListener('input', () => {
         state.voice.deesser.amount_db = Math.max(-12, Math.min(0, Number(voiceDeesserAmount.value)));
         if (voiceDeesserVal) voiceDeesserVal.textContent = `${state.voice.deesser.amount_db.toFixed(1)} dB`;
-        rebuildFilterChain();
+        rebuildFilterChain('voice_param_change');
+        recordParamUpdate('deesser', { freq: state.voice.deesser.freq_hz, amount: state.voice.deesser.amount_db });
         updateVoiceSummary();
         drawSpectrumOnce();
       });
@@ -583,7 +704,7 @@
           state.voice.vocal_smooth.listen = false;
           if (state.voiceListenActive === 'vocal_smooth') state.voiceListenActive = null;
         }
-        rebuildFilterChain();
+        rebuildFilterChain('voice_enable_toggle');
         updateVoiceSummary();
         drawSpectrumOnce();
         ensureListenChain();
@@ -593,7 +714,8 @@
       voiceSmoothAmount.addEventListener('input', () => {
         state.voice.vocal_smooth.amount_db = Math.max(-6, Math.min(0, Number(voiceSmoothAmount.value)));
         if (voiceSmoothVal) voiceSmoothVal.textContent = `${state.voice.vocal_smooth.amount_db.toFixed(1)} dB`;
-        rebuildFilterChain();
+        rebuildFilterChain('voice_param_change');
+        recordParamUpdate('vocal_smooth', { freq: 4500, amount: state.voice.vocal_smooth.amount_db });
         updateVoiceSummary();
         drawSpectrumOnce();
       });
@@ -619,7 +741,7 @@
           state.voice.deharsh.listen = false;
           if (state.voiceListenActive === 'deharsh') state.voiceListenActive = null;
         }
-        rebuildFilterChain();
+        rebuildFilterChain('voice_enable_toggle');
         updateVoiceSummary();
         drawSpectrumOnce();
         ensureListenChain();
@@ -628,7 +750,8 @@
     if (voiceDeharshFreq) {
       voiceDeharshFreq.addEventListener('input', () => {
         state.voice.deharsh.freq_hz = Math.max(1500, Math.min(6000, Number(voiceDeharshFreq.value)));
-        rebuildFilterChain();
+        rebuildFilterChain('voice_param_change');
+        recordParamUpdate('deharsh', { freq: state.voice.deharsh.freq_hz, amount: state.voice.deharsh.amount_db });
         drawSpectrumOnce();
       });
     }
@@ -636,7 +759,8 @@
       voiceDeharshAmount.addEventListener('input', () => {
         state.voice.deharsh.amount_db = Math.max(-6, Math.min(0, Number(voiceDeharshAmount.value)));
         if (voiceDeharshVal) voiceDeharshVal.textContent = `${state.voice.deharsh.amount_db.toFixed(1)} dB`;
-        rebuildFilterChain();
+        rebuildFilterChain('voice_param_change');
+        recordParamUpdate('deharsh', { freq: state.voice.deharsh.freq_hz, amount: state.voice.deharsh.amount_db });
         updateVoiceSummary();
         drawSpectrumOnce();
       });
@@ -1229,6 +1353,7 @@
   function handlePlay() {
     if (!audioEl?.src) return;
     ensureAudioGraph();
+    eqLog('play requested', { t: audioEl.currentTime, ctx: state.audioCtx?.state });
     ensureAudioContext().resume().then(() => {
       audioEl.play().then(() => {
         state.isPlaying = true;
@@ -1236,7 +1361,7 @@
         playBtn.classList.add('playing');
         startSpectrum();
       }).catch((err) => {
-        console.warn('[eq] play failed', err);
+        eqWarn('play failed', { err: String(err) });
       });
     });
   }
@@ -1247,6 +1372,7 @@
     playBtn.textContent = 'Play';
     playBtn.classList.remove('playing');
     stopSpectrum();
+    eqLog('paused', { t: audioEl.currentTime });
   }
 
   function bindEvents() {
@@ -1273,6 +1399,16 @@
       updateTimeLabel();
       updatePlayhead();
     });
+    ['play', 'pause', 'ended', 'error', 'stalled', 'waiting', 'loadstart', 'loadedmetadata', 'canplay'].forEach((evtName) => {
+      audioEl.addEventListener(evtName, (evt) => {
+        eqWarn('audioEl event', {
+          type: evt.type,
+          t: audioEl.currentTime,
+          readyState: audioEl.readyState,
+          networkState: audioEl.networkState,
+        });
+      });
+    });
     audioEl.addEventListener('ended', () => {
       handlePause();
       updatePlayhead();
@@ -1282,7 +1418,7 @@
       if (!confirm('Reset EQ to the default 7-band layout?')) return;
       state.bands = defaultSoundboardBands();
       state.selectedBandId = state.bands.find((band) => band.type === 'peaking')?.id || state.bands[0]?.id || null;
-      rebuildFilterChain();
+      rebuildFilterChain('reset_default');
       renderBands();
       drawSpectrumOnce();
     });
@@ -1513,6 +1649,7 @@
           if (voiceDeesserFreq) voiceDeesserFreq.value = state.voice.deesser.freq_hz;
           if (voiceDeesserAmount) voiceDeesserAmount.value = state.voice.deesser.amount_db;
           if (voiceDeesserVal) voiceDeesserVal.textContent = `${state.voice.deesser.amount_db.toFixed(1)} dB`;
+          recordParamUpdate('deesser', { freq: state.voice.deesser.freq_hz, amount: state.voice.deesser.amount_db });
         } else if (dragVoiceId === 'deharsh') {
           const nextFreq = state.voice.deharsh.freq_hz + (point.freq - state.voice.deharsh.freq_hz) * damp;
           const nextGain = state.voice.deharsh.amount_db + (point.gain - state.voice.deharsh.amount_db) * damp;
@@ -1521,14 +1658,16 @@
           if (voiceDeharshFreq) voiceDeharshFreq.value = state.voice.deharsh.freq_hz;
           if (voiceDeharshAmount) voiceDeharshAmount.value = state.voice.deharsh.amount_db;
           if (voiceDeharshVal) voiceDeharshVal.textContent = `${state.voice.deharsh.amount_db.toFixed(1)} dB`;
+          recordParamUpdate('deharsh', { freq: state.voice.deharsh.freq_hz, amount: state.voice.deharsh.amount_db });
         } else if (dragVoiceId === 'vocal_smooth') {
           const nextGain = state.voice.vocal_smooth.amount_db + (point.gain - state.voice.vocal_smooth.amount_db) * damp;
           state.voice.vocal_smooth.amount_db = Math.max(-6, Math.min(0, nextGain));
           if (voiceSmoothAmount) voiceSmoothAmount.value = state.voice.vocal_smooth.amount_db;
           if (voiceSmoothVal) voiceSmoothVal.textContent = `${state.voice.vocal_smooth.amount_db.toFixed(1)} dB`;
+          recordParamUpdate('vocal_smooth', { freq: 4500, amount: state.voice.vocal_smooth.amount_db });
         }
         updateVoiceSummary();
-        rebuildFilterChain();
+        rebuildFilterChain('voice_drag');
         ensureListenChain();
         drawSpectrumOnce();
         return;
@@ -1543,6 +1682,7 @@
         state.selectedBandId = dragBandId;
       }
       updateSelectedBand({ freq_hz: point.freq, gain_db: snappedGain });
+      recordParamUpdate('band', { freq: point.freq, gain: snappedGain });
     });
     document.addEventListener('mouseup', () => {
       dragBandId = null;
@@ -1591,7 +1731,7 @@
     window.addEventListener('resize', setupSpectrumCanvas);
     state.bands = defaultSoundboardBands();
     state.selectedBandId = state.bands.find((band) => band.type === 'peaking')?.id || state.bands[0]?.id || null;
-    rebuildFilterChain();
+    rebuildFilterChain('init_default');
     renderBands();
     syncVoiceControls();
     const params = new URLSearchParams(window.location.search);

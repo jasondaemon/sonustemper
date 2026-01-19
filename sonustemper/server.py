@@ -3706,6 +3706,28 @@ def health():
         "app": "SonusTemper",
     }
     return JSONResponse(payload, status_code=200 if ok else 503)
+
+
+@app.post("/api/ui-log")
+def ui_log(payload: dict = Body(...)):
+    level = str(payload.get("level", "debug")).lower()
+    tag = str(payload.get("tag", "UI"))
+    msg = str(payload.get("msg", ""))
+    data = payload.get("data", {})
+    try:
+        data_json = json.dumps(data, ensure_ascii=True)
+    except Exception:
+        data_json = "{}"
+    if len(data_json) > 4096:
+        data_json = data_json[:4096] + "…"
+    line = f"[ui-log][{tag}] {msg} {data_json}"
+    if level == "error":
+        logger.error(line)
+    elif level in ("warn", "warning"):
+        logger.warning(line)
+    else:
+        logger.info(line)
+    return {"ok": True}
 @app.get("/api/metrics")
 def run_metrics(song: str):
     song_entry = _library_find_song(song)
