@@ -47,6 +47,9 @@ Compare lets you A/B source vs processed versions with synced playback, waveform
 
 ![spectrogram](img/compare-spectrogram.png)
 
+- Zoom in for details
+![zoom](img/compare-zoom.png)
+
 ### Overview scrubber
 - **Drag**: Scrolls the main view.
 - **Click**: Jumps to a position and seeks audio.
