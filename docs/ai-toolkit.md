@@ -23,24 +23,30 @@ AI Toolkit provides real‑time cleanup controls with recommendations derived fr
 4) Listen in real time; tweak as needed.
 5) Save a cleaned copy to create a new version.
 
+
+
 ## Controls and functions
 
 ### Waveform + transport
 - **Waveform**: Click/drag to seek.
 - **Play/Pause/Stop**: Standard playback control.
 - **Time display**: Current time and total duration.
+![waveform](img/ai-waveform.png)
 
 ### Spectrum + effect curve
 - **Spectrum**: Live FFT of playback.
 - **Effect curve**: Visual estimate of how sliders affect EQ/loudness.
+![spectrum](img/ai-spectrum.png)
 
 ### Recommendations panel
 - **Findings list**: Severity and confidence per issue.
 - **Apply** (per finding): Enables that tool and sets suggested value.
 - **Apply all**: Enables all suggested tools and sets values.
+![recommendations](img/ai-recomendations.png)
 
 ### Tools (checkbox + slider)
 Tools are **OFF by default**. Enabling applies the effect.
+![tools](img/ai-tools.png)
 
 - **Reduce AI Hiss / Glass (Deglass)**
   - **Value**: Shelf gain (dB). Negative cuts air; positive adds air.
@@ -94,3 +100,5 @@ ffmpeg -y -hide_banner -loglevel error -i input.wav \
 - **Versioning**: Output is saved under the song’s `versions/` folder and registered in SQLite with `utility="AITK"`, plus metrics from analysis.
 
 </details>
+
+![Start](img/ai-page.png)
