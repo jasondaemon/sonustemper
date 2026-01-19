@@ -37,12 +37,14 @@ Compare lets you A/B source vs processed versions with synced playback, waveform
 - **Zoom**: Changes time scale of the main waveform.
 - **Overlays**: Peak risk, loudness heatmap, loudness delta.
 - **Overview window**: The highlighted viewport used for scrub/scroll.
+
 ![waveform](img/compare-waveform.png)
 
 ### Spectrogram view
 - **Spectrogram toggle**: Switches to spectral visualization.
 - **Spectrogram legend**: Shows energy range.
 - **Overview window**: Same scrub/scroll behavior as waveform.
+
 ![spectrogram](img/compare-spectrogram.png)
 
 ### Overview scrubber
