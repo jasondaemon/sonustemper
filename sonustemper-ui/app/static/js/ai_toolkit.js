@@ -129,6 +129,22 @@
     aiPlayBtn.textContent = playing ? 'Pause' : 'Play';
   }
 
+  function resetPlaybackState() {
+    try {
+      if (aiAudio) {
+        aiAudio.pause();
+        aiAudio.currentTime = 0;
+      }
+    } catch (_) {}
+    setPlayState(false);
+    if (state.wave) {
+      try {
+        state.wave.setTime(0);
+      } catch (_) {}
+    }
+    updateTimeLabel();
+  }
+
   function updateTimeLabel() {
     if (!aiTimeLabel) return;
     const current = aiAudio ? aiAudio.currentTime : 0;
@@ -931,6 +947,7 @@
   }
 
   function setSelectedFile(selected) {
+    resetPlaybackState();
     state.selected = selected;
     state.selectedSongId = selected?.song_id || null;
     updateSelectedSummary(selected);
