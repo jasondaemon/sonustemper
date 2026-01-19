@@ -16,7 +16,7 @@ fi
 
 if [ "$BASIC_AUTH_ENABLED" = "1" ]; then
   if [ -z "$BASIC_AUTH_PASS" ] || [ "$BASIC_AUTH_PASS" = "CHANGEME" ]; then
-    echo "Default credentials in use. Please set BASIC_AUTH_PASS in .env" >&2
+    echo "ERROR: BASIC_AUTH_PASS is not set or still default ('CHANGEME'). Set it in .env." >&2
     exit 1
   fi
   htpasswd -bc "$HTPASS" "$BASIC_AUTH_USER" "$BASIC_AUTH_PASS"
@@ -29,8 +29,8 @@ else
 fi
 
 # Require a shared secret (must match app env)
-if [ -z "$PROXY_SHARED_SECRET" ]; then
-  echo "Missing PROXY_SHARED_SECRET. Set it in .env for both app and proxy." >&2
+if [ -z "$PROXY_SHARED_SECRET" ] || [ "$PROXY_SHARED_SECRET" = "changeme-proxy" ]; then
+  echo "ERROR: PROXY_SHARED_SECRET is not set or still default ('changeme-proxy'). Set a strong value in .env." >&2
   exit 1
 fi
 export PROXY_SHARED_SECRET

@@ -604,6 +604,7 @@
     const btn = document.getElementById('tagTempUploadBtn');
     const input = document.getElementById('tagTempFiles');
     const clearBtn = document.getElementById('tagTempClearBtn');
+    const addAllBtn = document.getElementById('tagTempAddAllBtn');
     if(!btn || !input) return;
     if(btn.dataset.bound === '1') return;
     btn.dataset.bound = '1';
@@ -654,6 +655,34 @@
         tagState.temp.session = null;
         localStorage.removeItem('tagTempSession');
         renderTempList();
+      });
+    }
+    if(addAllBtn && addAllBtn.dataset.bound !== '1'){
+      addAllBtn.dataset.bound = '1';
+      addAllBtn.addEventListener('click', async ()=>{
+        const status = document.getElementById('tagTempStatus');
+        const setStatus = (msg) => { if(status) status.textContent = msg || ''; };
+        if(!tagState.temp.items.length){
+          await loadTempSession();
+        }
+        const items = tagState.temp.items || [];
+        if(!items.length){
+          setStatus('No temp uploads.');
+          return;
+        }
+        let added = 0;
+        let skipped = 0;
+        setStatus('Adding to editor...');
+        for(const item of items){
+          const fileId = await resolveTaggerId(item.rel);
+          if(!fileId){
+            skipped += 1;
+            continue;
+          }
+          addToWorking(buildItemFromTemp(item.rel, fileId));
+          added += 1;
+        }
+        setStatus(`Added ${added}${skipped ? `, skipped ${skipped}` : ''}.`);
       });
     }
   }

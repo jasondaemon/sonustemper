@@ -126,6 +126,8 @@ Docs live in `docs/`. Enable GitHub Pages (Settings → Pages → Deploy from br
 ### Security defaults
 - Proxy-level Basic Auth is ON by default (BASIC_AUTH_ENABLED=1).
 - Defaults in `.env.example`: user `admin`, pass `CHANGEME`. You must change the password; proxy will refuse to start if unchanged.
+- PROXY_SHARED_SECRET must be changed from the default `changeme-proxy` or containers will refuse to boot.
+- Strict config is enabled by default (SONUSTEMPER_STRICT_CONFIG=1); disable only for local dev.
 - All UI/API/SSE routes are behind Basic Auth.
 - The optional `API_KEY` is only for non-browser clients/CLI scripts; it is not embedded in the UI and is not required once Basic Auth succeeds. Proxy adds its own shared-secret header internally.
 - If `API_KEY`/`PROXY_SHARED_SECRET` are **not** set, the API only accepts localhost requests by default.

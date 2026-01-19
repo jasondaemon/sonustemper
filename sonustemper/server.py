@@ -187,6 +187,9 @@ API_KEY = os.getenv("API_KEY")
 API_AUTH_DISABLED = os.getenv("API_AUTH_DISABLED") == "1"
 API_ALLOW_UNAUTH = os.getenv("API_ALLOW_UNAUTH") == "1"
 PROXY_SHARED_SECRET = (os.getenv("PROXY_SHARED_SECRET", "") or "").strip()
+BASIC_AUTH_ENABLED = os.getenv("BASIC_AUTH_ENABLED", "1") == "1"
+BASIC_AUTH_PASS = (os.getenv("BASIC_AUTH_PASS", "") or "").strip()
+SONUSTEMPER_STRICT_CONFIG = os.getenv("SONUSTEMPER_STRICT_CONFIG", "1") == "1"
 # Basic logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger("sonustemper")
@@ -196,6 +199,20 @@ logger.info(
     os.getenv("LOG_LEVEL", "error"),
     os.getenv("EVENT_LOG_LEVEL", os.getenv("LOG_LEVEL", "error")),
 )
+def validate_startup_config() -> None:
+    if not PROXY_SHARED_SECRET or PROXY_SHARED_SECRET == "changeme-proxy":
+        raise RuntimeError(
+            "PROXY_SHARED_SECRET is missing or still default ('changeme-proxy'). Set it in .env."
+        )
+    if BASIC_AUTH_ENABLED and BASIC_AUTH_PASS == "CHANGEME":
+        raise RuntimeError(
+            "BASIC_AUTH_PASS is still default ('CHANGEME'). Set it in .env."
+        )
+    if SONUSTEMPER_STRICT_CONFIG and (API_ALLOW_UNAUTH or API_AUTH_DISABLED):
+        raise RuntimeError(
+            "API_ALLOW_UNAUTH/API_AUTH_DISABLED are not allowed in strict mode. "
+            "Set SONUSTEMPER_STRICT_CONFIG=0 only for local dev."
+        )
 if os.getenv("SONUSTEMPER_REQUIRE_CONFIG") == "1":
     data_root_env = (os.getenv("SONUSTEMPER_DATA_ROOT") or "").strip()
     db_env = (os.getenv("SONUSTEMPER_LIBRARY_DB") or "").strip()
@@ -207,6 +224,7 @@ if os.getenv("SONUSTEMPER_REQUIRE_CONFIG") == "1":
         raise RuntimeError(
             "Required config missing: SONUSTEMPER_LIBRARY_DB must point under /db (local DB mount)."
         )
+validate_startup_config()
 ui_router = None
 logger.info("[startup] UI_APP_DIR=%s exists=%s", UI_APP_DIR, UI_APP_DIR.exists())
 if UI_APP_DIR.exists():
