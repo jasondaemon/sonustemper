@@ -3176,6 +3176,14 @@ h1{margin:0;font-size:24px;}
   align-items:center;
   gap:12px;
 }
+.eq-voice-actions{
+  display:flex;
+  gap:6px;
+}
+.eq-toggle.tiny{
+  font-size:11px;
+  gap:4px;
+}
 .eq-voice-row .eq-field{
   margin-bottom:0;
   flex-direction:row;

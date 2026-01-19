@@ -35,13 +35,19 @@
   const voiceDeesserFreq = document.getElementById('eqVoiceDeesserFreq');
   const voiceDeesserAmount = document.getElementById('eqVoiceDeesserAmount');
   const voiceDeesserVal = document.getElementById('eqVoiceDeesserVal');
+  const voiceDeesserShow = document.getElementById('eqVoiceDeesserShow');
+  const voiceDeesserListen = document.getElementById('eqVoiceDeesserListen');
   const voiceSmoothEnable = document.getElementById('eqVoiceSmoothEnable');
   const voiceSmoothAmount = document.getElementById('eqVoiceSmoothAmount');
   const voiceSmoothVal = document.getElementById('eqVoiceSmoothVal');
+  const voiceSmoothShow = document.getElementById('eqVoiceSmoothShow');
+  const voiceSmoothListen = document.getElementById('eqVoiceSmoothListen');
   const voiceDeharshEnable = document.getElementById('eqVoiceDeharshEnable');
   const voiceDeharshFreq = document.getElementById('eqVoiceDeharshFreq');
   const voiceDeharshAmount = document.getElementById('eqVoiceDeharshAmount');
   const voiceDeharshVal = document.getElementById('eqVoiceDeharshVal');
+  const voiceDeharshShow = document.getElementById('eqVoiceDeharshShow');
+  const voiceDeharshListen = document.getElementById('eqVoiceDeharshListen');
   let libraryBrowser = null;
 
   const state = {
@@ -62,14 +68,20 @@
     spectrumData: null,
     spectrumSmooth: null,
     hoverBandId: null,
+    hoverVoiceId: null,
+    dragVoiceId: null,
     lastSpectrumFrame: 0,
     voiceNodes: [],
     voice: {
-      deesser: { enabled: false, freq_hz: 6500, amount_db: 0 },
-      vocal_smooth: { enabled: false, amount_db: 0 },
-      deharsh: { enabled: false, freq_hz: 3200, amount_db: 0 },
+      deesser: { enabled: false, show: false, listen: false, freq_hz: 6500, amount_db: 0 },
+      vocal_smooth: { enabled: false, show: false, listen: false, amount_db: 0 },
+      deharsh: { enabled: false, show: false, listen: false, freq_hz: 3200, amount_db: 0 },
       bypass: false,
     },
+    voiceListenActive: null,
+    listenBand: null,
+    listenGain: null,
+    normalGain: null,
     trackMode: 'any',
   };
 
@@ -135,6 +147,10 @@
     state.analyser = ctx.createAnalyser();
     state.analyser.fftSize = 2048;
     state.analyser.smoothingTimeConstant = 0.85;
+    state.normalGain = ctx.createGain();
+    state.normalGain.gain.value = 1;
+    state.listenGain = ctx.createGain();
+    state.listenGain.gain.value = 0;
     rebuildFilterChain();
   }
 
@@ -193,6 +209,22 @@
     return last;
   }
 
+  function setListenMode(kind, enabled) {
+    if (enabled) {
+      state.voiceListenActive = kind;
+      state.voice.deesser.listen = kind === 'deesser';
+      state.voice.vocal_smooth.listen = kind === 'vocal_smooth';
+      state.voice.deharsh.listen = kind === 'deharsh';
+    } else {
+      if (state.voiceListenActive === kind) state.voiceListenActive = null;
+      state.voice.deesser.listen = false;
+      state.voice.vocal_smooth.listen = false;
+      state.voice.deharsh.listen = false;
+    }
+    syncVoiceControls();
+    ensureListenChain();
+  }
+
   function rebuildFilterChain() {
     if (!state.sourceNode || !state.analyser) return;
     try {
@@ -221,7 +253,54 @@
       });
     }
     lastNode.connect(state.analyser);
-    state.analyser.connect(state.audioCtx.destination);
+    state.analyser.connect(state.normalGain);
+    state.normalGain.connect(state.audioCtx.destination);
+    ensureListenChain();
+  }
+
+  function setGain(node, value) {
+    if (!node || !state.audioCtx) return;
+    const now = state.audioCtx.currentTime;
+    node.gain.cancelScheduledValues(now);
+    node.gain.setTargetAtTime(value, now, 0.02);
+  }
+
+  function ensureListenChain() {
+    if (!state.sourceNode || !state.listenGain) return;
+    if (state.listenBand) {
+      try {
+        state.listenBand.disconnect();
+      } catch (_) {}
+      state.listenBand = null;
+    }
+    if (!state.voiceListenActive) {
+      setGain(state.listenGain, 0);
+      setGain(state.normalGain, 1);
+      return;
+    }
+    const listenId = state.voiceListenActive;
+    let center = 4500;
+    let q = 1.6;
+    if (listenId === 'deesser') {
+      center = Math.max(3000, Math.min(10000, state.voice.deesser.freq_hz));
+      q = 2.0;
+    } else if (listenId === 'deharsh') {
+      center = Math.max(1500, Math.min(6000, state.voice.deharsh.freq_hz));
+      q = 1.6;
+    } else if (listenId === 'vocal_smooth') {
+      center = 4500;
+      q = 1.4;
+    }
+    const band = state.audioCtx.createBiquadFilter();
+    band.type = 'bandpass';
+    band.frequency.value = center;
+    band.Q.value = q;
+    state.sourceNode.connect(band);
+    band.connect(state.listenGain);
+    state.listenGain.connect(state.audioCtx.destination);
+    state.listenBand = band;
+    setGain(state.normalGain, 0);
+    setGain(state.listenGain, 1);
   }
 
   function updateBandNode(band) {
@@ -454,9 +533,17 @@
     if (voiceDeesserEnable) {
       voiceDeesserEnable.addEventListener('change', () => {
         state.voice.deesser.enabled = voiceDeesserEnable.checked;
+        if (state.voice.deesser.enabled && !state.voice.deesser.show) {
+          state.voice.deesser.show = true;
+        }
+        if (!state.voice.deesser.enabled) {
+          state.voice.deesser.listen = false;
+          if (state.voiceListenActive === 'deesser') state.voiceListenActive = null;
+        }
         rebuildFilterChain();
         updateVoiceSummary();
         drawSpectrumOnce();
+        ensureListenChain();
       });
     }
     if (voiceDeesserFreq) {
@@ -475,12 +562,31 @@
         drawSpectrumOnce();
       });
     }
+    if (voiceDeesserShow) {
+      voiceDeesserShow.addEventListener('change', () => {
+        state.voice.deesser.show = voiceDeesserShow.checked;
+        drawSpectrumOnce();
+      });
+    }
+    if (voiceDeesserListen) {
+      voiceDeesserListen.addEventListener('change', () => {
+        setListenMode('deesser', voiceDeesserListen.checked);
+      });
+    }
     if (voiceSmoothEnable) {
       voiceSmoothEnable.addEventListener('change', () => {
         state.voice.vocal_smooth.enabled = voiceSmoothEnable.checked;
+        if (state.voice.vocal_smooth.enabled && !state.voice.vocal_smooth.show) {
+          state.voice.vocal_smooth.show = true;
+        }
+        if (!state.voice.vocal_smooth.enabled) {
+          state.voice.vocal_smooth.listen = false;
+          if (state.voiceListenActive === 'vocal_smooth') state.voiceListenActive = null;
+        }
         rebuildFilterChain();
         updateVoiceSummary();
         drawSpectrumOnce();
+        ensureListenChain();
       });
     }
     if (voiceSmoothAmount) {
@@ -492,12 +598,31 @@
         drawSpectrumOnce();
       });
     }
+    if (voiceSmoothShow) {
+      voiceSmoothShow.addEventListener('change', () => {
+        state.voice.vocal_smooth.show = voiceSmoothShow.checked;
+        drawSpectrumOnce();
+      });
+    }
+    if (voiceSmoothListen) {
+      voiceSmoothListen.addEventListener('change', () => {
+        setListenMode('vocal_smooth', voiceSmoothListen.checked);
+      });
+    }
     if (voiceDeharshEnable) {
       voiceDeharshEnable.addEventListener('change', () => {
         state.voice.deharsh.enabled = voiceDeharshEnable.checked;
+        if (state.voice.deharsh.enabled && !state.voice.deharsh.show) {
+          state.voice.deharsh.show = true;
+        }
+        if (!state.voice.deharsh.enabled) {
+          state.voice.deharsh.listen = false;
+          if (state.voiceListenActive === 'deharsh') state.voiceListenActive = null;
+        }
         rebuildFilterChain();
         updateVoiceSummary();
         drawSpectrumOnce();
+        ensureListenChain();
       });
     }
     if (voiceDeharshFreq) {
@@ -516,6 +641,17 @@
         drawSpectrumOnce();
       });
     }
+    if (voiceDeharshShow) {
+      voiceDeharshShow.addEventListener('change', () => {
+        state.voice.deharsh.show = voiceDeharshShow.checked;
+        drawSpectrumOnce();
+      });
+    }
+    if (voiceDeharshListen) {
+      voiceDeharshListen.addEventListener('change', () => {
+        setListenMode('deharsh', voiceDeharshListen.checked);
+      });
+    }
     updateVoiceSummary();
   }
 
@@ -524,13 +660,19 @@
     if (voiceDeesserFreq) voiceDeesserFreq.value = state.voice.deesser.freq_hz;
     if (voiceDeesserAmount) voiceDeesserAmount.value = state.voice.deesser.amount_db;
     if (voiceDeesserVal) voiceDeesserVal.textContent = `${state.voice.deesser.amount_db.toFixed(1)} dB`;
+    if (voiceDeesserShow) voiceDeesserShow.checked = state.voice.deesser.show;
+    if (voiceDeesserListen) voiceDeesserListen.checked = state.voice.deesser.listen;
     if (voiceSmoothEnable) voiceSmoothEnable.checked = state.voice.vocal_smooth.enabled;
     if (voiceSmoothAmount) voiceSmoothAmount.value = state.voice.vocal_smooth.amount_db;
     if (voiceSmoothVal) voiceSmoothVal.textContent = `${state.voice.vocal_smooth.amount_db.toFixed(1)} dB`;
+    if (voiceSmoothShow) voiceSmoothShow.checked = state.voice.vocal_smooth.show;
+    if (voiceSmoothListen) voiceSmoothListen.checked = state.voice.vocal_smooth.listen;
     if (voiceDeharshEnable) voiceDeharshEnable.checked = state.voice.deharsh.enabled;
     if (voiceDeharshFreq) voiceDeharshFreq.value = state.voice.deharsh.freq_hz;
     if (voiceDeharshAmount) voiceDeharshAmount.value = state.voice.deharsh.amount_db;
     if (voiceDeharshVal) voiceDeharshVal.textContent = `${state.voice.deharsh.amount_db.toFixed(1)} dB`;
+    if (voiceDeharshShow) voiceDeharshShow.checked = state.voice.deharsh.show;
+    if (voiceDeharshListen) voiceDeharshListen.checked = state.voice.deharsh.listen;
     updateVoiceSummary();
   }
 
@@ -540,6 +682,7 @@
     const rect = spectrumCanvas.getBoundingClientRect();
     ctx.clearRect(0, 0, rect.width, rect.height);
     drawEqGrid(ctx, rect.width, rect.height);
+    drawVoiceOverlays(ctx, rect.width, rect.height);
     drawFilterRegions(ctx, rect.width, rect.height);
     drawEqCurve(ctx, rect.width, rect.height);
     drawBandHandles(ctx, rect.width, rect.height);
@@ -640,6 +783,80 @@
     ctx.restore();
   }
 
+  function getVoiceHandles(width, height) {
+    const handles = [];
+    if (state.voice.deesser.enabled && state.voice.deesser.show) {
+      handles.push({
+        id: 'deesser',
+        label: 'De-esser',
+        color: 'rgba(80,220,220,0.2)',
+        handleColor: 'rgba(80,220,220,0.55)',
+        freq: state.voice.deesser.freq_hz,
+        amount: state.voice.deesser.amount_db,
+        allowX: true,
+        allowY: true,
+      });
+    }
+    if (state.voice.vocal_smooth.enabled && state.voice.vocal_smooth.show) {
+      handles.push({
+        id: 'vocal_smooth',
+        label: 'Vocal Smooth',
+        color: 'rgba(110,220,150,0.2)',
+        handleColor: 'rgba(110,220,150,0.55)',
+        freq: 4500,
+        amount: state.voice.vocal_smooth.amount_db,
+        allowX: false,
+        allowY: true,
+      });
+    }
+    if (state.voice.deharsh.enabled && state.voice.deharsh.show) {
+      handles.push({
+        id: 'deharsh',
+        label: 'De-harsh',
+        color: 'rgba(160,120,220,0.2)',
+        handleColor: 'rgba(160,120,220,0.55)',
+        freq: state.voice.deharsh.freq_hz,
+        amount: state.voice.deharsh.amount_db,
+        allowX: true,
+        allowY: true,
+      });
+    }
+    return handles.map((handle) => {
+      const leftHz = handle.freq / Math.sqrt(2);
+      const rightHz = handle.freq * Math.sqrt(2);
+      const x0 = freqToX(leftHz, width);
+      const x1 = freqToX(rightHz, width);
+      const x = freqToX(handle.freq, width);
+      const y = gainToY(handle.amount, height);
+      return { ...handle, x0, x1, x, y };
+    });
+  }
+
+  function drawVoiceOverlays(ctx, width, height) {
+    const overlays = getVoiceHandles(width, height);
+    let tooltip = null;
+    overlays.forEach((overlay) => {
+      ctx.save();
+      ctx.fillStyle = overlay.color;
+      ctx.fillRect(overlay.x0, 0, overlay.x1 - overlay.x0, height);
+      ctx.fillStyle = overlay.handleColor;
+      ctx.beginPath();
+      ctx.arc(overlay.x, overlay.y, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      if (overlay.id === state.hoverVoiceId || overlay.id === state.dragVoiceId) {
+        tooltip = {
+          text: `Pre-EQ ${overlay.label} ${formatFreq(overlay.freq)}Hz ${overlay.amount.toFixed(1)}dB`,
+          x: overlay.x,
+          y: overlay.y,
+        };
+      }
+    });
+    if (tooltip) {
+      drawTooltip(ctx, tooltip.text, tooltip.x, tooltip.y, width, height);
+    }
+  }
+
   function bandColor(band) {
     if (band.type === 'highpass') return '#7dffb0';
     if (band.type === 'lowpass') return '#7aa5ff';
@@ -728,6 +945,7 @@
     }
     drawEqGrid(ctx, rect.width, rect.height);
     drawSpectrumBehindCurve(ctx, rect.width, rect.height);
+    drawVoiceOverlays(ctx, rect.width, rect.height);
     drawFilterRegions(ctx, rect.width, rect.height);
     drawEqCurve(ctx, rect.width, rect.height);
     drawBandHandles(ctx, rect.width, rect.height);
@@ -796,11 +1014,13 @@
         ctx.stroke();
       }
       if (band.id === state.selectedBandId || band.id === state.hoverBandId) {
-        tooltip = {
-          text: `${typeLabel(band.type)} ${formatFreq(band.freq_hz)}Hz ${band.gain_db.toFixed(1)}dB Q ${band.q.toFixed(2)}`,
-          x,
-          y,
-        };
+        if (!state.hoverVoiceId && !state.dragVoiceId) {
+          tooltip = {
+            text: `${typeLabel(band.type)} ${formatFreq(band.freq_hz)}Hz ${band.gain_db.toFixed(1)}dB Q ${band.q.toFixed(2)}`,
+            x,
+            y,
+          };
+        }
       }
     });
     if (tooltip) {
@@ -1119,6 +1339,23 @@
       q: band.q,
       enabled: band.enabled,
     }));
+    const voicePayload = {
+      bypass: !!state.voice.bypass,
+      deesser: {
+        enabled: !!state.voice.deesser.enabled,
+        freq_hz: state.voice.deesser.freq_hz,
+        amount_db: state.voice.deesser.amount_db,
+      },
+      vocal_smooth: {
+        enabled: !!state.voice.vocal_smooth.enabled,
+        amount_db: state.voice.vocal_smooth.amount_db,
+      },
+      deharsh: {
+        enabled: !!state.voice.deharsh.enabled,
+        freq_hz: state.voice.deharsh.freq_hz,
+        amount_db: state.voice.deharsh.amount_db,
+      },
+    };
     try {
       const res = await fetch('/api/eq/render', {
         method: 'POST',
@@ -1126,7 +1363,7 @@
         body: JSON.stringify({
           path: state.selectedPath,
           song_id: state.selectedSongId,
-          voice_controls: state.voice,
+          voice_controls: voicePayload,
           bands,
           bypass: state.bypass,
           output_format: 'same',
@@ -1185,10 +1422,21 @@
   function initSpectrumInteractions() {
     if (!spectrumCanvas) return;
     let dragBandId = null;
+    let dragVoiceId = null;
     function pointToFreqGain(x, y, rect) {
       const freq = 20 * Math.pow(20000 / 20, x / rect.width);
       const gain = 12 - (y / rect.height) * 24;
       return { freq: freqFromRange(freq), gain: gainFromRange(gain) };
+    }
+    function findVoiceAt(x, y, rect) {
+      const maxDist = 10;
+      let hit = null;
+      const handles = getVoiceHandles(rect.width, rect.height);
+      handles.forEach((handle) => {
+        const dist = Math.hypot(handle.x - x, handle.y - y);
+        if (dist <= maxDist) hit = handle;
+      });
+      return hit;
     }
     function findBandAt(x, y, rect) {
       const maxDist = 10;
@@ -1205,6 +1453,17 @@
       const rect = spectrumCanvas.getBoundingClientRect();
       const x = evt.clientX - rect.left;
       const y = evt.clientY - rect.top;
+      const voiceHit = findVoiceAt(x, y, rect);
+      if (voiceHit) {
+        state.hoverVoiceId = voiceHit.id;
+        dragVoiceId = voiceHit.id;
+        state.dragVoiceId = voiceHit.id;
+        if (state.voiceListenActive && state.voiceListenActive !== voiceHit.id) {
+          setListenMode(voiceHit.id, true);
+        }
+        drawSpectrumOnce();
+        return;
+      }
       const hit = findBandAt(x, y, rect);
       if (hit) {
         state.selectedBandId = hit.id;
@@ -1223,15 +1482,57 @@
       const rect = spectrumCanvas.getBoundingClientRect();
       const x = evt.clientX - rect.left;
       const y = evt.clientY - rect.top;
-      const hit = findBandAt(x, y, rect);
-      state.hoverBandId = hit?.id || null;
+      const voiceHit = findVoiceAt(x, y, rect);
+      if (voiceHit) {
+        state.hoverVoiceId = voiceHit.id;
+        state.hoverBandId = null;
+      } else {
+        state.hoverVoiceId = null;
+        const hit = findBandAt(x, y, rect);
+        state.hoverBandId = hit?.id || null;
+      }
       drawSpectrumOnce();
     });
     spectrumCanvas.addEventListener('mouseleave', () => {
       state.hoverBandId = null;
+      state.hoverVoiceId = null;
       drawSpectrumOnce();
     });
     document.addEventListener('mousemove', (evt) => {
+      if (dragVoiceId) {
+        const rect = spectrumCanvas.getBoundingClientRect();
+        const x = Math.max(0, Math.min(rect.width, evt.clientX - rect.left));
+        const y = Math.max(0, Math.min(rect.height, evt.clientY - rect.top));
+        const point = pointToFreqGain(x, y, rect);
+        const damp = evt.shiftKey ? 0.25 : 1;
+        if (dragVoiceId === 'deesser') {
+          const nextFreq = state.voice.deesser.freq_hz + (point.freq - state.voice.deesser.freq_hz) * damp;
+          const nextGain = state.voice.deesser.amount_db + (point.gain - state.voice.deesser.amount_db) * damp;
+          state.voice.deesser.freq_hz = Math.max(3000, Math.min(10000, nextFreq));
+          state.voice.deesser.amount_db = Math.max(-12, Math.min(0, nextGain));
+          if (voiceDeesserFreq) voiceDeesserFreq.value = state.voice.deesser.freq_hz;
+          if (voiceDeesserAmount) voiceDeesserAmount.value = state.voice.deesser.amount_db;
+          if (voiceDeesserVal) voiceDeesserVal.textContent = `${state.voice.deesser.amount_db.toFixed(1)} dB`;
+        } else if (dragVoiceId === 'deharsh') {
+          const nextFreq = state.voice.deharsh.freq_hz + (point.freq - state.voice.deharsh.freq_hz) * damp;
+          const nextGain = state.voice.deharsh.amount_db + (point.gain - state.voice.deharsh.amount_db) * damp;
+          state.voice.deharsh.freq_hz = Math.max(1500, Math.min(6000, nextFreq));
+          state.voice.deharsh.amount_db = Math.max(-6, Math.min(0, nextGain));
+          if (voiceDeharshFreq) voiceDeharshFreq.value = state.voice.deharsh.freq_hz;
+          if (voiceDeharshAmount) voiceDeharshAmount.value = state.voice.deharsh.amount_db;
+          if (voiceDeharshVal) voiceDeharshVal.textContent = `${state.voice.deharsh.amount_db.toFixed(1)} dB`;
+        } else if (dragVoiceId === 'vocal_smooth') {
+          const nextGain = state.voice.vocal_smooth.amount_db + (point.gain - state.voice.vocal_smooth.amount_db) * damp;
+          state.voice.vocal_smooth.amount_db = Math.max(-6, Math.min(0, nextGain));
+          if (voiceSmoothAmount) voiceSmoothAmount.value = state.voice.vocal_smooth.amount_db;
+          if (voiceSmoothVal) voiceSmoothVal.textContent = `${state.voice.vocal_smooth.amount_db.toFixed(1)} dB`;
+        }
+        updateVoiceSummary();
+        rebuildFilterChain();
+        ensureListenChain();
+        drawSpectrumOnce();
+        return;
+      }
       if (!dragBandId) return;
       const rect = spectrumCanvas.getBoundingClientRect();
       const x = Math.max(0, Math.min(rect.width, evt.clientX - rect.left));
@@ -1245,6 +1546,8 @@
     });
     document.addEventListener('mouseup', () => {
       dragBandId = null;
+      dragVoiceId = null;
+      state.dragVoiceId = null;
     });
     spectrumCanvas.addEventListener('wheel', (evt) => {
       if (!evt.shiftKey) return;
