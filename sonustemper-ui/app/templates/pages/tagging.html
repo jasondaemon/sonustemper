@@ -27,16 +27,6 @@
     <input type="file" id="tagImportFile" accept=".mp3" style="display:none;">
     <div id="taggingBrowser" class="library-browser-container" data-module="tagging"></div>
     <div class="muted" id="tagImportStatus"></div>
-    <div class="tagging-working-set">
-      <div class="tagging-working-head">
-        <div>
-          <div class="card-title">Working Set</div>
-          <div class="muted">Order = track order</div>
-        </div>
-        <button class="btn small ghost" type="button" id="tagClearSelBtn">Clear</button>
-      </div>
-      <div id="workingList" class="tag-list"></div>
-    </div>
     <div class="tagging-sidebar-footer">
       <div class="muted" id="tagSelectedCount">0 selected</div>
     </div>
@@ -117,6 +107,7 @@
                   <th>Title</th>
                   <th>Artist</th>
                   <th>Filename</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody id="albTableBody"></tbody>

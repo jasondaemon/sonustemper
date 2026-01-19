@@ -314,14 +314,15 @@
       const artistVal = tags.artist || '';
       const tds = [
         `<button class="btn small ghost trackDlBtn" type="button" data-id="${id}" title="Download track" aria-label="Download">
-          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <svg class="tag-dl-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
             <path d="M12 3v12m0 0l4-4m-4 4l-4-4M4 19h16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </button>`,
-        `<input name="albTrack" value="${trackVal || ''}">`,
+        `<input name="albTrack" value="${trackVal || ''}" class="track-input" size="3">`,
         `<input name="albTitle" value="${titleVal || ''}">`,
         `<input name="albArtist" value="${artistVal || ''}">`,
         `<div class="tag-filename" title="${base}">${base}</div>`,
+        `<button class="btn small ghost trackRemoveBtn" type="button" data-id="${id}" title="Remove track" aria-label="Remove">X</button>`,
       ];
       tds.forEach(html => {
         const td = document.createElement('td');
@@ -335,6 +336,42 @@
       btn.disabled = tagState.dirty;
       btn.onclick = ()=> downloadSingle(btn.dataset.id);
     });
+    document.querySelectorAll('.trackRemoveBtn').forEach(btn => {
+      btn.onclick = ()=> removeFromWorking(btn.dataset.id);
+    });
+
+    const allDetails = ids.length && ids.every(id => tagState.fileDetails[id] && tagState.fileDetails[id].tags);
+    if(allDetails){
+      const tagList = ids.map(id => tagState.fileDetails[id].tags || {});
+      const useCommon = (inputId, keys) => {
+        const input = document.getElementById(inputId);
+        if(!input) return;
+        if(tagState.dirty && input.value) return;
+        let common = null;
+        for(const tags of tagList){
+          let val = null;
+          for(const key of keys){
+            if(tags[key]){
+              val = tags[key];
+              break;
+            }
+          }
+          if(!val) return;
+          if(common === null) common = val;
+          if(common !== val) return;
+        }
+        if(common !== null){
+          input.value = common;
+        }
+      };
+      useCommon('albAlbum', ['album']);
+      useCommon('albAlbumArtist', ['album_artist', 'albumartist', 'albumArtist']);
+      useCommon('albArtist', ['artist']);
+      useCommon('albYear', ['year', 'date']);
+      useCommon('albGenre', ['genre']);
+      useCommon('albDisc', ['disc']);
+      useCommon('albComment', ['comment']);
+    }
 
     updateArtworkStatus(ids);
     updateDownloadState();
