@@ -1126,6 +1126,7 @@
     const mode = state.visualizer.modeSelect?.value || 'osc';
     const analyser = state.visualizer.analyser;
     const t = performance.now() * 0.001;
+    state.visualizer.lastMode = mode;
     const avgRange = (buf, startRatio, endRatio) => {
       const start = Math.floor(buf.length * startRatio);
       const end = Math.max(start + 1, Math.floor(buf.length * endRatio));
@@ -1350,32 +1351,68 @@
       const mids = avgRange(buffer, 0.15, 0.55);
       const highs = avgRange(buffer, 0.65, 1.0);
       if (!state.visualizer.blooms) state.visualizer.blooms = [];
+      const energy = bass * 0.25 + mids * 0.45 + highs * 0.3;
       ctx.fillStyle = 'rgba(8, 12, 18, 0.16)';
       ctx.fillRect(0, 0, width, height);
-      if (highs > 0.55 && Math.random() < highs * 0.2) {
+      const glowAlpha = Math.min(0.08, 0.02 + energy * 0.12);
+      if (glowAlpha > 0.01) {
+        const cx = width * 0.5;
+        const cy = height * 0.5;
+        const r = Math.min(width, height) * (0.35 + energy * 0.2);
+        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        grad.addColorStop(0, `rgba(76, 204, 255, ${glowAlpha})`);
+        grad.addColorStop(1, 'rgba(10, 14, 20, 0)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, width, height);
+        const grad2 = ctx.createRadialGradient(cx * 0.7, cy * 0.6, 0, cx * 0.7, cy * 0.6, r * 0.8);
+        grad2.addColorStop(0, `rgba(255, 186, 120, ${glowAlpha * 0.7})`);
+        grad2.addColorStop(1, 'rgba(10, 14, 20, 0)');
+        ctx.fillStyle = grad2;
+        ctx.fillRect(0, 0, width, height);
+      }
+      const prevE = state.visualizer.prevBloomEnergy || 0;
+      const de = Math.max(0, energy - prevE);
+      state.visualizer.prevBloomEnergy = energy;
+      state.visualizer.bloomCooldown = Math.max(0, (state.visualizer.bloomCooldown || 0) - 0.016);
+      if (!state.visualizer.bloomSeeded) {
+        state.visualizer.bloomSeeded = true;
+        for (let i = 0; i < 3; i += 1) {
+          const baseX = width * (0.35 + Math.random() * 0.3);
+          const baseY = height * (0.35 + Math.random() * 0.3);
+          state.visualizer.blooms.push({ x: baseX, y: baseY, r: 12, alpha: 0.35, hue: 190, dr: 1.8 });
+        }
+      }
+      if (de > 0.04 && state.visualizer.bloomCooldown <= 0) {
         const mirror = highs > mids;
         const baseX = Math.random() * width * 0.6 + width * 0.2;
         const baseY = Math.random() * height * 0.6 + height * 0.2;
         const hue = 190 + highs * 60;
-        state.visualizer.blooms.push({ x: baseX, y: baseY, r: 10, alpha: 0.6, hue, dr: 1.4 + bass * 4 });
+        state.visualizer.blooms.push({ x: baseX, y: baseY, r: 10, alpha: 0.7, hue, dr: 1.6 + bass * 4 });
         if (mirror) {
-          state.visualizer.blooms.push({ x: width - baseX, y: baseY, r: 10, alpha: 0.5, hue, dr: 1.4 + bass * 4 });
+          state.visualizer.blooms.push({ x: width - baseX, y: baseY, r: 10, alpha: 0.6, hue, dr: 1.6 + bass * 4 });
         }
+        state.visualizer.bloomCooldown = 0.12 + (0.2 - energy * 0.12);
+      } else if (highs > 0.35 && Math.random() < 0.03) {
+        const baseX = Math.random() * width * 0.7 + width * 0.15;
+        const baseY = Math.random() * height * 0.7 + height * 0.15;
+        const hue = 200 + highs * 50;
+        state.visualizer.blooms.push({ x: baseX, y: baseY, r: 8, alpha: 0.45, hue, dr: 1.2 + bass * 2 });
       }
       state.visualizer.blooms = state.visualizer.blooms.filter((bloom) => bloom.alpha > 0.02);
       state.visualizer.blooms.forEach((bloom) => {
         bloom.r += bloom.dr;
-        bloom.alpha *= 0.96;
-        ctx.strokeStyle = `hsla(${bloom.hue}, 90%, 65%, ${bloom.alpha * 0.7})`;
-        ctx.lineWidth = 2;
+        bloom.alpha *= 0.95;
+        const baseAlpha = bloom.alpha;
+        const fill1 = `hsla(${bloom.hue}, 90%, 62%, ${baseAlpha * 0.45})`;
+        const fill2 = `hsla(${bloom.hue + 15}, 85%, 55%, ${baseAlpha * 0.25})`;
+        ctx.fillStyle = fill1;
         ctx.beginPath();
         ctx.arc(bloom.x, bloom.y, bloom.r, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.strokeStyle = `hsla(${bloom.hue}, 85%, 55%, ${bloom.alpha * 0.4})`;
-        ctx.lineWidth = 6;
+        ctx.fill();
+        ctx.fillStyle = fill2;
         ctx.beginPath();
         ctx.arc(bloom.x, bloom.y, bloom.r * 0.6, 0, Math.PI * 2);
-        ctx.stroke();
+        ctx.fill();
       });
     } else if (mode === 'fractal') {
       const buffer = new Uint8Array(analyser.frequencyBinCount);
@@ -1383,27 +1420,59 @@
       const bass = avgRange(buffer, 0.0, 0.1);
       const mids = avgRange(buffer, 0.15, 0.55);
       const highs = avgRange(buffer, 0.65, 1.0);
-      const cx = width / 2;
-      const cy = height / 2;
-      const minDim = Math.min(width, height);
-      const rot = 0.05 + mids * 0.25;
-      const zoom = 1.2 + bass * 0.8;
-      const step = Math.max(8, Math.floor(minDim / 60));
-      ctx.fillStyle = 'rgba(8, 12, 18, 0.22)';
-      ctx.fillRect(0, 0, width, height);
-      for (let y = 0; y < height; y += step) {
-        for (let x = 0; x < width; x += step) {
-          const nx = (x - cx) / minDim;
-          const ny = (y - cy) / minDim;
-          const r = Math.sqrt(nx * nx + ny * ny) + 0.001;
-          const a = Math.atan2(ny, nx) + t * rot;
-          const v = Math.sin(r * zoom * 6 + Math.sin(a * 3) + t * 0.7);
-          const intensity = (v * 0.5 + 0.5) * (0.4 + highs * 0.6);
-          if (intensity < 0.08) continue;
-          const hue = 200 + v * 60;
-          ctx.fillStyle = `hsla(${hue}, 80%, ${45 + intensity * 30}%, ${0.1 + intensity * 0.5})`;
-          ctx.fillRect(x, y, step, step);
+      const internalW = Math.max(320, Math.min(960, Math.floor(width / 2)));
+      const internalH = Math.max(180, Math.min(540, Math.floor(height / 2)));
+      if (!state.visualizer.fractalCanvas || state.visualizer.fractalW !== internalW || state.visualizer.fractalH !== internalH) {
+        state.visualizer.fractalCanvas = document.createElement('canvas');
+        state.visualizer.fractalCanvas.width = internalW;
+        state.visualizer.fractalCanvas.height = internalH;
+        state.visualizer.fractalCtx = state.visualizer.fractalCanvas.getContext('2d');
+        state.visualizer.fractalImg = state.visualizer.fractalCtx?.createImageData(internalW, internalH) || null;
+        state.visualizer.fractalW = internalW;
+        state.visualizer.fractalH = internalH;
+        state.visualizer.fractalSkip = 0;
+      }
+      const fctx = state.visualizer.fractalCtx;
+      const img = state.visualizer.fractalImg;
+      if (fctx && img) {
+        state.visualizer.fractalSkip = (state.visualizer.fractalSkip || 0) + 1;
+        const shouldRender = state.visualizer.fractalSkip % 2 === 0;
+        if (shouldRender) {
+          const data = img.data;
+          const cx = internalW / 2;
+          const cy = internalH / 2;
+          const minDim = Math.min(internalW, internalH);
+          const rot = 0.05 + mids * 0.25;
+          const zoom = 1.2 + bass * 0.8;
+          const intensityScale = 0.3 + highs * 0.7;
+          for (let y = 0; y < internalH; y += 1) {
+            for (let x = 0; x < internalW; x += 1) {
+              const nx = (x - cx) / minDim;
+              const ny = (y - cy) / minDim;
+              const r = Math.sqrt(nx * nx + ny * ny) + 0.001;
+              const a = Math.atan2(ny, nx) + t * rot;
+              const v = Math.sin(r * zoom * 8 + Math.sin(a * 3 + t * rot) + Math.sin(r * 2 + t * 0.7));
+              const intensity = (v * 0.5 + 0.5) * intensityScale;
+              const hue = 200 + v * 60;
+              const l = 25 + intensity * 55;
+              const c = Math.max(0, Math.min(1, intensity));
+              const rad = (hue / 360) * Math.PI * 2;
+              const rCol = Math.floor(40 + c * 215 * Math.max(0, Math.cos(rad)));
+              const gCol = Math.floor(40 + c * 215 * Math.max(0, Math.sin(rad)));
+              const bCol = Math.floor(60 + c * 180);
+              const idx = (y * internalW + x) * 4;
+              data[idx] = rCol;
+              data[idx + 1] = gCol;
+              data[idx + 2] = bCol;
+              data[idx + 3] = Math.floor(255 * (0.15 + intensity * 0.65));
+            }
+          }
+          fctx.putImageData(img, 0, 0);
         }
+        ctx.fillStyle = 'rgba(8, 12, 18, 0.18)';
+        ctx.fillRect(0, 0, width, height);
+        ctx.imageSmoothingEnabled = true;
+        ctx.drawImage(state.visualizer.fractalCanvas, 0, 0, width, height);
       }
     } else {
       const buffer = new Uint8Array(analyser.frequencyBinCount);
