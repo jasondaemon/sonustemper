@@ -570,9 +570,12 @@ h1{margin:0;font-size:24px;}
 }
 .library-action-menu{
   position:relative;
+  padding-bottom:12px;
 }
 .library-action-menu > summary{
   list-style:none;
+  padding:4px;
+  margin:-4px;
 }
 .library-action-menu > summary::-webkit-details-marker{
   display:none;
@@ -580,7 +583,8 @@ h1{margin:0;font-size:24px;}
 .library-action-list{
   position:absolute;
   right:0;
-  top:110%;
+  top:100%;
+  margin-top:8px;
   background:#0f151d;
   border:1px solid var(--line);
   border-radius:10px;
@@ -601,6 +605,12 @@ h1{margin:0;font-size:24px;}
   border-radius:8px;
   cursor:pointer;
 }
+.library-action-menu > summary:hover,
+.library-download-menu > summary:hover,
+.library-action-list button:hover,
+.library-download-list a:hover{
+  box-shadow:0 0 0 1px rgba(63, 224, 197, 0.45), 0 0 10px rgba(63, 224, 197, 0.2);
+}
 .library-song.is-disabled{
   opacity:0.45;
 }
@@ -609,9 +619,12 @@ h1{margin:0;font-size:24px;}
 }
 .library-download-menu{
   position:relative;
+  padding-bottom:12px;
 }
 .library-download-menu > summary{
   list-style:none;
+  padding:4px;
+  margin:-4px;
 }
 .library-download-menu > summary::-webkit-details-marker{
   display:none;
@@ -619,7 +632,8 @@ h1{margin:0;font-size:24px;}
 .library-download-list{
   position:absolute;
   right:0;
-  top:110%;
+  top:100%;
+  margin-top:8px;
   background:#0f151d;
   border:1px solid var(--line);
   border-radius:10px;
