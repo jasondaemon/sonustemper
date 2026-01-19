@@ -1106,8 +1106,19 @@
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     const dpr = window.devicePixelRatio || 1;
-    const width = canvas.clientWidth || 600;
-    const height = canvas.clientHeight || 300;
+    let width = canvas.clientWidth || 600;
+    let height = canvas.clientHeight || 300;
+    const panel = canvas.closest('.files-visualizer-card');
+    if (panel) {
+      const rect = panel.getBoundingClientRect();
+      if (rect.height && (document.fullscreenElement === panel || height < 50)) {
+        const head = panel.querySelector('.files-visualizer-head');
+        const headRect = head ? head.getBoundingClientRect() : null;
+        const headHeight = headRect ? headRect.height : 0;
+        width = rect.width || width;
+        height = Math.max(0, rect.height - headHeight);
+      }
+    }
     canvas.width = Math.floor(width * dpr);
     canvas.height = Math.floor(height * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
