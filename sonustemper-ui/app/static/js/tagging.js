@@ -563,6 +563,60 @@
     });
   }
 
+  function initTempControls(){
+    const btn = document.getElementById('tagTempUploadBtn');
+    const input = document.getElementById('tagTempFiles');
+    const clearBtn = document.getElementById('tagTempClearBtn');
+    if(!btn || !input) return;
+    if(btn.dataset.bound === '1') return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', () => {
+      input.click();
+    });
+    if(input.dataset.bound !== '1'){
+      input.dataset.bound = '1';
+      input.addEventListener('change', async (e)=>{
+        const status = document.getElementById('tagTempStatus');
+        const setStatus = (msg) => { if(status) status.textContent = msg || ''; };
+        const files = Array.from(e.target.files || []);
+        if(!files.length) return;
+        setStatus('Uploading...');
+        const fd = new FormData();
+        files.forEach(file => fd.append('files', file, file.name));
+        try{
+          const res = await fetch('/api/tagger/upload-mp3', { method: 'POST', body: fd });
+          if(!res.ok) throw new Error(await res.text());
+          const data = await res.json();
+          tagState.temp.session = data.session || tagState.temp.session;
+          if(tagState.temp.session) localStorage.setItem('tagTempSession', tagState.temp.session);
+          tagState.temp.items = (data.items || []).concat(tagState.temp.items || []);
+          renderTempList();
+          setStatus('Ready.');
+        }catch(_err){
+          setStatus('Upload failed.');
+        }finally{
+          e.target.value = '';
+        }
+      });
+    }
+    if(clearBtn && clearBtn.dataset.bound !== '1'){
+      clearBtn.dataset.bound = '1';
+      clearBtn.addEventListener('click', async ()=>{
+        const session = tagState.temp.session || localStorage.getItem('tagTempSession') || '';
+        if(!session) return;
+        await fetch('/api/tagger/temp-clear', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session }),
+        });
+        tagState.temp.items = [];
+        tagState.temp.session = null;
+        localStorage.removeItem('tagTempSession');
+        renderTempList();
+      });
+    }
+  }
+
   document.addEventListener('DOMContentLoaded', ()=>{
     document.getElementById('tagClearSelBtn')?.addEventListener('click', ()=>{
       tagState.working = [];
@@ -620,47 +674,7 @@
       }
     });
 
-    document.getElementById('tagTempUploadBtn')?.addEventListener('click', () => {
-      document.getElementById('tagTempFiles')?.click();
-    });
-
-    document.getElementById('tagTempFiles')?.addEventListener('change', async (e)=>{
-      const status = document.getElementById('tagTempStatus');
-      const setStatus = (msg) => { if(status) status.textContent = msg || ''; };
-      const files = Array.from(e.target.files || []);
-      if(!files.length) return;
-      setStatus('Uploading...');
-      const fd = new FormData();
-      files.forEach(file => fd.append('files', file, file.name));
-      try{
-        const res = await fetch('/api/tagger/upload-mp3', { method: 'POST', body: fd });
-        if(!res.ok) throw new Error(await res.text());
-        const data = await res.json();
-        tagState.temp.session = data.session || tagState.temp.session;
-        if(tagState.temp.session) localStorage.setItem('tagTempSession', tagState.temp.session);
-        tagState.temp.items = (data.items || []).concat(tagState.temp.items || []);
-        renderTempList();
-        setStatus('Ready.');
-      }catch(_err){
-        setStatus('Upload failed.');
-      }finally{
-        e.target.value = '';
-      }
-    });
-
-    document.getElementById('tagTempClearBtn')?.addEventListener('click', async ()=>{
-      const session = tagState.temp.session || localStorage.getItem('tagTempSession') || '';
-      if(!session) return;
-      await fetch('/api/tagger/temp-clear', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session }),
-      });
-      tagState.temp.items = [];
-      tagState.temp.session = null;
-      localStorage.removeItem('tagTempSession');
-      renderTempList();
-    });
+    initTempControls();
 
     const browser = document.getElementById('taggingBrowser');
     if (browser && window.LibraryBrowser) {
@@ -856,6 +870,9 @@
     const browser = document.getElementById('taggingBrowser');
     if(browser && browser.contains(evt.target)){
       syncBrowserSelection();
+    }
+    if(evt.target && evt.target.querySelector && evt.target.querySelector('#tagTempUploadBtn')){
+      initTempControls();
     }
   });
 })();
