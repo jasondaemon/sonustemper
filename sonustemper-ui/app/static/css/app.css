@@ -3287,7 +3287,7 @@ h1{margin:0;font-size:24px;}
 .tag-table th,.tag-table td{text-align:left;padding:6px;}
 .tag-table th{color:var(--muted);font-weight:600;}
 .tag-table input{width:100%;padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:#0f151d;color:var(--text);}
-.tag-table input.track-input{width:3ch;min-width:3ch;}
+.tag-table input.track-input{width:5ch;min-width:5ch;text-align:center;}
 .tag-dl-icon{width:16px;height:16px;display:block;}
 .tag-filename{max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .tag-actions-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
