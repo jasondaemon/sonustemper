@@ -15,7 +15,7 @@ from fastapi import APIRouter, Request, HTTPException, Form
 from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sonustemper.tools import bundle_root, is_frozen
-from sonustemper.storage import DATA_ROOT
+from sonustemper.storage import DATA_ROOT, PRESETS_DIR
 from sonustemper import library_db as library_index
 
 # New tandem UI router (mounted at root).
@@ -33,8 +33,8 @@ MASTER_IN_DIR = Path(os.getenv("MASTER_IN_DIR", str(DATA_DIR / "mastering" / "in
 MASTER_OUT_DIR = Path(os.getenv("MASTER_OUT_DIR", str(DATA_DIR / "mastering" / "out")))
 TAG_IN_DIR = Path(os.getenv("TAG_IN_DIR", str(DATA_DIR / "tagging" / "in")))
 ANALYSIS_IN_DIR = Path(os.getenv("ANALYSIS_IN_DIR", str(DATA_DIR / "analysis" / "in")))
-PRESET_DIR = Path(os.getenv("PRESET_DIR", str(DATA_DIR / "user_presets")))
-GEN_PRESET_DIR = Path(os.getenv("GEN_PRESET_DIR", str(DATA_DIR / "user_presets")))
+PRESET_DIR = PRESETS_DIR
+GEN_PRESET_DIR = PRESETS_DIR
 USER_VOICING_DIR = PRESET_DIR / "voicings"
 USER_PROFILE_DIR = PRESET_DIR / "profiles"
 USER_NOISE_DIR = PRESET_DIR / "noise_filters"
