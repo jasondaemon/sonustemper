@@ -490,8 +490,18 @@
       }
       const menu = document.createElement('details');
       menu.className = 'library-action-menu';
+      let closeTimer = null;
       menu.addEventListener('mouseleave', () => {
-        menu.open = false;
+        closeTimer = setTimeout(() => {
+          menu.open = false;
+          closeTimer = null;
+        }, 1000);
+      });
+      menu.addEventListener('mouseenter', () => {
+        if (closeTimer) {
+          clearTimeout(closeTimer);
+          closeTimer = null;
+        }
       });
       const menuSummary = document.createElement('summary');
       menuSummary.textContent = '⋯';

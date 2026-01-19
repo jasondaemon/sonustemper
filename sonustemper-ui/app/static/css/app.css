@@ -459,7 +459,7 @@ h1{margin:0;font-size:24px;}
 .library-song-actions{
   display:flex;
   align-items:center;
-  gap:6px;
+  gap:8px;
   margin-left:auto;
 }
 .library-add-btn{
@@ -567,6 +567,7 @@ h1{margin:0;font-size:24px;}
   margin-left:auto;
   display:flex;
   align-items:center;
+  gap:8px;
 }
 .library-action-menu{
   position:relative;
