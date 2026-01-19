@@ -33,7 +33,7 @@ The Tagging utility lets you edit ID3 metadata and album art for MP3 files, eith
 - **Add All**: Adds all temp uploads into the editor.
 - **Clear Temp**: Deletes temp files for the current session.
 
-![standalone](img/tagging-standalone.png)
+![standalone](img/tagging-upload.png)
 
 ### Library list
 - **Convert to MP3**: Creates an MP3 rendition when only WAV/FLAC exists.
@@ -50,7 +50,7 @@ The Tagging utility lets you edit ID3 metadata and album art for MP3 files, eith
 - **Download icon**: Downloads the tagged file.
 - **Remove (X)**: Removes the track from the editor.
 
-![tracks](img/tagging-tracks.png)
+![tracks](img/tagging-editor.png)
 
 ## Common pitfalls
 - **No MP3 available**: Some versions only have WAV/FLAC. Use **Convert to MP3** first.
