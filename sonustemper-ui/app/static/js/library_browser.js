@@ -416,6 +416,11 @@
       const row = document.createElement('div');
       row.className = 'library-version-row';
       const renditions = Array.isArray(version.renditions) ? version.renditions : [];
+      const primary = primaryRendition(renditions);
+      const primaryRel = primary?.rel || version.rel || '';
+      const canOpen = Boolean(primaryRel);
+      const canDelete = Boolean(song?.song_id && version?.version_id);
+      const canDownload = renditions.length > 0;
       const meta = document.createElement('div');
       meta.className = 'library-version-meta';
       const utilityLabel = isNoiseRemovedUtility(version.utility) ? 'Noise Removed' : version.utility;
@@ -493,30 +498,43 @@
       menu.appendChild(menuSummary);
       const menuList = document.createElement('div');
       menuList.className = 'library-action-list';
+      const applyDisabled = (btn, reason) => {
+        if (!btn) return;
+        btn.disabled = true;
+        btn.setAttribute('aria-disabled', 'true');
+        btn.classList.add('is-disabled');
+        if (reason) btn.title = reason;
+      };
       if (isMastering) {
         const analyzeBtn = document.createElement('button');
         analyzeBtn.type = 'button';
         analyzeBtn.textContent = 'Noise Removal';
         analyzeBtn.addEventListener('click', (evt) => {
           evt.stopPropagation();
+          if (!canOpen) return;
           emit('library:action', { action: 'open-analyze', song, version });
         });
+        if (!canOpen) applyDisabled(analyzeBtn, 'No audio file available for this version.');
         menuList.appendChild(analyzeBtn);
         const compareBtn = document.createElement('button');
         compareBtn.type = 'button';
         compareBtn.textContent = 'Compare';
         compareBtn.addEventListener('click', (evt) => {
           evt.stopPropagation();
+          if (!canOpen) return;
           emit('library:action', { action: 'open-compare', song, version });
         });
+        if (!canOpen) applyDisabled(compareBtn, 'No audio file available for this version.');
         menuList.appendChild(compareBtn);
         const eqBtn = document.createElement('button');
         eqBtn.type = 'button';
         eqBtn.textContent = 'Open in EQ';
         eqBtn.addEventListener('click', (evt) => {
           evt.stopPropagation();
+          if (!canOpen) return;
           emit('library:action', { action: 'open-eq', song, version });
         });
+        if (!canOpen) applyDisabled(eqBtn, 'No audio file available for this version.');
         menuList.appendChild(eqBtn);
         if (isNoiseProfileUtility(version.utility)) {
           const convertBtn = document.createElement('button');
@@ -535,8 +553,10 @@
         delBtn.textContent = 'Delete';
         delBtn.addEventListener('click', (evt) => {
           evt.stopPropagation();
+          if (!canDelete) return;
           emit('library:action', { action: 'delete-version', song, version });
         });
+        if (!canDelete) applyDisabled(delBtn, 'Missing song/version id.');
         menuList.appendChild(delBtn);
       } else {
         if (module === 'compare' && version.kind !== 'source') {
@@ -564,16 +584,20 @@
         openCompare.textContent = 'Open in Compare';
         openCompare.addEventListener('click', (evt) => {
           evt.stopPropagation();
+          if (!canOpen) return;
           emit('library:action', { action: 'open-compare', song, version });
         });
+        if (!canOpen) applyDisabled(openCompare, 'No audio file available for this version.');
         menuList.appendChild(openCompare);
         const openEq = document.createElement('button');
         openEq.type = 'button';
         openEq.textContent = 'Open in EQ';
         openEq.addEventListener('click', (evt) => {
           evt.stopPropagation();
+          if (!canOpen) return;
           emit('library:action', { action: 'open-eq', song, version });
         });
+        if (!canOpen) applyDisabled(openEq, 'No audio file available for this version.');
         menuList.appendChild(openEq);
         if (isNoiseProfileUtility(version.utility)) {
           const convertBtn = document.createElement('button');
@@ -597,6 +621,15 @@
         downloadSummary.textContent = 'Download';
         downloadSummary.className = 'btn ghost tiny';
         downloadSummary.addEventListener('click', (evt) => evt.stopPropagation());
+        if (!canDownload) {
+          downloadSummary.classList.add('is-disabled');
+          downloadSummary.setAttribute('aria-disabled', 'true');
+          downloadSummary.title = 'No renditions available for this version.';
+          downloadSummary.addEventListener('click', (evt) => {
+            evt.preventDefault();
+            evt.stopPropagation();
+          });
+        }
         download.appendChild(downloadSummary);
         const downloadList = document.createElement('div');
         downloadList.className = 'library-download-list';
@@ -624,8 +657,10 @@
         delBtn.textContent = 'Delete Version';
         delBtn.addEventListener('click', (evt) => {
           evt.stopPropagation();
+          if (!canDelete) return;
           emit('library:action', { action: 'delete-version', song, version });
         });
+        if (!canDelete) applyDisabled(delBtn, 'Missing song/version id.');
         menuList.appendChild(delBtn);
       }
 
