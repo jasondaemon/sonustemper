@@ -208,9 +208,9 @@ from .storage import DATA_ROOT
 DATA_DIR = Path(os.getenv("DATA_DIR") or os.getenv("SONUSTEMPER_DATA_ROOT") or str(DATA_ROOT))
 IN_DIR = Path(os.getenv("IN_DIR", str(DATA_DIR / "library" / "songs")))
 OUT_DIR = Path(os.getenv("OUT_DIR", str(DATA_DIR / "previews" / "master_runs")))
-PRESET_DIR = Path(os.getenv("PRESET_DIR", str(DATA_DIR / "presets" / "user")))
+PRESET_DIR = Path(os.getenv("PRESET_DIR", str(DATA_DIR / "user_presets")))
 ANALYSIS_TMP = Path(os.getenv("ANALYSIS_TMP_DIR", str(DATA_DIR / "previews" / "analysis_tmp")))
-GEN_PRESET_DIR = Path(os.getenv("GEN_PRESET_DIR", str(DATA_DIR / "presets" / "generated")))
+GEN_PRESET_DIR = Path(os.getenv("GEN_PRESET_DIR", str(DATA_DIR / "user_presets")))
 ASSET_PRESET_DIR = (bundle_root() / "assets" / "presets") if is_frozen() else (Path(__file__).resolve().parents[1] / "assets" / "presets")
 BUILTIN_PROFILE_DIR = ASSET_PRESET_DIR / "profiles"
 BUILTIN_VOICING_DIR = ASSET_PRESET_DIR / "voicings"

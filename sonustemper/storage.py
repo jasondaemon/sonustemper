@@ -246,8 +246,8 @@ def resolve_rel(rel: str) -> Path:
     rel = (rel or "").strip().lstrip("/").replace("\\", "/")
     if not rel:
         raise ValueError("missing_path")
-    allowed = ("library/", "presets/", "previews/")
-    if rel not in ("library", "presets", "previews") and not rel.startswith(allowed):
+    allowed = ("library/", "user_presets/", "previews/")
+    if rel not in ("library", "user_presets", "previews") and not rel.startswith(allowed):
         raise ValueError("invalid_path")
     target = (DATA_ROOT / rel).resolve()
     root = DATA_ROOT.resolve()

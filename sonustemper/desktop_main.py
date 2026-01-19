@@ -34,7 +34,10 @@ def _default_data_dir() -> Path:
 
 def _ensure_data_dirs(data_dir: Path) -> None:
     for rel in [
-        "presets",
+        "user_presets/voicings",
+        "user_presets/profiles",
+        "user_presets/noise_filters",
+        "user_presets/ai_tools",
         "library/songs",
         "previews",
     ]:

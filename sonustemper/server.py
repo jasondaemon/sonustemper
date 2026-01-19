@@ -5409,7 +5409,7 @@ def master_bulk(
         "primary_run_id": primary,
     })
 def _validate_input_file(name: str) -> Path:
-    """Validate a user-supplied infile lives under /data library/presets/previews."""
+    """Validate a user-supplied infile lives under /data library/user_presets/previews."""
     if not name or ".." in name:
         raise HTTPException(status_code=400, detail="invalid_input_path")
     try:
