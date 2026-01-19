@@ -39,6 +39,8 @@ SonusTemper is a music finishing toolkit for AI‑generated and real recordings.
 | [Workflows](workflows.md) | End‑to‑end guides |
 | [Troubleshooting](troubleshooting.md) | Fix common issues |
 
+![Settings](images/start.png)
+
 ## Common pitfalls
 - If you do not see a file, refresh the Library or check the import path.
 - If playback is silent, verify the browser allowed audio playback and the AudioContext is running.
