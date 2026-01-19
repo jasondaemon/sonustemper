@@ -107,6 +107,7 @@
     hoverVoiceId: null,
     dragVoiceId: null,
     lastSpectrumFrame: 0,
+    spectrumDirty: false,
     voiceNodes: [],
     voice: {
       deesser: { enabled: false, show: false, listen: false, freq_hz: 6500, amount_db: 0 },
@@ -123,6 +124,17 @@
     paramUpdateTimes: [],
     lastDragLog: {},
   };
+
+  let renderPending = false;
+  function requestRender(reason) {
+    state.lastRenderReason = reason || '';
+    if (renderPending) return;
+    renderPending = true;
+    requestAnimationFrame(() => {
+      renderPending = false;
+      drawFrame();
+    });
+  }
 
   function formatTime(total) {
     if (!Number.isFinite(total) || total <= 0) return '0:00';
@@ -800,16 +812,23 @@
     updateVoiceSummary();
   }
 
-  function drawSpectrumOnce() {
+  function drawFrame() {
     if (!spectrumCanvas) return;
     const ctx = spectrumCanvas.getContext('2d');
     const rect = spectrumCanvas.getBoundingClientRect();
     ctx.clearRect(0, 0, rect.width, rect.height);
     drawEqGrid(ctx, rect.width, rect.height);
+    if (state.spectrumSmooth) {
+      drawSpectrumBehindCurve(ctx, rect.width, rect.height);
+    }
     drawVoiceOverlays(ctx, rect.width, rect.height);
     drawFilterRegions(ctx, rect.width, rect.height);
     drawEqCurve(ctx, rect.width, rect.height);
     drawBandHandles(ctx, rect.width, rect.height);
+  }
+
+  function drawSpectrumOnce() {
+    requestRender('once');
   }
 
   function setupSpectrumCanvas() {
@@ -1051,28 +1070,20 @@
     ctx.restore();
   }
 
-  function drawSpectrum() {
-    if (!state.analyser || !spectrumCanvas) return;
+  function updateSpectrumData() {
+    if (!state.analyser) return;
     if (!state.spectrumData || !state.spectrumSmooth || state.spectrumData.length !== state.analyser.frequencyBinCount) {
       state.spectrumData = new Uint8Array(state.analyser.frequencyBinCount);
       state.spectrumSmooth = new Float32Array(state.spectrumData.length);
     }
     state.analyser.getByteFrequencyData(state.spectrumData);
-    const ctx = spectrumCanvas.getContext('2d');
-    const rect = spectrumCanvas.getBoundingClientRect();
-    ctx.clearRect(0, 0, rect.width, rect.height);
     const bins = state.spectrumData.length;
     const alpha = 0.2;
     for (let i = 0; i < bins; i += 1) {
       const val = state.spectrumData[i];
       state.spectrumSmooth[i] = state.spectrumSmooth[i] * (1 - alpha) + val * alpha;
     }
-    drawEqGrid(ctx, rect.width, rect.height);
-    drawSpectrumBehindCurve(ctx, rect.width, rect.height);
-    drawVoiceOverlays(ctx, rect.width, rect.height);
-    drawFilterRegions(ctx, rect.width, rect.height);
-    drawEqCurve(ctx, rect.width, rect.height);
-    drawBandHandles(ctx, rect.width, rect.height);
+    state.spectrumDirty = true;
   }
 
   function freqToX(freq, width) {
@@ -1157,7 +1168,8 @@
     const loop = () => {
       const now = performance.now();
       if (!state.lastSpectrumFrame || now - state.lastSpectrumFrame > 32) {
-        drawSpectrum();
+        updateSpectrumData();
+        requestRender('spectrum');
         state.lastSpectrumFrame = now;
       }
       state.spectrumRaf = requestAnimationFrame(loop);
@@ -1627,12 +1639,12 @@
         const hit = findBandAt(x, y, rect);
         state.hoverBandId = hit?.id || null;
       }
-      drawSpectrumOnce();
+      requestRender('mousemove');
     });
     spectrumCanvas.addEventListener('mouseleave', () => {
       state.hoverBandId = null;
       state.hoverVoiceId = null;
-      drawSpectrumOnce();
+      requestRender('mouseleave');
     });
     document.addEventListener('mousemove', (evt) => {
       if (dragVoiceId) {
