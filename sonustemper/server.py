@@ -4904,8 +4904,9 @@ def eq_render(payload: dict = Body(...)):
         song_id = song.get("song_id") if isinstance(song, dict) else ""
     if not song_id:
         raise HTTPException(status_code=400, detail="missing_song_id")
-    if bypass and not voice_controls:
-        raise HTTPException(status_code=400, detail="eq_bypassed")
+    voice_bypass = False
+    if isinstance(voice_controls, dict):
+        voice_bypass = bool(voice_controls.get("bypass"))
     def clamp(val, min_v, max_v):
         try:
             num = float(val)
@@ -4914,7 +4915,7 @@ def eq_render(payload: dict = Body(...)):
         return max(min_v, min(max_v, num))
     filters = []
     voice_filters = []
-    if isinstance(voice_controls, dict) and not voice_controls.get("bypass", False):
+    if isinstance(voice_controls, dict) and not voice_bypass:
         deesser = voice_controls.get("deesser") if isinstance(voice_controls.get("deesser"), dict) else {}
         vocal = voice_controls.get("vocal_smooth") if isinstance(voice_controls.get("vocal_smooth"), dict) else {}
         deharsh = voice_controls.get("deharsh") if isinstance(voice_controls.get("deharsh"), dict) else {}
@@ -4932,6 +4933,8 @@ def eq_render(payload: dict = Body(...)):
             amount = clamp(deharsh.get("amount_db"), -6.0, 0.0)
             if amount < 0:
                 voice_filters.append(f"equalizer=f={freq:g}:width_type=q:width=1.5:g={amount:g}")
+    if bypass:
+        filters = []
     for band in bands:
         if not isinstance(band, dict):
             continue
@@ -4948,8 +4951,16 @@ def eq_render(payload: dict = Body(...)):
             filters.append(f"lowpass=f={freq:g}")
             continue
         filters.append(f"equalizer=f={freq:g}:width_type=q:width={q_val:g}:g={gain:g}")
-    if not filters and not voice_filters:
-        raise HTTPException(status_code=400, detail="no_eq_enabled")
+    chain_parts = voice_filters + filters
+    logger.info(
+        "[eq][render] bypass=%s voice_bypass=%s voice_filters=%d eq_filters=%d",
+        bypass,
+        voice_bypass,
+        len(voice_filters),
+        len(filters),
+    )
+    if not chain_parts:
+        raise HTTPException(status_code=400, detail="no_processing_enabled")
     suffix = target.suffix.lower() if target.suffix else ".wav"
     if output_format and output_format != "same":
         suffix = f".{output_format.lstrip('.')}"
@@ -4970,7 +4981,7 @@ def eq_render(payload: dict = Body(...)):
     safe_title = safe_filename(title) or "EQ"
     base_name = safe_filename(f"{safe_title}__eq_{version_id}") or safe_title
     out_path = out_path.with_name(f"{base_name}{suffix}")
-    chain = ",".join(voice_filters + filters)
+    chain = ",".join(chain_parts)
     cmd = [
         FFMPEG_BIN, "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(target),
