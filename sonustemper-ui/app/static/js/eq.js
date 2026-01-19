@@ -30,6 +30,18 @@
   const openAnalyzeBtn = document.getElementById('eqOpenAnalyzeBtn');
   const trackModeInputs = Array.from(document.querySelectorAll('input[name="eqTrackMode"]'));
   const libraryBrowserEl = document.getElementById('eqLibraryBrowser');
+  const voiceSummary = document.getElementById('eqVoiceSummary');
+  const voiceDeesserEnable = document.getElementById('eqVoiceDeesserEnable');
+  const voiceDeesserFreq = document.getElementById('eqVoiceDeesserFreq');
+  const voiceDeesserAmount = document.getElementById('eqVoiceDeesserAmount');
+  const voiceDeesserVal = document.getElementById('eqVoiceDeesserVal');
+  const voiceSmoothEnable = document.getElementById('eqVoiceSmoothEnable');
+  const voiceSmoothAmount = document.getElementById('eqVoiceSmoothAmount');
+  const voiceSmoothVal = document.getElementById('eqVoiceSmoothVal');
+  const voiceDeharshEnable = document.getElementById('eqVoiceDeharshEnable');
+  const voiceDeharshFreq = document.getElementById('eqVoiceDeharshFreq');
+  const voiceDeharshAmount = document.getElementById('eqVoiceDeharshAmount');
+  const voiceDeharshVal = document.getElementById('eqVoiceDeharshVal');
   let libraryBrowser = null;
 
   const state = {
@@ -51,6 +63,13 @@
     spectrumSmooth: null,
     hoverBandId: null,
     lastSpectrumFrame: 0,
+    voiceNodes: [],
+    voice: {
+      deesser: { enabled: false, freq_hz: 6500, amount_db: 0 },
+      vocal_smooth: { enabled: false, amount_db: 0 },
+      deharsh: { enabled: false, freq_hz: 3200, amount_db: 0 },
+      bypass: false,
+    },
     trackMode: 'any',
   };
 
@@ -119,6 +138,61 @@
     rebuildFilterChain();
   }
 
+  function updateVoiceSummary() {
+    const active = [];
+    if (state.voice.deesser.enabled && state.voice.deesser.amount_db < 0) active.push('De-esser');
+    if (state.voice.vocal_smooth.enabled && state.voice.vocal_smooth.amount_db < 0) active.push('Vocal Smooth');
+    if (state.voice.deharsh.enabled && state.voice.deharsh.amount_db < 0) active.push('De-harsh');
+    if (voiceSummary) {
+      voiceSummary.textContent = active.length ? `Voice Controls: ${active.join(', ')}` : 'Voice Controls: none';
+    }
+  }
+
+  function buildVoiceChain(inputNode) {
+    state.voiceNodes.forEach((node) => {
+      try {
+        node.disconnect();
+      } catch (_) {}
+    });
+    state.voiceNodes = [];
+    let last = inputNode;
+    if (state.voice.bypass) return last;
+    const deesser = state.voice.deesser;
+    if (deesser.enabled && deesser.amount_db < 0) {
+      const node = state.audioCtx.createBiquadFilter();
+      node.type = 'peaking';
+      node.frequency.value = Math.max(3000, Math.min(10000, deesser.freq_hz));
+      node.Q.value = 2.0;
+      node.gain.value = deesser.amount_db;
+      last.connect(node);
+      last = node;
+      state.voiceNodes.push(node);
+    }
+    const vocal = state.voice.vocal_smooth;
+    if (vocal.enabled && vocal.amount_db < 0) {
+      const node = state.audioCtx.createBiquadFilter();
+      node.type = 'peaking';
+      node.frequency.value = 4500;
+      node.Q.value = 1.2;
+      node.gain.value = vocal.amount_db;
+      last.connect(node);
+      last = node;
+      state.voiceNodes.push(node);
+    }
+    const deharsh = state.voice.deharsh;
+    if (deharsh.enabled && deharsh.amount_db < 0) {
+      const node = state.audioCtx.createBiquadFilter();
+      node.type = 'peaking';
+      node.frequency.value = Math.max(1500, Math.min(6000, deharsh.freq_hz));
+      node.Q.value = 1.5;
+      node.gain.value = deharsh.amount_db;
+      last.connect(node);
+      last = node;
+      state.voiceNodes.push(node);
+    }
+    return last;
+  }
+
   function rebuildFilterChain() {
     if (!state.sourceNode || !state.analyser) return;
     try {
@@ -130,7 +204,7 @@
       } catch (_) {}
     });
     state.bandNodes.clear();
-    let lastNode = state.sourceNode;
+    let lastNode = buildVoiceChain(state.sourceNode);
     if (!state.bypass) {
       state.bands.forEach((band) => {
         if (!band.enabled) return;
@@ -374,6 +448,90 @@
       state.bypass = bypassToggle.checked;
       rebuildFilterChain();
     });
+  }
+
+  function bindVoiceControls() {
+    if (voiceDeesserEnable) {
+      voiceDeesserEnable.addEventListener('change', () => {
+        state.voice.deesser.enabled = voiceDeesserEnable.checked;
+        rebuildFilterChain();
+        updateVoiceSummary();
+        drawSpectrumOnce();
+      });
+    }
+    if (voiceDeesserFreq) {
+      voiceDeesserFreq.addEventListener('input', () => {
+        state.voice.deesser.freq_hz = Math.max(3000, Math.min(10000, Number(voiceDeesserFreq.value)));
+        rebuildFilterChain();
+        drawSpectrumOnce();
+      });
+    }
+    if (voiceDeesserAmount) {
+      voiceDeesserAmount.addEventListener('input', () => {
+        state.voice.deesser.amount_db = Math.max(-12, Math.min(0, Number(voiceDeesserAmount.value)));
+        if (voiceDeesserVal) voiceDeesserVal.textContent = `${state.voice.deesser.amount_db.toFixed(1)} dB`;
+        rebuildFilterChain();
+        updateVoiceSummary();
+        drawSpectrumOnce();
+      });
+    }
+    if (voiceSmoothEnable) {
+      voiceSmoothEnable.addEventListener('change', () => {
+        state.voice.vocal_smooth.enabled = voiceSmoothEnable.checked;
+        rebuildFilterChain();
+        updateVoiceSummary();
+        drawSpectrumOnce();
+      });
+    }
+    if (voiceSmoothAmount) {
+      voiceSmoothAmount.addEventListener('input', () => {
+        state.voice.vocal_smooth.amount_db = Math.max(-6, Math.min(0, Number(voiceSmoothAmount.value)));
+        if (voiceSmoothVal) voiceSmoothVal.textContent = `${state.voice.vocal_smooth.amount_db.toFixed(1)} dB`;
+        rebuildFilterChain();
+        updateVoiceSummary();
+        drawSpectrumOnce();
+      });
+    }
+    if (voiceDeharshEnable) {
+      voiceDeharshEnable.addEventListener('change', () => {
+        state.voice.deharsh.enabled = voiceDeharshEnable.checked;
+        rebuildFilterChain();
+        updateVoiceSummary();
+        drawSpectrumOnce();
+      });
+    }
+    if (voiceDeharshFreq) {
+      voiceDeharshFreq.addEventListener('input', () => {
+        state.voice.deharsh.freq_hz = Math.max(1500, Math.min(6000, Number(voiceDeharshFreq.value)));
+        rebuildFilterChain();
+        drawSpectrumOnce();
+      });
+    }
+    if (voiceDeharshAmount) {
+      voiceDeharshAmount.addEventListener('input', () => {
+        state.voice.deharsh.amount_db = Math.max(-6, Math.min(0, Number(voiceDeharshAmount.value)));
+        if (voiceDeharshVal) voiceDeharshVal.textContent = `${state.voice.deharsh.amount_db.toFixed(1)} dB`;
+        rebuildFilterChain();
+        updateVoiceSummary();
+        drawSpectrumOnce();
+      });
+    }
+    updateVoiceSummary();
+  }
+
+  function syncVoiceControls() {
+    if (voiceDeesserEnable) voiceDeesserEnable.checked = state.voice.deesser.enabled;
+    if (voiceDeesserFreq) voiceDeesserFreq.value = state.voice.deesser.freq_hz;
+    if (voiceDeesserAmount) voiceDeesserAmount.value = state.voice.deesser.amount_db;
+    if (voiceDeesserVal) voiceDeesserVal.textContent = `${state.voice.deesser.amount_db.toFixed(1)} dB`;
+    if (voiceSmoothEnable) voiceSmoothEnable.checked = state.voice.vocal_smooth.enabled;
+    if (voiceSmoothAmount) voiceSmoothAmount.value = state.voice.vocal_smooth.amount_db;
+    if (voiceSmoothVal) voiceSmoothVal.textContent = `${state.voice.vocal_smooth.amount_db.toFixed(1)} dB`;
+    if (voiceDeharshEnable) voiceDeharshEnable.checked = state.voice.deharsh.enabled;
+    if (voiceDeharshFreq) voiceDeharshFreq.value = state.voice.deharsh.freq_hz;
+    if (voiceDeharshAmount) voiceDeharshAmount.value = state.voice.deharsh.amount_db;
+    if (voiceDeharshVal) voiceDeharshVal.textContent = `${state.voice.deharsh.amount_db.toFixed(1)} dB`;
+    updateVoiceSummary();
   }
 
   function drawSpectrumOnce() {
@@ -861,6 +1019,7 @@
       drawSpectrumOnce();
     });
     bindBandControls();
+    bindVoiceControls();
     trackModeInputs.forEach((input) => {
       input.addEventListener('change', () => {
         if (input.checked) handleTrackModeChange(input.value);
@@ -919,6 +1078,7 @@
         body: JSON.stringify({
           path: state.selectedPath,
           song_id: state.selectedSongId,
+          voice_controls: state.voice,
           bands,
           bypass: state.bypass,
           output_format: 'same',
@@ -929,25 +1089,6 @@
         throw new Error(err || 'render_failed');
       }
       const data = await res.json();
-      const addRes = await fetch('/api/library/add_version', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          song_id: data.song_id || state.selectedSongId,
-          kind: 'eq',
-          label: 'EQ',
-          title: state.selectedSong?.title || 'EQ',
-          rel: data.output_rel,
-          version_id: data.version_id,
-          utility: 'EQ',
-          summary: { eq: { bands } },
-          metrics: data.metrics || {},
-        }),
-      });
-      if (!addRes.ok) {
-        const err = await addRes.text();
-        throw new Error(err || 'library_failed');
-      }
       saveStatus.textContent = 'Saved.';
       saveResult.innerHTML = '';
       const link = document.createElement('a');
@@ -1101,6 +1242,7 @@
     state.selectedBandId = state.bands.find((band) => band.type === 'peaking')?.id || state.bands[0]?.id || null;
     rebuildFilterChain();
     renderBands();
+    syncVoiceControls();
     const params = new URLSearchParams(window.location.search);
     const rel = params.get('path');
     if (rel) {

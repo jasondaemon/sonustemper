@@ -124,7 +124,61 @@
       </div>
     </div>
 
+    <div class="eq-voice-panel">
+      <div class="eq-voice-head">
+        <div>
+          <div class="eq-section-title">Voice Controls (Smart Dynamics)</div>
+          <div class="muted">Applied before EQ. Off by default.</div>
+        </div>
+        <span class="value-pill">Pre-EQ</span>
+      </div>
+      <div class="eq-voice-grid">
+        <div class="eq-voice-row" data-voice="deesser">
+          <label class="eq-toggle">
+            <input type="checkbox" id="eqVoiceDeesserEnable">
+            <span>De-esser</span>
+          </label>
+          <label class="eq-field compact">
+            <span>Freq (Hz)</span>
+            <input type="number" id="eqVoiceDeesserFreq" min="3000" max="10000" step="50" value="6500">
+          </label>
+          <label class="eq-field compact">
+            <span>Amount (dB)</span>
+            <input type="number" id="eqVoiceDeesserAmount" min="-12" max="0" step="0.5" value="0">
+          </label>
+          <span class="value-pill" id="eqVoiceDeesserVal">0.0 dB</span>
+        </div>
+        <div class="eq-voice-row" data-voice="vocal_smooth">
+          <label class="eq-toggle">
+            <input type="checkbox" id="eqVoiceSmoothEnable">
+            <span>Vocal Smooth</span>
+          </label>
+          <label class="eq-field compact">
+            <span>Amount (dB)</span>
+            <input type="number" id="eqVoiceSmoothAmount" min="-6" max="0" step="0.5" value="0">
+          </label>
+          <span class="value-pill" id="eqVoiceSmoothVal">0.0 dB</span>
+        </div>
+        <div class="eq-voice-row" data-voice="deharsh">
+          <label class="eq-toggle">
+            <input type="checkbox" id="eqVoiceDeharshEnable">
+            <span>De-harsh</span>
+          </label>
+          <label class="eq-field compact">
+            <span>Freq (Hz)</span>
+            <input type="number" id="eqVoiceDeharshFreq" min="1500" max="6000" step="50" value="3200">
+          </label>
+          <label class="eq-field compact">
+            <span>Amount (dB)</span>
+            <input type="number" id="eqVoiceDeharshAmount" min="-6" max="0" step="0.5" value="0">
+          </label>
+          <span class="value-pill" id="eqVoiceDeharshVal">0.0 dB</span>
+        </div>
+      </div>
+    </div>
+
     <div class="eq-save">
+      <div class="muted" id="eqVoiceSummary">Voice Controls: none</div>
       <label class="eq-toggle">
         <input type="checkbox" id="eqOpenCompareAfter">
         <span>Open in Compare after save</span>

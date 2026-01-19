@@ -4895,6 +4895,7 @@ def eq_render(payload: dict = Body(...)):
     song_id = (payload.get("song_id") or "").strip()
     bands = payload.get("bands") if isinstance(payload.get("bands"), list) else []
     bypass = bool(payload.get("bypass"))
+    voice_controls = payload.get("voice_controls") if isinstance(payload.get("voice_controls"), dict) else {}
     output_format = (payload.get("output_format") or "same").strip().lower()
     target = _resolve_analysis_path(path)
     rel = rel_from_path(target)
@@ -4903,7 +4904,7 @@ def eq_render(payload: dict = Body(...)):
         song_id = song.get("song_id") if isinstance(song, dict) else ""
     if not song_id:
         raise HTTPException(status_code=400, detail="missing_song_id")
-    if bypass:
+    if bypass and not voice_controls:
         raise HTTPException(status_code=400, detail="eq_bypassed")
     def clamp(val, min_v, max_v):
         try:
@@ -4912,6 +4913,25 @@ def eq_render(payload: dict = Body(...)):
             return min_v
         return max(min_v, min(max_v, num))
     filters = []
+    voice_filters = []
+    if isinstance(voice_controls, dict) and not voice_controls.get("bypass", False):
+        deesser = voice_controls.get("deesser") if isinstance(voice_controls.get("deesser"), dict) else {}
+        vocal = voice_controls.get("vocal_smooth") if isinstance(voice_controls.get("vocal_smooth"), dict) else {}
+        deharsh = voice_controls.get("deharsh") if isinstance(voice_controls.get("deharsh"), dict) else {}
+        if deesser.get("enabled"):
+            freq = clamp(deesser.get("freq_hz"), 3000.0, 10000.0)
+            amount = clamp(deesser.get("amount_db"), -12.0, 0.0)
+            if amount < 0:
+                voice_filters.append(f"equalizer=f={freq:g}:width_type=q:width=2.0:g={amount:g}")
+        if vocal.get("enabled"):
+            amount = clamp(vocal.get("amount_db"), -6.0, 0.0)
+            if amount < 0:
+                voice_filters.append(f"equalizer=f=4500:width_type=q:width=1.2:g={amount:g}")
+        if deharsh.get("enabled"):
+            freq = clamp(deharsh.get("freq_hz"), 1500.0, 6000.0)
+            amount = clamp(deharsh.get("amount_db"), -6.0, 0.0)
+            if amount < 0:
+                voice_filters.append(f"equalizer=f={freq:g}:width_type=q:width=1.5:g={amount:g}")
     for band in bands:
         if not isinstance(band, dict):
             continue
@@ -4928,7 +4948,7 @@ def eq_render(payload: dict = Body(...)):
             filters.append(f"lowpass=f={freq:g}")
             continue
         filters.append(f"equalizer=f={freq:g}:width_type=q:width={q_val:g}:g={gain:g}")
-    if not filters:
+    if not filters and not voice_filters:
         raise HTTPException(status_code=400, detail="no_eq_enabled")
     suffix = target.suffix.lower() if target.suffix else ".wav"
     if output_format and output_format != "same":
@@ -4950,10 +4970,11 @@ def eq_render(payload: dict = Body(...)):
     safe_title = safe_filename(title) or "EQ"
     base_name = safe_filename(f"{safe_title}__eq_{version_id}") or safe_title
     out_path = out_path.with_name(f"{base_name}{suffix}")
+    chain = ",".join(voice_filters + filters)
     cmd = [
         FFMPEG_BIN, "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(target),
-        "-af", ",".join(filters),
+        "-af", chain,
         "-vn", "-ac", "2",
         "-codec:a", codec,
         str(out_path),
@@ -4968,6 +4989,26 @@ def eq_render(payload: dict = Body(...)):
         metrics = _analyze_audio_metrics(out_path)
     except Exception:
         metrics = {}
+    summary = {
+        "tool": "eq",
+        "voice_controls": voice_controls,
+        "eq_bands": bands,
+        "order": ["voice_controls", "eq"],
+    }
+    try:
+        library_store.create_version_with_renditions(
+            song_id,
+            "eq",
+            "EQ",
+            title,
+            summary,
+            metrics,
+            [{"format": suffix.lstrip("."), "rel": out_rel}],
+            version_id=version_id,
+            utility="EQ",
+        )
+    except Exception:
+        pass
     return {
         "output_rel": out_rel,
         "output_name": out_path.name,
