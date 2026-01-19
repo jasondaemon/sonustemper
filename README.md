@@ -4,6 +4,14 @@ SonusTemper is a one-page mastering workstation: drop in a song, choose a voicin
 
 ![Main interface](images/maininterface.png)
 
+### First Run (Required)
+SonusTemper will refuse to start with default placeholder secrets.
+1) Copy `.env.example` to `.env`
+2) Set:
+   - `BASIC_AUTH_PASS` (must NOT be `CHANGEME`)
+   - `PROXY_SHARED_SECRET` (must NOT be `changeme-proxy`)
+3) Run: `docker compose up`
+
 ## What you can do
 - Master with **Voicings** (8 built-ins) or **User Presets** (your own JSON).
 - Tweak loudness, true-peak, stereo width/guardrails, and tone.

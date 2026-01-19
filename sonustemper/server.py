@@ -60,6 +60,7 @@ ANALYSIS_OUT_DIR = SONGS_DIR
 PREVIEW_DIR = PREVIEWS_DIR / "voicing"
 MASTER_RUN_DIR = PREVIEWS_DIR / "master_runs"
 PREVIEW_TTL_SEC = int(os.getenv("PREVIEW_TTL_SEC", "600"))
+PREVIEW_CLEAN_INTERVAL_SEC = int(os.getenv("PREVIEW_CLEAN_INTERVAL_SEC", "600"))
 PREVIEW_SESSION_CAP = int(os.getenv("PREVIEW_SESSION_CAP", "5"))
 PREVIEW_SEGMENT_START = int(os.getenv("PREVIEW_SEGMENT_START", "30"))
 PREVIEW_SEGMENT_DURATION = int(os.getenv("PREVIEW_SEGMENT_DURATION", "12"))
@@ -190,6 +191,7 @@ PROXY_SHARED_SECRET = (os.getenv("PROXY_SHARED_SECRET", "") or "").strip()
 BASIC_AUTH_ENABLED = os.getenv("BASIC_AUTH_ENABLED", "1") == "1"
 BASIC_AUTH_PASS = (os.getenv("BASIC_AUTH_PASS", "") or "").strip()
 SONUSTEMPER_STRICT_CONFIG = os.getenv("SONUSTEMPER_STRICT_CONFIG", "1") == "1"
+UI_LOG_ENABLED = os.getenv("UI_LOG_ENABLED") == "1"
 # Basic logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger("sonustemper")
@@ -199,6 +201,8 @@ logger.info(
     os.getenv("LOG_LEVEL", "error"),
     os.getenv("EVENT_LOG_LEVEL", os.getenv("LOG_LEVEL", "error")),
 )
+if not UI_LOG_ENABLED:
+    logger.info("[startup] UI log endpoint disabled (UI_LOG_ENABLED not set)")
 def validate_startup_config() -> None:
     if not PROXY_SHARED_SECRET or PROXY_SHARED_SECRET == "changeme-proxy":
         raise RuntimeError(
@@ -255,6 +259,7 @@ MASTER_SCRIPT = Path(os.getenv("MASTER_SCRIPT", str(_default_pack)))
 app = FastAPI(docs_url=None, redoc_url=None)
 ensure_data_roots()
 library_store.init_db()
+_start_preview_cleanup_loop()
 try:
     logger.info("[startup] DB schema_version=%s", library_store.get_schema_version())
 except Exception as exc:
@@ -320,9 +325,10 @@ def _preview_remove(preview_id: str, entry: dict) -> None:
     except Exception:
         pass
 
-def _preview_cleanup(session_key: str | None = None) -> None:
+def _preview_cleanup(session_key: str | None = None) -> int:
     now = time.time()
     expired: list[str] = []
+    removed = 0
     with PREVIEW_LOCK:
         for pid, entry in list(PREVIEW_REGISTRY.items()):
             created = entry.get("created_at", 0)
@@ -332,6 +338,7 @@ def _preview_cleanup(session_key: str | None = None) -> None:
             entry = PREVIEW_REGISTRY.pop(pid, None)
             if not entry:
                 continue
+            removed += 1
             sid = entry.get("session_key")
             if sid and sid in PREVIEW_SESSION_INDEX:
                 try:
@@ -345,7 +352,53 @@ def _preview_cleanup(session_key: str | None = None) -> None:
                 old = queue.popleft()
                 entry = PREVIEW_REGISTRY.pop(old, None)
                 if entry:
+                    removed += 1
                     _preview_remove(old, entry)
+    return removed
+
+def _cleanup_previews_fs() -> int:
+    if not PREVIEWS_DIR.exists():
+        return 0
+    removed = 0
+    cutoff = time.time() - PREVIEW_TTL_SEC
+    for root, dirs, files in os.walk(PREVIEWS_DIR, topdown=False):
+        for name in files:
+            fp = Path(root) / name
+            try:
+                if fp.stat().st_mtime < cutoff:
+                    fp.unlink(missing_ok=True)
+                    removed += 1
+            except Exception:
+                continue
+        for name in dirs:
+            dp = Path(root) / name
+            try:
+                dp.rmdir()
+            except Exception:
+                pass
+    return removed
+
+_PREVIEW_CLEANER_STARTED = False
+def _start_preview_cleanup_loop() -> None:
+    global _PREVIEW_CLEANER_STARTED
+    if _PREVIEW_CLEANER_STARTED:
+        return
+    _PREVIEW_CLEANER_STARTED = True
+    def _loop():
+        while True:
+            try:
+                reg_removed = _preview_cleanup()
+                fs_removed = _cleanup_previews_fs()
+                if reg_removed or fs_removed:
+                    logger.info(
+                        "[preview] cleanup removed=%s registry=%s",
+                        fs_removed,
+                        reg_removed,
+                    )
+            except Exception as exc:
+                logger.warning("[preview] cleanup failed: %s", exc)
+            time.sleep(PREVIEW_CLEAN_INTERVAL_SEC)
+    threading.Thread(target=_loop, daemon=True).start()
 
 def _preview_update(preview_id: str, status: str, **kwargs) -> None:
     with PREVIEW_LOCK:
@@ -3866,6 +3919,8 @@ def health():
 
 @app.post("/api/ui-log")
 def ui_log(payload: dict = Body(...)):
+    if not UI_LOG_ENABLED:
+        raise HTTPException(status_code=404, detail="not_found")
     level = str(payload.get("level", "debug")).lower()
     tag = str(payload.get("tag", "UI"))
     msg = str(payload.get("msg", ""))
