@@ -1402,7 +1402,17 @@ def _demo_asset_dir() -> Path:
 
 def _seed_builtin_noise_filters() -> None:
     root = _noise_filter_dir("builtin")
-    root.mkdir(parents=True, exist_ok=True)
+    try:
+        resolved_root = root.resolve()
+        resolved_data = DATA_ROOT.resolve()
+    except Exception:
+        resolved_root = root
+        resolved_data = DATA_ROOT
+    if str(resolved_root).startswith(str(resolved_data)):
+        logger.warning("[startup] builtin noise filters skipped (root under DATA_ROOT): %s", root)
+        return
+    if not root.exists():
+        return
     presets = [
         {
             "title": "Hum 60Hz + Harmonics",
