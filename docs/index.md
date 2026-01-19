@@ -37,6 +37,7 @@ SonusTemper is a music finishing toolkit for AI‑generated and real recordings.
 | [Noise Removal](noise-removal.md) | Preset + selection denoise |
 | [EQ](eq.md) | Soundboard EQ + Voice Controls |
 | [Mastering](mastering.md) | Final delivery |
+| [Tagging](tagging.md) | ID3 tagging + artwork |
 | [Preset Management](preset-management.md) | Voicing/profile/noise presets |
 | [Workflows](workflows.md) | End‑to‑end guides |
 | [Troubleshooting](troubleshooting.md) | Fix common issues |

@@ -1710,7 +1710,9 @@
       const band = selectedBand();
       if (!band) return;
       evt.preventDefault();
-      const nextQ = qFromRange(band.q + (evt.deltaY > 0 ? -0.2 : 0.2));
+      const baseQ = Number(band.q) || 0;
+      const step = evt.deltaY > 0 ? -0.2 : 0.2;
+      const nextQ = qFromRange(baseQ + step);
       updateSelectedBand({ q: nextQ });
     });
   }

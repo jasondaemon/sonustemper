@@ -7,6 +7,7 @@
 - [Noise Removal](noise-removal.md)
 - [EQ](eq.md)
 - [Mastering](mastering.md)
+- [Tagging](tagging.md)
 - [Preset Management](preset-management.md)
 - [Workflows](workflows.md)
 - [Troubleshooting](troubleshooting.md)
