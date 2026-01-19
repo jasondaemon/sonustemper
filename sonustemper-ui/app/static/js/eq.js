@@ -540,6 +540,7 @@
     const rect = spectrumCanvas.getBoundingClientRect();
     ctx.clearRect(0, 0, rect.width, rect.height);
     drawEqGrid(ctx, rect.width, rect.height);
+    drawFilterRegions(ctx, rect.width, rect.height);
     drawEqCurve(ctx, rect.width, rect.height);
     drawBandHandles(ctx, rect.width, rect.height);
   }
@@ -639,6 +640,48 @@
     ctx.restore();
   }
 
+  function bandColor(band) {
+    if (band.type === 'highpass') return '#7dffb0';
+    if (band.type === 'lowpass') return '#7aa5ff';
+    if (band.type === 'lowshelf') return '#86e3ff';
+    if (band.type === 'highshelf') return '#ffd18a';
+    return '#7aa5ff';
+  }
+
+  function drawFilterRegions(ctx, width, height) {
+    const zeroY = gainToY(0, height);
+    const minY = gainToY(-12, height);
+    state.bands.forEach((band) => {
+      if (!band.enabled || state.bypass) return;
+      if (band.type !== 'highpass' && band.type !== 'lowpass') return;
+      const x = freqToX(band.freq_hz, width);
+      const color = bandColor(band);
+      ctx.save();
+      ctx.fillStyle = `${color}22`;
+      if (band.type === 'highpass') {
+        ctx.fillRect(0, zeroY, x, minY - zeroY);
+      } else {
+        ctx.fillRect(x, zeroY, width - x, minY - zeroY);
+      }
+      ctx.restore();
+    });
+  }
+
+  function filterAttenuation(band, freq) {
+    if (band.type !== 'highpass' && band.type !== 'lowpass') return 0;
+    const fc = Math.max(20, Math.min(20000, band.freq_hz));
+    const q = Math.max(0.2, Math.min(12, band.q));
+    const slope = 12 * (0.8 + 0.2 * (q / 12));
+    if (band.type === 'highpass') {
+      if (freq >= fc) return 0;
+      const x = Math.log2(fc / Math.max(freq, 1e-6));
+      return -Math.min(12, x * slope);
+    }
+    if (freq <= fc) return 0;
+    const x = Math.log2(Math.max(freq, 1e-6) / fc);
+    return -Math.min(12, x * slope);
+  }
+
   function drawTooltip(ctx, text, x, y, width, height) {
     if (!text) return;
     ctx.save();
@@ -685,6 +728,7 @@
     }
     drawEqGrid(ctx, rect.width, rect.height);
     drawSpectrumBehindCurve(ctx, rect.width, rect.height);
+    drawFilterRegions(ctx, rect.width, rect.height);
     drawEqCurve(ctx, rect.width, rect.height);
     drawBandHandles(ctx, rect.width, rect.height);
   }
@@ -715,7 +759,10 @@
       let gain = 0;
       state.bands.forEach((band) => {
         if (!band.enabled || state.bypass) return;
-        if (band.type === 'highpass' || band.type === 'lowpass') return;
+        if (band.type === 'highpass' || band.type === 'lowpass') {
+          gain += filterAttenuation(band, freq);
+          return;
+        }
         const q = Math.max(0.2, band.q);
         const dist = Math.log2(freq / band.freq_hz);
         const curve = Math.exp(-(dist * dist) * q);
@@ -736,7 +783,8 @@
       const x = freqToX(band.freq_hz, width);
       const y = gainToY(band.type === 'highpass' || band.type === 'lowpass' ? 0 : band.gain_db, height);
       const selected = band.id === state.selectedBandId;
-      ctx.fillStyle = selected ? '#ffd18a' : '#7aa5ff';
+      const baseColor = bandColor(band);
+      ctx.fillStyle = selected ? '#ffd18a' : baseColor;
       ctx.beginPath();
       ctx.arc(x, y, selected ? 6 : 4, 0, Math.PI * 2);
       ctx.fill();
