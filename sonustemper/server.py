@@ -3259,22 +3259,26 @@ async def generate_from_reference(
             voicing = _build_voicing_from_reference(metrics, voicing_name, file.filename)
             if voicing.get("meta") and display_title:
                 voicing["meta"]["title"] = display_title
-            voicing_dir = _preset_dir("staging", "voicing")
+            if voicing.get("meta"):
+                voicing["meta"]["source"] = "user"
+            voicing_dir = _preset_dir("user", "voicing")
             voicing_dir.mkdir(parents=True, exist_ok=True)
             voicing_path = voicing_dir / f"{voicing_name}.json"
             voicing_path.write_text(json.dumps(voicing, indent=2), encoding="utf-8")
-            created.append(_library_item_from_file(voicing_path, "staging", default_kind="voicing"))
+            created.append(_library_item_from_file(voicing_path, "user", default_kind="voicing"))
         if wants_profile:
             reserved = _preset_reserved_names_for("profile", include_user=True, include_staging=True, include_builtin=True)
             profile_name = _unique_preset_name(base, reserved)
             profile = _build_profile_from_reference(metrics, profile_name, file.filename)
             if profile.get("meta") and display_title:
                 profile["meta"]["title"] = display_title
-            profile_dir = _preset_dir("staging", "profile")
+            if profile.get("meta"):
+                profile["meta"]["source"] = "user"
+            profile_dir = _preset_dir("user", "profile")
             profile_dir.mkdir(parents=True, exist_ok=True)
             profile_path = profile_dir / f"{profile_name}.json"
             profile_path.write_text(json.dumps(profile, indent=2), encoding="utf-8")
-            created.append(_library_item_from_file(profile_path, "staging", default_kind="profile"))
+            created.append(_library_item_from_file(profile_path, "user", default_kind="profile"))
     finally:
         try:
             tmp_path.unlink(missing_ok=True)
@@ -3323,11 +3327,11 @@ async def import_json_to_staging(file: UploadFile = File(...), name: str = Form(
         data["id"] = safe_name
     else:
         data["name"] = safe_name
-    dest_dir = _preset_dir("staging", kind)
+    dest_dir = _preset_dir("user", kind)
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / f"{safe_name}.json"
     dest.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    return {"item": _library_item_from_file(dest, "staging", default_kind=kind)}
+    return {"item": _library_item_from_file(dest, "user", default_kind=kind)}
 
 @app.post("/api/staging/move_to_user")
 def staging_move_to_user(payload: dict = Body(...)):

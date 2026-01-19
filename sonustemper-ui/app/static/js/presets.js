@@ -1518,7 +1518,10 @@
       renderProfileEditor(null);
       renderVoicingEditor(null);
       if(downloadBtn) downloadBtn.disabled = true;
-      if(moveBtn) moveBtn.disabled = true;
+    if (moveBtn) {
+      moveBtn.disabled = true;
+      moveBtn.hidden = true;
+    }
       if(duplicateBtn) duplicateBtn.disabled = true;
       if(deleteBtn) deleteBtn.disabled = true;
     if(detailHint) detailHint.textContent = 'Select a preset to view details.';
@@ -1678,21 +1681,15 @@
     }
 
     if(downloadBtn) downloadBtn.disabled = false;
-    if(moveBtn){
-      moveBtn.disabled = selectedItem.origin !== 'staging';
-      if (isNoise) {
-        moveBtn.textContent = 'Move to User Noise Presets';
-      } else {
-        moveBtn.textContent = selectedItem.kind === 'voicing' ? 'Move to User Voicings' : 'Move to User Profiles';
-      }
+    if (moveBtn) {
+      moveBtn.disabled = true;
+      moveBtn.hidden = true;
     }
     if(duplicateBtn) duplicateBtn.disabled = selectedItem.origin !== 'user' || isNoise;
     if(deleteBtn) deleteBtn.disabled = !(selectedItem.origin === 'user' || selectedItem.origin === 'staging');
     if(detailHint){
       if(isNoise){
-        detailHint.textContent = selectedItem.origin === 'staging'
-          ? 'Move to User to store this noise preset in your library.'
-          : 'Download or delete this noise preset.';
+        detailHint.textContent = 'Download or delete this noise preset.';
       } else if(selectedItem.origin === 'builtin'){
         detailHint.textContent = 'Duplicate to User to edit this preset.';
       }else{
