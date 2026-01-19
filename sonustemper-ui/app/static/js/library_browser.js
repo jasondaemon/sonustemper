@@ -491,22 +491,52 @@
       const menu = document.createElement('details');
       menu.className = 'library-action-menu';
       let closeTimer = null;
-      menu.addEventListener('mouseleave', () => {
+      const openMenu = () => {
+        if (menu.open) return;
+        menu.open = true;
+      };
+      const closeMenu = () => {
+        if (!menu.open) return;
+        menu.open = false;
+      };
+      const cancelClose = () => {
+        if (!closeTimer) return;
+        clearTimeout(closeTimer);
+        closeTimer = null;
+      };
+      const scheduleClose = () => {
+        cancelClose();
         closeTimer = setTimeout(() => {
-          menu.open = false;
+          closeMenu();
           closeTimer = null;
-        }, 1000);
+        }, 250);
+      };
+      menu.addEventListener('pointerenter', () => {
+        cancelClose();
+        openMenu();
       });
-      menu.addEventListener('mouseenter', () => {
-        if (closeTimer) {
-          clearTimeout(closeTimer);
-          closeTimer = null;
-        }
+      menu.addEventListener('pointerleave', (evt) => {
+        const rt = evt.relatedTarget;
+        if (rt && menu.contains(rt)) return;
+        scheduleClose();
       });
       const menuSummary = document.createElement('summary');
       menuSummary.textContent = '⋯';
       menuSummary.className = 'btn ghost tiny';
-      menuSummary.addEventListener('click', (evt) => evt.stopPropagation());
+      menuSummary.addEventListener('click', (evt) => {
+        evt.preventDefault();
+        evt.stopPropagation();
+        if (menu.open) {
+          closeMenu();
+        } else {
+          openMenu();
+        }
+      });
+      document.addEventListener('pointerdown', (evt) => {
+        if (!menu.contains(evt.target)) {
+          closeMenu();
+        }
+      });
       menu.appendChild(menuSummary);
       const menuList = document.createElement('div');
       menuList.className = 'library-action-list';
