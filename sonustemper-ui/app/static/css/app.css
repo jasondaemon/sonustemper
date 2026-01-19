@@ -1734,7 +1734,7 @@ h1{margin:0;font-size:24px;}
   align-items:center;
 }
 .noise-hp-lp input[type=number]{
-  width:72px;
+  width:56px;
 }
 .pill-toggle{
   display:flex;
