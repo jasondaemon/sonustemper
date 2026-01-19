@@ -37,6 +37,12 @@ h1{margin:0;font-size:24px;}
 .page-library .sidebar-slot{
   display:none;
 }
+.page-docs .layout{
+  grid-template-columns:1fr;
+}
+.page-docs .sidebar-slot{
+  display:none;
+}
 .page-footer{
   margin:18px 0 8px;
   text-align:center;
