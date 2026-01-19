@@ -1760,8 +1760,8 @@
       if(referenceFile) referenceFile.value = '';
       refreshPresetBrowser();
       const sectionKeys = [];
-      if (wantsVoicing) sectionKeys.push('generated_voicings');
-      if (wantsProfile) sectionKeys.push('generated_profiles');
+      if (wantsVoicing) sectionKeys.push('user_voicings');
+      if (wantsProfile) sectionKeys.push('user_profiles');
       if (sectionKeys.length) {
         sectionKeys.forEach((key) => {
           const section = document.querySelector(`.file-browser-section[data-section="${key}"]`);
@@ -1794,6 +1794,20 @@
       refreshPresetBrowser();
     }catch(_err){
       addStatusLine('Import failed.');
+    }
+  }
+
+  async function loadPresetPaths(){
+    try {
+      const res = await fetch('/api/presets/paths', { cache: 'no-store' });
+      if (!res.ok) throw new Error('paths_failed');
+      const data = await res.json();
+      const voicingCount = data.voicings?.count ?? 0;
+      const profileCount = data.profiles?.count ?? 0;
+      const noiseCount = data.noise?.count ?? 0;
+      addStatusLine(`Preset paths: ${data.preset_dir} (v:${voicingCount} p:${profileCount} n:${noiseCount})`);
+    } catch (_err) {
+      addStatusLine('Preset paths unavailable.');
     }
   }
 
@@ -1908,8 +1922,9 @@
 
   document.addEventListener('DOMContentLoaded', ()=>{
     if(referenceForm) referenceForm.addEventListener('submit', (e)=>{ e.preventDefault(); });
-    if(referenceGenerateBtn) referenceGenerateBtn.addEventListener('click', handleGenerate);
-    if(uploadPresetJsonBtn) uploadPresetJsonBtn.addEventListener('click', handleUploadJson);
+  if(referenceGenerateBtn) referenceGenerateBtn.addEventListener('click', handleGenerate);
+  if(uploadPresetJsonBtn) uploadPresetJsonBtn.addEventListener('click', handleUploadJson);
+  loadPresetPaths();
     if(downloadBtn) downloadBtn.addEventListener('click', downloadPreset);
     if(moveBtn) moveBtn.addEventListener('click', moveToUser);
     if(duplicateBtn) duplicateBtn.addEventListener('click', duplicateSelected);

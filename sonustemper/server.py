@@ -2582,6 +2582,20 @@ def list_files():
 def presets():
     # Return list of preset names derived from preset files on disk
     return _preset_name_list()
+
+@app.get("/api/presets/paths")
+def presets_paths():
+    def _count_json(path: Path) -> int:
+        if not path.exists():
+            return 0
+        return len(list(path.glob("*.json")))
+    return {
+        "data_root": str(DATA_ROOT),
+        "preset_dir": str(PRESET_DIR),
+        "voicings": {"dir": str(USER_VOICING_DIR), "count": _count_json(USER_VOICING_DIR)},
+        "profiles": {"dir": str(USER_PROFILE_DIR), "count": _count_json(USER_PROFILE_DIR)},
+        "noise": {"dir": str(NOISE_FILTER_DIR), "count": _count_json(NOISE_FILTER_DIR)},
+    }
 @app.get("/api/recent")
 def recent(limit: int = 30):
     lib = library_store.list_library()
