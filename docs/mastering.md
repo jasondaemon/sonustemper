@@ -28,33 +28,42 @@ Mastering applies voicing or presets, loudness targets, and delivery formats to 
 ### Inputs
 - **Input list**: Queue of songs to master.
 - **Clear**: Removes all inputs.
+
 ![input](img/master-input.png)
 
 ### Voicing / Preset
 - **Voicing**: Built-in mastering flavor.
 - **Preset**: User-defined chain.
 - **Strength**: Intensity of the selected voicing/preset.
+
 ![voicing](img/master-voicing.png)
+
 ![voicing-list](img/master-voicing-list.png)
 
 ### Loudness & delivery
 - **Target LUFS**: Integrated loudness target.
 - **True Peak**: Ceiling to prevent clipping.
 - **Format options**: WAV/MP3/AAC/OGG/FLAC.
+
 ![loudness](img/master-loudness.png)
 
 ### Output Formats Selection
 - Choose the formats/settings you want.
 - You can also choose to just convert files.
+
 ![output](img/master-output.png)
+
 ![convert](img/master-convert.png)
 
 ### Output
 - **Player**: A/B playback of source vs master.
 - **Download**: Choose format per version.
 - **Open in Compare**: Quick A/B review.
+
 ![output-viewer](img/master-outputviewer.png)
+
 - Detailed metric available
+
 ![output-metrics](img/master-metrics.png)
 
 ## Common pitfalls
