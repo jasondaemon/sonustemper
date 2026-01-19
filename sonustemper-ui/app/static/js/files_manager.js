@@ -692,7 +692,7 @@
           ${renderMetricPills(metrics)}
         </div>
         <div class="detail-actions">
-          <button type="button" class="btn ghost tiny" id="filesSongAnalyze">Analyze</button>
+          <button type="button" class="btn ghost tiny" id="filesSongAnalyze">Noise Removal</button>
           <button type="button" class="btn ghost tiny" id="filesSongCompare">Compare</button>
           <button type="button" class="btn ghost tiny" id="filesSongAi">AI Toolkit</button>
           <button type="button" class="btn ghost tiny" id="filesSongEq">Open in EQ</button>
@@ -709,7 +709,7 @@
     attachAudioEvents(audio);
     detailEl.querySelector('#filesSongAnalyze')?.addEventListener('click', () => {
       if (!song?.source?.rel) return;
-      const url = new URL('/analyze', window.location.origin);
+      const url = new URL('/noise_removal', window.location.origin);
       url.searchParams.set('path', song.source.rel);
       window.location.assign(`${url.pathname}${url.search}`);
     });
@@ -773,7 +773,7 @@
         <div class="pill-row">${renderMetricPills(metrics)}</div>
         <div class="detail-downloads">${downloads || '<span class="muted">No renditions.</span>'}</div>
         <div class="detail-actions">
-          <button type="button" class="btn ghost tiny" id="filesVersionAnalyze">Analyze</button>
+          <button type="button" class="btn ghost tiny" id="filesVersionAnalyze">Noise Removal</button>
           <button type="button" class="btn ghost tiny" id="filesVersionCompare">Compare</button>
           <button type="button" class="btn ghost tiny" id="filesVersionAi">AI Toolkit</button>
           <button type="button" class="btn ghost tiny" id="filesVersionEq">Open in EQ</button>
@@ -789,7 +789,7 @@
     attachAudioEvents(audio);
     detailEl.querySelector('#filesVersionAnalyze')?.addEventListener('click', () => {
       if (!primary.rel) return;
-      const url = new URL('/analyze', window.location.origin);
+      const url = new URL('/noise_removal', window.location.origin);
       url.searchParams.set('path', primary.rel);
       window.location.assign(`${url.pathname}${url.search}`);
     });

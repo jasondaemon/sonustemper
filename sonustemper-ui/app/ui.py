@@ -36,8 +36,10 @@ PRESET_DIR = Path(os.getenv("PRESET_DIR", str(DATA_DIR / "presets" / "user")))
 GEN_PRESET_DIR = Path(os.getenv("GEN_PRESET_DIR", str(DATA_DIR / "presets" / "generated")))
 USER_VOICING_DIR = PRESET_DIR / "voicings"
 USER_PROFILE_DIR = PRESET_DIR / "profiles"
+USER_NOISE_DIR = PRESET_DIR / "noise_filters"
 STAGING_VOICING_DIR = GEN_PRESET_DIR / "voicings"
 STAGING_PROFILE_DIR = GEN_PRESET_DIR / "profiles"
+STAGING_NOISE_DIR = GEN_PRESET_DIR / "noise_filters"
 ASSET_PRESET_DIR = bundle_root() / "assets" / "presets"
 BUILTIN_VOICING_DIR = ASSET_PRESET_DIR / "voicings"
 
@@ -376,9 +378,18 @@ async def compare_page(request: Request):
 
 @router.get("/analyze", response_class=HTMLResponse)
 async def analyze_page(request: Request):
+    params = request.url.query
+    target = "/noise_removal"
+    if params:
+        target = f"{target}?{params}"
+    return RedirectResponse(target, status_code=307)
+
+
+@router.get("/noise_removal", response_class=HTMLResponse)
+async def noise_removal_page(request: Request):
     wide = request.query_params.get("wide") == "1"
     return TEMPLATES.TemplateResponse(
-        "pages/analyze.html",
+        "pages/noise_removal.html",
         _page_context(request, current_page="analyze", wide=wide),
     )
 
@@ -734,6 +745,8 @@ async def library_list(request: Request, view: str, q: str = "", limit: int = 20
         total_count = sum(len(group["items"]) for group in groups)
     elif view == "presets_user_voicings":
         items = _list_presets("user", q, limit, context, "voicing")
+    elif view == "presets_user_noise":
+        items = _list_presets("user", q, limit, context, "noise_filter")
     elif view == "presets_generated":
         items = _list_presets("staging", q, limit, context)
     elif view == "presets_staging":
@@ -744,6 +757,8 @@ async def library_list(request: Request, view: str, q: str = "", limit: int = 20
         total_count = sum(len(group["items"]) for group in groups)
     elif view == "presets_staging_voicings":
         items = _list_presets("staging", q, limit, context, "voicing")
+    elif view == "presets_staging_noise":
+        items = _list_presets("staging", q, limit, context, "noise_filter")
     elif view == "presets_all":
         items = _list_presets("all", q, limit, context)
     elif view == "voicings":
@@ -1126,20 +1141,34 @@ def _preset_meta_from_file(fp: Path) -> dict:
         return {"title": fp.stem}
 
 
+def _normalize_preset_kind(value: str | None) -> str | None:
+    if value is None:
+        return None
+    key = value.strip().lower()
+    if key in {"noise", "noise_filter", "noise_preset", "noise-preset"}:
+        return "noise_filter"
+    return key
+
+
 def _list_presets(kind: str, q: str, limit: int, context: str = "", meta_kind: str | None = None) -> list[dict]:
     kind = (kind or "user").lower()
+    meta_kind = _normalize_preset_kind(meta_kind)
     roots = []
     if kind in {"user", "all"}:
         if meta_kind in (None, "voicing"):
             roots.append(("user", USER_VOICING_DIR, "voicing"))
         if meta_kind in (None, "profile"):
             roots.append(("user", USER_PROFILE_DIR, "profile"))
+        if meta_kind in (None, "noise_filter"):
+            roots.append(("user", USER_NOISE_DIR, "noise_filter"))
         roots.append(("user", PRESET_DIR, None))
     if kind in {"generated", "gen", "staging", "all"}:
         if meta_kind in (None, "voicing"):
             roots.append(("staging", STAGING_VOICING_DIR, "voicing"))
         if meta_kind in (None, "profile"):
             roots.append(("staging", STAGING_PROFILE_DIR, "profile"))
+        if meta_kind in (None, "noise_filter"):
+            roots.append(("staging", STAGING_NOISE_DIR, "noise_filter"))
         roots.append(("staging", GEN_PRESET_DIR, None))
     items = []
     for label, root, default_kind in roots:
@@ -1149,7 +1178,7 @@ def _list_presets(kind: str, q: str, limit: int, context: str = "", meta_kind: s
             if not fp.is_file():
                 continue
             meta = _preset_meta_from_file(fp)
-            effective_kind = (meta.get("kind") or default_kind or "profile").lower()
+            effective_kind = _normalize_preset_kind(meta.get("kind") or default_kind or "profile")
             if meta_kind and effective_kind != meta_kind:
                 continue
             if effective_kind == "voicing":
@@ -1159,7 +1188,12 @@ def _list_presets(kind: str, q: str, limit: int, context: str = "", meta_kind: s
             raw_title = meta.get("title") or item_id or fp.stem
             fallback_title = Path(meta.get("source_file") or fp.stem).stem.replace("_", " ")
             title = _repair_legacy_label(raw_title, fallback_title, 80).replace("_", " ").strip() or fp.stem
-            kind_label = "Voicing" if effective_kind == "voicing" else "Profile"
+            if effective_kind == "voicing":
+                kind_label = "Voicing"
+            elif effective_kind == "noise_filter":
+                kind_label = "Noise Preset"
+            else:
+                kind_label = "Profile"
             created = meta.get("created_at")
             subtitle = f"Created {created}" if created else ""
             source = meta.get("source") or ("user" if label == "user" else "generated")

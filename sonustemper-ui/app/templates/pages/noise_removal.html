@@ -52,7 +52,7 @@
       </div>
       <div class="analyze-actions">
         <a class="btn ghost small" id="compareLink" href="/compare">Open Compare</a>
-        <a class="btn ghost small" id="analysisWideLink" href="/analyze?wide=1" target="_blank" rel="noopener">Open Wide</a>
+        <a class="btn ghost small" id="analysisWideLink" href="/noise_removal?wide=1" target="_blank" rel="noopener">Open Wide</a>
       </div>
     </div>
 
@@ -176,27 +176,18 @@
   </div>
 
   <div class="card analyze-card" id="noiseCleanupCard">
-    <div class="card-head">
-      <div>
-        <div class="card-title">Noise Removal</div>
-        <div class="muted">Select a time/frequency region and preview noise removal.</div>
-      </div>
-    </div>
-    <div class="noise-cleanup">
-      <div class="noise-left">
+    <div class="noise-cleanup noise-cleanup--split">
+      <div class="noise-column noise-preset">
+        <div class="noise-section-head">
+          <div class="section-title">Preset Noise Removal</div>
+          <div class="muted">Apply a preset across the full song.</div>
+        </div>
         <div class="control-row">
           <label class="control-label">Noise Filter Preset</label>
           <select id="noisePresetSelect" class="full-width-select">
             <option value="">No preset</option>
           </select>
           <div class="muted noise-preset-hint" id="noisePresetHint" hidden></div>
-        </div>
-        <div class="control-row">
-          <label class="control-label">Apply Scope</label>
-          <div class="pill-toggle">
-            <button class="btn ghost small is-active" type="button" id="noiseScopeGlobal">Apply Globally</button>
-            <button class="btn ghost small" type="button" id="noiseScopeSelection">Apply to Selection</button>
-          </div>
         </div>
         <div class="control-row compact-row">
           <div class="control-label">Filter depth (dB)</div>
@@ -215,15 +206,38 @@
           <input type="number" id="noiseLpValue" min="1000" max="20000" step="10" value="16000">
         </div>
         <div class="control-row">
-          <button class="btn ghost small" type="button" id="noiseSaveBtn">Save as Profile…</button>
-        </div>
-      </div>
-      <div class="noise-right">
-        <div class="control-row">
           <label class="control-label">Preview Mode</label>
           <div class="pill-toggle">
-            <button class="btn ghost small" type="button" id="noiseModeRemove">Remove noise</button>
-            <button class="btn ghost small is-active" type="button" id="noiseModeSolo">Solo noise</button>
+            <button class="btn ghost small is-active" type="button" id="presetModeFiltered">Filtered Song</button>
+            <button class="btn ghost small" type="button" id="presetModeSolo">Solo Noise</button>
+          </div>
+        </div>
+        <div class="control-row preview-row">
+          <div class="control-label small-label">Preview</div>
+          <audio id="noisePresetPreviewAudio" class="preview-audio" controls preload="none"></audio>
+          <span class="muted" id="noisePresetPreviewStatus">Preview idle</span>
+        </div>
+        <div class="preset-actions">
+          <button class="btn success small" type="button" id="noisePresetSaveSongBtn">Save Song</button>
+        </div>
+      </div>
+      <div class="noise-column noise-selected">
+        <div class="noise-section-head">
+          <div class="section-title">Selected Noise Removal</div>
+          <div class="muted">Use a marquee selection to isolate noise.</div>
+        </div>
+        <div class="control-row">
+          <label class="control-label">Audition</label>
+          <div class="pill-toggle">
+            <button class="btn ghost small is-active" type="button" id="selectedModeSolo">Solo Noise</button>
+            <button class="btn ghost small" type="button" id="selectedModeFiltered">Filtered Song</button>
+          </div>
+        </div>
+        <div class="control-row">
+          <label class="control-label">Apply Scope</label>
+          <div class="pill-toggle">
+            <button class="btn ghost small is-active" type="button" id="noiseScopeGlobal">Apply Globally</button>
+            <button class="btn ghost small" type="button" id="noiseScopeSelection">Apply to Selection</button>
           </div>
         </div>
         <div class="control-row">
@@ -231,13 +245,13 @@
         </div>
         <div class="control-row preview-row">
           <div class="control-label small-label">Preview</div>
-          <audio id="noisePreviewAudio" class="preview-audio" controls preload="none"></audio>
-          <span class="muted" id="noisePreviewStatus">Preview idle</span>
+          <audio id="noiseSelectedPreviewAudio" class="preview-audio" controls preload="none"></audio>
+          <span class="muted" id="noiseSelectedPreviewStatus">Preview idle</span>
         </div>
         <div class="preset-actions">
-          <button class="btn ghost small" type="button" id="noisePreviewBtn">Preview</button>
-          <button class="btn success small" type="button" id="noiseRenderBtn">Save Song Version</button>
+          <button class="btn success small" type="button" id="noiseRenderBtn">Save Song</button>
           <button class="btn success small" type="button" id="noiseSaveNoiseBtn">Save Noise Profile</button>
+          <button class="btn ghost small" type="button" id="noiseSaveBtn">Save as Preset</button>
         </div>
       </div>
     </div>
@@ -299,8 +313,10 @@
   const analysisAudio = document.getElementById('analysisAudio');
   const noisePresetSelect = document.getElementById('noisePresetSelect');
   const noisePresetHint = document.getElementById('noisePresetHint');
-  const noiseModeRemoveBtn = document.getElementById('noiseModeRemove');
-  const noiseModeSoloBtn = document.getElementById('noiseModeSolo');
+  const presetModeFilteredBtn = document.getElementById('presetModeFiltered');
+  const presetModeSoloBtn = document.getElementById('presetModeSolo');
+  const selectedModeSoloBtn = document.getElementById('selectedModeSolo');
+  const selectedModeFilteredBtn = document.getElementById('selectedModeFiltered');
   const noiseScopeGlobalBtn = document.getElementById('noiseScopeGlobal');
   const noiseScopeSelectionBtn = document.getElementById('noiseScopeSelection');
   const noiseDepthRange = document.getElementById('noiseDepthRange');
@@ -311,9 +327,11 @@
   const noiseHpValue = document.getElementById('noiseHpValue');
   const noiseLpToggle = document.getElementById('noiseLpToggle');
   const noiseLpValue = document.getElementById('noiseLpValue');
-  const noisePreviewAudio = document.getElementById('noisePreviewAudio');
-  const noisePreviewStatus = document.getElementById('noisePreviewStatus');
-  const noisePreviewBtn = document.getElementById('noisePreviewBtn');
+  const noisePresetPreviewAudio = document.getElementById('noisePresetPreviewAudio');
+  const noisePresetPreviewStatus = document.getElementById('noisePresetPreviewStatus');
+  const noiseSelectedPreviewAudio = document.getElementById('noiseSelectedPreviewAudio');
+  const noiseSelectedPreviewStatus = document.getElementById('noiseSelectedPreviewStatus');
+  const noisePresetSaveSongBtn = document.getElementById('noisePresetSaveSongBtn');
   const noiseRenderBtn = document.getElementById('noiseRenderBtn');
   const noiseSaveBtn = document.getElementById('noiseSaveBtn');
   const noiseSaveNoiseBtn = document.getElementById('noiseSaveNoiseBtn');
@@ -342,13 +360,20 @@
   let analysisPayload = null;
   let noiseSelection = null;
   let noiseSuggestedBand = null;
-  let noiseMode = 'solo';
+  let noisePresetBand = null;
+  let selectedPreviewMode = 'solo';
+  let presetPreviewMode = 'remove';
   let noiseScope = 'global';
   let noisePresets = new Map();
   let lastNoiseTargetRel = null;
   let autoPreviewTimer = null;
   let autoPreviewAbort = null;
   let autoPreviewRequestId = 0;
+  let selectedPreviewAbort = null;
+  let selectedPreviewRequestId = 0;
+  let presetPreviewTimer = null;
+  let presetPreviewAbort = null;
+  let presetPreviewRequestId = 0;
   let autoPlaySelection = false;
   let summaryMinHeight = 0;
   const ANALYZE_SCALE_KEY = 'sonustemper.analyzeSpecScale';
@@ -606,28 +631,51 @@
     return observer;
   }
 
-  function setNoiseMode(mode){
-    noiseMode = mode === 'solo' ? 'solo' : 'remove';
-    if (noiseModeRemoveBtn) noiseModeRemoveBtn.classList.toggle('is-active', noiseMode === 'remove');
-    if (noiseModeSoloBtn) noiseModeSoloBtn.classList.toggle('is-active', noiseMode === 'solo');
-    if (noiseDepthRange) noiseDepthRange.disabled = noiseMode !== 'remove';
+  function setSelectedPreviewMode(mode, opts = {}){
+    selectedPreviewMode = mode === 'solo' ? 'solo' : 'remove';
+    if (selectedModeFilteredBtn) selectedModeFilteredBtn.classList.toggle('is-active', selectedPreviewMode === 'remove');
+    if (selectedModeSoloBtn) selectedModeSoloBtn.classList.toggle('is-active', selectedPreviewMode === 'solo');
+    if (opts.preview !== false && noiseSelection) {
+      runSelectedPreview();
+    }
+  }
+
+  function setPresetPreviewMode(mode){
+    presetPreviewMode = mode === 'solo' ? 'solo' : 'remove';
+    if (presetModeFilteredBtn) presetModeFilteredBtn.classList.toggle('is-active', presetPreviewMode === 'remove');
+    if (presetModeSoloBtn) presetModeSoloBtn.classList.toggle('is-active', presetPreviewMode === 'solo');
+    schedulePresetPreview();
   }
 
   function setNoiseScope(scope){
     noiseScope = scope === 'selection' ? 'selection' : 'global';
     if (noiseScopeGlobalBtn) noiseScopeGlobalBtn.classList.toggle('is-active', noiseScope === 'global');
     if (noiseScopeSelectionBtn) noiseScopeSelectionBtn.classList.toggle('is-active', noiseScope === 'selection');
+    if (noiseSelection) {
+      runSelectedPreview();
+    }
   }
 
-  function setNoiseStatus(msg){
-    if (noisePreviewStatus) noisePreviewStatus.textContent = msg || '';
+  function setSelectedPreviewStatus(msg){
+    if (noiseSelectedPreviewStatus) noiseSelectedPreviewStatus.textContent = msg || '';
   }
 
-  function setPreviewEnabled(enabled){
-    if (!noisePreviewAudio) return;
-    noisePreviewAudio.classList.toggle('is-disabled', !enabled);
-    noisePreviewAudio.setAttribute('aria-disabled', String(!enabled));
-    if (!enabled) noisePreviewAudio.pause();
+  function setPresetStatus(msg){
+    if (noisePresetPreviewStatus) noisePresetPreviewStatus.textContent = msg || '';
+  }
+
+  function setSelectedPreviewEnabled(enabled){
+    if (!noiseSelectedPreviewAudio) return;
+    noiseSelectedPreviewAudio.classList.toggle('is-disabled', !enabled);
+    noiseSelectedPreviewAudio.setAttribute('aria-disabled', String(!enabled));
+    if (!enabled) noiseSelectedPreviewAudio.pause();
+  }
+
+  function setPresetPreviewEnabled(enabled){
+    if (!noisePresetPreviewAudio) return;
+    noisePresetPreviewAudio.classList.toggle('is-disabled', !enabled);
+    noisePresetPreviewAudio.setAttribute('aria-disabled', String(!enabled));
+    if (!enabled) noisePresetPreviewAudio.pause();
   }
 
   function cancelAutoPreview(){
@@ -653,23 +701,16 @@
     }, 300);
   }
 
-  async function runAutoPreview(){
-    const payload = collectNoisePayload();
-    if (!payload) return;
-    const span = Math.abs((payload.end_sec || 0) - (payload.start_sec || 0));
-    if (span < 0.25) return;
-    payload.mode = 'solo';
-    payload.apply_scope = 'selection';
-    payload.apply_to_selection = true;
-    console.debug('[noise] auto preview request', payload);
-    const requestId = ++autoPreviewRequestId;
-    if (autoPreviewAbort) autoPreviewAbort.abort();
-    const controller = new AbortController();
-    autoPreviewAbort = controller;
-    summarizeNoisePayload('Auto preview', payload);
-    addStatusLine('Auto preview: building (solo noise)…');
-    setNoiseStatus('Auto previewing...');
-    setPreviewEnabled(false);
+  async function requestSelectedPreview(payload, opts = {}){
+    const { autoPlay = false, label = 'Preview', controller: externalController } = opts;
+    const requestId = ++selectedPreviewRequestId;
+    if (selectedPreviewAbort) selectedPreviewAbort.abort();
+    const controller = externalController || new AbortController();
+    selectedPreviewAbort = controller;
+    summarizeNoisePayload(label, payload);
+    addStatusLine(`${label}: starting ffmpeg...`);
+    setSelectedPreviewStatus(`${label}ing...`);
+    setSelectedPreviewEnabled(false);
     try {
       const res = await fetch('/api/analyze/noise/preview', {
         method: 'POST',
@@ -682,23 +723,112 @@
         throw new Error(err || 'preview_failed');
       }
       const data = await res.json();
-      if (requestId !== autoPreviewRequestId) return;
-      if (noisePreviewAudio && data.url) {
-        noisePreviewAudio.src = data.url;
-        console.debug('[noise] auto preview src', data.url);
+      if (requestId !== selectedPreviewRequestId) return;
+      if (noiseSelectedPreviewAudio && data.url) {
+        noiseSelectedPreviewAudio.src = data.url;
       }
-      setPreviewEnabled(true);
-      console.debug('[noise] auto preview response', data);
-      if (autoPlaySelection) {
-        addStatusLine('Auto preview ready — playing solo noise.');
-        noisePreviewAudio?.play().catch(() => {});
+      setSelectedPreviewEnabled(true);
+      if (autoPlay) {
+        addStatusLine(`${label} ready — playing solo noise.`);
+        noiseSelectedPreviewAudio?.play().catch(() => {});
       } else {
-        addStatusLine('Auto preview ready.');
+        addStatusLine(`${label} ready.`);
       }
-      setNoiseStatus('Auto preview ready.');
+      setSelectedPreviewStatus(`${label} ready.`);
     } catch (err) {
       if (err && err.name === 'AbortError') return;
-      setNoiseStatus('Auto preview failed.');
+      setSelectedPreviewStatus(`${label} failed.`);
+    }
+  }
+
+  async function runAutoPreview(){
+    const payload = collectSelectedPayload();
+    if (!payload) return;
+    const span = Math.abs((payload.end_sec || 0) - (payload.start_sec || 0));
+    if (span < 0.25) return;
+    setSelectedPreviewMode('solo', { preview: false });
+    payload.mode = 'solo';
+    payload.apply_scope = 'selection';
+    payload.apply_to_selection = true;
+    console.debug('[noise] auto preview request', payload);
+    autoPreviewRequestId += 1;
+    if (autoPreviewAbort) autoPreviewAbort.abort();
+    autoPreviewAbort = new AbortController();
+    await requestSelectedPreview(payload, {
+      autoPlay: autoPlaySelection,
+      label: 'Auto preview',
+      controller: autoPreviewAbort,
+    });
+  }
+
+  async function runSelectedPreview(){
+    const payload = collectSelectedPayload();
+    if (!payload) {
+      setSelectedPreviewStatus('Select a region to preview.');
+      return;
+    }
+    payload.mode = selectedPreviewMode;
+    cancelAutoPreview();
+    await requestSelectedPreview(payload, { autoPlay: false, label: 'Preview' });
+  }
+
+  function cancelPresetPreview(){
+    if (presetPreviewTimer) {
+      clearTimeout(presetPreviewTimer);
+      presetPreviewTimer = null;
+    }
+    if (presetPreviewAbort) {
+      presetPreviewAbort.abort();
+      presetPreviewAbort = null;
+    }
+  }
+
+  function schedulePresetPreview(){
+    cancelPresetPreview();
+    if (!noisePresetBand) return;
+    presetPreviewTimer = setTimeout(() => {
+      presetPreviewTimer = null;
+      runPresetPreview();
+    }, 300);
+  }
+
+  async function runPresetPreview(){
+    const payload = collectPresetPayload();
+    if (!payload) {
+      setPresetStatus('Select a preset to preview.');
+      setPresetPreviewEnabled(false);
+      return;
+    }
+    const requestId = ++presetPreviewRequestId;
+    if (presetPreviewAbort) presetPreviewAbort.abort();
+    const controller = new AbortController();
+    presetPreviewAbort = controller;
+    summarizeNoisePayload('Preset preview', payload);
+    addStatusLine('Preset preview: starting ffmpeg...');
+    setPresetStatus('Previewing...');
+    setPresetPreviewEnabled(false);
+    try {
+      const res = await fetch('/api/analyze/noise/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(err || 'preview_failed');
+      }
+      const data = await res.json();
+      if (requestId !== presetPreviewRequestId) return;
+      if (noisePresetPreviewAudio && data.url) {
+        noisePresetPreviewAudio.src = data.url;
+      }
+      setPresetPreviewEnabled(true);
+      setPresetStatus('Preview ready.');
+      addStatusLine('Preset preview ready.');
+    } catch (err) {
+      if (err && err.name === 'AbortError') return;
+      setPresetStatus('Preview failed.');
     }
   }
 
@@ -722,19 +852,24 @@
     noiseCenter.textContent = formatHz((selection.f0 + selection.f1) * 0.5);
     noiseBandwidth.textContent = formatHz(selection.f1 - selection.f0);
     if (noiseSelectionHint) noiseSelectionHint.textContent = 'Selection ready.';
-    if (noisePresetHint && !noiseSuggestedBand) {
-      noisePresetHint.hidden = true;
-      noisePresetHint.textContent = '';
-    }
+      if (noisePresetHint && !noiseSuggestedBand) {
+        noisePresetHint.hidden = true;
+        noisePresetHint.textContent = '';
+      }
     updateNoiseButtonState();
   }
 
   function updateNoiseButtonState(){
     const ok = !!noiseSelection && noiseSelection.t1 > noiseSelection.t0 && noiseSelection.f1 > noiseSelection.f0;
-    if (noisePreviewBtn) noisePreviewBtn.disabled = !ok;
     if (noiseRenderBtn) noiseRenderBtn.disabled = !ok;
     if (noiseSaveBtn) noiseSaveBtn.disabled = !ok;
     if (noiseSaveNoiseBtn) noiseSaveNoiseBtn.disabled = !ok;
+  }
+
+  function updatePresetButtonState(){
+    const target = getActiveNoiseTarget();
+    const ok = !!target?.rel && !!(noisePresetBand || noiseSuggestedBand);
+    if (noisePresetSaveSongBtn) noisePresetSaveSongBtn.disabled = !ok;
   }
 
   function getActiveNoiseTarget(){
@@ -762,11 +897,17 @@
         spectrogramMiniWindow.style.width = '0';
         spectrogramMiniWindow.style.left = '0';
       }
+      setSelectedPreviewStatus('Preview idle');
+      setSelectedPreviewEnabled(false);
+      setPresetStatus('Preview idle');
+      setPresetPreviewEnabled(false);
       return;
     }
     if (lastNoiseTargetRel && lastNoiseTargetRel !== target.rel) {
       noiseSelection = null;
       updateNoiseReadouts(null);
+      setSelectedPreviewStatus('Preview idle');
+      setSelectedPreviewEnabled(false);
     }
     lastNoiseTargetRel = target.rel;
     renderSpectrogramViewer(analysisSpectrogram, target.rel, analysisSpectrogram.height, preserveCenter, true);
@@ -774,6 +915,8 @@
     renderNoiseSelectionBox();
     renderSpectroGrid();
     updatePlayhead();
+    updatePresetButtonState();
+    schedulePresetPreview();
   }
 
   function clearNoiseSelection(){
@@ -1195,6 +1338,43 @@
     return (data.songs || []).find(song => song.song_id === songId) || null;
   }
 
+  async function loadMostRecentSelection(){
+    try {
+      const res = await fetch('/api/library', { cache: 'no-store' });
+      if (!res.ok) return;
+      const data = await res.json();
+      const songs = data.songs || [];
+      let latest = null;
+      for (const song of songs) {
+        const versions = song.versions || [];
+        for (const version of versions) {
+          const rel = primaryRendition(version.renditions)?.rel || version.rel;
+          if (!rel) continue;
+          const ts = Date.parse(version.created_at || '') || 0;
+          if (!latest || ts > latest.ts) {
+            latest = { song, version, rel, ts };
+          }
+        }
+      }
+      if (latest) {
+        await loadLibrarySelection(latest.song, {
+          kind: 'version',
+          rel: latest.rel,
+          version_id: latest.version.version_id,
+          label: latest.version.label || latest.version.title || 'Version',
+        }, false);
+        return;
+      }
+      const demo = songs.find(song => song.song_id === 'demo_sonustemper')
+        || songs.find(song => (song.title || '').toLowerCase().includes('sonustemper'));
+      if (demo?.source?.rel) {
+        await loadLibrarySelection(demo, { kind: 'source', rel: demo.source.rel }, false);
+      }
+    } catch (_err) {
+      return;
+    }
+  }
+
   function updateCompareLinkWithRel(srcRel, procRel){
     if (!compareLink) return;
     const url = new URL('/compare', window.location.origin);
@@ -1245,7 +1425,7 @@
       analysisContext.song_id = song?.song_id || null;
       analysisContext.active_version_id = track.version_id || null;
       updateCompareLinkWithRel(srcRel, track.rel);
-      addStatusLine('Analysis ready');
+      addStatusLine('Noise Removal ready');
       updateSelectedFileDisplay(song, track);
       renderNoiseHistory();
       return;
@@ -1261,12 +1441,12 @@
       analysisContext.song_id = song?.song_id || null;
       analysisContext.active_version_id = null;
       updateCompareLinkWithRel(parsed.kind === 'source' ? parsed.rel : null, null);
-      addStatusLine('Analysis ready');
+      addStatusLine('Noise Removal ready');
       updateSelectedFileDisplay(song, track);
       renderNoiseHistory();
       return;
     }
-    addStatusLine('Analysis failed');
+    addStatusLine('Noise Removal failed');
   }
 
   const NOISE_FREQ_MIN = 20;
@@ -1426,6 +1606,7 @@
         }
       }
       noiseSelection = { t0, t1, f0, f1 };
+      setSelectedPreviewMode('solo', { preview: false });
       updateNoiseReadouts(noiseSelection);
       scheduleAutoPreview();
     };
@@ -1447,7 +1628,7 @@
     });
   }
 
-  function collectNoisePayload(){
+  function collectSelectedPayload(){
     const target = getActiveNoiseTarget();
     if (!target || !target.rel) return null;
     if (!noiseSelection) return null;
@@ -1463,8 +1644,37 @@
       t1_sec: noiseSelection.t1,
       f_low: noiseSelection.f0,
       f_high: noiseSelection.f1,
-      mode: noiseMode,
+      mode: selectedPreviewMode,
       apply_scope: noiseScope,
+      band_depth_db: bandDepth,
+      afftdn_strength: strength,
+      hp_hz: Number.isFinite(hp) ? hp : null,
+      lp_hz: Number.isFinite(lp) ? lp : null,
+      preview_len_sec: 10,
+    };
+  }
+
+  function collectPresetPayload(){
+    const target = getActiveNoiseTarget();
+    if (!target || !target.rel) return null;
+    const band = noisePresetBand || noiseSuggestedBand;
+    if (!band) return null;
+    const bandDepth = noiseDepthRange ? parseFloat(noiseDepthRange.value || '-18') : -18;
+    const strength = noiseAfftdnRange ? parseFloat(noiseAfftdnRange.value || '0') : 0;
+    const hp = noiseHpToggle?.checked ? parseFloat(noiseHpValue?.value || '') : null;
+    const lp = noiseLpToggle?.checked ? parseFloat(noiseLpValue?.value || '') : null;
+    const duration = analysisContext.duration || 0;
+    const end = duration && Number.isFinite(duration) ? duration : 10;
+    return {
+      path: target.rel,
+      start_sec: 0,
+      end_sec: end,
+      t0_sec: 0,
+      t1_sec: end,
+      f_low: band.f0,
+      f_high: band.f1,
+      mode: presetPreviewMode,
+      apply_scope: 'global',
       band_depth_db: bandDepth,
       afftdn_strength: strength,
       hp_hz: Number.isFinite(hp) ? hp : null,
@@ -1484,51 +1694,17 @@
     );
   }
 
-  async function previewNoise(){
-    const payload = collectNoisePayload();
-    if (!payload) {
-      setNoiseStatus('Select a region to preview.');
-      return;
-    }
-    cancelAutoPreview();
-    summarizeNoisePayload('Preview', payload);
-    addStatusLine('Preview: starting ffmpeg...');
-    setNoiseStatus('Previewing...');
-    setPreviewEnabled(false);
-    try {
-      const res = await fetch('/api/analyze/noise/preview', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const err = await res.text();
-        throw new Error(err || 'preview_failed');
-      }
-      const data = await res.json();
-      if (noisePreviewAudio && data.url) {
-        noisePreviewAudio.src = data.url;
-        noisePreviewAudio.play().catch(() => {});
-      }
-      setPreviewEnabled(true);
-      const startText = typeof data.preview_start === 'number' ? data.preview_start.toFixed(2) : '-';
-      setNoiseStatus(`Preview starts at ${startText}s`);
-    } catch (_err) {
-      setNoiseStatus('Preview failed.');
-    }
-  }
-
   async function renderNoise(){
-    const payload = collectNoisePayload();
+    const payload = collectSelectedPayload();
     if (!payload) {
-      setNoiseStatus('Select a region to render.');
+      setSelectedPreviewStatus('Select a region to save.');
       return;
     }
     cancelAutoPreview();
     payload.mode = 'remove';
     summarizeNoisePayload('Render Cleaned Copy', payload);
     addStatusLine('Render Cleaned Copy: starting ffmpeg...');
-    setNoiseStatus('Rendering full file...');
+    setSelectedPreviewStatus('Saving song...');
     try {
       const songId = await ensureSongId();
       if (!songId) throw new Error('missing_song');
@@ -1562,23 +1738,67 @@
         showToast(`Cleaned copy ready: ${data.output_name || 'output'}`);
       }
       addStatusLine(`Saved version: ${data.output_name || 'output'}`);
-      setNoiseStatus('Render complete.');
+      setSelectedPreviewStatus('Saved.');
+      if (libraryBrowser && analysisContext.song_id) {
+        libraryBrowser.expandSong(analysisContext.song_id);
+      }
     } catch (_err) {
-      setNoiseStatus('Render failed.');
+      setSelectedPreviewStatus('Save failed.');
+    }
+  }
+
+  async function renderPresetNoise(){
+    const payload = collectPresetPayload();
+    if (!payload) {
+      setPresetStatus('Select a preset to save.');
+      return;
+    }
+    payload.mode = 'remove';
+    summarizeNoisePayload('Preset Save Song', payload);
+    addStatusLine('Preset Save Song: starting ffmpeg...');
+    setPresetStatus('Saving song...');
+    try {
+      const songId = await ensureSongId();
+      if (!songId) throw new Error('missing_song');
+      payload.song_id = songId;
+      const res = await fetch('/api/analyze/noise/render', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(err || 'render_failed');
+      }
+      const data = await res.json();
+      if (libraryBrowser) libraryBrowser.reload();
+      const song = await fetchSong(analysisContext.song_id);
+      if (song) {
+        analysisContext.song = song;
+        analysisContext.versions = song.versions || [];
+        renderNoiseHistory();
+      }
+      addStatusLine(`Saved version: ${data.output_name || 'output'}`);
+      setPresetStatus('Saved.');
+      if (libraryBrowser && analysisContext.song_id) {
+        libraryBrowser.expandSong(analysisContext.song_id);
+      }
+    } catch (_err) {
+      setPresetStatus('Save failed.');
     }
   }
 
   async function saveNoiseFile(){
-    const payload = collectNoisePayload();
+    const payload = collectSelectedPayload();
     if (!payload) {
-      setNoiseStatus('Select a region to save noise.');
+      setSelectedPreviewStatus('Select a region to save noise.');
       return;
     }
     cancelAutoPreview();
     payload.mode = 'solo';
     summarizeNoisePayload('Save Noise Profile', payload);
     addStatusLine('Save Noise Profile: starting ffmpeg...');
-    setNoiseStatus('Saving noise file...');
+    setSelectedPreviewStatus('Saving noise file...');
     try {
       const songId = await ensureSongId();
       if (!songId) throw new Error('missing_song');
@@ -1601,9 +1821,12 @@
         renderNoiseHistory();
       }
       addStatusLine(`Saved version: ${data.output_name || 'noise profile'}`);
-      setNoiseStatus('Noise profile saved.');
+      setSelectedPreviewStatus('Noise profile saved.');
+      if (libraryBrowser && analysisContext.song_id) {
+        libraryBrowser.expandSong(analysisContext.song_id);
+      }
     } catch (_err) {
-      setNoiseStatus('Noise file save failed.');
+      setSelectedPreviewStatus('Noise file save failed.');
     }
   }
 
@@ -1712,6 +1935,7 @@
     } catch (_err) {
       addStatusLine('Failed to load noise presets.');
     }
+    updatePresetButtonState();
   }
 
   function applyNoisePreset(id){
@@ -1734,12 +1958,13 @@
       noiseLpToggle.checked = typeof noise.lp_hz === 'number';
       if (typeof noise.lp_hz === 'number') noiseLpValue.value = String(noise.lp_hz);
     }
-    if (noise.mode) setNoiseMode(noise.mode);
+    if (noise.mode) setPresetPreviewMode(noise.mode);
     if (noisePresetHint) {
       noisePresetHint.hidden = true;
       noisePresetHint.textContent = '';
     }
     if (noise.f_low && noise.f_high) {
+      noisePresetBand = { f0: noise.f_low, f1: noise.f_high };
       if (noiseSelection) {
         noiseSelection = {
           t0: noiseSelection.t0,
@@ -1759,21 +1984,25 @@
         updateNoiseButtonState();
       }
     } else {
+      noisePresetBand = null;
       noiseSuggestedBand = null;
       updateNoiseButtonState();
+      updatePresetButtonState();
     }
+    updatePresetButtonState();
+    schedulePresetPreview();
   }
 
   async function saveNoisePreset(){
-    const payload = collectNoisePayload();
+    const payload = collectSelectedPayload();
     if (!payload) {
-      setNoiseStatus('Select a region to save.');
+      setSelectedPreviewStatus('Select a region to save.');
       return;
     }
     const title = prompt('Noise filter name', 'Noise Cleanup');
     if (!title) return;
-    addStatusLine('Save Noise Profile: starting...');
-    setNoiseStatus('Saving preset...');
+    addStatusLine('Save as Preset: starting...');
+    setSelectedPreviewStatus('Saving preset...');
     try {
       const res = await fetch('/api/analyze/noise/preset/save', {
         method: 'POST',
@@ -1798,10 +2027,10 @@
         throw new Error(err || 'save_failed');
       }
       await res.json();
-      setNoiseStatus('Preset saved.');
+      setSelectedPreviewStatus('Preset saved.');
       loadNoisePresets();
     } catch (_err) {
-      setNoiseStatus('Preset save failed.');
+      setSelectedPreviewStatus('Preset save failed.');
     }
   }
 
@@ -1866,7 +2095,7 @@
         if (shouldPush) updateUrl(params);
         const data = await resolveRun(item.song || item.id, item.out || '', item.solo);
         await applyData(data);
-        addStatusLine('Analysis ready');
+        addStatusLine('Noise Removal ready');
       } else if (item.kind === 'mastering_run') {
         addStatusLine(`Loading run ${item.song || item.id}...`);
         const params = new URLSearchParams();
@@ -1874,7 +2103,7 @@
         if (shouldPush) updateUrl(params);
         const data = await resolveRun(item.song || item.id, item.out || '', false);
         await applyData(data);
-        addStatusLine('Analysis ready');
+        addStatusLine('Noise Removal ready');
       } else if (item.kind === 'source' || item.kind === 'import') {
         addStatusLine(`Loading ${item.kind}...`);
         const params = new URLSearchParams();
@@ -1882,11 +2111,11 @@
         if (shouldPush) updateUrl(params);
         const data = await resolveFile(item.kind, item.rel);
         await applyData(data);
-        addStatusLine('Analysis ready');
+        addStatusLine('Noise Removal ready');
       }
     } catch (_err) {
-      if (typeof showToast === 'function') showToast('Analyze data unavailable');
-      addStatusLine('Analysis failed');
+      if (typeof showToast === 'function') showToast('Noise Removal data unavailable');
+      addStatusLine('Noise Removal failed');
     }
   }
 
@@ -1894,7 +2123,7 @@
     compareLink.href = `/compare${window.location.search}`;
   }
   if (analysisWideLink) {
-    const url = new URL('/analyze', window.location.origin);
+    const url = new URL('/noise_removal', window.location.origin);
     if (window.location.search) url.search = window.location.search;
     url.searchParams.set('wide', '1');
     analysisWideLink.href = `${url.pathname}${url.search}`;
@@ -1904,6 +2133,7 @@
   const song = params.get('song');
   const out = params.get('out');
   const solo = params.get('solo');
+  const path = params.get('path');
   let src = params.get('src');
   const proc = params.get('proc');
   const imp = params.get('imp');
@@ -1919,10 +2149,17 @@
     resolvePair(src, proc).then(async (data) => {
       await applyData(data);
       updateCompareLinkWithRel(src, proc);
-      addStatusLine('Analysis ready');
+      addStatusLine('Noise Removal ready');
     }).catch(() => {
-      addStatusLine('Analysis failed');
+      addStatusLine('Noise Removal failed');
     });
+  } else if (path) {
+    const parsed = normalizeLibraryRel(path);
+    if (parsed?.kind === 'source' || parsed?.kind === 'import') {
+      selectAndLoad({ kind: parsed.kind, rel: parsed.rel }, null, false);
+    } else {
+      selectAndLoad({ kind: 'import', rel: parsed?.rel || path }, null, false);
+    }
   } else if (src) {
     const parsed = normalizeLibraryRel(src);
     if (parsed?.kind === 'source' || parsed?.kind === 'import') {
@@ -1933,6 +2170,11 @@
     selectAndLoad({ kind: 'import', rel: imp }, null, false);
   }
 
+  const hasInbound = song || src || proc || imp || path;
+  if (!hasInbound) {
+    loadMostRecentSelection();
+  }
+
   if (analyzeBrowser && window.LibraryBrowser) {
     const browser = window.LibraryBrowser.init(analyzeBrowser, { module: 'analyze' });
     libraryBrowser = browser;
@@ -1941,8 +2183,8 @@
       try {
         await loadLibrarySelection(song, track, true);
       } catch (_err) {
-        addStatusLine('Analysis failed');
-        if (typeof showToast === 'function') showToast('Analyze data unavailable');
+        addStatusLine('Noise Removal failed');
+        if (typeof showToast === 'function') showToast('Noise Removal data unavailable');
       }
     });
     analyzeBrowser.addEventListener('library:action', async (evt) => {
@@ -2106,11 +2348,17 @@
     renderMiniSpectrogram();
   });
 
-  if (noiseModeRemoveBtn) {
-    noiseModeRemoveBtn.addEventListener('click', () => setNoiseMode('remove'));
+  if (presetModeFilteredBtn) {
+    presetModeFilteredBtn.addEventListener('click', () => setPresetPreviewMode('remove'));
   }
-  if (noiseModeSoloBtn) {
-    noiseModeSoloBtn.addEventListener('click', () => setNoiseMode('solo'));
+  if (presetModeSoloBtn) {
+    presetModeSoloBtn.addEventListener('click', () => setPresetPreviewMode('solo'));
+  }
+  if (selectedModeSoloBtn) {
+    selectedModeSoloBtn.addEventListener('click', () => setSelectedPreviewMode('solo'));
+  }
+  if (selectedModeFilteredBtn) {
+    selectedModeFilteredBtn.addEventListener('click', () => setSelectedPreviewMode('remove'));
   }
   if (noiseAutoPlayToggle) {
     noiseAutoPlayToggle.addEventListener('change', () => {
@@ -2126,11 +2374,33 @@
   if (noiseDepthRange) {
     noiseDepthRange.addEventListener('input', () => {
       if (noiseDepthVal) noiseDepthVal.textContent = noiseDepthRange.value;
+      schedulePresetPreview();
     });
   }
   if (noiseAfftdnRange) {
     noiseAfftdnRange.addEventListener('input', () => {
       if (noiseAfftdnVal) noiseAfftdnVal.textContent = noiseAfftdnRange.value;
+      schedulePresetPreview();
+    });
+  }
+  if (noiseHpToggle) {
+    noiseHpToggle.addEventListener('change', () => {
+      schedulePresetPreview();
+    });
+  }
+  if (noiseHpValue) {
+    noiseHpValue.addEventListener('change', () => {
+      schedulePresetPreview();
+    });
+  }
+  if (noiseLpToggle) {
+    noiseLpToggle.addEventListener('change', () => {
+      schedulePresetPreview();
+    });
+  }
+  if (noiseLpValue) {
+    noiseLpValue.addEventListener('change', () => {
+      schedulePresetPreview();
     });
   }
   if (noiseClearBtn) {
@@ -2139,19 +2409,35 @@
       if (spectrogramSelection) spectrogramSelection.hidden = true;
       updateNoiseReadouts(null);
       cancelAutoPreview();
+      setSelectedPreviewStatus('Preview idle');
+      setSelectedPreviewEnabled(false);
     });
   }
   if (noisePresetSelect) {
     noisePresetSelect.addEventListener('change', () => {
       const id = noisePresetSelect.value;
-      if (id) applyNoisePreset(id);
+      if (id) {
+        applyNoisePreset(id);
+      } else {
+        noisePresetBand = null;
+        noiseSuggestedBand = null;
+        if (noisePresetHint) {
+          noisePresetHint.hidden = true;
+          noisePresetHint.textContent = '';
+        }
+        setPresetStatus('Preview idle');
+        setPresetPreviewEnabled(false);
+      }
+      updatePresetButtonState();
     });
   }
-  if (noisePreviewBtn) noisePreviewBtn.addEventListener('click', previewNoise);
+  if (noisePresetSaveSongBtn) noisePresetSaveSongBtn.addEventListener('click', renderPresetNoise);
   if (noiseRenderBtn) noiseRenderBtn.addEventListener('click', renderNoise);
   if (noiseSaveBtn) noiseSaveBtn.addEventListener('click', saveNoisePreset);
   if (noiseSaveNoiseBtn) noiseSaveNoiseBtn.addEventListener('click', saveNoiseFile);
-  setPreviewEnabled(false);
+  setSelectedPreviewEnabled(false);
+  setPresetPreviewEnabled(false);
+  updatePresetButtonState();
 
   window.addEventListener('sonustemper:noise-presets-changed', () => {
     loadNoisePresets();
@@ -2204,7 +2490,8 @@
     });
   }
   bindSpectrogramSelection();
-  setNoiseMode('solo');
+  setSelectedPreviewMode('solo', { preview: false });
+  setPresetPreviewMode('remove');
   setNoiseScope('global');
   updateNoiseButtonState();
   loadNoisePresets();

@@ -2073,7 +2073,7 @@
 
   function openInNoiseRemoval(){
     if (!analysisData?.source_rel) return;
-    const url = new URL('/analyze', window.location.origin);
+        const url = new URL('/noise_removal', window.location.origin);
     url.searchParams.set('src', analysisData.source_rel);
     if (analysisData.processed_rel) {
       url.searchParams.set('proc', analysisData.processed_rel);

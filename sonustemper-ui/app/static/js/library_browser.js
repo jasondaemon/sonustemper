@@ -480,7 +480,7 @@
       if (isMastering) {
         const analyzeBtn = document.createElement('button');
         analyzeBtn.type = 'button';
-        analyzeBtn.textContent = 'Analyze';
+        analyzeBtn.textContent = 'Noise Removal';
         analyzeBtn.addEventListener('click', (evt) => {
           evt.stopPropagation();
           emit('library:action', { action: 'open-analyze', song, version });

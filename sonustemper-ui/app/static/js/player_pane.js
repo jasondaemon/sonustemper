@@ -648,7 +648,7 @@
         const actions = document.createElement('div');
         actions.className = 'player-track-line player-track-line--actions';
         actions.appendChild(makeActionButton('Open in EQ', () => options?.onOpenEq?.(track.song, track)));
-        actions.appendChild(makeActionButton('Analyze', () => options?.onOpenAnalyze?.(track.song, track)));
+        actions.appendChild(makeActionButton('Noise Removal', () => options?.onOpenAnalyze?.(track.song, track)));
         actions.appendChild(makeActionButton('Compare', () => options?.onOpenCompare?.(track.song, track)));
         actions.appendChild(makeActionButton('AI Toolkit', () => options?.onOpenAiToolkit?.(track.song, track)));
         actions.appendChild(makeActionButton('Add as Input', () => options?.onAddInput?.(track.song, track)));

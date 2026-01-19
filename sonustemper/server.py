@@ -130,6 +130,8 @@ def _builtin_voicing_dirs() -> list[Path]:
 def _preset_dir(origin: str, kind: str) -> Path:
     origin = (origin or "").strip().lower()
     kind = (kind or "").strip().lower()
+    if kind in {"noise", "noise_filter", "noise-preset", "noise_preset"}:
+        return _noise_filter_dir(origin)
     if kind not in {"voicing", "profile"}:
         raise ValueError("invalid kind")
     if origin == "user":
@@ -147,12 +149,16 @@ def _preset_dirs_for_origin(origin: str, kind: str | None = None) -> list[tuple[
             roots.append((USER_VOICING_DIR, "voicing"))
         if kind in (None, "profile"):
             roots.append((USER_PROFILE_DIR, "profile"))
+        if kind in (None, "noise_filter", "noise"):
+            roots.append((_noise_filter_dir("user"), "noise_filter"))
         roots.append((PRESET_DIR, None))
     elif origin in {"staging", "generated"}:
         if kind in (None, "voicing"):
             roots.append((STAGING_VOICING_DIR, "voicing"))
         if kind in (None, "profile"):
             roots.append((STAGING_PROFILE_DIR, "profile"))
+        if kind in (None, "noise_filter", "noise"):
+            roots.append((_noise_filter_dir("staging"), "noise_filter"))
         roots.append((GEN_PRESET_DIR, None))
     elif origin == "builtin":
         if kind in (None, "profile"):
@@ -161,6 +167,8 @@ def _preset_dirs_for_origin(origin: str, kind: str | None = None) -> list[tuple[
         if kind in (None, "voicing"):
             for root in _builtin_voicing_dirs():
                 roots.append((root, "voicing"))
+        if kind in (None, "noise_filter", "noise"):
+            roots.append((_noise_filter_dir("builtin"), "noise_filter"))
     return roots
 
 def _iter_preset_files_by_origin(origin: str, kind: str | None = None):
@@ -1849,7 +1857,9 @@ def _library_items(origin: str, kind: str | None = None) -> list[dict]:
 def _preset_reserved_names_for(kind: str, include_user: bool = True, include_staging: bool = True, include_builtin: bool = True) -> set[str]:
     names: set[str] = set()
     kind = (kind or "").strip().lower()
-    if kind not in {"voicing", "profile"}:
+    if kind in {"noise", "noise_filter", "noise-preset", "noise_preset"}:
+        kind = "noise_filter"
+    if kind not in {"voicing", "profile", "noise_filter"}:
         return names
     if include_user:
         for fp, default_kind in _iter_preset_files_by_origin("user", kind):
@@ -1875,7 +1885,13 @@ def _find_preset_file(origin: str, kind: str, preset_id: str) -> Path | None:
     origin = (origin or "").strip().lower()
     kind = (kind or "").strip().lower()
     safe = _safe_slug(preset_id or "")
-    if not safe or kind not in {"voicing", "profile"}:
+    if not safe:
+        return None
+    if kind in {"noise", "noise_filter", "noise-preset", "noise_preset"}:
+        root = _noise_filter_dir(origin)
+        candidate = root / f"{safe}.json"
+        return candidate if candidate.exists() else None
+    if kind not in {"voicing", "profile"}:
         return None
     for root, default_kind in _preset_dirs_for_origin(origin, kind):
         candidate = root / f"{safe}.json"
@@ -3143,7 +3159,7 @@ def library_item_download(id: str, kind: str, origin: str):
     kind = (kind or "").strip().lower()
     if origin not in {"user", "staging", "builtin"}:
         raise HTTPException(status_code=400, detail="invalid_origin")
-    if kind not in {"voicing", "profile"}:
+    if kind not in {"voicing", "profile", "noise_filter", "noise"}:
         raise HTTPException(status_code=400, detail="invalid_kind")
     target = _find_preset_file(origin, kind, id)
     if not target:
@@ -3161,7 +3177,7 @@ def library_item_delete(payload: dict = Body(...)):
         raise HTTPException(status_code=403, detail="readonly_preset")
     if origin not in {"user", "staging"}:
         raise HTTPException(status_code=400, detail="invalid_origin")
-    if kind not in {"voicing", "profile"}:
+    if kind not in {"voicing", "profile", "noise_filter", "noise"}:
         raise HTTPException(status_code=400, detail="invalid_kind")
     target = _find_preset_file(origin, kind, preset_id)
     if not target:
@@ -3284,10 +3300,10 @@ async def import_json_to_staging(file: UploadFile = File(...), name: str = Form(
     meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
     kind = _detect_preset_kind(data) or meta.get("kind") or "profile"
     kind = str(kind).strip().lower()
-    if kind not in {"voicing", "profile"}:
+    if kind not in {"voicing", "profile", "noise_filter", "noise"}:
         raise HTTPException(status_code=400, detail="invalid_kind")
     override = (name or "").strip()
-    if kind == "voicing":
+    if kind in {"voicing", "noise_filter", "noise"}:
         base = override or data.get("id") or meta.get("title") or data.get("name") or Path(file.filename).stem
     else:
         base = override or data.get("name") or meta.get("title") or data.get("id") or Path(file.filename).stem
@@ -3303,7 +3319,7 @@ async def import_json_to_staging(file: UploadFile = File(...), name: str = Form(
     meta["source"] = "upload"
     meta["source_file"] = meta.get("source_file") or file.filename
     data["meta"] = meta
-    if kind == "voicing":
+    if kind in {"voicing", "noise_filter", "noise"}:
         data["id"] = safe_name
     else:
         data["name"] = safe_name
@@ -3317,7 +3333,7 @@ async def import_json_to_staging(file: UploadFile = File(...), name: str = Form(
 def staging_move_to_user(payload: dict = Body(...)):
     kind = (payload.get("kind") or "").strip().lower()
     preset_id = payload.get("id") or ""
-    if kind not in {"voicing", "profile"}:
+    if kind not in {"voicing", "profile", "noise_filter", "noise"}:
         raise HTTPException(status_code=400, detail="invalid_kind")
     source = _find_preset_file("staging", kind, preset_id)
     if not source:
@@ -3335,7 +3351,7 @@ def staging_move_to_user(payload: dict = Body(...)):
     if not meta.get("source"):
         meta["source"] = "generated"
     data["meta"] = meta
-    if kind == "voicing":
+    if kind in {"voicing", "noise_filter", "noise"}:
         data["id"] = safe_name
     else:
         data["name"] = safe_name

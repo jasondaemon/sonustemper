@@ -745,7 +745,7 @@
       if (action === 'open-analyze') {
         const rel = primaryRendition(version?.renditions)?.rel || version?.rel;
         if (!rel) return;
-        const url = new URL('/analyze', window.location.origin);
+        const url = new URL('/noise_removal', window.location.origin);
         url.searchParams.set('path', rel);
         window.location.assign(`${url.pathname}${url.search}`);
         return;
@@ -822,7 +822,7 @@
       },
       onOpenAnalyze: (_song, track) => {
         if (!track?.rel) return;
-        const url = new URL('/analyze', window.location.origin);
+        const url = new URL('/noise_removal', window.location.origin);
         url.searchParams.set('path', track.rel);
         window.location.assign(`${url.pathname}${url.search}`);
       },

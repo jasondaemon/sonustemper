@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block page_title %}Voicing Profiles | SonusTemper{% endblock %}
-{% block title %}Voicing Profiles{% endblock %}
-{% block subtitle %}Create, upload, and manage voicings + delivery profiles.{% endblock %}
+{% block page_title %}Preset Management | SonusTemper{% endblock %}
+{% block title %}Preset Management{% endblock %}
+{% block subtitle %}Create, upload, and manage voicings, delivery profiles, and noise presets.{% endblock %}
 
 {% block sidebar %}
   <div class="card preset-sidebar">
@@ -14,8 +14,8 @@
     <div class="status-list" id="presetStatusList">(waiting)</div>
     <div class="card-head">
       <div>
-        <div class="card-title">Library</div>
-        <div class="muted">User and staging voicings/profiles.</div>
+        <div class="card-title">Preset Library</div>
+        <div class="muted">User and staging presets for voicing, profile, and noise.</div>
       </div>
     </div>
     <div class="preset-browser">
@@ -23,12 +23,14 @@
       {% set sections = [
         {"key": "user_voicings", "title": "User Voicings", "endpoint": "/partials/library_list?view=presets_user_voicings&context=presets"},
         {"key": "user_profiles", "title": "User Profiles", "endpoint": "/partials/library_list?view=presets_user_profiles&context=presets", "autoselect": "first"},
+        {"key": "user_noise", "title": "User Noise Presets", "endpoint": "/partials/library_list?view=presets_user_noise&context=presets"},
         {"key": "generated_voicings", "title": "Generated Voicings", "endpoint": "/partials/library_list?view=presets_staging_voicings&context=presets"},
-        {"key": "generated_profiles", "title": "Generated Profiles", "endpoint": "/partials/library_list?view=presets_staging_profiles&context=presets"}
+        {"key": "generated_profiles", "title": "Generated Profiles", "endpoint": "/partials/library_list?view=presets_staging_profiles&context=presets"},
+        {"key": "generated_noise", "title": "Generated Noise Presets", "endpoint": "/partials/library_list?view=presets_staging_noise&context=presets"}
       ] %}
       {% include "partials/file_browser.html" %}
     </div>
-    <div class="muted" id="presetSelectedHint">Select a voicing or profile to view details.</div>
+    <div class="muted" id="presetSelectedHint">Select a preset to view details.</div>
   </div>
 {% endblock %}
 
@@ -66,8 +68,8 @@
     <div class="card">
       <div class="card-head">
         <div>
-          <div class="card-title">Import JSON (Voicing or Profile)</div>
-          <div class="muted">Import a JSON voicing/profile into staging before moving to your library.</div>
+          <div class="card-title">Import JSON (Voicing, Profile, or Noise Preset)</div>
+          <div class="muted">Import a JSON preset into staging before moving to your library.</div>
         </div>
       </div>
       <div class="preset-form">
@@ -125,7 +127,7 @@
       <div class="card-head">
         <div>
           <div class="card-title">Selected Item</div>
-          <div class="muted" id="presetDetailSubtitle">Choose a voicing or profile from the library.</div>
+          <div class="muted" id="presetDetailSubtitle">Choose a preset from the library.</div>
         </div>
         <div class="preset-detail-actions">
           <button class="btn small ghost" type="button" id="presetDownloadBtn" disabled>Download JSON</button>
