@@ -1730,11 +1730,16 @@ h1{margin:0;font-size:24px;}
   padding:4px 8px;
 }
 .noise-hp-lp{
+  display:flex;
   gap:8px;
   align-items:center;
+  flex-wrap:nowrap;
 }
 .noise-hp-lp input[type=number]{
   width:56px;
+  min-width:56px;
+  padding-left:8px;
+  padding-right:8px;
 }
 .pill-toggle{
   display:flex;
