@@ -262,7 +262,6 @@ MASTER_SCRIPT = Path(os.getenv("MASTER_SCRIPT", str(_default_pack)))
 app = FastAPI(docs_url=None, redoc_url=None)
 ensure_data_roots()
 library_store.init_db()
-_start_preview_cleanup_loop()
 try:
     logger.info("[startup] DB schema_version=%s", library_store.get_schema_version())
 except Exception as exc:
@@ -402,6 +401,13 @@ def _start_preview_cleanup_loop() -> None:
                 logger.warning("[preview] cleanup failed: %s", exc)
             time.sleep(PREVIEW_CLEAN_INTERVAL_SEC)
     threading.Thread(target=_loop, daemon=True).start()
+
+@app.on_event("startup")
+def _startup_preview_cleanup() -> None:
+    try:
+        _start_preview_cleanup_loop()
+    except Exception as exc:
+        logger.warning("[preview] cleanup loop start failed: %s", exc)
 
 def _preview_update(preview_id: str, status: str, **kwargs) -> None:
     with PREVIEW_LOCK:
