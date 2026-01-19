@@ -569,6 +569,16 @@ h1{margin:0;font-size:24px;}
   align-items:center;
   gap:8px;
 }
+.library-version-actions > *{
+  flex:0 0 auto;
+}
+.library-action-menu{
+  flex:0 0 auto;
+}
+.library-action-menu > summary,
+.library-add-btn{
+  flex:0 0 auto;
+}
 .library-action-menu{
   position:relative;
   padding-bottom:12px;

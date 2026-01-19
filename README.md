@@ -1,6 +1,6 @@
 # ![SonusTemper](images/SonusTemper-128.png) SonusTemper
 
-SonusTemper is a one-page mastering workstation: drop in a song, choose a voicing or user preset, dial loudness/stereo/tone, and export multiple formats side-by-side for A/B comparison. Everything runs locally (FastAPI + FFmpeg), with deterministic naming, metrics, and provenance files for traceable results.
+SonusTemper is a local-first audio workstation: master, compare, clean noise, tag, and manage your library. Everything runs locally (FastAPI + FFmpeg), with deterministic naming, metrics, and provenance files for traceable results.
 
 ![Main interface](images/maininterface.png)
 
@@ -13,29 +13,31 @@ SonusTemper will refuse to start with default placeholder secrets.
 3) Run: `docker compose up`
 
 ## What you can do
-- Master with **Voicings** (8 built-ins) or **User Presets** (your own JSON).
-- Tweak loudness, true-peak, stereo width/guardrails, and tone.
-- Export WAV/MP3/AAC-M4A/OGG/FLAC with per-format options.
-- Inspect metrics and playback in the browser; download or delete individual outputs.
-- Manage presets (download/delete) and even create a new preset from a reference audio upload (analyzed server-side, reference discarded).
+- Master with **Voicings** or **User Presets** (profiles/voicings), with loudness, true‑peak, stereo, and tone controls. See [Mastering](docs/mastering.md).
+- Clean noise with **Noise Removal** (Preset vs Selected/Marquee workflows). See [Noise Removal](docs/noise-removal.md).
+- Compare **Source vs Processed** with synced playback, waveform/spectrogram, and overlays. See [Compare](docs/compare.md).
+- Use **AI Music Toolkit** for smart cleanup recommendations and real‑unit controls. See [AI Music Toolkit](docs/ai-toolkit.md).
+- Shape audio in **EQ** with realtime filters, spectrum/curve, and Voice Controls. See [EQ](docs/eq.md).
+- Tag MP3s (library or standalone) with batch editing and downloads. See [Tagging](docs/tagging.md).
+- Manage your library, versions, and user presets in **Song Library** and **Preset Management**. See [Song Library](docs/library.md) and [Preset Management](docs/preset-management.md).
 
 ## UI tour
-### Voicings and User Presets
+### Mastering — Voicings and User Presets ([docs](docs/mastering.md))
 - Two modes (mutually exclusive). Default is **Voicing**; switch to **User Presets** to pick one preset. Switching modes clears the other selection.
 - Single-select tiles with info drawers that explain “what it does,” “best for,” and “watch-outs.”
 - Strength/Intensity slider applies to whichever mode is active.
 
-![Settings](images/voicing-settings.png)
+![Settings](docs/img/master-voicing.png)
 
 ### Loudness
 - Two-pass, static gain: first measure LUFS/true-peak, then apply a fixed offset to hit target LUFS. Skips gain if already within ±1 LU. True-peak ceiling is always enforced.
 
-![Settings](images/loudness-settings.png)
+![Settings](docs/img/master-loudness.png)
 
 ### Stereo & Tone
 - Optional stereo widening with guardrails and light tone shaping (EQ/comp). Voicings/presets supply their EQ/comp curves; stereo width is applied when enabled.
 
-![Settings](images/stereo-settings.png)
+![Settings](docs/img/master-stereo.png)
 
 ### Output
 - Select any formats you want; each stage is optional. You can simply transcode WAV ➜ MP3 (or any format) by leaving mastering stages off.
@@ -46,7 +48,7 @@ SonusTemper will refuse to start with default placeholder secrets.
   - OGG Vorbis: quality level
   - FLAC: compression level + optional rate/depth
 
-![Settings](images/output-settings.png)
+![Settings](docs/img/master-output.png)
 
 ### Processing Status, Previous Runs, Job Output
 - Processing Status lists each step (voicing/preset render, loudness, per-format exports, metrics).
@@ -58,11 +60,32 @@ SonusTemper will refuse to start with default placeholder secrets.
 - The UI reconnects once via `/api/run/<run_id>` if the stream drops, so there’s no `.processing` file polling.
 - A tiny in-memory registry keeps the last N events per run for fast replay; terminal events include outlist/metrics payloads so the UI can render immediately.
 
-## Presets and Voicing Profiles
-- User presets live in `./presets/*.json` (and an internal writable dir for generated presets). Info text reminds that presets are user-customizable.
-- Voicing Profiles page:
-  - Download/Delete existing presets (delete requires confirmation).
-  - Create preset from reference: upload audio (≤100 MB); FFmpeg analyzes loudness/tonal balance and seeds a preset JSON using the source filename. The reference file is purged after analysis; metadata records source name and creation time.
+## Noise Removal ([docs](docs/noise-removal.md))
+- Two workflows:
+  - **Preset Noise Removal** (full‑song, preset‑based cleanup)
+  - **Selected Noise Removal** (marquee selection with Solo Noise vs Filtered Song audition)
+- Save outputs as library versions; presets can be saved from selections and appear in Preset Management.
+
+## Compare ([docs](docs/compare.md))
+- Synchronized Source/Processed playback with waveform or spectrogram view.
+- Overlays for loudness/peak risk and a scrub‑ready overview window.
+- Open any library version in Compare for A/B.
+
+## AI Music Toolkit ([docs](docs/ai-toolkit.md))
+- Smart recommendations based on /api/ai-tool/detect (real units, gated by enable toggles).
+- Render cleaned versions to the library with full metrics.
+
+## EQ ([docs](docs/eq.md))
+- Realtime WebAudio EQ with spectrum + curve, band handles, and Voice Controls (pre‑EQ).
+- Save EQ’d versions back to the library; open in Compare or Analyze/Noise Removal.
+
+## Tagging ([docs](docs/tagging.md))
+- Tag library MP3s or upload standalone MP3s (temp, non‑library) for tagging and download.
+- Batch editing across selected tracks with shared-field prefill.
+
+## Preset Management ([docs](docs/preset-management.md))
+- Manage user voicings, profiles, and noise presets.
+- Create voicing/profile from reference audio (analyzed server‑side; reference discarded).
 
 ## Naming, metrics, provenance
 - Outputs share a deterministic variant tag built from the effective config (preset/voicing, strength, loudness target/TP, stereo width/guardrails, and encoding options). A length guard adds a short hash if needed.
@@ -71,22 +94,21 @@ SonusTemper will refuse to start with default placeholder secrets.
   - `<stem>__<variant>.run.json` (provenance: exact payload + resolved values)
 - Delete links/API remove the audio plus its metrics/provenance companions.
 
-![Metrics panel](images/jobmetrics.png)
+![Metrics panel](docs/img/master-metrics.png)
 
 ## ID3 Tag Editing
-- Add processed mp3s, or import directly to apply your tags and album art
-- Download individual songs or a full album after tagging
+- Add processed MP3s or upload standalone MP3s to apply tags and album art.
+- Download individual songs or a full album after tagging.
 
-![taggin ui](images/tagging.png)
 
 ## Data paths
 - Root defaults to `/data`. For local dev, set `DATA_DIR=./data` (or `SONUSTEMPER_DATA_ROOT`) if `/data` is not writable.
-- Library index: `./data/library/library.json`
 - Song audio:
   - Sources: `./data/library/songs/<song_id>/source/`
   - Versions: `./data/library/songs/<song_id>/versions/`
-- Presets: `${DATA_DIR}/presets/{builtin,user,generated}/`
-- Previews (session temp): `./data/previews/` (TTL-cleaned, non-persistent)
+- User presets: `${DATA_DIR}/user_presets/{voicings,profiles,noise_filters}/`
+- Previews (session temp): `./data/previews/` (TTL-cleaned, non‑persistent)
+- Tagging temp uploads: `./data/previews/mp3-temp/<session>/` (cleared by temp cleanup)
 
 ## Install & run
 ### Docker (recommended)
@@ -149,6 +171,18 @@ Notes:
 ## Documentation
 Docs live in `docs/`. Enable GitHub Pages (Settings → Pages → Deploy from branch, `/docs`) to publish.
 - Set in `.env` for docker (e.g., `LOG_LEVEL=summary`) or export before running locally.
+Quick links:
+- [Overview](docs/index.md)
+- [Mastering](docs/mastering.md)
+- [Song Library](docs/library.md)
+- [Noise Removal](docs/noise-removal.md)
+- [Compare](docs/compare.md)
+- [AI Music Toolkit](docs/ai-toolkit.md)
+- [EQ](docs/eq.md)
+- [Preset Management](docs/preset-management.md)
+- [Tagging](docs/tagging.md)
+- [Workflows](docs/workflows.md)
+- [Troubleshooting](docs/troubleshooting.md)
 
 ### Security defaults
 - Proxy-level Basic Auth is ON by default (BASIC_AUTH_ENABLED=1).
@@ -184,14 +218,7 @@ Docs live in `docs/`. Enable GitHub Pages (Settings → Pages → Deploy from br
 - AI Music Toolkit: open AI Music Toolkit, pick a source/processed file, preview a cleanup tool, apply it, and open the result in Compare.
 
 ## AI Music Toolkit
-The AI Music Toolkit provides one-click cleanup workflows for AI-generated music. Each tool has a strength slider, optional advanced controls, fast preview rendering, and full render output (never overwrites).
-
-Tools and defaults:
-- Reduce AI Hiss / Glass: gentle top-end softening + mild denoise (strength 35).
-- Smooth Harsh Vocals: 4.5 kHz presence cut with optional S-band notch (strength 30).
-- Tighten Bass / Remove Rumble: high-pass + low-mid cut, optional punch shelf (strength 40).
-- Reduce Pumping / Over-Transients: presence softening + optional gentle compression (strength 25).
-- Platform Ready (AI Safe Loudness): loudness normalization targets for streaming (strength 40, Streaming Safe preset).
+The AI Music Toolkit provides cleanup workflows with real‑unit controls, preview‑first adjustments, and full renders to the library (never overwrites).
 
 ## License
 - SonusTemper is licensed under the GNU General Public License v3.0 (GPL-3.0).

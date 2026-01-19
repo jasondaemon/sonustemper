@@ -199,6 +199,8 @@
     }
   }
 
+  let outsideMenuHandlerInstalled = false;
+
   function renderLibrary(container, options = {}) {
     const module = options.module || container.dataset.module || 'generic';
     const isMastering = module === 'mastering';
@@ -231,6 +233,17 @@
     const listEl = container.querySelector('.library-browser-list');
     const unsortedWrap = null;
     const unsortedList = null;
+
+    if (!outsideMenuHandlerInstalled) {
+      document.addEventListener('pointerdown', (evt) => {
+        document.querySelectorAll('details.library-action-menu[open]').forEach((details) => {
+          if (!details.contains(evt.target)) {
+            details.open = false;
+          }
+        });
+      });
+      outsideMenuHandlerInstalled = true;
+    }
 
     function setSort(value) {
       state.sort = value;
@@ -504,21 +517,21 @@
         clearTimeout(closeTimer);
         closeTimer = null;
       };
-      const scheduleClose = () => {
+      const scheduleClose = (delayMs = 600) => {
         cancelClose();
         closeTimer = setTimeout(() => {
           closeMenu();
           closeTimer = null;
-        }, 250);
+        }, delayMs);
       };
-      menu.addEventListener('pointerenter', () => {
+      menu.addEventListener('pointerover', () => {
         cancelClose();
         openMenu();
       });
-      menu.addEventListener('pointerleave', (evt) => {
+      menu.addEventListener('pointerout', (evt) => {
         const rt = evt.relatedTarget;
         if (rt && menu.contains(rt)) return;
-        scheduleClose();
+        scheduleClose(600);
       });
       const menuSummary = document.createElement('summary');
       menuSummary.textContent = '⋯';
@@ -532,14 +545,18 @@
           openMenu();
         }
       });
-      document.addEventListener('pointerdown', (evt) => {
-        if (!menu.contains(evt.target)) {
-          closeMenu();
-        }
-      });
       menu.appendChild(menuSummary);
       const menuList = document.createElement('div');
       menuList.className = 'library-action-list';
+      menuList.addEventListener('pointerover', () => {
+        cancelClose();
+        openMenu();
+      });
+      menuList.addEventListener('pointerout', (evt) => {
+        const rt = evt.relatedTarget;
+        if (rt && menu.contains(rt)) return;
+        scheduleClose(600);
+      });
       const applyDisabled = (btn, reason) => {
         if (!btn) return;
         btn.disabled = true;
