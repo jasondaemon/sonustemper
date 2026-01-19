@@ -3078,7 +3078,7 @@ h1{margin:0;font-size:24px;}
   display:flex;
   gap:8px;
   align-items:center;
-  justify-content:space-between;
+  justify-content:flex-start;
   background:#121a25;
   border:1px solid #1c2838;
   border-radius:10px;
@@ -3086,6 +3086,27 @@ h1{margin:0;font-size:24px;}
   font-size:12px;
   cursor:pointer;
   color:#dbe7ff;
+}
+.eq-band-gain{
+  margin-left:auto;
+}
+.eq-band-chip.muted{
+  opacity:0.6;
+}
+.eq-band-enable{
+  width:14px;
+  height:14px;
+}
+.eq-band-remove{
+  border:none;
+  background:transparent;
+  color:#9fb3d0;
+  cursor:pointer;
+  font-size:14px;
+  line-height:1;
+}
+.eq-band-remove:hover{
+  color:#ffd18a;
 }
 .eq-band-chip.active{
   border-color:#1aa0ff;

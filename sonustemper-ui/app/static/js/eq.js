@@ -49,6 +49,8 @@
     spectrumRaf: null,
     spectrumData: null,
     spectrumSmooth: null,
+    hoverBandId: null,
+    lastSpectrumFrame: 0,
     trackMode: 'any',
   };
 
@@ -113,7 +115,7 @@
     }
     state.analyser = ctx.createAnalyser();
     state.analyser.fftSize = 2048;
-    state.analyser.smoothingTimeConstant = 0.8;
+    state.analyser.smoothingTimeConstant = 0.85;
     rebuildFilterChain();
   }
 
@@ -188,21 +190,81 @@
       gain_db: 0,
       q: 1,
       enabled: true,
+      is_template: false,
     };
+  }
+
+  function defaultSoundboardBands() {
+    const now = Date.now();
+    return [
+      { id: `b_hpf_${now}`, type: 'highpass', freq_hz: 30, gain_db: 0, q: 0.71, enabled: true, is_template: true },
+      { id: `b_low_${now}`, type: 'lowshelf', freq_hz: 100, gain_db: 0, q: 0.71, enabled: true, is_template: true },
+      { id: `b_lm_${now}`, type: 'peaking', freq_hz: 250, gain_db: 0, q: 1.0, enabled: true, is_template: true },
+      { id: `b_mid_${now}`, type: 'peaking', freq_hz: 1000, gain_db: 0, q: 1.0, enabled: true, is_template: true },
+      { id: `b_hm_${now}`, type: 'peaking', freq_hz: 3500, gain_db: 0, q: 1.0, enabled: true, is_template: true },
+      { id: `b_high_${now}`, type: 'highshelf', freq_hz: 10000, gain_db: 0, q: 0.71, enabled: true, is_template: true },
+      { id: `b_lpf_${now}`, type: 'lowpass', freq_hz: 18000, gain_db: 0, q: 0.71, enabled: false, is_template: true },
+    ];
+  }
+
+  function typeLabel(type) {
+    switch (type) {
+      case 'peaking':
+        return 'Bell';
+      case 'lowshelf':
+        return 'Low Shelf';
+      case 'highshelf':
+        return 'High Shelf';
+      case 'highpass':
+        return 'HPF';
+      case 'lowpass':
+        return 'LPF';
+      default:
+        return type;
+    }
   }
 
   function renderBands() {
     if (!bandListEl) return;
     bandListEl.innerHTML = '';
     state.bands.forEach((band) => {
-      const chip = document.createElement('button');
-      chip.type = 'button';
-      chip.className = `eq-band-chip${band.id === state.selectedBandId ? ' active' : ''}`;
-      chip.innerHTML = `
-        <span class="eq-band-type">${band.type}</span>
-        <span class="eq-band-freq">${formatFreq(band.freq_hz)}Hz</span>
-        <span class="eq-band-gain">${band.gain_db.toFixed(1)}dB</span>
-      `;
+      const chip = document.createElement('div');
+      chip.className = `eq-band-chip${band.id === state.selectedBandId ? ' active' : ''}${band.enabled ? '' : ' muted'}`;
+      const enable = document.createElement('input');
+      enable.type = 'checkbox';
+      enable.className = 'eq-band-enable';
+      enable.checked = !!band.enabled;
+      enable.addEventListener('click', (evt) => {
+        evt.stopPropagation();
+        band.enabled = enable.checked;
+        rebuildFilterChain();
+        renderBands();
+        drawSpectrumOnce();
+      });
+      chip.appendChild(enable);
+      const typeSpan = document.createElement('span');
+      typeSpan.className = 'eq-band-type';
+      typeSpan.textContent = typeLabel(band.type);
+      chip.appendChild(typeSpan);
+      const freqSpan = document.createElement('span');
+      freqSpan.className = 'eq-band-freq';
+      freqSpan.textContent = `${formatFreq(band.freq_hz)}Hz`;
+      chip.appendChild(freqSpan);
+      const gainSpan = document.createElement('span');
+      gainSpan.className = 'eq-band-gain';
+      gainSpan.textContent = `${band.gain_db.toFixed(1)}dB`;
+      chip.appendChild(gainSpan);
+      if (!band.is_template) {
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'eq-band-remove';
+        remove.textContent = '×';
+        remove.addEventListener('click', (evt) => {
+          evt.stopPropagation();
+          removeBand(band.id);
+        });
+        chip.appendChild(remove);
+      }
       chip.addEventListener('click', () => {
         state.selectedBandId = band.id;
         renderBands();
@@ -220,7 +282,7 @@
   function syncBandControls() {
     const band = selectedBand();
     if (!band) {
-      bandEnabled.checked = false;
+      if (bandEnabled) bandEnabled.checked = false;
       bandType.value = 'peaking';
       bandFreq.value = '';
       bandFreqRange.value = 1000;
@@ -231,7 +293,7 @@
       if (gainField) gainField.classList.add('disabled');
       return;
     }
-    bandEnabled.checked = !!band.enabled;
+    if (bandEnabled) bandEnabled.checked = !!band.enabled;
     bandType.value = band.type;
     bandFreq.value = Math.round(band.freq_hz);
     bandFreqRange.value = Math.round(band.freq_hz);
@@ -267,14 +329,16 @@
   }
 
   function bindBandControls() {
-    bandEnabled.addEventListener('change', () => {
-      const band = selectedBand();
-      if (!band) return;
-      band.enabled = bandEnabled.checked;
-      rebuildFilterChain();
-      renderBands();
-      drawSpectrumOnce();
-    });
+    if (bandEnabled) {
+      bandEnabled.addEventListener('change', () => {
+        const band = selectedBand();
+        if (!band) return;
+        band.enabled = bandEnabled.checked;
+        rebuildFilterChain();
+        renderBands();
+        drawSpectrumOnce();
+      });
+    }
     bandType.addEventListener('change', () => {
       updateSelectedBand({ type: bandType.value });
     });
@@ -287,12 +351,16 @@
       bandFreq.value = bandFreqRange.value;
     });
     bandGain.addEventListener('input', () => {
-      updateSelectedBand({ gain_db: gainFromRange(bandGain.value) });
-      bandGainRange.value = bandGain.value;
+      let next = gainFromRange(bandGain.value);
+      if (Math.abs(next) <= 0.3) next = 0;
+      updateSelectedBand({ gain_db: next });
+      bandGainRange.value = next;
     });
     bandGainRange.addEventListener('input', () => {
-      updateSelectedBand({ gain_db: gainFromRange(bandGainRange.value) });
-      bandGain.value = bandGainRange.value;
+      let next = gainFromRange(bandGainRange.value);
+      if (Math.abs(next) <= 0.3) next = 0;
+      updateSelectedBand({ gain_db: next });
+      bandGain.value = next;
     });
     bandQ.addEventListener('input', () => {
       updateSelectedBand({ q: qFromRange(bandQ.value) });
@@ -311,8 +379,11 @@
   function drawSpectrumOnce() {
     if (!spectrumCanvas) return;
     const ctx = spectrumCanvas.getContext('2d');
-    const { width, height } = spectrumCanvas;
-    ctx.clearRect(0, 0, width, height);
+    const rect = spectrumCanvas.getBoundingClientRect();
+    ctx.clearRect(0, 0, rect.width, rect.height);
+    drawEqGrid(ctx, rect.width, rect.height);
+    drawEqCurve(ctx, rect.width, rect.height);
+    drawBandHandles(ctx, rect.width, rect.height);
   }
 
   function setupSpectrumCanvas() {
@@ -327,9 +398,120 @@
     state.spectrumSmooth = new Float32Array(state.spectrumData.length);
   }
 
+  function drawEqGrid(ctx, width, height) {
+    ctx.save();
+    ctx.font = '10px sans-serif';
+    ctx.fillStyle = 'rgba(175,195,220,0.6)';
+    ctx.strokeStyle = 'rgba(120,140,165,0.25)';
+    ctx.lineWidth = 1;
+    const freqs = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000];
+    freqs.forEach((freq) => {
+      const x = freqToX(freq, width);
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, height);
+      ctx.stroke();
+      const label = freq >= 1000 ? `${(freq / 1000).toFixed(freq === 1000 ? 0 : 1)}k` : `${freq}`;
+      ctx.fillText(label, Math.min(width - 28, x + 4), height - 4);
+    });
+    const gains = [12, 6, 0, -6, -12];
+    gains.forEach((gain) => {
+      const y = gainToY(gain, height);
+      ctx.strokeStyle = gain === 0 ? 'rgba(200,220,255,0.5)' : 'rgba(120,140,165,0.2)';
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(width, y);
+      ctx.stroke();
+      ctx.fillText(`${gain > 0 ? '+' : ''}${gain}dB`, 6, Math.max(12, y - 2));
+    });
+    ctx.fillStyle = 'rgba(160,180,205,0.5)';
+    ctx.fillText('Spectrum (relative)', width - 120, 14);
+    ctx.restore();
+  }
+
+  function drawSpectrumBehindCurve(ctx, width, height) {
+    if (!state.spectrumSmooth || !state.analyser) return;
+    const sr = state.audioCtx?.sampleRate || 44100;
+    const bins = state.spectrumSmooth.length;
+    const dbMin = -80;
+    const dbMax = 0;
+    ctx.save();
+    ctx.fillStyle = 'rgba(64,110,170,0.18)';
+    ctx.strokeStyle = 'rgba(90,140,200,0.35)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    let started = false;
+    for (let i = 0; i < bins; i += 1) {
+      const freq = (i * sr) / (state.analyser.fftSize || 2048);
+      if (freq < 20 || freq > 20000) continue;
+      const x = freqToX(freq, width);
+      const mag = Math.max(state.spectrumSmooth[i] / 255, 1e-4);
+      const db = 20 * Math.log10(mag);
+      const clamped = Math.max(dbMin, Math.min(dbMax, db));
+      const y = height - ((clamped - dbMin) / (dbMax - dbMin)) * height;
+      if (!started) {
+        ctx.moveTo(x, y);
+        started = true;
+      } else {
+        ctx.lineTo(x, y);
+      }
+    }
+    ctx.lineTo(width, height);
+    ctx.lineTo(0, height);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    started = false;
+    for (let i = 0; i < bins; i += 1) {
+      const freq = (i * sr) / (state.analyser.fftSize || 2048);
+      if (freq < 20 || freq > 20000) continue;
+      const x = freqToX(freq, width);
+      const mag = Math.max(state.spectrumSmooth[i] / 255, 1e-4);
+      const db = 20 * Math.log10(mag);
+      const clamped = Math.max(dbMin, Math.min(dbMax, db));
+      const y = height - ((clamped - dbMin) / (dbMax - dbMin)) * height;
+      if (!started) {
+        ctx.moveTo(x, y);
+        started = true;
+      } else {
+        ctx.lineTo(x, y);
+      }
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawTooltip(ctx, text, x, y, width, height) {
+    if (!text) return;
+    ctx.save();
+    ctx.font = '11px sans-serif';
+    const padding = 6;
+    const metrics = ctx.measureText(text);
+    const boxW = metrics.width + padding * 2;
+    const boxH = 20;
+    let bx = x + 10;
+    let by = y - 28;
+    if (bx + boxW > width) bx = width - boxW - 6;
+    if (by < 6) by = y + 10;
+    ctx.fillStyle = 'rgba(10,14,20,0.9)';
+    ctx.strokeStyle = 'rgba(120,140,165,0.4)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    if (ctx.roundRect) {
+      ctx.roundRect(bx, by, boxW, boxH, 6);
+    } else {
+      ctx.rect(bx, by, boxW, boxH);
+    }
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(220,235,255,0.9)';
+    ctx.fillText(text, bx + padding, by + 14);
+    ctx.restore();
+  }
+
   function drawSpectrum() {
     if (!state.analyser || !spectrumCanvas) return;
-    if (!state.spectrumData || !state.spectrumSmooth) {
+    if (!state.spectrumData || !state.spectrumSmooth || state.spectrumData.length !== state.analyser.frequencyBinCount) {
       state.spectrumData = new Uint8Array(state.analyser.frequencyBinCount);
       state.spectrumSmooth = new Float32Array(state.spectrumData.length);
     }
@@ -343,17 +525,8 @@
       const val = state.spectrumData[i];
       state.spectrumSmooth[i] = state.spectrumSmooth[i] * (1 - alpha) + val * alpha;
     }
-    ctx.strokeStyle = '#4aa3ff';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    for (let i = 0; i < bins; i += 1) {
-      const freq = (i / bins) * 20000;
-      const x = freqToX(freq, rect.width);
-      const y = rect.height - (state.spectrumSmooth[i] / 255) * rect.height;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
-    ctx.stroke();
+    drawEqGrid(ctx, rect.width, rect.height);
+    drawSpectrumBehindCurve(ctx, rect.width, rect.height);
     drawEqCurve(ctx, rect.width, rect.height);
     drawBandHandles(ctx, rect.width, rect.height);
   }
@@ -399,21 +572,44 @@
   }
 
   function drawBandHandles(ctx, width, height) {
+    let tooltip = null;
     state.bands.forEach((band) => {
       if (!band.enabled || state.bypass) return;
       const x = freqToX(band.freq_hz, width);
       const y = gainToY(band.type === 'highpass' || band.type === 'lowpass' ? 0 : band.gain_db, height);
-      ctx.fillStyle = band.id === state.selectedBandId ? '#ffd18a' : '#7aa5ff';
+      const selected = band.id === state.selectedBandId;
+      ctx.fillStyle = selected ? '#ffd18a' : '#7aa5ff';
       ctx.beginPath();
-      ctx.arc(x, y, band.id === state.selectedBandId ? 6 : 4, 0, Math.PI * 2);
+      ctx.arc(x, y, selected ? 6 : 4, 0, Math.PI * 2);
       ctx.fill();
+      if (selected) {
+        ctx.strokeStyle = 'rgba(255,210,140,0.9)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(x, y, 8, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      if (band.id === state.selectedBandId || band.id === state.hoverBandId) {
+        tooltip = {
+          text: `${typeLabel(band.type)} ${formatFreq(band.freq_hz)}Hz ${band.gain_db.toFixed(1)}dB Q ${band.q.toFixed(2)}`,
+          x,
+          y,
+        };
+      }
     });
+    if (tooltip) {
+      drawTooltip(ctx, tooltip.text, tooltip.x, tooltip.y, width, height);
+    }
   }
 
   function startSpectrum() {
     cancelAnimationFrame(state.spectrumRaf);
     const loop = () => {
-      drawSpectrum();
+      const now = performance.now();
+      if (!state.lastSpectrumFrame || now - state.lastSpectrumFrame > 32) {
+        drawSpectrum();
+        state.lastSpectrumFrame = now;
+      }
       state.spectrumRaf = requestAnimationFrame(loop);
     };
     loop();
@@ -422,7 +618,6 @@
   function stopSpectrum() {
     cancelAnimationFrame(state.spectrumRaf);
     state.spectrumRaf = null;
-    drawSpectrumOnce();
   }
 
   function initWaveSurfer() {
@@ -658,9 +853,9 @@
     });
     addBandBtn.addEventListener('click', () => addBand(bandDefaults()));
     resetBtn.addEventListener('click', () => {
-      if (!confirm('Reset EQ? This will remove all bands.')) return;
-      state.bands = [];
-      state.selectedBandId = null;
+      if (!confirm('Reset EQ to the default 7-band layout?')) return;
+      state.bands = defaultSoundboardBands();
+      state.selectedBandId = state.bands.find((band) => band.type === 'peaking')?.id || state.bands[0]?.id || null;
       rebuildFilterChain();
       renderBands();
       drawSpectrumOnce();
@@ -693,6 +888,16 @@
         await saveEqCopy();
       });
     }
+    document.addEventListener('keydown', (evt) => {
+      if (evt.key !== 'Delete' && evt.key !== 'Backspace') return;
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes((evt.target || {}).tagName)) return;
+      const band = selectedBand();
+      if (!band) return;
+      if (band.is_template) {
+        if (!confirm('Remove this template band?')) return;
+      }
+      removeBand(band.id);
+    });
   }
 
   async function saveEqCopy() {
@@ -825,16 +1030,29 @@
       addBand(band);
       dragBandId = band.id;
     });
+    spectrumCanvas.addEventListener('mousemove', (evt) => {
+      const rect = spectrumCanvas.getBoundingClientRect();
+      const x = evt.clientX - rect.left;
+      const y = evt.clientY - rect.top;
+      const hit = findBandAt(x, y, rect);
+      state.hoverBandId = hit?.id || null;
+      drawSpectrumOnce();
+    });
+    spectrumCanvas.addEventListener('mouseleave', () => {
+      state.hoverBandId = null;
+      drawSpectrumOnce();
+    });
     document.addEventListener('mousemove', (evt) => {
       if (!dragBandId) return;
       const rect = spectrumCanvas.getBoundingClientRect();
       const x = Math.max(0, Math.min(rect.width, evt.clientX - rect.left));
       const y = Math.max(0, Math.min(rect.height, evt.clientY - rect.top));
       const point = pointToFreqGain(x, y, rect);
+      const snappedGain = Math.abs(point.gain) <= 0.3 && !evt.shiftKey ? 0 : point.gain;
       if (state.selectedBandId !== dragBandId) {
         state.selectedBandId = dragBandId;
       }
-      updateSelectedBand({ freq_hz: point.freq, gain_db: point.gain });
+      updateSelectedBand({ freq_hz: point.freq, gain_db: snappedGain });
     });
     document.addEventListener('mouseup', () => {
       dragBandId = null;
@@ -879,6 +1097,10 @@
     initLibrary();
     setupSpectrumCanvas();
     window.addEventListener('resize', setupSpectrumCanvas);
+    state.bands = defaultSoundboardBands();
+    state.selectedBandId = state.bands.find((band) => band.type === 'peaking')?.id || state.bands[0]?.id || null;
+    rebuildFilterChain();
+    renderBands();
     const params = new URLSearchParams(window.location.search);
     const rel = params.get('path');
     if (rel) {
