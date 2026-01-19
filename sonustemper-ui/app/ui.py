@@ -394,6 +394,13 @@ async def noise_removal_page(request: Request):
         _page_context(request, current_page="analyze", wide=wide),
     )
 
+@router.get("/eq", response_class=HTMLResponse)
+async def eq_page(request: Request):
+    return TEMPLATES.TemplateResponse(
+        "pages/eq.html",
+        _page_context(request, current_page="eq"),
+    )
+
 @router.get("/ai", response_class=HTMLResponse)
 async def ai_toolkit_page(request: Request):
     return TEMPLATES.TemplateResponse(

@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block page_title %}EQ | SonusTemper{% endblock %}
+{% block title %}EQ{% endblock %}
+{% block subtitle %}Realtime EQ with precise controls and clean exports.{% endblock %}
+
+{% block sidebar %}
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <div class="card-title">Song Library</div>
+        <div class="muted">Select a song or version to EQ.</div>
+      </div>
+    </div>
+    <div id="eqLibraryBrowser" class="library-browser-container" data-module="eq"></div>
+    <div class="ai-selected-summary">
+      <div class="ai-selected-label">Selected File</div>
+      <div class="ai-selected-name" id="eqSelectedName">-</div>
+      <div class="ai-selected-meta" id="eqSelectedMeta">No file selected.</div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block content %}
+  <div class="card eq-card">
+    <div class="card-head">
+      <div>
+        <div class="card-title">Realtime EQ</div>
+        <div class="muted">Enable bands, adjust in real units, then save an EQ’d copy.</div>
+      </div>
+    </div>
+
+    <div class="eq-track-row">
+      <div class="eq-track-select">
+        <label class="pill-toggle">
+          <input type="radio" name="eqTrackMode" value="any" checked>
+          <span>Any File</span>
+        </label>
+        <label class="pill-toggle">
+          <input type="radio" name="eqTrackMode" value="source">
+          <span>Source</span>
+        </label>
+        <label class="pill-toggle">
+          <input type="radio" name="eqTrackMode" value="processed">
+          <span>Processed</span>
+        </label>
+      </div>
+      <div class="eq-track-actions">
+        <button class="btn ghost small" type="button" id="eqOpenCompareBtn" disabled>Open in Compare</button>
+        <button class="btn ghost small" type="button" id="eqOpenAnalyzeBtn" disabled>Open in Noise Removal</button>
+      </div>
+    </div>
+
+    <div class="eq-wave-block">
+      <div class="eq-wave-overlay" aria-hidden="true">
+        <div class="eq-wave-playhead" id="eqPlayhead"></div>
+      </div>
+      <div id="eqWaveform" class="eq-waveform"></div>
+    </div>
+
+    <div class="eq-player">
+      <button class="btn ghost small" type="button" id="eqPlayBtn">Play</button>
+      <button class="btn ghost small" type="button" id="eqStopBtn">Stop</button>
+      <div class="eq-time" id="eqTimeLabel">0:00 / 0:00</div>
+      <label class="eq-volume">
+        <span class="muted">Volume</span>
+        <input type="range" min="0" max="1" step="0.01" value="1" id="eqVolume">
+      </label>
+    </div>
+
+    <audio id="eqAudio" preload="metadata" hidden></audio>
+
+    <div class="eq-spectrum-block">
+      <canvas id="eqSpectrumCanvas" class="eq-spectrum-canvas"></canvas>
+    </div>
+
+    <div class="eq-controls">
+      <div class="eq-band-list">
+        <div class="eq-section-title">Band List</div>
+        <div id="eqBandList" class="eq-band-chips"></div>
+        <div class="eq-band-actions">
+          <button class="btn ghost small" type="button" id="eqAddBandBtn">Add Band</button>
+          <button class="btn ghost small" type="button" id="eqResetBtn">Reset EQ</button>
+        </div>
+      </div>
+      <div class="eq-band-controls">
+        <div class="eq-section-title">Band Controls</div>
+        <div class="eq-control-row">
+          <label class="eq-toggle">
+            <input type="checkbox" id="eqBandEnabled">
+            <span>Enabled</span>
+          </label>
+          <label class="eq-toggle">
+            <input type="checkbox" id="eqBypassToggle">
+            <span>Bypass EQ</span>
+          </label>
+        </div>
+        <label class="eq-field">
+          <span>Type</span>
+          <select id="eqBandType">
+            <option value="peaking">Peaking</option>
+            <option value="lowshelf">Low Shelf</option>
+            <option value="highshelf">High Shelf</option>
+            <option value="highpass">High Pass</option>
+            <option value="lowpass">Low Pass</option>
+          </select>
+        </label>
+        <label class="eq-field">
+          <span>Frequency (Hz)</span>
+          <div class="eq-field-row">
+            <input type="number" id="eqBandFreq" min="20" max="20000" step="1">
+            <input type="range" id="eqBandFreqRange" min="20" max="20000" step="1">
+          </div>
+        </label>
+        <label class="eq-field" id="eqGainField">
+          <span>Gain (dB)</span>
+          <div class="eq-field-row">
+            <input type="number" id="eqBandGain" min="-12" max="12" step="0.1">
+            <input type="range" id="eqBandGainRange" min="-12" max="12" step="0.1">
+          </div>
+        </label>
+        <label class="eq-field">
+          <span>Q</span>
+          <div class="eq-field-row">
+            <input type="number" id="eqBandQ" min="0.2" max="12" step="0.1">
+            <input type="range" id="eqBandQRange" min="0.2" max="12" step="0.1">
+          </div>
+        </label>
+      </div>
+    </div>
+
+    <div class="eq-save">
+      <label class="eq-toggle">
+        <input type="checkbox" id="eqOpenCompareAfter">
+        <span>Open in Compare after save</span>
+      </label>
+      <button class="btn btn-primary" type="button" id="eqSaveBtn">Save EQ’d Copy</button>
+      <div class="muted" id="eqSaveStatus"></div>
+      <div class="eq-save-result" id="eqSaveResult"></div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/ui/static/vendor/wavesurfer.min.js"></script>
+<script src="/static/js/library_browser.js"></script>
+<script defer src="/static/js/eq.js"></script>
+{% endblock %}

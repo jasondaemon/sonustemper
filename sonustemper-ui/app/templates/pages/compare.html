@@ -40,6 +40,7 @@
       <div class="analyze-actions">
         <input type="file" id="analyzeUploadInput" accept=".wav,.mp3,.flac,.aiff,.aif,.m4a,.ogg,.aac" hidden>
         <button class="btn ghost small" id="openNoiseRemovalBtn">Open in Noise Removal</button>
+        <button class="btn ghost small" id="openEqBtn">Open in EQ</button>
         <button class="btn ghost small" id="analyzeUploadBtn">Upload</button>
       </div>
     </div>
@@ -198,6 +199,7 @@
   const uploadBtn = document.getElementById('analyzeUploadBtn');
   const uploadInput = document.getElementById('analyzeUploadInput');
   const openNoiseRemovalBtn = document.getElementById('openNoiseRemovalBtn');
+  const openEqBtn = document.getElementById('openEqBtn');
   const emptyState = document.getElementById('analyzeEmpty');
   const loadedState = document.getElementById('analyzeLoaded');
   const summaryPills = document.getElementById('summaryPills');
@@ -2081,6 +2083,15 @@
     window.location.assign(`${url.pathname}${url.search}`);
   }
 
+  function openInEq(){
+    const rel = analysisData?.processed_rel || analysisData?.source_rel;
+    if (!rel) return;
+    const url = new URL('/eq', window.location.origin);
+    url.searchParams.set('path', rel);
+    url.searchParams.set('origin', 'compare');
+    window.location.assign(`${url.pathname}${url.search}`);
+  }
+
   function updateControls(){
     const hasSource = Boolean(compareAudioSource?.src || sourceWave);
     const hasProcessed = Boolean(compareAudioProcessed?.src || processedWave);
@@ -2453,6 +2464,11 @@
       openInNoiseRemoval();
     });
   }
+  if (openEqBtn) {
+    openEqBtn.addEventListener('click', () => {
+      openInEq();
+    });
+  }
 
   if (playBtn) {
     playBtn.addEventListener('click', () => {
@@ -2634,6 +2650,15 @@
         const url = new URL('/compare', window.location.origin);
         if (song?.source?.rel) url.searchParams.set('src', song.source.rel);
         url.searchParams.set('proc', rel);
+        window.location.assign(`${url.pathname}${url.search}`);
+        return;
+      }
+      if (action === 'open-eq') {
+        const rel = primaryRendition(version?.renditions)?.rel || version?.rel;
+        if (!rel) return;
+        const url = new URL('/eq', window.location.origin);
+        url.searchParams.set('path', rel);
+        url.searchParams.set('origin', 'compare');
         window.location.assign(`${url.pathname}${url.search}`);
         return;
       }

@@ -510,6 +510,14 @@
           emit('library:action', { action: 'open-compare', song, version });
         });
         menuList.appendChild(compareBtn);
+        const eqBtn = document.createElement('button');
+        eqBtn.type = 'button';
+        eqBtn.textContent = 'Open in EQ';
+        eqBtn.addEventListener('click', (evt) => {
+          evt.stopPropagation();
+          emit('library:action', { action: 'open-eq', song, version });
+        });
+        menuList.appendChild(eqBtn);
         if (isNoiseProfileUtility(version.utility)) {
           const convertBtn = document.createElement('button');
           convertBtn.type = 'button';
@@ -559,6 +567,14 @@
           emit('library:action', { action: 'open-compare', song, version });
         });
         menuList.appendChild(openCompare);
+        const openEq = document.createElement('button');
+        openEq.type = 'button';
+        openEq.textContent = 'Open in EQ';
+        openEq.addEventListener('click', (evt) => {
+          evt.stopPropagation();
+          emit('library:action', { action: 'open-eq', song, version });
+        });
+        menuList.appendChild(openEq);
         if (isNoiseProfileUtility(version.utility)) {
           const convertBtn = document.createElement('button');
           convertBtn.type = 'button';

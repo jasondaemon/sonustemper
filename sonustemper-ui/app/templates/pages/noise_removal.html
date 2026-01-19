@@ -52,6 +52,7 @@
       </div>
       <div class="analyze-actions">
         <a class="btn ghost small" id="compareLink" href="/compare">Open Compare</a>
+        <a class="btn ghost small" id="eqLink" href="/eq">Open EQ</a>
         <a class="btn ghost small" id="analysisWideLink" href="/noise_removal?wide=1" target="_blank" rel="noopener">Open Wide</a>
       </div>
     </div>
@@ -269,6 +270,7 @@
   const analyzeBrowser = document.getElementById('analysisBrowser');
   const analysisUploadInput = document.getElementById('analysisUploadInput');
   const compareLink = document.getElementById('compareLink');
+  const eqLink = document.getElementById('eqLink');
   const analysisWideLink = document.getElementById('analysisWideLink');
   const noiseCleanupCard = document.getElementById('noiseCleanupCard');
   const analysisFocusToggle = document.getElementById('analysisFocusToggle');
@@ -1378,6 +1380,14 @@
     if (srcRel) url.searchParams.set('src', srcRel);
     if (procRel) url.searchParams.set('proc', procRel);
     compareLink.href = `${url.pathname}${url.search}`;
+    if (eqLink) {
+      const rel = procRel || srcRel;
+      if (rel) {
+        const eqUrl = new URL('/eq', window.location.origin);
+        eqUrl.searchParams.set('path', rel);
+        eqLink.href = `${eqUrl.pathname}${eqUrl.search}`;
+      }
+    }
   }
 
   function normalizeLibraryRel(rel){
@@ -2150,6 +2160,15 @@
         const url = new URL('/compare', window.location.origin);
         if (song?.source?.rel) url.searchParams.set('src', song.source.rel);
         url.searchParams.set('proc', rel);
+        window.location.assign(`${url.pathname}${url.search}`);
+        return;
+      }
+      if (action === 'open-eq') {
+        const rel = primaryRendition(version?.renditions)?.rel || version?.rel;
+        if (!rel) return;
+        const url = new URL('/eq', window.location.origin);
+        url.searchParams.set('path', rel);
+        url.searchParams.set('origin', 'analyze');
         window.location.assign(`${url.pathname}${url.search}`);
         return;
       }

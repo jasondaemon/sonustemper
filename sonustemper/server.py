@@ -4889,6 +4889,94 @@ def ai_tool_render_combo(payload: dict = Body(...)):
         "metrics": metrics,
     }
 
+@app.post("/api/eq/render")
+def eq_render(payload: dict = Body(...)):
+    path = (payload.get("path") or "").strip()
+    song_id = (payload.get("song_id") or "").strip()
+    bands = payload.get("bands") if isinstance(payload.get("bands"), list) else []
+    bypass = bool(payload.get("bypass"))
+    output_format = (payload.get("output_format") or "same").strip().lower()
+    target = _resolve_analysis_path(path)
+    rel = rel_from_path(target)
+    if not song_id:
+        song, _version = library_store.find_by_rel(rel)
+        song_id = song.get("song_id") if isinstance(song, dict) else ""
+    if not song_id:
+        raise HTTPException(status_code=400, detail="missing_song_id")
+    if bypass:
+        raise HTTPException(status_code=400, detail="eq_bypassed")
+    def clamp(val, min_v, max_v):
+        try:
+            num = float(val)
+        except Exception:
+            return min_v
+        return max(min_v, min(max_v, num))
+    filters = []
+    for band in bands:
+        if not isinstance(band, dict):
+            continue
+        if band.get("enabled") is False:
+            continue
+        b_type = (band.get("type") or "peaking").strip().lower()
+        freq = clamp(band.get("freq_hz"), 20.0, 20000.0)
+        gain = clamp(band.get("gain_db"), -12.0, 12.0)
+        q_val = clamp(band.get("q"), 0.2, 12.0)
+        if b_type == "highpass":
+            filters.append(f"highpass=f={freq:g}")
+            continue
+        if b_type == "lowpass":
+            filters.append(f"lowpass=f={freq:g}")
+            continue
+        filters.append(f"equalizer=f={freq:g}:width_type=q:width={q_val:g}:g={gain:g}")
+    if not filters:
+        raise HTTPException(status_code=400, detail="no_eq_enabled")
+    suffix = target.suffix.lower() if target.suffix else ".wav"
+    if output_format and output_format != "same":
+        suffix = f".{output_format.lstrip('.')}"
+    codec_map = {
+        ".wav": "pcm_s16le",
+        ".aiff": "pcm_s16be",
+        ".aif": "pcm_s16be",
+        ".flac": "flac",
+        ".mp3": "libmp3lame",
+        ".m4a": "aac",
+        ".aac": "aac",
+        ".ogg": "libvorbis",
+    }
+    codec = codec_map.get(suffix, "pcm_s16le")
+    version_id, out_path = allocate_version_path(song_id, "eq", suffix, filename="eq")
+    song = library_store.get_song(song_id)
+    title = song.get("title") if isinstance(song, dict) else "EQ"
+    safe_title = safe_filename(title) or "EQ"
+    base_name = safe_filename(f"{safe_title}__eq_{version_id}") or safe_title
+    out_path = out_path.with_name(f"{base_name}{suffix}")
+    cmd = [
+        FFMPEG_BIN, "-y", "-hide_banner", "-loglevel", "error",
+        "-i", str(target),
+        "-af", ",".join(filters),
+        "-vn", "-ac", "2",
+        "-codec:a", codec,
+        str(out_path),
+    ]
+    proc = run_cmd(cmd)
+    if proc.returncode != 0 or not out_path.exists():
+        err = (proc.stderr or proc.stdout or "").strip()
+        raise HTTPException(status_code=500, detail=err or "render_failed")
+    out_rel = rel_from_path(out_path)
+    metrics = {}
+    try:
+        metrics = _analyze_audio_metrics(out_path)
+    except Exception:
+        metrics = {}
+    return {
+        "output_rel": out_rel,
+        "output_name": out_path.name,
+        "version_id": version_id,
+        "song_id": song_id,
+        "url": f"/api/analyze/path?path={quote(out_rel)}",
+        "metrics": metrics,
+    }
+
 @app.get("/api/ai-tool/preset/list")
 def ai_tool_preset_list():
     items = []

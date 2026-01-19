@@ -750,6 +750,14 @@
         window.location.assign(`${url.pathname}${url.search}`);
         return;
       }
+      if (action === 'open-eq') {
+        const rel = primaryRendition(version?.renditions)?.rel || version?.rel;
+        if (!rel) return;
+        const url = new URL('/eq', window.location.origin);
+        url.searchParams.set('path', rel);
+        window.location.assign(`${url.pathname}${url.search}`);
+        return;
+      }
       if (action === 'use-as-source') {
         const rel = primaryRendition(version?.renditions)?.rel || version?.rel;
         if (!rel) return;
