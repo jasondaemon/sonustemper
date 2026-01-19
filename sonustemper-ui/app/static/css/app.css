@@ -2416,7 +2416,7 @@ h1{margin:0;font-size:24px;}
   background:var(--card);
   border:1px solid var(--line);
   border-radius:10px;
-  min-width:180px;
+  min-width:240px;
   display:flex;
   flex-direction:column;
   padding:6px;
@@ -2427,6 +2427,7 @@ h1{margin:0;font-size:24px;}
   padding:8px;
   border-radius:8px;
   color:var(--text);
+  white-space:nowrap;
 }
 .utilDropdown a:hover{background:#1b2738;}
 .utilDropdown .divider{height:1px;background:var(--line);margin:4px 0;}

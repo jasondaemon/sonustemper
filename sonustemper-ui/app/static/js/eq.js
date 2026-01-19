@@ -666,6 +666,7 @@
         state.voice.deesser.enabled = voiceDeesserEnable.checked;
         if (state.voice.deesser.enabled && !state.voice.deesser.show) {
           state.voice.deesser.show = true;
+          syncVoiceControls();
         }
         if (!state.voice.deesser.enabled) {
           state.voice.deesser.listen = false;
@@ -711,6 +712,7 @@
         state.voice.vocal_smooth.enabled = voiceSmoothEnable.checked;
         if (state.voice.vocal_smooth.enabled && !state.voice.vocal_smooth.show) {
           state.voice.vocal_smooth.show = true;
+          syncVoiceControls();
         }
         if (!state.voice.vocal_smooth.enabled) {
           state.voice.vocal_smooth.listen = false;
@@ -748,6 +750,7 @@
         state.voice.deharsh.enabled = voiceDeharshEnable.checked;
         if (state.voice.deharsh.enabled && !state.voice.deharsh.show) {
           state.voice.deharsh.show = true;
+          syncVoiceControls();
         }
         if (!state.voice.deharsh.enabled) {
           state.voice.deharsh.listen = false;
