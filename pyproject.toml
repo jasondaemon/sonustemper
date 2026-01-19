@@ -18,7 +18,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-  "pyinstaller",
+  "pyinstaller==6.11.1",
+]
+macos = [
+  "rumps==0.4.0",
 ]
 
 [tool.setuptools.packages.find]

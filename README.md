@@ -119,6 +119,25 @@ uvicorn sonustemper.server:app --reload --port 8383
 - Maintainers: place `sonustemper-ui/app/static/vendor/htmx.min.js` and `vendor/ffmpeg/<platform>/` binaries before packaging.
 - Maintainers: see packaging docs for where bundled binaries are sourced.
 
+### Native Builds
+macOS (menubar support):
+```bash
+python -m venv .venv-native && source .venv-native/bin/activate
+pip install -e ".[dev,macos]"
+pyinstaller build/native/sonustemper.spec
+```
+
+Windows/Linux:
+```bash
+python -m venv .venv-native && activate
+pip install -e ".[dev]"
+pyinstaller build/native/sonustemper.spec
+```
+
+Notes:
+- Native builds require ffmpeg/ffprobe on PATH (for now).
+- If missing, Health will show not-ready and mastering features won’t run.
+
 ### Maintainers
 - Generate a Python dependency/license snapshot: `python3 scripts/licenses_report.py` (writes `docs/python-deps.md`).
 - Native smoke test: `python -m sonustemper.smoke_test`.

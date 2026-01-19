@@ -19,23 +19,15 @@ datas = [
     (str(project_root / "sonustemper-ui" / "app" / "static"), "sonustemper-ui/app/static"),
     (str(project_root / "assets" / "demo"), "assets/demo"),
     (str(project_root / "assets" / "presets"), "assets/presets"),
-    (str(project_root / "images" / "sonustemper-menubar.png"), "images"),
+    (str(project_root / "images"), "images"),
+    (str(project_root / "docs"), "docs"),
     (str(project_root / "LICENSE"), "."),
     (str(project_root / "THIRD_PARTY_NOTICES.md"), "."),
     (str(project_root / "LICENSES"), "LICENSES"),
 ]
 
 binaries = []
-if sys.platform == "darwin":
-    binaries += [
-        (str(project_root / "vendor" / "ffmpeg" / "macos" / "ffmpeg"), "vendor/ffmpeg/macos"),
-        (str(project_root / "vendor" / "ffmpeg" / "macos" / "ffprobe"), "vendor/ffmpeg/macos"),
-    ]
-elif sys.platform.startswith("win"):
-    binaries += [
-        (str(project_root / "vendor" / "ffmpeg" / "windows" / "ffmpeg.exe"), "vendor/ffmpeg/windows"),
-        (str(project_root / "vendor" / "ffmpeg" / "windows" / "ffprobe.exe"), "vendor/ffmpeg/windows"),
-    ]
+# TODO: bundle ffmpeg/ffprobe in native builds when ready.
 
 hiddenimports = collect_submodules("sonustemper")
 hiddenimports += collect_submodules("rumps")
