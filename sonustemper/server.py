@@ -12,6 +12,7 @@ import asyncio
 import logging
 import time
 import hashlib
+import hmac
 import uuid
 import unicodedata
 from collections import deque
@@ -243,7 +244,9 @@ if str(APP_DIR) not in sys.path:
     sys.path.insert(0, str(APP_DIR))
 # Trusted proxy check via shared secret (raw)
 def is_trusted_proxy(mark: str) -> bool:
-    return bool(mark) and bool(PROXY_SHARED_SECRET) and (mark == PROXY_SHARED_SECRET)
+    if not PROXY_SHARED_SECRET or not mark:
+        return False
+    return hmac.compare_digest(mark, PROXY_SHARED_SECRET)
 
 def _ui_version_label() -> str:
     ver = (os.getenv("APP_VERSION") or os.getenv("SONUSTEMPER_TAG") or "dev").strip()
@@ -1028,10 +1031,25 @@ async def api_key_guard(request: Request, call_next):
         if PROXY_SHARED_SECRET:
             if proxy_mark and is_trusted_proxy(proxy_mark):
                 return await call_next(request)
-            if proxy_mark and not is_trusted_proxy(proxy_mark):
-                logger.warning(f"[auth] proxy mark mismatch len={len(proxy_mark)} path={request.url.path} mark={repr(proxy_mark)} expected={repr(PROXY_SHARED_SECRET)}")
             if API_KEY and key == API_KEY:
                 return await call_next(request)
+            if proxy_mark and not is_trusted_proxy(proxy_mark):
+                host = request.client.host if request.client else "?"
+                sha = hashlib.sha256(proxy_mark.encode("utf-8", "ignore")).hexdigest()[:8]
+                logger.warning(
+                    "[auth] proxy mark mismatch path=%s host=%s provided_len=%s provided_sha256=%s",
+                    request.url.path,
+                    host,
+                    len(proxy_mark),
+                    sha,
+                )
+            if not proxy_mark:
+                host = request.client.host if request.client else "?"
+                logger.warning(
+                    "[auth] proxy mark missing path=%s host=%s provided_len=0 provided_sha256=",
+                    request.url.path,
+                    host,
+                )
             return JSONResponse({"detail": "unauthorized"}, status_code=401)
         if API_KEY:
             if key == API_KEY:
