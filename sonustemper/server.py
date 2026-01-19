@@ -87,6 +87,7 @@ AI_TOOL_PREVIEW_DIR = PREVIEWS_DIR / "ai_preview"
 AI_TOOL_PRESET_DIR = PRESET_DIR / "ai_tools"
 APP_DIR = Path(__file__).resolve().parent
 REPO_ROOT = APP_DIR.parent
+DOCS_DIR = Path(os.getenv("DOCS_DIR", str(REPO_ROOT / "docs")))
 UI_APP_DIR = (bundle_root() / "sonustemper-ui" / "app") if is_frozen() else (REPO_ROOT / "sonustemper-ui" / "app")
 ASSET_PRESET_DIR = (bundle_root() / "assets" / "presets") if is_frozen() else (REPO_ROOT / "assets" / "presets")
 BUILTIN_PROFILE_DIR = ASSET_PRESET_DIR / "profiles"
@@ -3964,6 +3965,62 @@ def ui_log(payload: dict = Body(...)):
     else:
         logger.info(line)
     return {"ok": True}
+
+
+def _resolve_docs_path(rel: str) -> Path:
+    rel = (rel or "").strip().lstrip("/").replace("\\", "/")
+    if not rel or ".." in rel:
+        raise HTTPException(status_code=400, detail="invalid_path")
+    if not rel.lower().endswith(".md"):
+        raise HTTPException(status_code=400, detail="invalid_path")
+    target = (DOCS_DIR / rel).resolve()
+    if DOCS_DIR.resolve() not in target.parents:
+        raise HTTPException(status_code=400, detail="invalid_path")
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="not_found")
+    return target
+
+def _resolve_docs_static(rel: str) -> Path:
+    rel = (rel or "").strip().lstrip("/").replace("\\", "/")
+    if not rel or ".." in rel:
+        raise HTTPException(status_code=400, detail="invalid_path")
+    target = (DOCS_DIR / rel).resolve()
+    if DOCS_DIR.resolve() not in target.parents:
+        raise HTTPException(status_code=400, detail="invalid_path")
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="not_found")
+    return target
+
+@app.get("/api/docs/list")
+def docs_list():
+    if not DOCS_DIR.exists():
+        return {"root": "docs", "files": []}
+    files = []
+    for path in DOCS_DIR.rglob("*.md"):
+        try:
+            rel = path.relative_to(DOCS_DIR).as_posix()
+        except Exception:
+            continue
+        title = path.stem.replace("-", " ").replace("_", " ").title()
+        files.append({"path": rel, "title": title})
+    files.sort(key=lambda item: item["path"])
+    return {"root": "docs", "files": files}
+
+@app.get("/api/docs/get")
+def docs_get(path: str):
+    target = _resolve_docs_path(path)
+    try:
+        markdown = target.read_text(encoding="utf-8")
+    except Exception:
+        raise HTTPException(status_code=500, detail="read_failed")
+    return {"path": target.relative_to(DOCS_DIR).as_posix(), "markdown": markdown}
+
+@app.get("/docs/static/{path:path}")
+def docs_static(path: str):
+    target = _resolve_docs_static(path)
+    if target.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"}:
+        raise HTTPException(status_code=404, detail="not_found")
+    return FileResponse(target)
 @app.get("/api/metrics")
 def run_metrics(song: str):
     song_entry = _library_find_song(song)

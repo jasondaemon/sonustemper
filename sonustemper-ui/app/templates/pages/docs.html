@@ -4,156 +4,20 @@
 {% block subtitle %}How-tos, workflows, and tool references for SonusTemper.{% endblock %}
 
 {% block content %}
-  <div class="doc-grid">
-    <div class="card">
+  <div class="docs-view">
+    <aside class="docs-sidebar card">
       <div class="card-head">
-        <div>
-          <div class="card-title">Mastering</div>
-          <div class="muted">Batch mastering with voicing, profile, tone, and export formats.</div>
-        </div>
+        <div class="card-title">Docs</div>
+        <div class="muted">Browse the docs library.</div>
       </div>
-      <div class="doc-section">
-        <div class="doc-subtitle">Quick start</div>
-        <ol class="doc-list">
-          <li>Go to Mastering and upload source files in Input.</li>
-          <li>Select the files to process (Select All or checkboxes).</li>
-          <li>Choose a Voicing and Strength.</li>
-          <li>Pick a Loudness Profile or Manual overrides.</li>
-          <li>Set Stereo Width and Guardrails if needed.</li>
-          <li>Enable output formats and settings.</li>
-          <li>Run Job to start the batch.</li>
-        </ol>
-      </div>
-      <div class="doc-section">
-        <div class="doc-subtitle">Key tips</div>
-        <ul class="doc-list">
-          <li>Convert Only bypasses mastering stages and applies output settings only.</li>
-          <li>Voicing Preview renders a short clip of the first selected file.</li>
-          <li>Output list shows a playable preview and download links per format.</li>
-        </ul>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-head">
-        <div>
-          <div class="card-title">Compare</div>
-          <div class="muted">Compare source vs processed audio with waveforms and metrics.</div>
-        </div>
-      </div>
-      <div class="doc-section">
-        <div class="doc-subtitle">From Mastering</div>
-        <ul class="doc-list">
-          <li>Open a Job Output row and click Compare.</li>
-          <li>The Compare page loads source + selected output.</li>
-          <li>Use synchronized playback and zoom to compare.</li>
-        </ul>
-      </div>
-      <div class="doc-section">
-        <div class="doc-subtitle">Standalone</div>
-        <ul class="doc-list">
-          <li>Open Compare and upload a source file.</li>
-          <li>Review metrics and waveform for the upload.</li>
-        </ul>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-head">
-        <div>
-          <div class="card-title">Noise Removal</div>
-          <div class="muted">Remove hum, hiss, and noise using spectrogram tools.</div>
-        </div>
-      </div>
-      <div class="doc-section">
-        <div class="doc-subtitle">From Compare</div>
-        <ul class="doc-list">
-          <li>Switch to Noise Removal to work on the same source + processed context.</li>
-          <li>Spectrogram tools and noise cleanup controls appear here.</li>
-        </ul>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-head">
-        <div>
-          <div class="card-title">Tagging</div>
-          <div class="muted">Edit ID3 tags and artwork for MP3s.</div>
-        </div>
-      </div>
-      <div class="doc-section">
-        <div class="doc-subtitle">Working set</div>
-        <ul class="doc-list">
-          <li>Use the browser to add mastered or imported MP3s.</li>
-          <li>Working set order controls track order.</li>
-        </ul>
-      </div>
-      <div class="doc-section">
-        <div class="doc-subtitle">Album editor</div>
-        <ul class="doc-list">
-          <li>Edit shared album fields and per-track metadata.</li>
-          <li>Upload artwork once and apply to the set.</li>
-          <li>Save updates or download a zip of tagged files.</li>
-        </ul>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-head">
-        <div>
-          <div class="card-title">Preset Management</div>
-          <div class="muted">Manage voicings, profiles, and noise presets.</div>
-        </div>
-      </div>
-      <div class="doc-section">
-        <div class="doc-subtitle">Create from reference</div>
-        <ul class="doc-list">
-          <li>Upload a reference track to generate a new Voicing or Profile.</li>
-          <li>Use the name override to set a friendly title.</li>
-        </ul>
-      </div>
-      <div class="doc-section">
-        <div class="doc-subtitle">Upload JSON</div>
-        <ul class="doc-list">
-          <li>Upload a JSON profile; it is auto-classified as Voicing or Profile.</li>
-          <li>Download or duplicate to edit externally and re-upload.</li>
-        </ul>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-head">
-        <div>
-          <div class="card-title">Song Library</div>
-          <div class="muted">Inspect and clean up sources, outputs, and profiles.</div>
-        </div>
-      </div>
-      <div class="doc-section">
-        <ul class="doc-list">
-          <li>Browse folders by utility (Mastering, Tagging, Profiles).</li>
-          <li>Delete selected files or full run folders.</li>
-          <li>Use downloads for quick inspection.</li>
-        </ul>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-head">
-        <div>
-          <div class="card-title">Third-Party Tools</div>
-          <div class="muted">SonusTemper builds on these core projects.</div>
-        </div>
-      </div>
-      <div class="doc-section">
-        <ul class="doc-list">
-          <li><a href="https://ffmpeg.org/" target="_blank" rel="noopener">FFmpeg</a> for audio processing and analysis.</li>
-          <li><a href="https://fastapi.tiangolo.com/" target="_blank" rel="noopener">FastAPI</a> for API and server routing.</li>
-          <li><a href="https://jinja.palletsprojects.com/" target="_blank" rel="noopener">Jinja2</a> for HTML templates.</li>
-          <li><a href="https://htmx.org/" target="_blank" rel="noopener">HTMX</a> for partial updates.</li>
-          <li><a href="https://wavesurfer-js.org/" target="_blank" rel="noopener">WaveSurfer.js</a> for waveform rendering in Compare.</li>
-          <li><a href="https://mutagen.readthedocs.io/" target="_blank" rel="noopener">Mutagen</a> for ID3 tag editing.</li>
-        </ul>
-      </div>
-    </div>
+      <div id="docsList" class="docs-list"></div>
+    </aside>
+    <section class="docs-content card">
+      <div id="docsContent" class="docs-content-body muted">Loading documentation…</div>
+    </section>
   </div>
+{% endblock %}
+
+{% block extra_js %}
+  <script src="/static/js/docs_viewer.js"></script>
 {% endblock %}

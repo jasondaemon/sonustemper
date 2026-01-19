@@ -22,6 +22,7 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY sonustemper/ /app/sonustemper/
 COPY sonustemper-ui/app/ /app/sonustemper-ui/app/
 COPY assets/ /app/assets/
+COPY docs/ /app/docs/
 
 ENV DATA_DIR=/data \
     PRESET_DIR=${DATA_DIR}/presets/user \

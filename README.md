@@ -2,7 +2,7 @@
 
 SonusTemper is a local-first audio workstation: master, compare, clean noise, tag, and manage your library. Everything runs locally (FastAPI + FFmpeg), with deterministic naming, metrics, and provenance files for traceable results.
 
-![Main interface](images/maininterface.png)
+![Main interface](doc/img/master.png)
 
 ### First Run (Required)
 SonusTemper will refuse to start with default placeholder secrets.
@@ -78,6 +78,8 @@ SonusTemper will refuse to start with default placeholder secrets.
 ## EQ ([docs](docs/eq.md))
 - Realtime WebAudio EQ with spectrum + curve, band handles, and Voice Controls (pre‑EQ).
 - Save EQ’d versions back to the library; open in Compare or Analyze/Noise Removal.
+
+![Settings](docs/img/eq.png)
 
 ## Tagging ([docs](docs/tagging.md))
 - Tag library MP3s or upload standalone MP3s (temp, non‑library) for tagging and download.
