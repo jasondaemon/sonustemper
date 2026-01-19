@@ -89,7 +89,7 @@ def _select_data_root() -> Path:
 
 
 DATA_ROOT = _select_data_root()
-PRESETS_DIR = DATA_ROOT / "presets"
+PRESETS_DIR = DATA_ROOT / "user_presets"
 LIBRARY_DIR = DATA_ROOT / "library"
 LIBRARY_IMPORT_DIR = LIBRARY_DIR / "import"
 PREVIEWS_DIR = DATA_ROOT / "previews"
@@ -108,9 +108,10 @@ def ensure_data_roots() -> None:
     uid, gid = _uid_gid()
     preset_dirs = [
         PRESETS_DIR,
-        PRESETS_DIR / "user",
-        PRESETS_DIR / "generated",
-        PRESETS_DIR / "builtin",
+        PRESETS_DIR / "voicings",
+        PRESETS_DIR / "profiles",
+        PRESETS_DIR / "noise_filters",
+        PRESETS_DIR / "ai_tools",
     ]
     paths = preset_dirs + [LIBRARY_DIR, SONGS_DIR, LIBRARY_IMPORT_DIR, PREVIEWS_DIR, LIBRARY_DB.parent]
     for path in paths:

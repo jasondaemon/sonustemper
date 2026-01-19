@@ -273,7 +273,7 @@
     }
 
     function emit(name, detail) {
-      container.dispatchEvent(new CustomEvent(name, { detail }));
+      container.dispatchEvent(new CustomEvent(name, { detail, bubbles: true, composed: true }));
     }
 
     function toggleExpanded(songId) {
@@ -465,6 +465,22 @@
 
       const actions = document.createElement('div');
       actions.className = 'library-version-actions';
+      if (isMastering) {
+        const addBtn = document.createElement('button');
+        addBtn.type = 'button';
+        addBtn.className = 'btn ghost tiny library-add-btn';
+        addBtn.title = 'Add to Input';
+        addBtn.innerHTML = `
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M12 4v16M4 12h16" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+          </svg>
+        `;
+        addBtn.addEventListener('click', (evt) => {
+          evt.stopPropagation();
+          emit('library:add-to-input', { song, version });
+        });
+        actions.appendChild(addBtn);
+      }
       const menu = document.createElement('details');
       menu.className = 'library-action-menu';
       menu.addEventListener('mouseleave', () => {

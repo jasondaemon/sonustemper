@@ -250,7 +250,6 @@
         </div>
         <div class="preset-actions">
           <button class="btn success small" type="button" id="noiseRenderBtn">Save Song</button>
-          <button class="btn success small" type="button" id="noiseSaveNoiseBtn">Save Noise Profile</button>
           <button class="btn ghost small" type="button" id="noiseSaveBtn">Save as Preset</button>
         </div>
       </div>
@@ -334,7 +333,6 @@
   const noisePresetSaveSongBtn = document.getElementById('noisePresetSaveSongBtn');
   const noiseRenderBtn = document.getElementById('noiseRenderBtn');
   const noiseSaveBtn = document.getElementById('noiseSaveBtn');
-  const noiseSaveNoiseBtn = document.getElementById('noiseSaveNoiseBtn');
   const noiseAutoPlayToggle = document.getElementById('noiseAutoPlay');
   const noiseClearBtn = document.getElementById('noiseClearBtn');
   const noiseT0 = document.getElementById('noiseT0');
@@ -863,7 +861,6 @@
     const ok = !!noiseSelection && noiseSelection.t1 > noiseSelection.t0 && noiseSelection.f1 > noiseSelection.f0;
     if (noiseRenderBtn) noiseRenderBtn.disabled = !ok;
     if (noiseSaveBtn) noiseSaveBtn.disabled = !ok;
-    if (noiseSaveNoiseBtn) noiseSaveNoiseBtn.disabled = !ok;
   }
 
   function updatePresetButtonState(){
@@ -1788,48 +1785,6 @@
     }
   }
 
-  async function saveNoiseFile(){
-    const payload = collectSelectedPayload();
-    if (!payload) {
-      setSelectedPreviewStatus('Select a region to save noise.');
-      return;
-    }
-    cancelAutoPreview();
-    payload.mode = 'solo';
-    summarizeNoisePayload('Save Noise Profile', payload);
-    addStatusLine('Save Noise Profile: starting ffmpeg...');
-    setSelectedPreviewStatus('Saving noise file...');
-    try {
-      const songId = await ensureSongId();
-      if (!songId) throw new Error('missing_song');
-      payload.song_id = songId;
-      const res = await fetch('/api/analyze/noise/render', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const err = await res.text();
-        throw new Error(err || 'render_failed');
-      }
-      const data = await res.json();
-      if (libraryBrowser) libraryBrowser.reload();
-      const song = await fetchSong(analysisContext.song_id);
-      if (song) {
-        analysisContext.song = song;
-        analysisContext.versions = song.versions || [];
-        renderNoiseHistory();
-      }
-      addStatusLine(`Saved version: ${data.output_name || 'noise profile'}`);
-      setSelectedPreviewStatus('Noise profile saved.');
-      if (libraryBrowser && analysisContext.song_id) {
-        libraryBrowser.expandSong(analysisContext.song_id);
-      }
-    } catch (_err) {
-      setSelectedPreviewStatus('Noise file save failed.');
-    }
-  }
-
   async function ensureSongId(){
     if (analysisContext.song_id) return analysisContext.song_id;
     if (!analysisContext.source?.rel) return null;
@@ -2187,7 +2142,7 @@
         if (typeof showToast === 'function') showToast('Noise Removal data unavailable');
       }
     });
-    analyzeBrowser.addEventListener('library:action', async (evt) => {
+    document.addEventListener('library:action', async (evt) => {
       const { action, song, version, item } = evt.detail || {};
       if (action === 'open-compare') {
         const rel = primaryRendition(version?.renditions)?.rel || version?.rel;
@@ -2434,7 +2389,6 @@
   if (noisePresetSaveSongBtn) noisePresetSaveSongBtn.addEventListener('click', renderPresetNoise);
   if (noiseRenderBtn) noiseRenderBtn.addEventListener('click', renderNoise);
   if (noiseSaveBtn) noiseSaveBtn.addEventListener('click', saveNoisePreset);
-  if (noiseSaveNoiseBtn) noiseSaveNoiseBtn.addEventListener('click', saveNoiseFile);
   setSelectedPreviewEnabled(false);
   setPresetPreviewEnabled(false);
   updatePresetButtonState();

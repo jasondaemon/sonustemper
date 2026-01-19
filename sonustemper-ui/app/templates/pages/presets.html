@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block page_title %}Preset Management | SonusTemper{% endblock %}
 {% block title %}Preset Management{% endblock %}
-{% block subtitle %}Create, upload, and manage voicings, delivery profiles, and noise presets.{% endblock %}
+{% block subtitle %}Create, upload, and manage your voicings, delivery profiles, and noise presets.{% endblock %}
 
 {% block sidebar %}
   <div class="card preset-sidebar">
@@ -15,7 +15,7 @@
     <div class="card-head">
       <div>
         <div class="card-title">Preset Library</div>
-        <div class="muted">User and staging presets for voicing, profile, and noise.</div>
+        <div class="muted">Your presets for voicing, profile, and noise.</div>
       </div>
     </div>
     <div class="preset-browser">
@@ -23,10 +23,7 @@
       {% set sections = [
         {"key": "user_voicings", "title": "User Voicings", "endpoint": "/partials/library_list?view=presets_user_voicings&context=presets"},
         {"key": "user_profiles", "title": "User Profiles", "endpoint": "/partials/library_list?view=presets_user_profiles&context=presets", "autoselect": "first"},
-        {"key": "user_noise", "title": "User Noise Presets", "endpoint": "/partials/library_list?view=presets_user_noise&context=presets"},
-        {"key": "generated_voicings", "title": "Generated Voicings", "endpoint": "/partials/library_list?view=presets_staging_voicings&context=presets"},
-        {"key": "generated_profiles", "title": "Generated Profiles", "endpoint": "/partials/library_list?view=presets_staging_profiles&context=presets"},
-        {"key": "generated_noise", "title": "Generated Noise Presets", "endpoint": "/partials/library_list?view=presets_staging_noise&context=presets"}
+        {"key": "user_noise", "title": "User Noise Presets", "endpoint": "/partials/library_list?view=presets_user_noise&context=presets"}
       ] %}
       {% include "partials/file_browser.html" %}
     </div>

@@ -68,18 +68,18 @@ PREVIEW_GUARD_MAX_WIDTH = float(os.getenv("PREVIEW_GUARD_MAX_WIDTH", "1.1"))
 PREVIEW_SESSION_COOKIE = "st_preview_session"
 PREVIEW_BITRATE_KBPS = int(os.getenv("PREVIEW_BITRATE_KBPS", "128"))
 PREVIEW_SAMPLE_RATE = int(os.getenv("PREVIEW_SAMPLE_RATE", "44100"))
-PRESET_DIR = PRESETS_DIR / "user"
-GEN_PRESET_DIR = PRESETS_DIR / "generated"
+PRESET_DIR = PRESETS_DIR
+GEN_PRESET_DIR = PRESETS_DIR
 USER_VOICING_DIR = PRESET_DIR / "voicings"
 USER_PROFILE_DIR = PRESET_DIR / "profiles"
-STAGING_VOICING_DIR = GEN_PRESET_DIR / "voicings"
-STAGING_PROFILE_DIR = GEN_PRESET_DIR / "profiles"
+STAGING_VOICING_DIR = PRESET_DIR / "voicings"
+STAGING_PROFILE_DIR = PRESET_DIR / "profiles"
 TAG_IN_DIR = PREVIEWS_DIR / "tagging"
 TAG_TMP_DIR = PREVIEWS_DIR / "tagging_tmp"
 ANALYSIS_TMP_DIR = PREVIEWS_DIR / "analysis_tmp"
 NOISE_PREVIEW_DIR = PREVIEWS_DIR / "noise_preview"
 NOISE_FILTER_DIR = PRESET_DIR / "noise_filters"
-STAGING_NOISE_FILTER_DIR = GEN_PRESET_DIR / "noise_filters"
+STAGING_NOISE_FILTER_DIR = PRESET_DIR / "noise_filters"
 AI_TOOL_PREVIEW_DIR = PREVIEWS_DIR / "ai_preview"
 AI_TOOL_PRESET_DIR = PRESET_DIR / "ai_tools"
 APP_DIR = Path(__file__).resolve().parent
@@ -3716,7 +3716,7 @@ def _noise_filter_dir(origin: str) -> Path:
     if origin in {"staging", "generated"}:
         return STAGING_NOISE_FILTER_DIR
     if origin == "builtin":
-        return PRESETS_DIR / "builtin" / "noise_filters"
+        return ASSET_PRESET_DIR / "noise_filters"
     if origin == "user":
         return NOISE_FILTER_DIR
     raise HTTPException(status_code=400, detail="invalid_origin")

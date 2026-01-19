@@ -1762,6 +1762,15 @@
       addStatusLine(createdCount ? `Generated ${createdCount} item(s).` : 'Generated.');
       if(referenceFile) referenceFile.value = '';
       refreshPresetBrowser();
+      const sectionKeys = [];
+      if (wantsVoicing) sectionKeys.push('generated_voicings');
+      if (wantsProfile) sectionKeys.push('generated_profiles');
+      if (sectionKeys.length) {
+        sectionKeys.forEach((key) => {
+          const section = document.querySelector(`.file-browser-section[data-section="${key}"]`);
+          if (section) section.classList.remove('collapsed');
+        });
+      }
     }catch(_err){
       addStatusLine('Generate failed.');
     }
