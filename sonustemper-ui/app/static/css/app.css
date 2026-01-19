@@ -2473,6 +2473,8 @@ h1{margin:0;font-size:24px;}
 .tagging-scope .btn.active{border-color:var(--accent);box-shadow:0 0 0 1px rgba(255,138,61,0.3);}
 .tagging-browser{display:flex;flex-direction:column;gap:8px;}
 .tagging-browser-actions{display:flex;flex-direction:column;gap:6px;margin-top:6px;}
+.tagging-standalone{display:flex;flex-direction:column;gap:8px;padding:10px;border:1px solid var(--line);border-radius:12px;background:#0f151d;}
+.tagging-standalone-head{display:flex;align-items:center;justify-content:space-between;gap:10px;}
 .tagging-working-set{display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--line);padding-top:12px;}
 .tagging-working-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;}
 .tagging-sidebar-footer{display:flex;flex-direction:column;gap:8px;}

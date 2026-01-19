@@ -266,12 +266,12 @@ class TaggerService:
         if rel_norm.startswith("library/songs/"):
             root_key = "out"
             rel_sub = rel_norm[len("library/songs/"):]
-        elif rel_norm.startswith("previews/tagging/"):
+        elif rel_norm.startswith("previews/mp3-temp/"):
             root_key = "tag"
-            rel_sub = rel_norm[len("previews/tagging/"):]
-        elif rel_norm.startswith("tagging/"):
+            rel_sub = rel_norm[len("previews/mp3-temp/"):]
+        elif rel_norm.startswith("mp3-temp/"):
             root_key = "tag"
-            rel_sub = rel_norm[len("tagging/"):]
+            rel_sub = rel_norm[len("mp3-temp/"):]
         if not root_key or not rel_sub:
             return None
         self._scan()

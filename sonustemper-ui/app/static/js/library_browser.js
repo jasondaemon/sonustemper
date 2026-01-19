@@ -421,6 +421,8 @@
       const canOpen = Boolean(primaryRel);
       const canDelete = Boolean(song?.song_id && version?.version_id);
       const canDownload = renditions.length > 0;
+      const hasMp3 = renditions.some((item) => String(item.format || '').toLowerCase() === 'mp3')
+        || (primaryRel && String(primaryRel).toLowerCase().endsWith('.mp3'));
       const meta = document.createElement('div');
       meta.className = 'library-version-meta';
       const utilityLabel = isNoiseRemovedUtility(version.utility) ? 'Noise Removed' : version.utility;
@@ -599,6 +601,21 @@
         });
         if (!canOpen) applyDisabled(openEq, 'No audio file available for this version.');
         menuList.appendChild(openEq);
+        if (module === 'tagging' && !hasMp3) {
+          const convertBtn = document.createElement('button');
+          convertBtn.type = 'button';
+          convertBtn.textContent = 'Convert to MP3';
+          convertBtn.addEventListener('click', (evt) => {
+            evt.stopPropagation();
+            const rel = primaryRel || version.rel || song?.source?.rel || '';
+            if (!rel) return;
+            emit('library:action', { action: 'ensure-mp3', song, version, rel });
+          });
+          if (!primaryRel && !version.rel && !song?.source?.rel) {
+            applyDisabled(convertBtn, 'No source file available for conversion.');
+          }
+          menuList.appendChild(convertBtn);
+        }
         if (isNoiseProfileUtility(version.utility)) {
           const convertBtn = document.createElement('button');
           convertBtn.type = 'button';

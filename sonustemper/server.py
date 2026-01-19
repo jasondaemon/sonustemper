@@ -74,8 +74,9 @@ USER_VOICING_DIR = PRESET_DIR / "voicings"
 USER_PROFILE_DIR = PRESET_DIR / "profiles"
 STAGING_VOICING_DIR = PRESET_DIR / "voicings"
 STAGING_PROFILE_DIR = PRESET_DIR / "profiles"
-TAG_IN_DIR = PREVIEWS_DIR / "tagging"
+TAG_IN_DIR = PREVIEWS_DIR / "mp3-temp"
 TAG_TMP_DIR = PREVIEWS_DIR / "tagging_tmp"
+MP3_TEMP_DIR = PREVIEWS_DIR / "mp3-temp"
 ANALYSIS_TMP_DIR = PREVIEWS_DIR / "analysis_tmp"
 NOISE_PREVIEW_DIR = PREVIEWS_DIR / "noise_preview"
 NOISE_FILTER_DIR = PRESET_DIR / "noise_filters"
@@ -2494,6 +2495,143 @@ def tagger_resolve(path: str):
     if not file_id:
         raise HTTPException(status_code=404, detail="file_not_indexed")
     return {"id": file_id}
+
+@app.post("/api/tagger/ensure-mp3")
+def tagger_ensure_mp3(payload: dict = Body(...)):
+    rel = (payload.get("path") or "").strip()
+    bitrate_k = payload.get("bitrate_k", 320)
+    if not rel:
+        raise HTTPException(status_code=400, detail="missing_path")
+    try:
+        target = resolve_rel(rel)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid_path")
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="file_not_found")
+    if target.suffix.lower() == ".mp3":
+        out_rel = rel_from_path(target)
+        return {
+            "mp3_rel": out_rel,
+            "download_url": f"/api/utility-download?path={quote(out_rel)}",
+        }
+    out_dir = target.parent
+    base_stem = safe_filename(target.stem) or target.stem or "tag"
+    out_path = _unique_output_path(out_dir, base_stem, ".mp3")
+    try:
+        bitrate_k = int(bitrate_k)
+    except Exception:
+        bitrate_k = 320
+    bitrate_k = max(96, min(320, bitrate_k))
+    cmd = [
+        FFMPEG_BIN, "-y", "-hide_banner", "-loglevel", "error",
+        "-i", str(target),
+        "-vn", "-sn", "-dn",
+        "-codec:a", "libmp3lame",
+        "-b:a", f"{bitrate_k}k",
+        str(out_path),
+    ]
+    proc = run_cmd(cmd)
+    if proc.returncode != 0 or not out_path.exists():
+        err = (proc.stderr or proc.stdout or "").strip()
+        raise HTTPException(status_code=500, detail=err or "convert_failed")
+    out_rel = rel_from_path(out_path)
+    try:
+        song, version = library_store.find_by_rel(rel)
+        if isinstance(song, dict) and isinstance(version, dict):
+            library_store.add_rendition(
+                song.get("song_id"),
+                version.get("version_id"),
+                "mp3",
+                out_rel,
+            )
+    except Exception:
+        pass
+    return {
+        "mp3_rel": out_rel,
+        "download_url": f"/api/utility-download?path={quote(out_rel)}",
+    }
+
+@app.post("/api/tagger/upload-mp3")
+async def tagger_upload_mp3(files: list[UploadFile] = File(...)):
+    if not files:
+        raise HTTPException(status_code=400, detail="missing_files")
+    session_id = datetime.utcnow().strftime("t_%Y%m%d%H%M%S_") + uuid.uuid4().hex[:6]
+    session_dir = MP3_TEMP_DIR / session_id
+    session_dir.mkdir(parents=True, exist_ok=True)
+    items = []
+    for upload in files:
+        if not upload or not upload.filename:
+            continue
+        name = Path(upload.filename).name
+        if upload.content_type and upload.content_type not in {"audio/mpeg", "audio/mp3", "audio/mpeg3"}:
+            continue
+        if not name.lower().endswith(".mp3"):
+            continue
+        safe_name = safe_filename(name) or "track.mp3"
+        if not safe_name.lower().endswith(".mp3"):
+            safe_name = f"{safe_name}.mp3"
+        dest = session_dir / safe_name
+        if dest.exists():
+            stem = dest.stem
+            idx = 1
+            while True:
+                candidate = dest.with_name(f"{stem}-{idx}{dest.suffix}")
+                if not candidate.exists():
+                    dest = candidate
+                    break
+                idx += 1
+        try:
+            with dest.open("wb") as fh:
+                while True:
+                    chunk = await upload.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    fh.write(chunk)
+        except Exception:
+            continue
+        items.append({
+            "name": dest.name,
+            "rel": rel_from_path(dest),
+            "size": dest.stat().st_size if dest.exists() else 0,
+        })
+    if not items:
+        raise HTTPException(status_code=400, detail="no_mp3_files")
+    return {"session": session_id, "items": items}
+
+@app.get("/api/tagger/temp-list")
+def tagger_temp_list(session: str):
+    if not session:
+        raise HTTPException(status_code=400, detail="missing_session")
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "", session)
+    if safe != session:
+        raise HTTPException(status_code=400, detail="invalid_session")
+    session_dir = MP3_TEMP_DIR / safe
+    if not session_dir.exists() or not session_dir.is_dir():
+        return {"items": []}
+    items = []
+    for fp in sorted(session_dir.glob("*.mp3")):
+        try:
+            items.append({
+                "name": fp.name,
+                "rel": rel_from_path(fp),
+                "size": fp.stat().st_size,
+            })
+        except Exception:
+            continue
+    return {"items": items}
+
+@app.post("/api/tagger/temp-clear")
+def tagger_temp_clear(payload: dict = Body(...)):
+    session = (payload.get("session") or "").strip()
+    if not session:
+        raise HTTPException(status_code=400, detail="missing_session")
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "", session)
+    if safe != session:
+        raise HTTPException(status_code=400, detail="invalid_session")
+    session_dir = MP3_TEMP_DIR / safe
+    if session_dir.exists() and session_dir.is_dir():
+        shutil.rmtree(session_dir, ignore_errors=True)
+    return {"cleared": True}
 
 @app.get("/api/tagger/file/{file_id}")
 def tagger_get(file_id: str):

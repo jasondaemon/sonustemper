@@ -10,6 +10,7 @@
     artInfoCache: {},
     albumArt: { mode: 'keep', uploadId: null, mime: null, size: 0, preview: null },
     dirty: false,
+    temp: { session: null, items: [] },
   };
   let libraryBrowser = null;
 
@@ -100,6 +101,21 @@
       full_name: rel,
       display_title: displayTitle,
       badges: buildBadgesFromTrack(track),
+    };
+  }
+
+  function buildItemFromTemp(rel, fileId){
+    const displayTitle = formatTitleFromRel(rel) || rel;
+    const basename = (rel || '').split('/').pop() || displayTitle;
+    return {
+      id: fileId,
+      song_id: null,
+      root: 'temp',
+      basename,
+      relpath: rel,
+      full_name: rel,
+      display_title: displayTitle,
+      badges: [{ key: 'temp', label: 'TEMP', title: 'Not in Library' }, { key: 'format', label: 'MP3', title: 'MP3' }],
     };
   }
 
@@ -297,7 +313,11 @@
       const titleVal = tags.title || item?.display_title || base;
       const artistVal = tags.artist || '';
       const tds = [
-        `<button class="btn small ghost trackDlBtn" type="button" data-id="${id}" title="Download track">DL</button>`,
+        `<button class="btn small ghost trackDlBtn" type="button" data-id="${id}" title="Download track" aria-label="Download">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M12 3v12m0 0l4-4m-4 4l-4-4M4 19h16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>`,
         `<input name="albTrack" value="${trackVal || ''}">`,
         `<input name="albTitle" value="${titleVal || ''}">`,
         `<input name="albArtist" value="${artistVal || ''}">`,
@@ -418,6 +438,61 @@
   function downloadSingle(id){
     if(tagState.dirty || !id) return;
     window.location.href = `/api/tagger/file/${encodeURIComponent(id)}/download`;
+  }
+
+  async function ensureMp3(rel){
+    if(!rel) return null;
+    const res = await fetch('/api/tagger/ensure-mp3', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: rel, bitrate_k: 320 }),
+    });
+    if(!res.ok) throw new Error(await res.text());
+    return await res.json();
+  }
+
+  function renderTempList(){
+    const list = document.getElementById('tagTempList');
+    if(!list) return;
+    list.innerHTML = '';
+    if(!tagState.temp.items.length){
+      list.innerHTML = '<div class="muted">No temp uploads yet.</div>';
+      return;
+    }
+    tagState.temp.items.forEach((item) => {
+      const row = document.createElement('div');
+      row.className = 'tag-item';
+      row.dataset.rel = item.rel;
+      const title = document.createElement('div');
+      title.className = 'tag-row-title';
+      title.textContent = item.name || item.rel;
+      title.title = item.rel || item.name;
+      row.appendChild(title);
+      row.addEventListener('click', async () => {
+        const fileId = await resolveTaggerId(item.rel);
+        if(!fileId){
+          tagToast('MP3 not indexed yet.');
+          return;
+        }
+        addToWorking(buildItemFromTemp(item.rel, fileId));
+      });
+      list.appendChild(row);
+    });
+  }
+
+  async function loadTempSession(){
+    const session = localStorage.getItem('tagTempSession') || '';
+    if(!session) return;
+    try{
+      const res = await fetch(`/api/tagger/temp-list?session=${encodeURIComponent(session)}`);
+      if(!res.ok) return;
+      const data = await res.json();
+      tagState.temp.session = session;
+      tagState.temp.items = Array.isArray(data.items) ? data.items : [];
+      renderTempList();
+    }catch(_err){
+      return;
+    }
   }
 
   function syncBrowserSelection(){
@@ -545,6 +620,48 @@
       }
     });
 
+    document.getElementById('tagTempUploadBtn')?.addEventListener('click', () => {
+      document.getElementById('tagTempFiles')?.click();
+    });
+
+    document.getElementById('tagTempFiles')?.addEventListener('change', async (e)=>{
+      const status = document.getElementById('tagTempStatus');
+      const setStatus = (msg) => { if(status) status.textContent = msg || ''; };
+      const files = Array.from(e.target.files || []);
+      if(!files.length) return;
+      setStatus('Uploading...');
+      const fd = new FormData();
+      files.forEach(file => fd.append('files', file, file.name));
+      try{
+        const res = await fetch('/api/tagger/upload-mp3', { method: 'POST', body: fd });
+        if(!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        tagState.temp.session = data.session || tagState.temp.session;
+        if(tagState.temp.session) localStorage.setItem('tagTempSession', tagState.temp.session);
+        tagState.temp.items = (data.items || []).concat(tagState.temp.items || []);
+        renderTempList();
+        setStatus('Ready.');
+      }catch(_err){
+        setStatus('Upload failed.');
+      }finally{
+        e.target.value = '';
+      }
+    });
+
+    document.getElementById('tagTempClearBtn')?.addEventListener('click', async ()=>{
+      const session = tagState.temp.session || localStorage.getItem('tagTempSession') || '';
+      if(!session) return;
+      await fetch('/api/tagger/temp-clear', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session }),
+      });
+      tagState.temp.items = [];
+      tagState.temp.session = null;
+      localStorage.removeItem('tagTempSession');
+      renderTempList();
+    });
+
     const browser = document.getElementById('taggingBrowser');
     if (browser && window.LibraryBrowser) {
       libraryBrowser = window.LibraryBrowser.init(browser, { module: 'tagging' });
@@ -563,9 +680,31 @@
         addToWorking(buildItemFromLibrary(song, track, rel, fileId));
       });
       browser.addEventListener('library:action', (evt) => {
-        const { action, song, version } = evt.detail || {};
+        const { action, song, version, rel } = evt.detail || {};
         if (action === 'import-file') {
           document.getElementById('tagImportFile')?.click();
+          return;
+        }
+        if (action === 'ensure-mp3') {
+          const sourceRel = rel || primaryRendition(version?.renditions)?.rel || version?.rel || song?.source?.rel;
+          if (!sourceRel) {
+            tagToast('No source file for conversion.');
+            return;
+          }
+          tagToast('Converting to MP3...');
+          ensureMp3(sourceRel).then(async (data) => {
+            const mp3Rel = data.mp3_rel;
+            const fileId = await resolveTaggerId(mp3Rel);
+            if (!fileId) {
+              tagToast('MP3 not indexed yet.');
+              return;
+            }
+            addToWorking(buildItemFromLibrary(song, version || { summary: {} }, mp3Rel, fileId));
+            if (libraryBrowser) libraryBrowser.reload();
+            tagToast('MP3 ready.');
+          }).catch((err) => {
+            tagToast(`Convert failed: ${err.message || 'error'}`);
+          });
           return;
         }
         if (action === 'open-compare' && song?.source?.rel && version) {
@@ -588,6 +727,8 @@
         }
       });
     }
+
+    loadTempSession();
 
     document.getElementById('albArtUploadBtn')?.addEventListener('click', ()=>{
       document.getElementById('albArtFile')?.click();

@@ -1215,6 +1215,43 @@ def remove_rendition(song_id: str, version_id: str, rel: str) -> tuple[bool, lis
     return True, removed, None
 
 
+def add_rendition(song_id: str, version_id: str, fmt: str, rel: str) -> bool:
+    init_db()
+    if not song_id or not version_id or not rel:
+        return False
+    fmt = (fmt or _format_from_rel(rel) or "").lower()
+    if not fmt:
+        return False
+    now = _now_iso()
+    with _WRITE_LOCK:
+        conn = _connect()
+        try:
+            row = conn.execute(
+                "SELECT version_id FROM versions WHERE song_id = ? AND version_id = ?",
+                (song_id, version_id),
+            ).fetchone()
+            if not row:
+                return False
+            existing = conn.execute(
+                "SELECT rendition_id FROM renditions WHERE version_id = ? AND rel = ?",
+                (version_id, rel),
+            ).fetchone()
+            if existing:
+                return True
+            conn.execute(
+                "INSERT INTO renditions (version_id, format, rel) VALUES (?, ?, ?)",
+                (version_id, fmt, rel),
+            )
+            conn.execute(
+                "UPDATE songs SET updated_at = ?, last_used_at = ? WHERE song_id = ?",
+                (now, now, song_id),
+            )
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+
+
 def promote_version(version_id: str) -> bool:
     init_db()
     now = _now_iso()

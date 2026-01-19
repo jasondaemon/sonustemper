@@ -11,6 +11,19 @@
         <div class="muted">Pick MP3 renditions to edit tags.</div>
       </div>
     </div>
+    <div class="tagging-standalone">
+      <div class="tagging-standalone-head">
+        <div>
+          <div class="card-title">Standalone Tagging (MP3 only)</div>
+          <div class="muted">Upload MP3s for tagging without adding to the Library.</div>
+        </div>
+        <button class="btn small ghost" type="button" id="tagTempClearBtn">Clear Temp</button>
+      </div>
+      <input type="file" id="tagTempFiles" accept=".mp3" multiple style="display:none;">
+      <button class="btn small ghost" type="button" id="tagTempUploadBtn">Upload MP3s</button>
+      <div class="muted" id="tagTempStatus"></div>
+      <div id="tagTempList" class="tag-list"></div>
+    </div>
     <input type="file" id="tagImportFile" accept=".mp3" style="display:none;">
     <div id="taggingBrowser" class="library-browser-container" data-module="tagging"></div>
     <div class="muted" id="tagImportStatus"></div>
