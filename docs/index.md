@@ -17,6 +17,8 @@ SonusTemper is a music finishing toolkit for AI‑generated and real recordings.
 - You want A/B comparison between versions.
 - You need consistent mastering across multiple tracks.
 
+![Start](img/start.png)
+
 ## Quick start
 1) Import or select a song from the Library.
 2) Use a utility (AI Toolkit, Noise Removal, EQ) to make changes.

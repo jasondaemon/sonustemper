@@ -31,18 +31,27 @@ The Library organizes songs and versions in a single, song‑centric index backe
 - **Add (+)**: Adds the song to a mastering input list (if available).
 - **Open Player**: Loads into the player on pages that support it.
 - **Delete**: Removes the song and versions from the Library.
+![song-rows](img/library-song-rows.png)
 
 ### Version rows
 - **Utility pill**: Indicates tool used (Master, Noise Removed, EQ, AITK).
 - **Voicing/Profile pills**: When relevant to mastering outputs.
 - **Info pill**: Opens full metrics.
 - **(…) menu**: Open in Compare, Delete, Open in other utilities.
+![versions](img/library-versions.png)
+
 
 ### Selected File block
 - Shows current selection name and metadata.
 - Used across utilities for consistent selection feedback.
+![details](img/library-details.png)
 
 > **Note:** Deleting a song removes its versions; deleting a version keeps the source.
+
+### Visualizer
+- Because why not?
+![visualizer](img/library-visualizer.png)
+
 
 ## Common pitfalls
 - If a song does not appear, confirm the import succeeded and the DB is writable.

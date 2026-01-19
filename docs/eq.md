@@ -31,6 +31,7 @@ EQ is a soundboard‑style multi‑band EQ with live spectrum, curve editor, and
 - **Stop**: Pauses and resets to the beginning.
 - **Time display**: Shows current time and duration.
 - **Volume**: Adjusts playback volume for preview only.
+![waveform](img/eq-waveform.png)
 
 ### Spectrum + EQ canvas
 - **Spectrum (live)**: Animated, smoothed FFT behind the EQ curve.
@@ -42,12 +43,14 @@ EQ is a soundboard‑style multi‑band EQ with live spectrum, curve editor, and
   - Shift+drag = finer control.
 - **Scroll wheel (Shift)**: Adjusts Q for the selected band.
 - **Delete/Backspace**: Removes selected band (non‑template bands by default).
+![eq-canvas](img/eq-canvas.png)
 
 ### Band list (left)
 - **Enable checkbox**: Turns band on/off.
 - **Type label**: HPF, LPF, Low Shelf, High Shelf, Bell.
 - **Freq / Gain readout**: Current values per band.
 - **Remove (×)**: Only for non‑template bands.
+![bands](img/eq-bands.png)
 
 ### Band controls (right)
 - **Type**: Changes filter type (HPF/LPF/Low Shelf/High Shelf/Bell).
@@ -56,9 +59,11 @@ EQ is a soundboard‑style multi‑band EQ with live spectrum, curve editor, and
 - **Q**: Numeric + slider input; controls bandwidth (higher = narrower).
 - **Bypass EQ**: Disables all EQ bands without deleting them.
 - **Reset EQ**: Restores the default 7‑band template.
+![controls](img/eq-controls.png)
 
 ### Voice Controls (Pre‑EQ)
 Applied before the EQ chain for preview and render.
+![voice-controls](img/eq-voice-controls.png)
 
 - **De‑esser**
   - **Enable**: Turns processing on/off.
@@ -100,11 +105,6 @@ Applied before the EQ chain for preview and render.
 - Use HPF to clean rumble; LPF for harsh top‑end.
 - Keep gains small and compare in Compare.
 - Use Voice Controls to find problem ranges before EQ moves.
-
-## Screenshot placeholders
-- [Screenshot: EQ canvas + spectrum]
-- [Screenshot: Band list + controls]
-- [Screenshot: Voice Controls with overlays]
 
 <details>
 <summary>Technical Details</summary>

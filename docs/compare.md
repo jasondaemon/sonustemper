@@ -37,11 +37,13 @@ Compare lets you A/B source vs processed versions with synced playback, waveform
 - **Zoom**: Changes time scale of the main waveform.
 - **Overlays**: Peak risk, loudness heatmap, loudness delta.
 - **Overview window**: The highlighted viewport used for scrub/scroll.
+![waveform](img/compare-waveform.png)
 
 ### Spectrogram view
 - **Spectrogram toggle**: Switches to spectral visualization.
 - **Spectrogram legend**: Shows energy range.
 - **Overview window**: Same scrub/scroll behavior as waveform.
+![spectrogram](img/compare-spectrogram.png)
 
 ### Overview scrubber
 - **Drag**: Scrolls the main view.
@@ -57,10 +59,6 @@ Compare lets you A/B source vs processed versions with synced playback, waveform
 - Use Spectrogram to spot hiss/harshness.
 - Use Waveform overlays to see loudness deltas.
 
-## Screenshot placeholders
-- [Screenshot: Compare waveform view]
-- [Screenshot: Compare spectrogram view]
-- [Screenshot: Overview scrubber]
 
 <details>
 <summary>Technical Details</summary>
