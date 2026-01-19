@@ -118,6 +118,9 @@ uvicorn sonustemper.server:app --reload --port 8383
 ### Logging
 - `LOG_LEVEL` controls structured logs from the mastering pipeline: `error` (default), `summary`, `debug`.
 - Levels include tagged prefixes like `[error][master]`, `[summary][loudnorm]`, `[debug][ffmpeg]`; secrets are redacted.
+
+## Documentation
+Docs live in `docs/`. Enable GitHub Pages (Settings → Pages → Deploy from branch, `/docs`) to publish.
 - Set in `.env` for docker (e.g., `LOG_LEVEL=summary`) or export before running locally.
 
 ### Security defaults

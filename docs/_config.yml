@@ -1,0 +1,10 @@
+title: SonusTemper Docs
+
+description: Documentation for SonusTemper utilities and workflows.
+
+markdown: kramdown
+
+theme: minima
+
+plugins:
+  - jekyll-seo-tag
