@@ -503,60 +503,17 @@
       }
       const menu = document.createElement('details');
       menu.className = 'library-action-menu';
-      let closeTimer = null;
-      const openMenu = () => {
-        if (menu.open) return;
-        menu.open = true;
-      };
-      const closeMenu = () => {
-        if (!menu.open) return;
-        menu.open = false;
-      };
-      const cancelClose = () => {
-        if (!closeTimer) return;
-        clearTimeout(closeTimer);
-        closeTimer = null;
-      };
-      const scheduleClose = (delayMs = 600) => {
-        cancelClose();
-        closeTimer = setTimeout(() => {
-          closeMenu();
-          closeTimer = null;
-        }, delayMs);
-      };
-      menu.addEventListener('pointerover', () => {
-        cancelClose();
-        openMenu();
-      });
-      menu.addEventListener('pointerout', (evt) => {
-        const rt = evt.relatedTarget;
-        if (rt && menu.contains(rt)) return;
-        scheduleClose(600);
-      });
       const menuSummary = document.createElement('summary');
       menuSummary.textContent = '⋯';
       menuSummary.className = 'btn ghost tiny';
       menuSummary.addEventListener('click', (evt) => {
         evt.preventDefault();
         evt.stopPropagation();
-        if (menu.open) {
-          closeMenu();
-        } else {
-          openMenu();
-        }
+        menu.open = !menu.open;
       });
       menu.appendChild(menuSummary);
       const menuList = document.createElement('div');
       menuList.className = 'library-action-list';
-      menuList.addEventListener('pointerover', () => {
-        cancelClose();
-        openMenu();
-      });
-      menuList.addEventListener('pointerout', (evt) => {
-        const rt = evt.relatedTarget;
-        if (rt && menu.contains(rt)) return;
-        scheduleClose(600);
-      });
       const applyDisabled = (btn, reason) => {
         if (!btn) return;
         btn.disabled = true;
@@ -572,6 +529,7 @@
           evt.stopPropagation();
           if (!canOpen) return;
           emit('library:action', { action: 'open-analyze', song, version });
+          menu.open = false;
         });
         if (!canOpen) applyDisabled(analyzeBtn, 'No audio file available for this version.');
         menuList.appendChild(analyzeBtn);
@@ -582,6 +540,7 @@
           evt.stopPropagation();
           if (!canOpen) return;
           emit('library:action', { action: 'open-compare', song, version });
+          menu.open = false;
         });
         if (!canOpen) applyDisabled(compareBtn, 'No audio file available for this version.');
         menuList.appendChild(compareBtn);
@@ -592,6 +551,7 @@
           evt.stopPropagation();
           if (!canOpen) return;
           emit('library:action', { action: 'open-eq', song, version });
+          menu.open = false;
         });
         if (!canOpen) applyDisabled(eqBtn, 'No audio file available for this version.');
         menuList.appendChild(eqBtn);
@@ -614,6 +574,7 @@
           evt.stopPropagation();
           if (!canDelete) return;
           emit('library:action', { action: 'delete-version', song, version });
+          menu.open = false;
         });
         if (!canDelete) applyDisabled(delBtn, 'Missing song/version id.');
         menuList.appendChild(delBtn);
@@ -625,6 +586,7 @@
           setProc.addEventListener('click', (evt) => {
             evt.stopPropagation();
             emit('library:action', { action: 'set-processed', song, version });
+            menu.open = false;
           });
           menuList.appendChild(setProc);
         }
@@ -635,6 +597,7 @@
           useSource.addEventListener('click', (evt) => {
             evt.stopPropagation();
             emit('library:action', { action: 'use-as-source', song, version });
+            menu.open = false;
           });
           menuList.appendChild(useSource);
         }
@@ -645,6 +608,7 @@
           evt.stopPropagation();
           if (!canOpen) return;
           emit('library:action', { action: 'open-compare', song, version });
+          menu.open = false;
         });
         if (!canOpen) applyDisabled(openCompare, 'No audio file available for this version.');
         menuList.appendChild(openCompare);
@@ -655,6 +619,7 @@
           evt.stopPropagation();
           if (!canOpen) return;
           emit('library:action', { action: 'open-eq', song, version });
+          menu.open = false;
         });
         if (!canOpen) applyDisabled(openEq, 'No audio file available for this version.');
         menuList.appendChild(openEq);
@@ -667,6 +632,7 @@
             const rel = primaryRel || version.rel || song?.source?.rel || '';
             if (!rel) return;
             emit('library:action', { action: 'ensure-mp3', song, version, rel });
+            menu.open = false;
           });
           if (!primaryRel && !version.rel && !song?.source?.rel) {
             applyDisabled(convertBtn, 'No source file available for conversion.');
@@ -721,6 +687,10 @@
           link.href = `/api/analyze/path?path=${encodeURIComponent(rel)}`;
           link.textContent = fmt;
           link.setAttribute('download', '');
+          link.addEventListener('click', (evt) => {
+            evt.stopPropagation();
+            menu.open = false;
+          });
           downloadList.appendChild(link);
         });
         download.appendChild(downloadList);
@@ -733,6 +703,7 @@
           evt.stopPropagation();
           if (!canDelete) return;
           emit('library:action', { action: 'delete-version', song, version });
+          menu.open = false;
         });
         if (!canDelete) applyDisabled(delBtn, 'Missing song/version id.');
         menuList.appendChild(delBtn);

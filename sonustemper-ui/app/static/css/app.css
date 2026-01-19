@@ -581,17 +581,8 @@ h1{margin:0;font-size:24px;}
 }
 .library-action-menu{
   position:relative;
-  padding-bottom:12px;
   display:inline-flex;
   align-items:center;
-}
-.library-action-menu::after{
-  content:"";
-  position:absolute;
-  right:-8px;
-  top:100%;
-  width:220px;
-  height:16px;
 }
 .library-action-menu > summary{
   list-style:none;
@@ -609,8 +600,8 @@ h1{margin:0;font-size:24px;}
 .library-action-list{
   position:absolute;
   right:0;
-  top:100%;
-  margin-top:8px;
+  top:calc(100% + 4px);
+  margin-top:0;
   background:#0f151d;
   border:1px solid var(--line);
   border-radius:10px;
