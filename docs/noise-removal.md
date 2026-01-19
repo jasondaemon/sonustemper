@@ -33,6 +33,11 @@ Noise Removal isolates and reduces unwanted noise using presets or a marquee sel
 
 ## Controls and functions
 
+### Inspection & diagnostics
+- **Metrics**: LUFS‑I, TP dBTP, LRA, crest, RMS, DR, noise floor.
+- **Spectrogram**: Frequency‑time view for locating hiss, hum, or broadband noise.
+- **Waveform**: Time‑domain context for selection placement.
+
 ### Preset workflow (left)
 - **Noise Filter Preset**: Select a preset (e.g., Gentle Denoise).
 - **Filter depth (dB)**: How much reduction to apply.
@@ -58,10 +63,12 @@ Noise Removal isolates and reduces unwanted noise using presets or a marquee sel
 ## Common pitfalls
 - If no selection exists, “Apply to Selection” does nothing.
 - If preview is silent, check selection bounds and audition mode.
+ - If metrics are missing, re‑analyze the source or verify ffmpeg availability.
 
 ## Tips
 - Use Preset workflow for quick global cleanup.
 - Use Selected workflow for tight noise regions.
+ - Use the spectrogram to spot narrowband noise and place marquee accurately.
 
 ## Screenshot placeholders
 - [Screenshot: Preset Noise Removal]
@@ -73,6 +80,7 @@ Noise Removal isolates and reduces unwanted noise using presets or a marquee sel
 
 - **Core filter chain**: `_noise_filter_chain` builds either a band‑pass (`highpass` + `lowpass`) for **Solo Noise** or a mid‑band cut (`equalizer`) for **Filtered Song**. Optional `highpass`/`lowpass` bounds and `afftdn` are appended.
 - **Selection apply**: For selection‑only, ffmpeg uses `asplit` + `volume` expressions to fade wet in/out and `amix` to combine dry/wet.
+- **Spectrogram**: `GET /api/analyze/spectrogram` wraps ffmpeg `showspectrumpic` for the visual.
 
 Example remove chain (global):
 ```bash

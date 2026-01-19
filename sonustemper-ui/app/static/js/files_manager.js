@@ -234,6 +234,10 @@
               <option value="rings">Radial Rings</option>
               <option value="particles">Particles</option>
               <option value="heatmap">Heatmap FFT</option>
+              <option value="flow">Vector Field Flow</option>
+              <option value="horizon">Spectral Horizon</option>
+              <option value="bloom">Harmonic Bloom</option>
+              <option value="fractal">Fractal Drift (Lite)</option>
             </select>
             <button type="button" class="btn ghost tiny" id="filesVisualizerFullscreen">Full Screen</button>
           </div>
@@ -1042,6 +1046,15 @@
     state.visualizer.fullscreenBtn = detailEl.querySelector('#filesVisualizerFullscreen');
     if (!state.visualizer.canvas) return;
     state.visualizer.audio = audioEl;
+    if (state.visualizer.modeSelect) {
+      const storedMode = localStorage.getItem('st_files_visualizer_mode');
+      if (storedMode && state.visualizer.modeSelect.querySelector(`option[value="${storedMode}"]`)) {
+        state.visualizer.modeSelect.value = storedMode;
+      }
+      state.visualizer.modeSelect.addEventListener('change', () => {
+        localStorage.setItem('st_files_visualizer_mode', state.visualizer.modeSelect.value);
+      });
+    }
     if (!state.visualizer.ctx) {
       state.visualizer.ctx = new (window.AudioContext || window.webkitAudioContext)();
       state.visualizer.analyser = state.visualizer.ctx.createAnalyser();
@@ -1074,6 +1087,14 @@
         return;
       }
     });
+    document.addEventListener('fullscreenchange', () => {
+      if (!state.visualizer.canvas) return;
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (!state.visualizer.raf) {
+          state.visualizer.raf = requestAnimationFrame(drawVisualizer);
+        }
+      }));
+    });
     if (!state.visualizer.raf) {
       state.visualizer.raf = requestAnimationFrame(drawVisualizer);
     }
@@ -1093,6 +1114,18 @@
 
     const mode = state.visualizer.modeSelect?.value || 'osc';
     const analyser = state.visualizer.analyser;
+    const t = performance.now() * 0.001;
+    const avgRange = (buf, startRatio, endRatio) => {
+      const start = Math.floor(buf.length * startRatio);
+      const end = Math.max(start + 1, Math.floor(buf.length * endRatio));
+      let sum = 0;
+      let count = 0;
+      for (let i = start; i < end; i += 1) {
+        sum += buf[i];
+        count += 1;
+      }
+      return count ? sum / (count * 255) : 0;
+    };
     if (mode === 'trail') {
       ctx.fillStyle = 'rgba(8, 12, 18, 0.18)';
       ctx.fillRect(0, 0, width, height);
@@ -1204,6 +1237,162 @@
         const hue = 270 - val * 200;
         ctx.fillStyle = `hsla(${hue}, 90%, ${45 + val * 35}%, 0.9)`;
         ctx.fillRect(0, y, width, Math.ceil(height / bands));
+      }
+    } else if (mode === 'flow') {
+      const buffer = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteFrequencyData(buffer);
+      const bass = avgRange(buffer, 0.0, 0.1);
+      const mids = avgRange(buffer, 0.15, 0.55);
+      const highs = avgRange(buffer, 0.65, 1.0);
+      const gridW = Math.max(24, Math.floor(width / 40));
+      const gridH = Math.max(16, Math.floor(height / 40));
+      const fieldSize = gridW * gridH;
+      if (!state.visualizer.flowField || state.visualizer.flowField.w !== gridW || state.visualizer.flowField.h !== gridH) {
+        state.visualizer.flowField = {
+          w: gridW,
+          h: gridH,
+          angles: new Float32Array(fieldSize),
+        };
+      }
+      const angles = state.visualizer.flowField.angles;
+      for (let i = 0; i < fieldSize; i += 1) {
+        angles[i] += (mids - 0.5) * 0.04 + Math.sin(t + i * 0.12) * mids * 0.05;
+      }
+      const count = Math.max(240, Math.floor(width * 1.2));
+      if (!state.visualizer.flowParticles || state.visualizer.flowParticles.length !== count) {
+        state.visualizer.flowParticles = Array.from({ length: count }, () => ({
+          x: Math.random() * width,
+          y: Math.random() * height,
+          px: 0,
+          py: 0,
+        }));
+      }
+      ctx.fillStyle = 'rgba(8, 12, 18, 0.2)';
+      ctx.fillRect(0, 0, width, height);
+      ctx.strokeStyle = `rgba(61, 214, 203, ${0.3 + highs * 0.4})`;
+      ctx.lineWidth = 1.1;
+      ctx.beginPath();
+      const speed = 0.6 + bass * 2.4;
+      state.visualizer.flowParticles.forEach((p) => {
+        p.px = p.x;
+        p.py = p.y;
+        const gx = Math.max(0, Math.min(gridW - 1, Math.floor((p.x / width) * gridW)));
+        const gy = Math.max(0, Math.min(gridH - 1, Math.floor((p.y / height) * gridH)));
+        const ang = angles[gx + gy * gridW];
+        p.x += Math.cos(ang) * speed;
+        p.y += Math.sin(ang) * speed;
+        if (p.x < 0) p.x = width;
+        if (p.x > width) p.x = 0;
+        if (p.y < 0) p.y = height;
+        if (p.y > height) p.y = 0;
+        ctx.moveTo(p.px, p.py);
+        ctx.lineTo(p.x, p.y);
+      });
+      ctx.stroke();
+      if (highs > 0.65) {
+        const sparks = Math.floor(highs * 20);
+        ctx.fillStyle = 'rgba(255, 230, 170, 0.8)';
+        for (let i = 0; i < sparks; i += 1) {
+          ctx.fillRect(Math.random() * width, Math.random() * height, 2, 2);
+        }
+      }
+    } else if (mode === 'horizon') {
+      const buffer = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteFrequencyData(buffer);
+      const horizonW = Math.max(80, Math.floor(width / 2));
+      const bands = 48;
+      if (!state.visualizer.horizonCols || state.visualizer.horizonW !== horizonW) {
+        state.visualizer.horizonCols = Array.from({ length: horizonW }, () => new Float32Array(bands));
+        state.visualizer.horizonW = horizonW;
+        state.visualizer.horizonX = 0;
+      }
+      const col = state.visualizer.horizonCols[state.visualizer.horizonX];
+      const step = Math.max(1, Math.floor(buffer.length / bands));
+      for (let i = 0; i < bands; i += 1) {
+        let sum = 0;
+        for (let j = 0; j < step; j += 1) {
+          sum += buffer[Math.min(buffer.length - 1, i * step + j)];
+        }
+        col[i] = sum / (step * 255);
+      }
+      state.visualizer.horizonX = (state.visualizer.horizonX + 1) % horizonW;
+      const bandH = height / bands;
+      const xScale = width / horizonW;
+      for (let x = 0; x < horizonW; x += 1) {
+        const idx = (state.visualizer.horizonX + x) % horizonW;
+        const data = state.visualizer.horizonCols[idx];
+        const drawX = x * xScale;
+        for (let i = 0; i < bands; i += 1) {
+          const amp = data[i];
+          if (amp < 0.02) continue;
+          const yBase = height - (i + 1) * bandH;
+          const h = amp * bandH * 1.4;
+          const hue = 240 - (i / bands) * 160;
+          ctx.fillStyle = `hsla(${hue}, 90%, ${38 + amp * 40}%, ${0.12 + amp * 0.6})`;
+          ctx.fillRect(drawX, yBase - h, xScale + 1, h);
+        }
+      }
+    } else if (mode === 'bloom') {
+      const buffer = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteFrequencyData(buffer);
+      const bass = avgRange(buffer, 0.0, 0.1);
+      const mids = avgRange(buffer, 0.15, 0.55);
+      const highs = avgRange(buffer, 0.65, 1.0);
+      if (!state.visualizer.blooms) state.visualizer.blooms = [];
+      ctx.fillStyle = 'rgba(8, 12, 18, 0.16)';
+      ctx.fillRect(0, 0, width, height);
+      if (highs > 0.55 && Math.random() < highs * 0.2) {
+        const mirror = highs > mids;
+        const baseX = Math.random() * width * 0.6 + width * 0.2;
+        const baseY = Math.random() * height * 0.6 + height * 0.2;
+        const hue = 190 + highs * 60;
+        state.visualizer.blooms.push({ x: baseX, y: baseY, r: 10, alpha: 0.6, hue, dr: 1.4 + bass * 4 });
+        if (mirror) {
+          state.visualizer.blooms.push({ x: width - baseX, y: baseY, r: 10, alpha: 0.5, hue, dr: 1.4 + bass * 4 });
+        }
+      }
+      state.visualizer.blooms = state.visualizer.blooms.filter((bloom) => bloom.alpha > 0.02);
+      state.visualizer.blooms.forEach((bloom) => {
+        bloom.r += bloom.dr;
+        bloom.alpha *= 0.96;
+        ctx.strokeStyle = `hsla(${bloom.hue}, 90%, 65%, ${bloom.alpha * 0.7})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(bloom.x, bloom.y, bloom.r, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.strokeStyle = `hsla(${bloom.hue}, 85%, 55%, ${bloom.alpha * 0.4})`;
+        ctx.lineWidth = 6;
+        ctx.beginPath();
+        ctx.arc(bloom.x, bloom.y, bloom.r * 0.6, 0, Math.PI * 2);
+        ctx.stroke();
+      });
+    } else if (mode === 'fractal') {
+      const buffer = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteFrequencyData(buffer);
+      const bass = avgRange(buffer, 0.0, 0.1);
+      const mids = avgRange(buffer, 0.15, 0.55);
+      const highs = avgRange(buffer, 0.65, 1.0);
+      const cx = width / 2;
+      const cy = height / 2;
+      const minDim = Math.min(width, height);
+      const rot = 0.05 + mids * 0.25;
+      const zoom = 1.2 + bass * 0.8;
+      const step = Math.max(8, Math.floor(minDim / 60));
+      ctx.fillStyle = 'rgba(8, 12, 18, 0.22)';
+      ctx.fillRect(0, 0, width, height);
+      for (let y = 0; y < height; y += step) {
+        for (let x = 0; x < width; x += step) {
+          const nx = (x - cx) / minDim;
+          const ny = (y - cy) / minDim;
+          const r = Math.sqrt(nx * nx + ny * ny) + 0.001;
+          const a = Math.atan2(ny, nx) + t * rot;
+          const v = Math.sin(r * zoom * 6 + Math.sin(a * 3) + t * 0.7);
+          const intensity = (v * 0.5 + 0.5) * (0.4 + highs * 0.6);
+          if (intensity < 0.08) continue;
+          const hue = 200 + v * 60;
+          ctx.fillStyle = `hsla(${hue}, 80%, ${45 + intensity * 30}%, ${0.1 + intensity * 0.5})`;
+          ctx.fillRect(x, y, step, step);
+        }
       }
     } else {
       const buffer = new Uint8Array(analyser.frequencyBinCount);

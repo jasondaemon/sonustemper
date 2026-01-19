@@ -1017,12 +1017,31 @@ h1{margin:0;font-size:24px;}
   border-radius:12px;
   overflow:hidden;
   background:#0f151d;
+  display:flex;
+  flex-direction:column;
 }
 .files-visualizer-card canvas{
   width:100%;
-  height:220px;
+  height:280px;
   display:block;
   background:#0b1119;
+}
+.files-visualizer-card:fullscreen{
+  width:100vw;
+  height:100vh;
+  margin:0;
+  padding:0;
+  display:flex;
+  flex-direction:column;
+  background:#0b0f16;
+}
+.files-visualizer-card:fullscreen .files-visualizer-head{
+  flex:0 0 auto;
+  padding:12px 12px;
+}
+.files-visualizer-card:fullscreen canvas{
+  flex:1 1 auto;
+  height:auto;
 }
 .files-playlist-row{
   display:flex;

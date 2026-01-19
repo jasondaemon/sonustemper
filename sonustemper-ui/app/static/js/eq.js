@@ -1528,7 +1528,7 @@
       saveStatus.textContent = 'Saved.';
       saveResult.innerHTML = '';
       const link = document.createElement('a');
-      link.href = `/api/analyze/path?path=${encodeURIComponent(data.output_rel)}`;
+      link.href = data.download_url || `/api/utility-download?path=${encodeURIComponent(data.output_rel)}`;
       link.textContent = data.output_name || 'Download';
       link.className = 'btn ghost tiny';
       link.setAttribute('download', '');
@@ -1550,7 +1550,8 @@
       openAnalyze.textContent = 'Open in Noise Removal';
       openAnalyze.addEventListener('click', () => {
         const url = new URL('/noise_removal', window.location.origin);
-        url.searchParams.set('path', data.output_rel);
+        const analyzeRel = data.output_rel;
+        url.searchParams.set('path', analyzeRel);
         window.location.assign(`${url.pathname}${url.search}`);
       });
       saveResult.appendChild(openAnalyze);

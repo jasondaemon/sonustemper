@@ -4955,24 +4955,23 @@ def eq_render(payload: dict = Body(...)):
             amount = clamp(deharsh.get("amount_db"), -6.0, 0.0)
             if amount < 0:
                 voice_filters.append(f"equalizer=f={freq:g}:width_type=q:width=1.5:g={amount:g}")
-    if bypass:
-        filters = []
-    for band in bands:
-        if not isinstance(band, dict):
-            continue
-        if band.get("enabled") is False:
-            continue
-        b_type = (band.get("type") or "peaking").strip().lower()
-        freq = clamp(band.get("freq_hz"), 20.0, 20000.0)
-        gain = clamp(band.get("gain_db"), -12.0, 12.0)
-        q_val = clamp(band.get("q"), 0.2, 12.0)
-        if b_type == "highpass":
-            filters.append(f"highpass=f={freq:g}")
-            continue
-        if b_type == "lowpass":
-            filters.append(f"lowpass=f={freq:g}")
-            continue
-        filters.append(f"equalizer=f={freq:g}:width_type=q:width={q_val:g}:g={gain:g}")
+    if not bypass:
+        for band in bands:
+            if not isinstance(band, dict):
+                continue
+            if band.get("enabled") is False:
+                continue
+            b_type = (band.get("type") or "peaking").strip().lower()
+            freq = clamp(band.get("freq_hz"), 20.0, 20000.0)
+            gain = clamp(band.get("gain_db"), -12.0, 12.0)
+            q_val = clamp(band.get("q"), 0.2, 12.0)
+            if b_type == "highpass":
+                filters.append(f"highpass=f={freq:g}")
+                continue
+            if b_type == "lowpass":
+                filters.append(f"lowpass=f={freq:g}")
+                continue
+            filters.append(f"equalizer=f={freq:g}:width_type=q:width={q_val:g}:g={gain:g}")
     chain_parts = voice_filters + filters
     logger.info(
         "[eq][render] bypass=%s voice_bypass=%s voice_filters=%d eq_filters=%d",
@@ -5048,6 +5047,8 @@ def eq_render(payload: dict = Body(...)):
         "version_id": version_id,
         "song_id": song_id,
         "url": f"/api/analyze/path?path={quote(out_rel)}",
+        "analyze_url": f"/api/analyze/path?path={quote(out_rel)}",
+        "download_url": f"/api/utility-download?path={quote(out_rel)}",
         "metrics": metrics,
     }
 

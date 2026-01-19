@@ -31,7 +31,6 @@ SonusTemper is a music finishing toolkit for AI‑generated and real recordings.
 | --- | --- |
 | [Library](library.md) | Song + version management |
 | [Compare](compare.md) | A/B analysis |
-| [Analyze](analyze.md) | Metrics + diagnostics |
 | [AI Toolkit](ai-toolkit.md) | Real‑time cleanup |
 | [Noise Removal](noise-removal.md) | Preset + selection denoise |
 | [EQ](eq.md) | Soundboard EQ + Voice Controls |
