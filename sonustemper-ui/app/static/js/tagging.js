@@ -580,17 +580,21 @@
         const setStatus = (msg) => { if(status) status.textContent = msg || ''; };
         const files = Array.from(e.target.files || []);
         if(!files.length) return;
-        setStatus('Uploading...');
-        const fd = new FormData();
-        files.forEach(file => fd.append('files', file, file.name));
         try{
-          const res = await fetch('/api/tagger/upload-mp3', { method: 'POST', body: fd });
-          if(!res.ok) throw new Error(await res.text());
-          const data = await res.json();
-          tagState.temp.session = data.session || tagState.temp.session;
-          if(tagState.temp.session) localStorage.setItem('tagTempSession', tagState.temp.session);
-          tagState.temp.items = (data.items || []).concat(tagState.temp.items || []);
-          renderTempList();
+          let index = 0;
+          for (const file of files) {
+            index += 1;
+            setStatus(`Uploading ${index}/${files.length}...`);
+            const fd = new FormData();
+            fd.append('files', file, file.name);
+            const res = await fetch('/api/tagger/upload-mp3', { method: 'POST', body: fd });
+            if(!res.ok) throw new Error(await res.text());
+            const data = await res.json();
+            tagState.temp.session = data.session || tagState.temp.session;
+            if(tagState.temp.session) localStorage.setItem('tagTempSession', tagState.temp.session);
+            tagState.temp.items = (data.items || []).concat(tagState.temp.items || []);
+            renderTempList();
+          }
           setStatus('Ready.');
         }catch(_err){
           setStatus('Upload failed.');
