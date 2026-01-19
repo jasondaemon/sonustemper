@@ -1029,11 +1029,12 @@ async def api_key_guard(request: Request, call_next):
         proxy_mark = request.headers.get("X-SonusTemper-Proxy") or ""
         key = request.headers.get("X-API-Key") or ""
         if PROXY_SHARED_SECRET:
-            if proxy_mark and is_trusted_proxy(proxy_mark):
+            trusted_proxy = bool(proxy_mark) and is_trusted_proxy(proxy_mark)
+            if trusted_proxy:
                 return await call_next(request)
             if API_KEY and key == API_KEY:
                 return await call_next(request)
-            if proxy_mark and not is_trusted_proxy(proxy_mark):
+            if proxy_mark and not trusted_proxy:
                 host = request.client.host if request.client else "?"
                 sha = hashlib.sha256(proxy_mark.encode("utf-8", "ignore")).hexdigest()[:8]
                 logger.warning(
