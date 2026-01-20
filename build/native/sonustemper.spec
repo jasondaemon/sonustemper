@@ -29,8 +29,19 @@ datas = [
     (str(project_root / "LICENSES"), "LICENSES"),
 ]
 
+lockfile = project_root / "sonustemper" / "vendor" / "ffmpeg.lock.json"
+if lockfile.exists():
+    datas.append((str(lockfile), "vendor"))
+
+for arch in ("arm64", "x86_64"):
+    ffmpeg_bin = project_root / "sonustemper" / "vendor" / "ffmpeg" / arch / "ffmpeg"
+    ffprobe_bin = project_root / "sonustemper" / "vendor" / "ffmpeg" / arch / "ffprobe"
+    if ffmpeg_bin.exists():
+        datas.append((str(ffmpeg_bin), f"vendor/ffmpeg/{arch}"))
+    if ffprobe_bin.exists():
+        datas.append((str(ffprobe_bin), f"vendor/ffmpeg/{arch}"))
+
 binaries = []
-# TODO: bundle ffmpeg/ffprobe in native builds when ready.
 
 hiddenimports = collect_submodules("sonustemper")
 hiddenimports += collect_submodules("rumps")
