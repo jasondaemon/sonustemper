@@ -11,6 +11,8 @@ from typing import Optional
 
 import uvicorn
 
+os.environ.setdefault("SONUSTEMPER_DESKTOP", "1")
+
 
 def _resource_path(*parts: str) -> Path:
     """

@@ -11,7 +11,10 @@ def find_repo_root(start: Path) -> Path:
     raise FileNotFoundError(f"Could not locate repo root from {start}")
 
 project_root = find_repo_root(spec_dir)
-entry = project_root / "sonustemper" / "desktop_main.py"
+if sys.platform == "darwin":
+    entry = project_root / "sonustemper" / "macos_app.py"
+else:
+    entry = project_root / "sonustemper" / "desktop_main.py"
 
 datas = [
     (str(project_root / "sonustemper-ui" / "app" / "ui.py"), "sonustemper-ui/app"),
@@ -34,6 +37,7 @@ hiddenimports += collect_submodules("rumps")
 hiddenimports += collect_submodules("objc")
 hiddenimports += collect_submodules("Foundation")
 hiddenimports += collect_submodules("AppKit")
+hiddenimports += collect_submodules("PyObjCTools")
 
 a = Analysis(
     [str(entry)],
@@ -82,4 +86,11 @@ if sys.platform == "darwin":
         name="SonusTemper.app",
         icon=str(project_root / "images" / "sonustemper.icns"),
         bundle_identifier="net.jasondaemon.sonustemper",
+        info_plist={
+            "CFBundleName": "SonusTemper",
+            "CFBundleDisplayName": "SonusTemper",
+            "CFBundleIdentifier": "net.jasondaemon.sonustemper",
+            "LSUIElement": "0",
+            "LSBackgroundOnly": "0",
+        },
     )

@@ -30,6 +30,7 @@
   const openAnalyzeBtn = document.getElementById('eqOpenAnalyzeBtn');
   const trackModeInputs = Array.from(document.querySelectorAll('input[name="eqTrackMode"]'));
   const libraryBrowserEl = document.getElementById('eqLibraryBrowser');
+  const libraryUploadInput = document.getElementById('eqLibraryUploadInput');
   const voiceSummary = document.getElementById('eqVoiceSummary');
   const voiceDeesserEnable = document.getElementById('eqVoiceDeesserEnable');
   const voiceDeesserFreq = document.getElementById('eqVoiceDeesserFreq');
@@ -193,6 +194,19 @@
     if (timeLabel) {
       timeLabel.textContent = `${formatTime(current)} / ${formatTime(duration)}`;
     }
+  }
+
+  async function uploadAnyFile(file) {
+    const fd = new FormData();
+    fd.append('file', file, file.name);
+    const res = await fetch('/api/analyze-upload', {
+      method: 'POST',
+      body: fd,
+    });
+    if (!res.ok) {
+      throw new Error('upload_failed');
+    }
+    return res.json();
   }
 
   function updatePlayhead() {
@@ -1730,6 +1744,10 @@
     });
     document.addEventListener('library:action', (evt) => {
       const { action, song, version } = evt.detail || {};
+      if (action === 'import-file' && libraryUploadInput) {
+        libraryUploadInput.click();
+        return;
+      }
       if (action === 'open-eq') {
         const rel = primaryRendition(version?.renditions)?.rel || version?.rel;
         if (!rel) return;
@@ -1738,6 +1756,30 @@
         window.location.assign(`${url.pathname}${url.search}`);
       }
     });
+    if (libraryUploadInput) {
+      libraryUploadInput.addEventListener('change', async () => {
+        const file = (libraryUploadInput.files || [])[0];
+        if (!file) return;
+        try {
+          const data = await uploadAnyFile(file);
+          if (data?.rel) {
+            const track = {
+              rel: data.rel,
+              title: data.song?.title || file.name,
+            };
+            state.selectedSong = data.song || null;
+            loadTrack(track, data.song || null);
+            if (libraryBrowser?.reload) {
+              libraryBrowser.reload();
+            }
+          }
+        } catch (_err) {
+          // no-op
+        } finally {
+          libraryUploadInput.value = '';
+        }
+      });
+    }
   }
 
   async function bootstrap() {

@@ -206,14 +206,16 @@ logger.info(
 if not UI_LOG_ENABLED:
     logger.info("[startup] UI log endpoint disabled (UI_LOG_ENABLED not set)")
 def validate_startup_config() -> None:
-    if not PROXY_SHARED_SECRET or PROXY_SHARED_SECRET == "changeme-proxy":
-        raise RuntimeError(
-            "PROXY_SHARED_SECRET is missing or still default ('changeme-proxy'). Set it in .env."
-        )
-    if BASIC_AUTH_ENABLED and BASIC_AUTH_PASS == "CHANGEME":
-        raise RuntimeError(
-            "BASIC_AUTH_PASS is still default ('CHANGEME'). Set it in .env."
-        )
+    desktop_mode = os.getenv("SONUSTEMPER_DESKTOP") == "1"
+    if not desktop_mode:
+        if not PROXY_SHARED_SECRET or PROXY_SHARED_SECRET == "changeme-proxy":
+            raise RuntimeError(
+                "PROXY_SHARED_SECRET is missing or still default ('changeme-proxy'). Set it in .env."
+            )
+        if BASIC_AUTH_ENABLED and BASIC_AUTH_PASS == "CHANGEME":
+            raise RuntimeError(
+                "BASIC_AUTH_PASS is still default ('CHANGEME'). Set it in .env."
+            )
     if SONUSTEMPER_STRICT_CONFIG and (API_ALLOW_UNAUTH or API_AUTH_DISABLED):
         raise RuntimeError(
             "API_ALLOW_UNAUTH/API_AUTH_DISABLED are not allowed in strict mode. "
@@ -4410,9 +4412,8 @@ def _ai_reverb_metrics(target: Path, start: float, seg: float, duration: float, 
     }
 
 def _ai_astats_segment(path: Path, start: float, duration: float, pre_filters: list[str] | None = None) -> dict:
-    want = "Peak_level+RMS_level+RMS_peak+Number_of_samples"
     filters = list(pre_filters or [])
-    filters.append(f"astats=measure_overall={want}:measure_perchannel=none:reset=0")
+    filters.append("astats=metadata=0:reset=0:measure_perchannel=none")
     filt = ",".join(filters)
     cmd = [
         FFMPEG_BIN, "-hide_banner", "-v", "info", "-nostats", "-vn", "-sn", "-dn",
@@ -4481,6 +4482,18 @@ def _ai_astats_segment(path: Path, start: float, duration: float, pre_filters: l
                 out["samples"] = int(num) if num is not None else None
             except Exception:
                 out["samples"] = None
+    if out.get("peak_level") is None or out.get("rms_level") is None:
+        stderr_head = "\n".join((r.stderr or "").splitlines()[:25])
+        logger.warning(
+            "[ai-tool][astats] segment missing stats path=%s start=%.3f dur=%.3f peak=%s rms=%s filt=%s stderr_head=%s",
+            path,
+            start,
+            duration,
+            out.get("peak_level"),
+            out.get("rms_level"),
+            filt,
+            stderr_head,
+        )
     if out.get("peak_level") is not None and out.get("rms_level") is not None:
         out["crest_factor"] = out["peak_level"] - out["rms_level"]
     return out

@@ -64,6 +64,24 @@ Tools are **OFF by default**. Enabling applies the effect.
 - **Platform Ready (AI Safe Loudness)**
   - **Value**: Target LUFS. Lower values reduce loudness; higher values increase.
 
+### Reverb Reduction (Perceptual)
+Applied before the other tools. These controls are optional and off by default.
+
+- **Side Reduction**
+  - **Value**: 0–40%. Reduces wide room energy.
+- **Mid Suppression**
+  - **Value**: 0 to -6 dB. Tames mid‑range smear around ~1.8 kHz.
+- **Tail Gate**
+  - **Threshold**: -55 to -25 dB
+  - **Ratio**: 1.5 to 4.0
+- **Low Cut**
+  - **Value**: 60–220 Hz.
+- **High Cut**
+  - **Value**: 6–14 kHz.
+
+![reverb-reduction](img/ai-reverb.png)
+
+
 ### Save
 - **Save Cleaned Copy**: Renders the full chain server‑side and creates a new version.
 - **Output row**: Download / Open in Compare.
@@ -82,9 +100,9 @@ Tools are **OFF by default**. Enabling applies the effect.
 <details>
 <summary>Technical Details</summary>
 
-- **Detect (Recommendations)**: `GET /api/ai-tool/detect` runs ffmpeg `astats` over full and segment windows to derive peak/RMS/crest and band ratios for hiss/harsh/mud.
-- **Preview chain (WebAudio)**: MediaElementSource -> biquads (shelf/peaking/highpass) -> compressor -> output gain -> analyser -> destination.
-- **Render chain (FFmpeg)**: `/api/ai-tool/render_combo` builds an `-af` chain in order: bass tighten -> vocal smooth -> deglass -> transient soften -> platform safe.
+- **Detect (Recommendations)**: `GET /api/ai-tool/detect` runs ffmpeg `astats` over full and segment windows to derive peak/RMS/crest and band ratios for hiss/harsh/mud, plus mid/side and tail ratios for reverb reduction.
+- **Preview chain (WebAudio)**: MediaElementSource -> reverb reduction (mid/side, EQ, gate, HP/LP) -> biquads (shelf/peaking/highpass) -> compressor -> output gain -> analyser -> destination.
+- **Render chain (FFmpeg)**: `/api/ai-tool/render_combo` builds an `-af` chain in order: reverb reduction -> bass tighten -> vocal smooth -> deglass -> transient soften -> platform safe.
 
 Example render chain:
 ```bash

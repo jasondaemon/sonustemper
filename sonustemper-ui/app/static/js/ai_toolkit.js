@@ -1192,7 +1192,7 @@
           applyDefaults();
           renderRecommendations(suggestions);
           if (aiRecoEmpty) {
-            aiRecoEmpty.textContent = suggestions.length ? '' : 'No recommendations for this track.';
+            aiRecoEmpty.textContent = suggestions.length ? '' : 'No issues detected.';
             aiRecoEmpty.hidden = !!suggestions.length;
           }
           addStatusLine(`Recommendations: ${suggestions.length ? `${suggestions.length} suggestion(s)` : 'none'}.`);
