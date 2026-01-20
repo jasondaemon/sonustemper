@@ -37,6 +37,19 @@
     let i = 0;
     while (i < lines.length) {
       const line = lines[i];
+      if (line.trim().startsWith('<details')) {
+        const block = [];
+        while (i < lines.length) {
+          block.push(lines[i]);
+          if (lines[i].trim().startsWith('</details>')) {
+            i += 1;
+            break;
+          }
+          i += 1;
+        }
+        out.push(block.join('\n'));
+        continue;
+      }
       if (line.trim().startsWith('```')) {
         const lang = line.trim().slice(3).trim();
         const code = [];

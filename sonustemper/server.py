@@ -4156,6 +4156,7 @@ AI_TOOL_IDS = {
     "ai_vocal_smooth",
     "ai_bass_tight",
     "ai_transient_soften",
+    "ai_reverb_reduce",
     "ai_platform_safe",
 }
 
@@ -4252,6 +4253,43 @@ def _ai_tool_filter_chain(tool_id: str, value: float, options: dict | None) -> s
             presence_gain = 1.5 * (lift / 4.0)
             filters.append(f"equalizer=f=3200:t=q:w=1.0:g={presence_gain:.2f}")
 
+    elif tool == "ai_reverb_reduce":
+        side_enabled = _ai_opt_bool(opts, "enable_side_reduction")
+        mid_enabled = _ai_opt_bool(opts, "enable_mid_suppress")
+        gate_enabled = _ai_opt_bool(opts, "enable_tail_gate")
+        low_enabled = _ai_opt_bool(opts, "enable_low_cut")
+        high_enabled = _ai_opt_bool(opts, "enable_high_cut")
+
+        side_pct = _ai_opt_float(opts, "side_reduction_pct", 0.0) or 0.0
+        side_pct = max(0.0, min(40.0, side_pct))
+        if side_enabled and side_pct > 0.1:
+            slev = 1.0 - (side_pct / 100.0)
+            filters.append(f"stereotools=mlev=1.0:slev={slev:.3f}")
+
+        mid_db = _ai_opt_float(opts, "mid_suppress_db", 0.0) or 0.0
+        mid_db = max(-6.0, min(0.0, mid_db))
+        mid_freq = _ai_opt_float(opts, "mid_freq_hz", 1800.0) or 1800.0
+        mid_freq = max(800.0, min(3000.0, mid_freq))
+        if mid_enabled and mid_db < -0.05:
+            filters.append(f"equalizer=f={mid_freq:.0f}:t=q:w=0.8:g={mid_db:.2f}")
+
+        if gate_enabled:
+            threshold = _ai_opt_float(opts, "gate_threshold_db", -38.0) or -38.0
+            threshold = max(-55.0, min(-25.0, threshold))
+            ratio = _ai_opt_float(opts, "gate_ratio", 2.5) or 2.5
+            ratio = max(1.5, min(4.0, ratio))
+            filters.append(f"agate=threshold={threshold:.1f}dB:ratio={ratio:.2f}:attack=5:release=200")
+
+        if low_enabled:
+            low_cut = _ai_opt_float(opts, "low_cut_hz", 120.0) or 120.0
+            low_cut = max(60.0, min(220.0, low_cut))
+            filters.append(f"highpass=f={low_cut:.0f}")
+
+        if high_enabled:
+            high_cut = _ai_opt_float(opts, "high_cut_hz", 9500.0) or 9500.0
+            high_cut = max(6000.0, min(14000.0, high_cut))
+            filters.append(f"lowpass=f={high_cut:.0f}")
+
     elif tool == "ai_platform_safe":
         target_i = max(-18.0, min(-10.0, value))
         tp = -1.2
@@ -4270,6 +4308,7 @@ def _ai_tool_combo_chain(settings: dict | None) -> str:
     if not isinstance(settings, dict):
         settings = {}
     order = [
+        "ai_reverb_reduce",
         "ai_bass_tight",
         "ai_vocal_smooth",
         "ai_deglass",
@@ -4288,7 +4327,7 @@ def _ai_tool_combo_chain(settings: dict | None) -> str:
         if value is None:
             value = entry.get("strength")
             value = float(value) if isinstance(value, (int, float)) else 0.0
-        if value == 0 and tool_id != "ai_platform_safe":
+        if value == 0 and tool_id not in {"ai_platform_safe", "ai_reverb_reduce"}:
             continue
         options = entry.get("options") if isinstance(entry.get("options"), dict) else {}
         chain = _ai_tool_filter_chain(tool_id, value, options)
@@ -4318,6 +4357,57 @@ def _ai_confidence(severity: float) -> str:
     if severity >= 0.45:
         return "med"
     return "low"
+
+def _ai_lin_ratio(db_a: float | None, db_b: float | None) -> float | None:
+    if db_a is None or db_b is None:
+        return None
+    if not math.isfinite(db_a) or not math.isfinite(db_b):
+        return None
+    return math.pow(10.0, (db_a - db_b) / 20.0)
+
+def _ai_reverb_metrics(target: Path, start: float, seg: float, duration: float, full_rms: float | None) -> dict:
+    window = max(6.0, min(10.0, seg))
+    win_start = max(0.0, start)
+    mid = _ai_astats_segment(target, win_start, window, ["pan=mono|c0=0.5*(FL+FR)"])
+    side = _ai_astats_segment(target, win_start, window, ["pan=mono|c0=0.5*(FL-FR)"])
+    midband = _ai_astats_segment(target, win_start, window, ["highpass=f=400", "lowpass=f=4000"])
+    early = _ai_astats_segment(target, win_start, min(1.0, window), [])
+    late_start = win_start + max(0.0, window - 3.0)
+    late = _ai_astats_segment(target, late_start, min(3.0, window), [])
+
+    side_rms = side.get("rms_level") if isinstance(side, dict) else None
+    mid_rms = mid.get("rms_level") if isinstance(mid, dict) else None
+    side_ratio_db = None
+    if isinstance(side_rms, (int, float)) and isinstance(mid_rms, (int, float)):
+        side_ratio_db = side_rms - mid_rms
+
+    tail_ratio = _ai_lin_ratio(
+        late.get("rms_level") if isinstance(late, dict) else None,
+        early.get("rms_level") if isinstance(early, dict) else None,
+    )
+
+    if duration and duration > window * 1.8:
+        alt_start = max(0.0, duration - window)
+        if abs(alt_start - win_start) > 2.0:
+            early2 = _ai_astats_segment(target, alt_start, min(1.0, window), [])
+            late2 = _ai_astats_segment(target, alt_start + max(0.0, window - 3.0), min(3.0, window), [])
+            tail2 = _ai_lin_ratio(
+                late2.get("rms_level") if isinstance(late2, dict) else None,
+                early2.get("rms_level") if isinstance(early2, dict) else None,
+            )
+            if tail2 is not None:
+                tail_ratio = max(tail_ratio or 0.0, tail2)
+
+    midband_rms = midband.get("rms_level") if isinstance(midband, dict) else None
+    mid_share_db = None
+    if isinstance(midband_rms, (int, float)) and isinstance(full_rms, (int, float)):
+        mid_share_db = midband_rms - full_rms
+
+    return {
+        "side_ratio_db": side_ratio_db,
+        "tail_ratio": tail_ratio,
+        "mid_share_db": mid_share_db,
+    }
 
 def _ai_astats_segment(path: Path, start: float, duration: float, pre_filters: list[str] | None = None) -> dict:
     want = "Peak_level+RMS_level+RMS_peak+Number_of_samples"
@@ -5473,6 +5563,7 @@ def ai_tool_detect(path: str, mode: str = "fast"):
     lf_ratio = _ai_db_ratio(lf.get("rms_level") if isinstance(lf, dict) else None, full_rms)
     lowmid_ratio = _ai_db_ratio(lowmid.get("rms_level") if isinstance(lowmid, dict) else None, full_rms)
     presence_ratio = _ai_db_ratio(presence.get("rms_level") if isinstance(presence, dict) else None, full_rms)
+    reverb_metrics = _ai_reverb_metrics(target, start, seg, duration, full_rms)
 
     metrics = {
         "segment_start": start,
@@ -5484,6 +5575,7 @@ def ai_tool_detect(path: str, mode: str = "fast"):
             "lowmid": lowmid_ratio,
             "presence": presence_ratio,
         },
+        "reverb": reverb_metrics,
     }
 
     findings: list[dict] = []
@@ -5519,6 +5611,41 @@ def ai_tool_detect(path: str, mode: str = "fast"):
             "confidence": _ai_confidence(presence_sev),
             "summary": "Harsh presence region elevated (2.5–6 kHz).",
             "suggested_tool_id": "ai_vocal_smooth",
+        })
+
+    reverb_sev = 0.0
+    side_ratio_db = reverb_metrics.get("side_ratio_db") if isinstance(reverb_metrics, dict) else None
+    tail_ratio = reverb_metrics.get("tail_ratio") if isinstance(reverb_metrics, dict) else None
+    mid_share_db = reverb_metrics.get("mid_share_db") if isinstance(reverb_metrics, dict) else None
+    if isinstance(tail_ratio, (int, float)) and tail_ratio > 0.55:
+        reverb_sev = max(reverb_sev, min(1.0, (tail_ratio - 0.55) / 0.2))
+    if isinstance(side_ratio_db, (int, float)) and side_ratio_db > -6.0:
+        reverb_sev = max(reverb_sev, 0.4 if side_ratio_db <= -3.0 else 0.7)
+    if isinstance(mid_share_db, (int, float)) and mid_share_db > -3.0:
+        reverb_sev = max(reverb_sev, 0.6)
+    if reverb_sev >= 0.45:
+        side_pct = 18 if isinstance(side_ratio_db, (int, float)) and side_ratio_db > -6.0 else 12
+        mid_db = -2.5 if isinstance(mid_share_db, (int, float)) and mid_share_db > -3.0 else -1.5
+        findings.append({
+            "id": "reverb_reduction",
+            "title": "Reverb Reduction (Perceptual)",
+            "severity": round(reverb_sev, 3),
+            "confidence": _ai_confidence(reverb_sev),
+            "summary": "Room tail and mid smear suggest perceptual reverb build-up.",
+            "suggested_tool_id": "ai_reverb_reduce",
+            "recommended_settings": {
+                "enable_side_reduction": True,
+                "side_reduction_pct": side_pct,
+                "enable_mid_suppress": True,
+                "mid_suppress_db": mid_db,
+                "enable_tail_gate": bool(isinstance(tail_ratio, (int, float)) and tail_ratio > 0.65),
+                "gate_threshold_db": -38.0,
+                "gate_ratio": 2.5,
+                "enable_low_cut": True,
+                "low_cut_hz": 120.0,
+                "enable_high_cut": True,
+                "high_cut_hz": 9500.0,
+            },
         })
 
     clip_sev = 0.0

@@ -3111,6 +3111,45 @@ h1{margin:0;font-size:24px;}
   min-width:88px;
   text-align:right;
 }
+.ai-reverb-block{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  padding:10px;
+  background:#0f151d;
+}
+.ai-reverb-head{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+.ai-reverb-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  border:1px solid var(--line);
+  border-radius:10px;
+  padding:10px;
+  background:#0b1118;
+}
+.ai-reverb-control{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-width:320px;
+  flex-wrap:wrap;
+}
+.ai-reverb-control input[type="range"]{
+  width:140px;
+  flex:0 0 auto;
+}
+.ai-reverb-control .value-pill{
+  min-width:70px;
+  text-align:right;
+}
 .ai-reco{
   margin-top:14px;
   padding:12px;

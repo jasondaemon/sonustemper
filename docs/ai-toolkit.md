@@ -78,10 +78,6 @@ Tools are **OFF by default**. Enabling applies the effect.
 - Tools are off by default. Enable only what you need.
 - Loudness slider is a target; final save uses FFmpeg loudness.
 
-## Screenshot placeholders
-- [Screenshot: Recommendations panel]
-- [Screenshot: Tool sliders + values]
-- [Screenshot: Save result]
 
 <details>
 <summary>Technical Details</summary>

@@ -29,6 +29,24 @@ Preset Management lets you create and manage voicings, profiles, and noise prese
 - **Generate**: Creates a voicing and/or profile.
 - **Status**: Reports generated items and any errors.
 
+![[reference]](img/nr-reference.png)
+
+### Inport JSON
+- Create download and edit or create your own presets
+- Import as user presets
+
+![[import]](img/nr-import.png)
+
+### Duplicate
+- duplicate built-in voicings or profiles
+
+![[duplicate]](img/nr-duplicate.png)
+
+### View and Edit
+- Imported, or dduplicate voicings can be viwed and edited
+
+![[view]](img/nr-view.png)
+
 ### Preset Library lists
 - **User Voicings**: Custom mastering voicings.
 - **User Profiles**: Loudness / profile presets.

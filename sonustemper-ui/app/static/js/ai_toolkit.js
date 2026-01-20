@@ -31,6 +31,13 @@
       fallback: -14,
     },
   ];
+  const reverbDefaults = {
+    side_reduction: { enabled: false, value: 0 },
+    mid_suppress: { enabled: false, value: 0, freq: 1800 },
+    tail_gate: { enabled: false, threshold: -38, ratio: 2.5 },
+    low_cut: { enabled: false, value: 120 },
+    high_cut: { enabled: false, value: 9500 },
+  };
 
   const aiLibraryBrowser = document.getElementById('aiLibraryBrowser');
   const aiLibraryUploadInput = document.getElementById('aiLibraryUploadInput');
@@ -55,7 +62,8 @@
   const aiRecoEmpty = document.getElementById('aiRecoEmpty');
   const aiRecoApplyAll = document.getElementById('aiRecoApplyAll');
 
-  const toolRows = Array.from(document.querySelectorAll('.ai-tool-row'));
+  const toolRows = Array.from(document.querySelectorAll('.ai-tool-row[data-tool-id]'));
+  const reverbRows = Array.from(document.querySelectorAll('.ai-reverb-row'));
 
   const state = {
     source: null,
@@ -83,6 +91,7 @@
       flatCount: 0,
     },
     tools: {},
+    reverb: JSON.parse(JSON.stringify(reverbDefaults)),
     recommendations: [],
     resizing: null,
     recoReqId: 0,
@@ -391,6 +400,45 @@
       return;
     }
     if (aiAudio) aiAudio.muted = false;
+    const reverbSplit = ctx.createChannelSplitter(2);
+    const reverbMidL = ctx.createGain();
+    const reverbMidR = ctx.createGain();
+    const reverbSideL = ctx.createGain();
+    const reverbSideR = ctx.createGain();
+    const reverbMidSum = ctx.createGain();
+    const reverbSideSum = ctx.createGain();
+    const reverbSideReduce = ctx.createGain();
+    const reverbMidEq = ctx.createBiquadFilter();
+    const reverbGate = ctx.createDynamicsCompressor();
+    const reverbHp = ctx.createBiquadFilter();
+    const reverbLp = ctx.createBiquadFilter();
+    const reverbMixL = ctx.createGain();
+    const reverbMixR = ctx.createGain();
+    const reverbSideToL = ctx.createGain();
+    const reverbSideToR = ctx.createGain();
+    const reverbMerge = ctx.createChannelMerger(2);
+
+    reverbMidL.gain.value = 0.5;
+    reverbMidR.gain.value = 0.5;
+    reverbSideL.gain.value = 0.5;
+    reverbSideR.gain.value = -0.5;
+    reverbSideReduce.gain.value = 1;
+    reverbMidEq.type = 'peaking';
+    reverbMidEq.frequency.value = 1800;
+    reverbMidEq.Q.value = 0.8;
+    reverbMidEq.gain.value = 0;
+    reverbGate.threshold.value = 0;
+    reverbGate.ratio.value = 1;
+    reverbGate.attack.value = 0.005;
+    reverbGate.release.value = 0.2;
+    reverbHp.type = 'highpass';
+    reverbHp.frequency.value = 20;
+    reverbLp.type = 'lowpass';
+    reverbLp.frequency.value = 20000;
+    reverbMixL.gain.value = 1;
+    reverbMixR.gain.value = 1;
+    reverbSideToL.gain.value = 1;
+    reverbSideToR.gain.value = -1;
     const bassHp = ctx.createBiquadFilter();
     bassHp.type = 'highpass';
     bassHp.frequency.value = 25;
@@ -445,6 +493,29 @@
     analyser.smoothingTimeConstant = 0.8;
 
     mediaSource
+      .connect(reverbSplit);
+    reverbSplit.connect(reverbMidL, 0);
+    reverbSplit.connect(reverbMidR, 1);
+    reverbMidL.connect(reverbMidSum);
+    reverbMidR.connect(reverbMidSum);
+    reverbSplit.connect(reverbSideL, 0);
+    reverbSplit.connect(reverbSideR, 1);
+    reverbSideL.connect(reverbSideSum);
+    reverbSideR.connect(reverbSideSum);
+    reverbSideSum.connect(reverbSideReduce);
+    reverbMidSum.connect(reverbMidEq);
+    reverbMidEq.connect(reverbMixL);
+    reverbMidEq.connect(reverbMixR);
+    reverbSideReduce.connect(reverbSideToL);
+    reverbSideReduce.connect(reverbSideToR);
+    reverbSideToL.connect(reverbMixL);
+    reverbSideToR.connect(reverbMixR);
+    reverbMixL.connect(reverbMerge, 0, 0);
+    reverbMixR.connect(reverbMerge, 0, 1);
+    reverbMerge
+      .connect(reverbGate)
+      .connect(reverbHp)
+      .connect(reverbLp)
       .connect(bassHp)
       .connect(bassMud)
       .connect(vocalSmooth)
@@ -468,6 +539,23 @@
       deglassLp,
       transientComp,
       platformComp,
+      reverbSplit,
+      reverbMidL,
+      reverbMidR,
+      reverbSideL,
+      reverbSideR,
+      reverbMidSum,
+      reverbSideSum,
+      reverbSideReduce,
+      reverbMidEq,
+      reverbGate,
+      reverbHp,
+      reverbLp,
+      reverbMixL,
+      reverbMixR,
+      reverbSideToL,
+      reverbSideToR,
+      reverbMerge,
       outputGain,
       scope,
     };
@@ -506,6 +594,7 @@
     const bass = ensureToolState('ai_bass_tight');
     const trans = ensureToolState('ai_transient_soften');
     const platform = ensureToolState('ai_platform_safe');
+    const reverb = ensureReverbState();
 
     if (deglass.enabled) {
       setParam(state.nodes.deglassShelf.gain, deglass.value);
@@ -575,6 +664,36 @@
       setParam(state.nodes.outputGain.gain, 1);
       setParam(state.nodes.platformComp.threshold, -14);
       setParam(state.nodes.platformComp.ratio, 2);
+    }
+
+    if (reverb.side_reduction.enabled) {
+      const pct = Math.max(0, Math.min(40, reverb.side_reduction.value));
+      setParam(state.nodes.reverbSideReduce.gain, 1 - pct / 100);
+    } else {
+      setParam(state.nodes.reverbSideReduce.gain, 1);
+    }
+    if (reverb.mid_suppress.enabled) {
+      setParam(state.nodes.reverbMidEq.frequency, reverb.mid_suppress.freq || 1800);
+      setParam(state.nodes.reverbMidEq.gain, reverb.mid_suppress.value);
+    } else {
+      setParam(state.nodes.reverbMidEq.gain, 0);
+    }
+    if (reverb.tail_gate.enabled) {
+      setParam(state.nodes.reverbGate.threshold, reverb.tail_gate.threshold);
+      setParam(state.nodes.reverbGate.ratio, reverb.tail_gate.ratio);
+    } else {
+      setParam(state.nodes.reverbGate.threshold, 0);
+      setParam(state.nodes.reverbGate.ratio, 1);
+    }
+    if (reverb.low_cut.enabled) {
+      setParam(state.nodes.reverbHp.frequency, reverb.low_cut.value);
+    } else {
+      setParam(state.nodes.reverbHp.frequency, 20);
+    }
+    if (reverb.high_cut.enabled) {
+      setParam(state.nodes.reverbLp.frequency, reverb.high_cut.value);
+    } else {
+      setParam(state.nodes.reverbLp.frequency, 20000);
     }
     if (aiEngineDebug) {
       const deglassMsg = deglass.enabled ? `${deglass.value.toFixed(1)} dB` : 'off';
@@ -758,6 +877,18 @@
     if (!Number.isFinite(value)) return '-14.0 LUFS';
     return `${value.toFixed(1)} LUFS`;
   }
+  function formatPercent(value) {
+    if (!Number.isFinite(value)) return '0%';
+    return `${Math.round(value)}%`;
+  }
+  function formatHz(value) {
+    if (!Number.isFinite(value)) return '0 Hz';
+    return `${Math.round(value)} Hz`;
+  }
+  function formatRatio(value) {
+    if (!Number.isFinite(value)) return '1.0:1';
+    return `${value.toFixed(1)}:1`;
+  }
 
   function formatValue(toolId, value) {
     if (toolId === 'ai_platform_safe') return formatLufs(value);
@@ -773,6 +904,101 @@
       };
     }
     return state.tools[toolId];
+  }
+
+  function ensureReverbState() {
+    if (!state.reverb) {
+      state.reverb = JSON.parse(JSON.stringify(reverbDefaults));
+    }
+    return state.reverb;
+  }
+
+  function resetReverbState() {
+    state.reverb = JSON.parse(JSON.stringify(reverbDefaults));
+  }
+
+  function updateReverbRow(row) {
+    const reverbId = row.dataset.reverbId;
+    const check = row.querySelector('[data-role="enabled"]');
+    if (!check) return;
+    const r = ensureReverbState();
+    const entry = r[reverbId];
+    if (!entry) return;
+    entry.enabled = Boolean(check.checked);
+    if (reverbId === 'tail_gate') {
+      const thresholdInput = row.querySelector('[data-role="threshold"]');
+      const ratioInput = row.querySelector('[data-role="ratio"]');
+      const thresholdPill = row.querySelector('[data-role="threshold-pill"]');
+      const ratioPill = row.querySelector('[data-role="ratio-pill"]');
+      if (thresholdInput) entry.threshold = parseFloat(thresholdInput.value);
+      if (ratioInput) entry.ratio = parseFloat(ratioInput.value);
+      if (thresholdPill) thresholdPill.textContent = `${Math.round(entry.threshold)} dB`;
+      if (ratioPill) ratioPill.textContent = formatRatio(entry.ratio);
+      if (thresholdInput) thresholdInput.disabled = !entry.enabled;
+      if (ratioInput) ratioInput.disabled = !entry.enabled;
+      return;
+    }
+    const slider = row.querySelector('[data-role="value"]');
+    const label = row.querySelector('[data-role="value-pill"]');
+    if (slider) entry.value = parseFloat(slider.value);
+    if (label) {
+      if (reverbId === 'side_reduction') label.textContent = formatPercent(entry.value);
+      else if (reverbId === 'low_cut' || reverbId === 'high_cut') label.textContent = formatHz(entry.value);
+      else label.textContent = formatDb(entry.value);
+    }
+    if (slider) slider.disabled = !entry.enabled;
+  }
+
+  function updateAllReverb() {
+    reverbRows.forEach((row) => updateReverbRow(row));
+  }
+
+  function applyReverbSettings(settings) {
+    const r = ensureReverbState();
+    const next = settings || {};
+    if (typeof next.side_reduction_pct === 'number') {
+      r.side_reduction.value = next.side_reduction_pct;
+      r.side_reduction.enabled = Boolean(next.enable_side_reduction);
+    }
+    if (typeof next.mid_suppress_db === 'number') {
+      r.mid_suppress.value = next.mid_suppress_db;
+      r.mid_suppress.enabled = Boolean(next.enable_mid_suppress);
+    }
+    if (typeof next.mid_freq_hz === 'number') {
+      r.mid_suppress.freq = next.mid_freq_hz;
+    }
+    if (typeof next.gate_threshold_db === 'number') {
+      r.tail_gate.threshold = next.gate_threshold_db;
+      r.tail_gate.enabled = Boolean(next.enable_tail_gate);
+    }
+    if (typeof next.gate_ratio === 'number') {
+      r.tail_gate.ratio = next.gate_ratio;
+    }
+    if (typeof next.low_cut_hz === 'number') {
+      r.low_cut.value = next.low_cut_hz;
+      r.low_cut.enabled = Boolean(next.enable_low_cut);
+    }
+    if (typeof next.high_cut_hz === 'number') {
+      r.high_cut.value = next.high_cut_hz;
+      r.high_cut.enabled = Boolean(next.enable_high_cut);
+    }
+    reverbRows.forEach((row) => {
+      const id = row.dataset.reverbId;
+      const entry = r[id];
+      if (!entry) return;
+      const check = row.querySelector('[data-role="enabled"]');
+      if (check) check.checked = entry.enabled;
+      if (id === 'tail_gate') {
+        const thresholdInput = row.querySelector('[data-role="threshold"]');
+        const ratioInput = row.querySelector('[data-role="ratio"]');
+        if (thresholdInput) thresholdInput.value = String(entry.threshold);
+        if (ratioInput) ratioInput.value = String(entry.ratio);
+      } else {
+        const slider = row.querySelector('[data-role="value"]');
+        if (slider) slider.value = String(entry.value);
+      }
+    });
+    updateAllReverb();
   }
 
   function updateToolRow(row) {
@@ -823,19 +1049,41 @@
     aiRecoApplyAll.disabled = false;
     state.recommendations.forEach((item) => {
       const tool = toolDefs.find((t) => t.id === item.toolId);
+      const title = item.title || tool?.title || item.toolId;
+      let suggestionText = 'Suggested: custom';
+      if (typeof item.value === 'number') {
+        suggestionText = `Suggested: ${formatValue(item.toolId, item.value)}`;
+      } else if (item.settings) {
+        const pct = item.settings.side_reduction_pct;
+        const db = item.settings.mid_suppress_db;
+        const low = item.settings.low_cut_hz;
+        const high = item.settings.high_cut_hz;
+        const parts = [];
+        if (typeof pct === 'number') parts.push(`${Math.round(pct)}% side`);
+        if (typeof db === 'number') parts.push(`${db.toFixed(1)} dB`);
+        if (typeof low === 'number') parts.push(`${Math.round(low)} Hz`);
+        if (typeof high === 'number') parts.push(`${Math.round(high)} Hz`);
+        if (parts.length) suggestionText = `Suggested: ${parts.join(' · ')}`;
+      }
       const row = document.createElement('div');
       row.className = 'ai-reco-item';
       row.innerHTML = `
         <div class="ai-reco-meta">
-          <div class="ai-reco-summary">${item.summary || tool?.title || item.toolId}</div>
+          <div class="ai-reco-summary">${item.summary || title}</div>
           <div class="ai-reco-sub">Severity ${(item.severity || 0).toFixed(2)} · ${String(item.confidence || 'low')}</div>
-          <div class="ai-reco-sub">Suggested: ${formatValue(item.toolId, item.value)}</div>
+          <div class="ai-reco-sub">${suggestionText}</div>
         </div>
         <div class="ai-reco-actions">
           <button type="button" class="btn ghost tiny" data-action="apply">Apply</button>
         </div>
       `;
       row.querySelector('[data-action="apply"]')?.addEventListener('click', () => {
+        if (typeof item.apply === 'function') {
+          item.apply();
+          updateFilters();
+          updateSpectrumOnce();
+          return;
+        }
         setToolValue(item.toolId, item.value, true);
         updateAllTools();
         updateFilters();
@@ -854,7 +1102,21 @@
 
     const applyDefaults = () => {
       Object.entries(defaults).forEach(([id, value]) => setToolValue(id, value, false));
+      applyReverbSettings({
+        enable_side_reduction: false,
+        side_reduction_pct: reverbDefaults.side_reduction.value,
+        enable_mid_suppress: false,
+        mid_suppress_db: reverbDefaults.mid_suppress.value,
+        enable_tail_gate: false,
+        gate_threshold_db: reverbDefaults.tail_gate.threshold,
+        gate_ratio: reverbDefaults.tail_gate.ratio,
+        enable_low_cut: false,
+        low_cut_hz: reverbDefaults.low_cut.value,
+        enable_high_cut: false,
+        high_cut_hz: reverbDefaults.high_cut.value,
+      });
       updateAllTools();
+      updateAllReverb();
       updateFilters();
       updateSpectrumOnce();
       renderRecommendations([]);
@@ -899,6 +1161,19 @@
           const suggestions = findings.slice(0, 3).map((finding) => {
             const toolId = finding.suggested_tool_id;
             const severity = Number(finding.severity || 0);
+            if (toolId === 'ai_reverb_reduce') {
+              return {
+                toolId,
+                severity,
+                confidence: finding.confidence || 'low',
+                summary: finding.summary || '',
+                title: finding.title || 'Reverb Reduction (Perceptual)',
+                settings: finding.recommended_settings || {},
+                apply: () => {
+                  applyReverbSettings(finding.recommended_settings || {});
+                },
+              };
+            }
             let value = 0;
             if (toolId === 'ai_deglass') value = -1.5 - severity * 2.5;
             if (toolId === 'ai_vocal_smooth') value = -1 - severity * 2.5;
@@ -1043,6 +1318,7 @@
 
   function updateStrengthFromUI() {
     updateAllTools();
+    updateAllReverb();
     buildAudioGraph();
     updateFilters();
     updateSpectrumOnce();
@@ -1080,6 +1356,28 @@
       const toolState = ensureToolState(tool.id);
       settings[tool.id] = { enabled: toolState.enabled, value: toolState.value };
     });
+    const reverb = ensureReverbState();
+    const reverbEnabled = Object.values(reverb).some((entry) => entry && entry.enabled);
+    if (reverbEnabled) {
+      settings.ai_reverb_reduce = {
+        enabled: true,
+        value: 0,
+        options: {
+          enable_side_reduction: reverb.side_reduction.enabled,
+          side_reduction_pct: reverb.side_reduction.value,
+          enable_mid_suppress: reverb.mid_suppress.enabled,
+          mid_suppress_db: reverb.mid_suppress.value,
+          mid_freq_hz: reverb.mid_suppress.freq,
+          enable_tail_gate: reverb.tail_gate.enabled,
+          gate_threshold_db: reverb.tail_gate.threshold,
+          gate_ratio: reverb.tail_gate.ratio,
+          enable_low_cut: reverb.low_cut.enabled,
+          low_cut_hz: reverb.low_cut.value,
+          enable_high_cut: reverb.high_cut.enabled,
+          high_cut_hz: reverb.high_cut.value,
+        },
+      };
+    }
     try {
       const res = await fetch('/api/ai-tool/render_combo', {
         method: 'POST',
@@ -1096,6 +1394,9 @@
         const activeTools = toolDefs
           .filter((tool) => ensureToolState(tool.id).enabled)
           .map((tool) => tool.title);
+        if (reverbEnabled) {
+          activeTools.push('Reverb Reduction');
+        }
         const rel = data.output_rel;
         const format = (rel.split('.').pop() || '').toLowerCase();
         const addRes = await fetch('/api/library/add_version', {
@@ -1234,6 +1535,37 @@
       });
     }
   });
+  reverbRows.forEach((row) => {
+    updateReverbRow(row);
+    const checkbox = row.querySelector('[data-role="enabled"]');
+    const slider = row.querySelector('[data-role="value"]');
+    const threshold = row.querySelector('[data-role="threshold"]');
+    const ratio = row.querySelector('[data-role="ratio"]');
+    if (checkbox) {
+      checkbox.addEventListener('change', () => {
+        updateReverbRow(row);
+        updateStrengthFromUI();
+      });
+    }
+    if (slider) {
+      slider.addEventListener('input', () => {
+        updateReverbRow(row);
+        updateStrengthFromUI();
+      });
+    }
+    if (threshold) {
+      threshold.addEventListener('input', () => {
+        updateReverbRow(row);
+        updateStrengthFromUI();
+      });
+    }
+    if (ratio) {
+      ratio.addEventListener('input', () => {
+        updateReverbRow(row);
+        updateStrengthFromUI();
+      });
+    }
+  });
 
   if (aiSaveBtn) {
     aiSaveBtn.addEventListener('click', saveCleanedCopy);
@@ -1243,9 +1575,14 @@
     aiRecoApplyAll.addEventListener('click', () => {
       if (!state.recommendations.length) return;
       state.recommendations.forEach((item) => {
+        if (typeof item.apply === 'function') {
+          item.apply();
+          return;
+        }
         setToolValue(item.toolId, item.value, true);
       });
       updateAllTools();
+      updateAllReverb();
       updateFilters();
       updateSpectrumOnce();
     });
@@ -1373,6 +1710,7 @@
 
   initWaveSurfer();
   updateAllTools();
+  updateAllReverb();
   updateFilters();
   updateSpectrumOnce();
   updateScopeOnce();

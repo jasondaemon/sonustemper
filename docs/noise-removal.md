@@ -31,7 +31,7 @@ Noise Removal isolates and reduces unwanted noise using presets or a marquee sel
 4) Save the cleaned song (creates a new version).
 5) Save as Preset if you want to reuse the settings.
 
-![voicing](img/nr-marquee.png)
+![marquee](img/nr-marquee.png)
 
 ## Controls and functions
 

@@ -2,7 +2,7 @@
 
 SonusTemper is a local-first audio workstation: master, compare, clean noise, tag, and manage your library. Everything runs locally (FastAPI + FFmpeg), with deterministic naming, metrics, and provenance files for traceable results.
 
-![Main interface](doc/img/master.png)
+![Main interface](docs/img/master.png)
 
 ### First Run (Required)
 SonusTemper will refuse to start with default placeholder secrets.

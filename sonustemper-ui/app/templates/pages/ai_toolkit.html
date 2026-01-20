@@ -153,6 +153,84 @@
           <span class="value-pill" data-role="value-pill">-14.0 LUFS</span>
         </div>
       </div>
+      <div class="ai-reverb-block">
+        <div class="ai-reverb-head">
+          <div class="ai-tool-title">Reverb Reduction (Perceptual)</div>
+          <div class="ai-tool-sub">Reduces perceived room reverb using mid/side + spectral shaping.</div>
+        </div>
+        <div class="ai-reverb-row" data-reverb-id="side_reduction">
+          <div class="ai-tool-meta">
+            <div class="ai-tool-title">Side Reduction</div>
+            <div class="ai-tool-sub">Reduce wide room energy.</div>
+          </div>
+          <div class="ai-tool-control ai-reverb-control">
+            <label class="ai-tool-toggle">
+              <input type="checkbox" data-role="enabled">
+              <span>Enabled</span>
+            </label>
+            <input type="range" min="0" max="40" step="1" value="0" data-role="value">
+            <span class="value-pill" data-role="value-pill">0%</span>
+          </div>
+        </div>
+        <div class="ai-reverb-row" data-reverb-id="mid_suppress">
+          <div class="ai-tool-meta">
+            <div class="ai-tool-title">Mid Suppression</div>
+            <div class="ai-tool-sub">Tame mid smear (~1.8 kHz).</div>
+          </div>
+          <div class="ai-tool-control ai-reverb-control">
+            <label class="ai-tool-toggle">
+              <input type="checkbox" data-role="enabled">
+              <span>Enabled</span>
+            </label>
+            <input type="range" min="-6" max="0" step="0.1" value="0" data-role="value">
+            <span class="value-pill" data-role="value-pill">0.0 dB</span>
+          </div>
+        </div>
+        <div class="ai-reverb-row" data-reverb-id="tail_gate">
+          <div class="ai-tool-meta">
+            <div class="ai-tool-title">Tail Gate</div>
+            <div class="ai-tool-sub">Reduce sustained tails on sparse material.</div>
+          </div>
+          <div class="ai-tool-control ai-reverb-control">
+            <label class="ai-tool-toggle">
+              <input type="checkbox" data-role="enabled">
+              <span>Enabled</span>
+            </label>
+            <input type="range" min="-55" max="-25" step="1" value="-38" data-role="threshold">
+            <span class="value-pill" data-role="threshold-pill">-38 dB</span>
+            <input type="range" min="1.5" max="4" step="0.1" value="2.5" data-role="ratio">
+            <span class="value-pill" data-role="ratio-pill">2.5:1</span>
+          </div>
+        </div>
+        <div class="ai-reverb-row" data-reverb-id="low_cut">
+          <div class="ai-tool-meta">
+            <div class="ai-tool-title">Low Cut</div>
+            <div class="ai-tool-sub">Trim low rumble in tails.</div>
+          </div>
+          <div class="ai-tool-control ai-reverb-control">
+            <label class="ai-tool-toggle">
+              <input type="checkbox" data-role="enabled">
+              <span>Enabled</span>
+            </label>
+            <input type="range" min="60" max="220" step="5" value="120" data-role="value">
+            <span class="value-pill" data-role="value-pill">120 Hz</span>
+          </div>
+        </div>
+        <div class="ai-reverb-row" data-reverb-id="high_cut">
+          <div class="ai-tool-meta">
+            <div class="ai-tool-title">High Cut</div>
+            <div class="ai-tool-sub">Reduce bright room tail.</div>
+          </div>
+          <div class="ai-tool-control ai-reverb-control">
+            <label class="ai-tool-toggle">
+              <input type="checkbox" data-role="enabled">
+              <span>Enabled</span>
+            </label>
+            <input type="range" min="6000" max="14000" step="100" value="9500" data-role="value">
+            <span class="value-pill" data-role="value-pill">9500 Hz</span>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="ai-save">
