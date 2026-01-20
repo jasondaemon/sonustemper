@@ -1,7 +1,12 @@
 # Changelog
 
-## [Unreleased]
-- TBD
+## [v2.0.3] — Major UI + Workflow Overhaul
+- Brand‑new interface across the app (full redesign since 1.x.x).
+- Added AI Music Toolkit for real‑time cleanup + recommendations.
+- Added EQ utility with live spectrum and band controls.
+- Added native OS builds (macOS/Windows/Linux) for desktop use.
+- Expanded utility workflows: Noise Removal, Compare, Library Manager, and Preset Management refinements.
+- Stronger security defaults and startup validation for production deployments.
 
 ## [v1.3.0] - Released
 - Security hardening: proxy-only perimeter with Basic Auth + shared secret header; envsubst-rendered nginx config; UI no longer embeds API keys; proxy refuses default creds.
@@ -30,3 +35,4 @@
 [v1.1.0]: https://github.com/jasondaemon/sonustemper/releases/tag/v1.1.0
 [v1.2.0]: https://github.com/jasondaemon/sonustemper/releases/tag/v1.2.0
 [v1.3.0]: https://github.com/jasondaemon/sonustemper/releases/tag/v1.3.0
+[v2.0.3]: https://github.com/jasondaemon/sonustemper/releases/tag/v2.0.3

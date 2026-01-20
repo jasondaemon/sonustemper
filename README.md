@@ -138,29 +138,23 @@ docker compose -f docker-compose.dev.yml up --build
 uvicorn sonustemper.server:app --reload --port 8383
 ```
 
-### Native Builds (planned)
-- macOS/Windows bundles will include ffmpeg/ffprobe; end users install nothing.
-- Maintainers: place `sonustemper-ui/app/static/vendor/htmx.min.js` and `vendor/ffmpeg/<platform>/` binaries before packaging.
-- Maintainers: see packaging docs for where bundled binaries are sourced.
-
 ### Native Builds
 macOS (menubar support):
 ```bash
 python -m venv .venv-native && source .venv-native/bin/activate
-pip install -e ".[dev,macos]"
-pyinstaller build/native/sonustemper.spec
+pip install -r requirements-native-macos.txt
+build/native/build_macos.sh
 ```
 
 Windows/Linux:
 ```bash
 python -m venv .venv-native && activate
-pip install -e ".[dev]"
+pip install -r requirements.txt
 pyinstaller build/native/sonustemper.spec
 ```
 
 Notes:
-- Native builds require ffmpeg/ffprobe on PATH (for now).
-- If missing, Health will show not-ready and mastering features won’t run.
+- macOS builds bundle ffmpeg/ffprobe into the app; no system install required.
 
 ### Maintainers
 - Generate a Python dependency/license snapshot: `python3 scripts/licenses_report.py` (writes `docs/python-deps.md`).
@@ -216,7 +210,7 @@ Quick links:
 - Multi-file run: two files, mixed formats, confirm a single SSE stream drives status and both appear in Previous Runs.
 - SSE reconnect: refresh the page mid-run; ensure status replays via `/api/run/<run_id>` and finishes cleanly.
 - Error path: intentionally bad preset/voicing to verify terminal `error` event stops the stream and UI doesn’t spin.
-- Analyze (Noise Cleanup): open Analyze, select a run/output, drag a spectrogram region, preview Solo/Remove, then render a cleaned copy and download the result.
+- Noise Removal: open Noise Removal, select a run/output, drag a spectrogram region, preview Solo/Filtered, then render a cleaned copy and download the result.
 - AI Music Toolkit: open AI Music Toolkit, pick a source/processed file, preview a cleanup tool, apply it, and open the result in Compare.
 
 ## AI Music Toolkit
