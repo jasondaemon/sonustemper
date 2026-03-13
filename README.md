@@ -118,8 +118,8 @@ SonusTemper will refuse to start with default placeholder secrets.
 cp .env.example .env   # optional: set PORT, SONUSTEMPER_TAG
 # Set Basic Auth creds (required): edit .env to change BASIC_AUTH_PASS from CHANGEME
 # Optional: set API_KEY only for CLI scripts (UI does not use it)
-docker compose pull
-docker compose up -d
+# Builds local checked-out source so runtime matches repo state
+docker compose up -d --build
 # open http://localhost:${PORT:-8383}
 ```
 Mounts (defaults):
