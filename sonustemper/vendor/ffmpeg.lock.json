@@ -1,0 +1,20 @@
+{
+  "entries": [
+    {
+      "arch": "arm64",
+      "sha256_ffmpeg": "430d60fbf419dab28daee9b679e7929a31ee9bae53f6e42e8ae26b725584290f",
+      "sha256_ffprobe": "a4da5b4f4468ed61fd89d1f5d8096b128e7167c26c7c35e38ea6fd21c169f4d6",
+      "url_ffmpeg": "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip",
+      "url_ffprobe": "https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip"
+    },
+    {
+      "arch": "x86_64",
+      "sha256_ffmpeg": "430d60fbf419dab28daee9b679e7929a31ee9bae53f6e42e8ae26b725584290f",
+      "sha256_ffprobe": "a4da5b4f4468ed61fd89d1f5d8096b128e7167c26c7c35e38ea6fd21c169f4d6",
+      "url_ffmpeg": "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip",
+      "url_ffprobe": "https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip"
+    }
+  ],
+  "source": "evermeet.cx",
+  "version": "latest"
+}

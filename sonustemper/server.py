@@ -634,7 +634,7 @@ else:
     logger.warning("WARNING [auth] API running unauthenticated (localhost-only).")
 FFMPEG_BIN = resolve_tool("ffmpeg")
 FFPROBE_BIN = resolve_tool("ffprobe")
-logger.debug("[startup] ffmpeg=%s ffprobe=%s", FFMPEG_BIN, FFPROBE_BIN)
+logger.info("[startup] ffmpeg=%s ffprobe=%s", FFMPEG_BIN, FFPROBE_BIN)
 _db_info = describe_db_location()
 try:
     _uid = os.geteuid()
