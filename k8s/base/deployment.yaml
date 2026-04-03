@@ -1,0 +1,152 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sonustemper
+  labels:
+    app.kubernetes.io/name: sonustemper
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sonustemper
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sonustemper
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsUser: 1000
+      initContainers:
+        - name: fix-permissions
+          image: alpine:3.21
+          command:
+            - /bin/sh
+            - -lc
+          args:
+            - mkdir -p /data /db && chown -R 1000:1000 /data /db && chmod -R 755 /data /db
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: db
+              mountPath: /db
+      containers:
+        - name: sonustemper
+          image: ghcr.io/jasondaemon/sonustemper:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DATA_DIR
+              value: /data
+            - name: SONUSTEMPER_DATA_ROOT
+              value: /data
+            - name: SONUSTEMPER_REQUIRE_DATA_ROOT
+              value: "1"
+            - name: SONUSTEMPER_REQUIRE_CONFIG
+              value: "1"
+            - name: SONUSTEMPER_RECONCILE_ON_BOOT
+              value: "1"
+            - name: SONUSTEMPER_LIBRARY_DB
+              value: /db/library.sqlite3
+            - name: MASTERING_BUILD
+              value: k8s
+            - name: API_KEY
+              value: ""
+            - name: API_AUTH_DISABLED
+              value: "0"
+            - name: PROXY_SHARED_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: sonustemper-auth
+                  key: proxy-shared-secret
+            - name: SONUSTEMPER_STRICT_CONFIG
+              value: "1"
+            - name: APP_VERSION
+              value: latest
+            - name: LOG_LEVEL
+              value: error
+          ports:
+            - name: app-http
+              containerPort: 8383
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: app-http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: app-http
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: db
+              mountPath: /db
+        - name: proxy
+          image: nginx:1.25-alpine
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsGroup: 0
+            runAsNonRoot: false
+            runAsUser: 0
+          env:
+            - name: BASIC_AUTH_ENABLED
+              value: "1"
+            - name: BASIC_AUTH_USER
+              value: admin
+            - name: BASIC_AUTH_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: sonustemper-auth
+                  key: basic-auth-pass
+            - name: PROXY_SHARED_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: sonustemper-auth
+                  key: proxy-shared-secret
+            - name: PROXY_UPSTREAM_HOST
+              value: 127.0.0.1
+            - name: PROXY_UPSTREAM_PORT
+              value: "8383"
+          ports:
+            - name: proxy-http
+              containerPort: 80
+          readinessProbe:
+            tcpSocket:
+              port: proxy-http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: proxy-http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+          command:
+            - /bin/sh
+            - /proxy-entrypoint.sh
+          volumeMounts:
+            - name: proxy-config
+              mountPath: /proxy-entrypoint.sh
+              subPath: proxy-entrypoint.sh
+            - name: proxy-config
+              mountPath: /etc/nginx/templates/nginx.conf.template
+              subPath: nginx.conf.template
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: sonustemper-data
+        - name: db
+          emptyDir: {}
+        - name: proxy-config
+          configMap:
+            name: sonustemper-proxy
+            defaultMode: 0755

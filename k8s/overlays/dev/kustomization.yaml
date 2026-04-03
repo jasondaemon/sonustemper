@@ -1,0 +1,38 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: sonustemper-dev
+
+resources:
+  - ../../base
+  - namespace.yaml
+
+images:
+  - name: ghcr.io/jasondaemon/sonustemper
+    newTag: dev
+
+patches:
+  - target:
+      kind: Ingress
+      name: sonustemper
+    patch: |-
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: sonustemper
+      spec:
+        rules:
+          - host: sonustemper-dev.example.com
+            http:
+              paths:
+                - path: /
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: sonustemper
+                      port:
+                        number: 80
+        tls:
+          - hosts:
+              - sonustemper-dev.example.com
+            secretName: sonustemper-tls

@@ -2,7 +2,6 @@ server {
     listen 80;
     server_name _;
 
-    # Increase if you raise MAX_UPLOAD_BYTES
     client_max_body_size 300m;
     # The entrypoint renders the upstream before nginx starts.
     # Keep resolver settings out of the static config unless you switch to variable-based upstreams.
@@ -22,7 +21,6 @@ server {
         proxy_send_timeout 3600s;
         chunked_transfer_encoding off;
         proxy_set_header Connection "";
-        # Basic auth injected at runtime (auth.conf)
         include /etc/nginx/conf.d/auth.conf;
     }
 }

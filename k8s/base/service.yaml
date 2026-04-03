@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: sonustemper
+  labels:
+    app.kubernetes.io/name: sonustemper
+spec:
+  selector:
+    app.kubernetes.io/name: sonustemper
+  ports:
+    - name: http
+      port: 80
+      targetPort: proxy-http

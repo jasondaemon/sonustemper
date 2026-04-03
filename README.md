@@ -125,6 +125,33 @@ docker compose up -d --build
 Mounts (defaults):
 - `./data` -> `/data` (all app data: library, presets, previews)
 
+### Kubernetes
+The repo also includes a K8s bundle in [k8s/](k8s/).
+
+Deploy paths:
+- `k8s/overlays/dev` for a dev namespace, dev host, and `dev` image tag
+- `k8s/overlays/prod` for production
+- `k8s/` defaults to production
+
+```bash
+# 1) Create the target namespace secret from k8s/base/secret.example.yaml
+# 2) Replace the placeholder host in the overlay you want to deploy
+# 3) Adjust storage class or ingress class only if your cluster needs it
+kubectl apply -k k8s/overlays/dev
+```
+
+The K8s manifest mirrors the Compose runtime:
+- app container plus nginx proxy container
+- `/data` on a PVC
+- `/db` on `emptyDir`
+- proxy Basic Auth and shared-secret header remain required
+
+Recommended branch workflow:
+1. Build/test on a `dev` branch.
+2. Deploy `k8s/overlays/dev`.
+3. Merge `dev` into `main` when ready.
+4. Deploy `k8s/overlays/prod` or `k8s/`.
+
 ### Docker (dev build)
 ```bash
 cp .env.example .env
@@ -184,6 +211,7 @@ Quick links:
 - Proxy-level Basic Auth is ON by default (BASIC_AUTH_ENABLED=1).
 - Defaults in `.env.example`: user `admin`, pass `CHANGEME`. You must change the password; proxy will refuse to start if unchanged.
 - PROXY_SHARED_SECRET must be changed from the default `changeme-proxy` or containers will refuse to boot.
+- For K8s, the same values live in the `sonustemper-auth` Secret.
 - Strict config is enabled by default (SONUSTEMPER_STRICT_CONFIG=1); disable only for local dev.
 - All UI/API/SSE routes are behind Basic Auth.
 - The optional `API_KEY` is only for non-browser clients/CLI scripts; it is not embedded in the UI and is not required once Basic Auth succeeds. Proxy adds its own shared-secret header internally.

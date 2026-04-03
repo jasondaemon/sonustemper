@@ -63,4 +63,6 @@ services:
       BASIC_AUTH_USER: "${BASIC_AUTH_USER:-admin}"
       BASIC_AUTH_PASS: "${BASIC_AUTH_PASS:-CHANGEME}"
       PROXY_SHARED_SECRET: "${PROXY_SHARED_SECRET:-changeme-proxy}"
+      PROXY_UPSTREAM_HOST: "${PROXY_UPSTREAM_HOST:-sonustemper}"
+      PROXY_UPSTREAM_PORT: "${PROXY_UPSTREAM_PORT:-8383}"
     entrypoint: ["/bin/sh", "/entrypoint.sh"]

@@ -1,0 +1,22 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sonustemper
+  labels:
+    app.kubernetes.io/name: sonustemper
+spec:
+  rules:
+    - host: sonustemper.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: sonustemper
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - sonustemper.example.com
+      secretName: sonustemper-tls

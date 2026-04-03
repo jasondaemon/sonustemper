@@ -11,7 +11,6 @@ HTPASS="/etc/nginx/conf.d/.htpasswd"
 : "${PROXY_UPSTREAM_HOST:=sonustemper}"
 : "${PROXY_UPSTREAM_PORT:=8383}"
 
-# Ensure htpasswd is available
 if ! command -v htpasswd >/dev/null 2>&1; then
   apk add --no-cache apache2-utils >/dev/null
 fi
@@ -30,17 +29,14 @@ else
   echo "# basic auth disabled" > "$AUTH_CONF"
 fi
 
-# Require a shared secret (must match app env)
 if [ -z "$PROXY_SHARED_SECRET" ] || [ "$PROXY_SHARED_SECRET" = "changeme-proxy" ]; then
   echo "ERROR: PROXY_SHARED_SECRET is not set or still default ('changeme-proxy'). Set a strong value in .env." >&2
   exit 1
 fi
 export PROXY_SHARED_SECRET
 
-# Render nginx config from template with raw secret in header (escape $)
 if [ -f /etc/nginx/templates/nginx.conf.template ]; then
   cp /etc/nginx/templates/nginx.conf.template /etc/nginx/conf.d/default.conf
-  # Escape chars that sed/nginx interpret; keep literal '$' in the header value
   esc_secret=$(printf '%s' "$PROXY_SHARED_SECRET" | sed -e 's/[\\/&]/\\&/g' -e 's/\$/$$/g')
   esc_host=$(printf '%s' "$PROXY_UPSTREAM_HOST" | sed -e 's/[\\/&]/\\&/g' -e 's/\$/$$/g')
   esc_port=$(printf '%s' "$PROXY_UPSTREAM_PORT" | sed -e 's/[\\/&]/\\&/g' -e 's/\$/$$/g')
@@ -53,8 +49,6 @@ else
   exit 1
 fi
 
-# Wait for the upstream host to resolve before starting nginx (up to 30s).
-# Docker Compose uses the service name; Kubernetes can point this at 127.0.0.1.
 for i in $(seq 1 30); do
   if getent hosts "$PROXY_UPSTREAM_HOST" >/dev/null 2>&1; then
     break
