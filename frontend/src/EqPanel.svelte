@@ -83,10 +83,15 @@
 <section class="voice">
   <strong>Voice controls · Pre-EQ</strong>
   {#each Object.entries(voice) as [name, control]}
-    <label><input type="checkbox" bind:checked={control.enabled} onchange={onVoiceEdit}> {name === 'deesser' ? 'De-esser' : name === 'deharsh' ? 'De-harsh' : 'Vocal Smooth'}
-      {#if name !== 'vocal_smooth'}<input aria-label={name+' frequency'} type="number" min={name==='deesser'?3000:1500} max={name==='deesser'?10000:6000} bind:value={control.freq_hz} oninput={onVoiceEdit}>{/if}
-      <input aria-label={name+' gain'} type="range" min={name==='deesser'?-12:-6} max="0" step=".5" bind:value={control.amount_db} oninput={onVoiceEdit}> {control.amount_db} dB
-    </label>
+    {@const title = name === 'deesser' ? 'De-esser' : name === 'deharsh' ? 'De-harsh' : 'Vocal Smooth'}
+    <div class="voice-row">
+      <label><input type="checkbox" bind:checked={control.enabled} onchange={onVoiceEdit}> {title}</label>
+      {#if name !== 'vocal_smooth'}<input aria-label={title+' frequency (Hz)'} type="number" min={name==='deesser'?3000:1500} max={name==='deesser'?10000:6000} bind:value={control.freq_hz} oninput={onVoiceEdit}>{/if}
+      <div class="voice-amount">
+        <input aria-label={title+' amount (dB)'} type="range" min={name==='deesser'?-12:-6} max="0" step=".5" bind:value={control.amount_db} oninput={onVoiceEdit}>
+        <output>{control.amount_db} dB</output>
+      </div>
+    </div>
   {/each}
 </section>
 <section class="stereo">{@render stereoControls()}</section>
@@ -105,18 +110,22 @@
   .parameters label > span{white-space:nowrap}
   .parameters label.slider-row{grid-template-columns:6.4rem minmax(0,1fr) 4.3rem}
   .parameters input,.parameters select{width:100%;min-width:0}
-  .parameters select{max-width:12rem}
+  .parameters select{max-width:10rem}
   .band-actions{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.3rem;font-size:.8rem}
   button:disabled{opacity:.42;cursor:default}
   .lower-controls{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem;margin-top:1rem}
-  .voice{grid-column:span 2;display:grid;grid-template-columns:subgrid}
+  .voice{grid-column:span 2;display:grid;grid-template-columns:subgrid;align-content:start}
   .voice strong{grid-column:1/-1}
-  .voice label{flex-wrap:wrap}
+  .voice-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:.35rem;font-size:.85rem}
+  .voice label{display:flex;align-items:center}
+  .voice-amount{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) 3.4rem;align-items:center;gap:.45rem}
+  .voice-amount output{text-align:right;font-variant-numeric:tabular-nums}
+  .voice input[type=range]{width:100%;min-width:3rem}
   .stereo,.voice{background:#151c22;border:1px solid #304352;border-radius:8px;padding:.75rem}
-  .band,.voice label{display:flex;gap:.5rem;align-items:center;margin:.35rem 0}
+  .band{display:flex;gap:.5rem;align-items:center;margin:.35rem 0}
   .band button{display:flex;justify-content:space-between;gap:.35rem;flex:1;text-align:left;font-size:.8rem}
   .band button span:last-child{white-space:nowrap;font-variant-numeric:tabular-nums;color:#b6c8d7}
-  .voice input[type=number]{width:5rem}.voice input[type=range]{width:8rem}
+  .voice input[type=number]{width:5rem;justify-self:end}
   input,select,button{font:inherit;color:inherit;background:#1d2a35;border:1px solid #415869;border-radius:6px;padding:.35rem}.active{border-color:#86bbfa}
   @media(max-width:1150px){.editor{grid-template-columns:1fr}}
   @media(max-width:900px){.lower-controls{grid-template-columns:1fr}.voice{grid-column:auto;grid-template-columns:1fr}}
