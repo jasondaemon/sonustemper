@@ -315,7 +315,7 @@ def publish(album: Path, work: Path, paths: set[str], previous: set[str], replac
         entries.append({"path": relative, "existed": exists, "write": relative in paths})
     (work / "backup").mkdir()
     journal = {"entries": entries}
-    report(stage="Publishing", track="", publication=journal)
+    report(stage="Publishing", track="", track_number=None, publication=journal)
     try:
         for index, entry in enumerate(entries):
             target = publication_path(album, entry["path"])
@@ -481,7 +481,8 @@ def render_album(album: Path, tracks: list[Path], settings: dict, report=lambda 
             results = []
             paths, superseded = set(), set()
             cover_data = render_artwork(work, cover)
-            for track in tracks:
+            for index, track in enumerate(tracks, 1):
+                report(stage="Updating MP3 tags", track=track.name, track_number=index)
                 result = previous.get(track.name)
                 if not result or result.get("source") != stage or result["source_sha256"] != fingerprints[track.name]:
                     raise ValueError(f"Render {track.name} before updating its tags")
@@ -509,8 +510,8 @@ def render_album(album: Path, tracks: list[Path], settings: dict, report=lambda 
             publish(album, work, paths, superseded, True, report_publication, results)
             return results
         clean_files = []
-        for track in tracks:
-            report(stage="Preparing", track=track.name)
+        for index, track in enumerate(tracks, 1):
+            report(stage="Processing song", track=track.name, track_number=index)
             mastered = track
             if stage == "raw":
                 mastered = work / "mastered" / track.name
@@ -526,6 +527,7 @@ def render_album(album: Path, tracks: list[Path], settings: dict, report=lambda 
             else:
                 ffmpeg(mastered, clean, "-c:a", "pcm_s24le", "-ac", "2", "-ar", "48000", "-bitexact")
             clean_files.append(clean)
+        report(stage="Measuring loudness", track="", track_number=None)
         measurements = [metrics(path) for path in clean_files]
         loudness_target = settings["lufs"]
         ceiling = settings["peak"]
@@ -555,8 +557,8 @@ def render_album(album: Path, tracks: list[Path], settings: dict, report=lambda 
             return []
         cover_data = render_artwork(work, cover)
         outputs = []
-        for clean, gain, (_, clean_peak) in zip(clean_files, gains, measurements):
-            report(stage="Exporting", track=clean.name)
+        for index, (clean, gain, (_, clean_peak)) in enumerate(zip(clean_files, gains, measurements), 1):
+            report(stage="Building final WAV and MP3", track=clean.name, track_number=index)
             if stage == "raw":
                 # The clean WAV has its own headroom limit before integer conversion.
                 clean_gain = min(0.0, -clean_peak - 0.1)

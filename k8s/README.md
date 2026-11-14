@@ -85,11 +85,13 @@ Processing edits follow each track and are saved in this browser. **Apply
 processing to all tracks** sets album defaults. **Save album session** also saves
 the draft on the server. The loudness settings and export selection cover the
 album, with either shared gain or per-track normalization. **Tags and artwork**
-shows every song and offers 3000 x 3000 images from the album folder. Finalize
-writes the album's WAVs to `normalized/` and MP3s to `mp3s/`. Raw recordings are
-read-only inputs. With replacement enabled, matching previous deliveries for
-the current songs are replaced in the same publication step. A tag-only update
-operates on previously published MP3s without re-encoding them.
+shows every song and offers 3000 x 3000 images from the album folder. Under
+**Finalize album**, **Process album** runs FFmpeg on all songs and publishes the
+complete set to `mastered/` (when starting from raw), `clean/`, `normalized/`
+(final WAVs), and `mp3s/` (final MP3s and optional lyrics files). Matching outputs
+are replaced only after the full render; the source recordings and unrelated
+files stay untouched. **Update MP3 tags only** updates tags, cover art, and
+lyrics on previously published MP3s without re-encoding them.
 
 **Prompts and Lyrics** reads and saves song files on the share. The two prompt
 editors share `styles/<song>.md`: style text comes first, followed by an optional

@@ -19,7 +19,7 @@
   let waveform = $state<HTMLDivElement>();
   let waveError = $state(false);
   type Result = {track: string; mp3: string; lufs: number; true_peak: number; mp3_true_peak: number; mp3_peak_warning: boolean};
-  type Preflight = {tracks:number; existing:string[]; cover:string|null; can_update_tags:boolean; will_replace:boolean};
+  type AlbumJob = {status:string;stage:string;track?:string;track_number?:number;error?:string;results?:Result[]};
   type Folder = {name:string; playable:boolean; pending:number|null};
   type Cover = {name:string; size:number};
   type PromptKind = 'style' | 'negative' | 'prompt';
@@ -63,12 +63,12 @@
   let promptText = $state(''), submissionLyrics = $state('');
   let promptLoading = $state(false), promptWorking = $state(false), promptLoaded = $state(false);
   let promptError = $state(''), promptMessage = $state('');
-  let replace = $state(false), sidecar = $state(false), auditionFormat = $state<"wav"|"mp3">("wav");
+  let sidecar = $state(false), auditionFormat = $state<"wav"|"mp3">("wav");
   let previewURL = $state(''), previewKey = $state(''), previewBusy = $state(false);
   let audition = $state(false), player = $state<HTMLAudioElement>();
   let status = $state(''), error = $state(''), busy = $state(false);
   let results = $state<Result[]>([]);
-  let exportReview = $state<{key:string; check:Preflight; tagsOnly:boolean}>();
+  let exportStatus = $state(''), exportError = $state('');
   let cleanupEnabled = $state(false), eqEnabled = $state(false), noiseEnabled = $state(false);
   let voiceControls = $state({
     deesser:{enabled:false,freq_hz:6500,amount_db:0},
@@ -120,7 +120,7 @@
   let readyDraftKey = $state('');
   let draftKey = $derived('sonustemper:album:' + JSON.stringify([location, artist, album, source]));
   let albumSettings = $derived({balance, lufs, peak, artist:artistTag, album_artist:albumArtist,
-    album:albumTag, cover, year, replace, sidecar, profile, auditionFormat});
+    album:albumTag, cover, year, sidecar, profile, auditionFormat});
   function copy<T>(value:T):T {return JSON.parse(JSON.stringify(value));}
   const initialProcessing = {preset:'', bands:defaultBands(), voicing_enabled:false,
     voice_controls:{}, cleanup_enabled:false, corrections:{}, noise_enabled:false,
@@ -137,7 +137,6 @@
   let settings = $derived({...keys, ...draft.defaults, tracks, ...albumSettings,
     tags:draft.tags, track_overrides:effectiveOverrides});
   let previewSettings = $derived({...settings,audition_track:track,audition_format:auditionFormat});
-  let exportKey = $derived(JSON.stringify(settings));
   let currentKey = $derived(JSON.stringify(previewSettings));
   let canAudition = $derived(Boolean(previewURL && previewKey === currentKey));
   let audioURL = $derived(track ? '/api/albums/audio?' + new URLSearchParams({...keys, track}) : '');
@@ -312,7 +311,7 @@
     overrides=saved.overrides;
     tagEdits=saved.tags;
     const a=saved.albumSettings;
-    ({balance,lufs,peak,year,replace,sidecar,profile,auditionFormat}=a);
+    ({balance,lufs,peak,year,sidecar,profile,auditionFormat}=a);
     cover=library.covers?.some(item => item.name === a.cover) ? a.cover : '';
     artistTag=a.artist;albumArtist=a.album_artist;albumTag=a.album;
     await selectTrack();
@@ -381,10 +380,10 @@
   async function selectStage(preferredTrack?: string) {
     readyDraftKey=''; defaults=undefined; overrides={}; tagEdits={};
     balance='album'; profile='guiding-night'; selectProfile();
-    year=new Date().getFullYear(); replace=false; sidecar=false; auditionFormat='wav';
+    year=new Date().getFullYear(); sidecar=false; auditionFormat='wav';
     artistTag=albumArtist=artist; albumTag=album;
     cover=library.covers?.find(item => item.name === 'cover.png')?.name ?? library.covers?.[0]?.name ?? '';
-    status=''; results=[];
+    status=''; exportStatus=''; exportError=''; results=[];
     track = preferredTrack && tracks.includes(preferredTrack) ? preferredTrack : tracks[0] || '';
     const ready = selectTrack();
     const version = selectionVersion;
@@ -680,34 +679,36 @@
     } finally {noiseBusy=false;}
   }
 
-  async function reviewExport(tagsOnly = false) {
-    const key = exportKey;
-    const check = await api<Preflight>('preflight', {...settings, metadata_only:tagsOnly});
-    if (key === exportKey) exportReview = {key, check, tagsOnly};
-  }
-
-  async function run() {
-    if (!exportReview || exportReview.key !== exportKey) return;
-    const request = {...settings, metadata_only:exportReview.tagsOnly};
-    const {location, artist_folder, album_folder} = request;
-    exportReview = undefined;
-    busy = true; results = [];
+  async function runAlbum(tagsOnly = false) {
+    if (busy || !writable || !tracks.length) return;
+    const request = copy({...settings, replace:!tagsOnly, metadata_only:tagsOnly});
+    const jobKey = draftKey;
+    busy = true; results = []; exportError = ''; exportStatus = 'Submitting album…';
     try {
+      if (tagsOnly && !(await api<{can_update_tags:boolean}>('preflight', request)).can_update_tags) {
+        throw new Error('Process the full album before updating its MP3 tags.');
+      }
       const {id} = await api<{id:string}>('jobs', request);
       for (;;) {
-        const job = await api<{status:string;stage:string;track?:string;error?:string;results?:Result[]}>('jobs/' + id);
-        const sameAlbum = keys.location===location && keys.artist_folder===artist_folder && keys.album_folder===album_folder;
-        if (sameAlbum) status = job.stage + (job.track ? ' · ' + job.track : '');
-        if (job.status === 'failed') { if (sameAlbum) status = 'Export failed'; throw new Error(job.error); }
+        const job = await api<AlbumJob>('jobs/' + id);
+        const trackProgress = job.track_number ? ` ${job.track_number} of ${request.tracks.length}` : '';
+        if (draftKey === jobKey) exportStatus = job.stage + trackProgress + (job.track ? ' · ' + job.track : '');
+        if (job.status === 'failed') throw new Error(job.error || 'Album processing stopped before completion.');
         if (job.status === 'complete') {
-          if (sameAlbum) {
+          if (draftKey === jobKey) {
             results = job.results || [];
-            await refreshLibrary();
-            status = request.metadata_only ? 'Tags updated' : 'Export complete';
+            try { await refreshLibrary(); }
+            catch { if (draftKey === jobKey) exportError = 'Files were saved, but the library could not refresh.'; }
+            if (draftKey === jobKey) exportStatus = tagsOnly ? 'MP3 tags updated.' : 'Album processed. All outputs published.';
           }
           break;
         }
         await new Promise(resolve => setTimeout(resolve, 800));
+      }
+    } catch (cause) {
+      if (draftKey === jobKey) {
+        exportStatus = '';
+        exportError = cause instanceof Error ? cause.message : String(cause);
       }
     } finally { busy = false; }
   }
@@ -1004,30 +1005,21 @@
         </ul>
       </details>
       <details open><summary>Finalize album</summary>
-        <p>Final WAVs go to <code>normalized/</code> and final MP3s to <code>mp3s/</code>. Raw recordings stay untouched.</p>
-        <div class="row"><strong>All {tracks.length} tracks</strong>
-        <label class="check"><input type="checkbox" bind:checked={replace}> Replace previous outputs for these songs</label>
-        <label class="check"><input type="checkbox" bind:checked={sidecar}> Include untimed LRC</label></div>
-        {#if !writable}<p>Choose the writable test copy to export.</p>{/if}
-        <div class="row">
-          <button class="primary" disabled={busy || !writable} onclick={() => action(() => reviewExport())}>{busy ? 'Finalization in progress…' : 'Review album export'}</button>
-          <button disabled={busy || !writable} onclick={() => action(() => reviewExport(true))}>Review tag update</button>
+        <p>{source === 'raw' ? 'Process every song using its current settings and the album loudness targets.' : 'Use the existing mastered WAVs and apply the album loudness targets.'} Matching outputs are replaced after the full album renders. Raw recordings stay untouched.</p>
+        <div class="output-folders" aria-label="Output folders">
+          {#if source === 'raw'}<span><code>mastered/</code> Processed WAV</span>{/if}
+          <span><code>clean/</code> Clean WAV</span>
+          <span><code>normalized/</code> Final WAV</span>
+          <span><code>mp3s/</code> Final MP3</span>
         </div>
-        {#if exportReview && exportReview.key === exportKey}
-          {@const {check, tagsOnly} = exportReview}
-          <div class="export-review">
-            <strong>{check.tracks} {check.tracks === 1 ? 'track' : 'tracks'} · {tagsOnly ? 'Update tags and lyrics' : 'Render WAV and MP3'}</strong>
-            <small>{check.cover ? `Cover: ${check.cover}` : 'No cover selected'}{tagsOnly ? ' · Encoded audio stays intact' : ' · Delivery names include measured loudness and peak'}</small>
-            {#if tagsOnly && !check.can_update_tags}<p>Export these tracks before updating their tags.</p>{/if}
-            {#if !tagsOnly && check.existing.length}
-              <details><summary>{check.existing.length} existing {check.existing.length === 1 ? 'file' : 'files'}</summary>
-                <ul>{#each check.existing as path}<li>{path}</li>{/each}</ul>
-              </details>
-              {#if !check.will_replace}<p>Enable replacement and review again to proceed.</p>{/if}
-            {/if}
-            <button class="primary" disabled={busy || (tagsOnly ? !check.can_update_tags : !!check.existing.length && !check.will_replace)} onclick={() => action(run)}>{tagsOnly ? 'Update album tags' : 'Finalize album'}</button>
-          </div>
-        {/if}
+        <label class="check"><input type="checkbox" bind:checked={sidecar} disabled={busy}> Include untimed lyrics files (.lrc)</label>
+        {#if !writable}<p>Choose a writable storage location to process this album.</p>{/if}
+        <div class="row">
+          <button class="primary" disabled={busy || !writable} onclick={() => runAlbum()}>{busy ? 'Album job running…' : `Process album (${tracks.length} ${tracks.length === 1 ? 'song' : 'songs'})`}</button>
+          <button title="Update MP3 tags, cover art and lyrics without re-encoding audio" disabled={busy || !writable} onclick={() => runAlbum(true)}>Update MP3 tags only</button>
+        </div>
+        {#if exportStatus}<p role="status">{exportStatus}</p>{/if}
+        {#if exportError}<p class="error" role="alert">{exportError}</p>{/if}
         {#each results as item}
           <div class="result"><strong>{item.track}</strong><span>{item.lufs} LUFS · WAV {item.true_peak} dBTP · MP3 {item.mp3_true_peak} dBTP{item.mp3_peak_warning ? ' · above ceiling' : ''}</span><small>{item.mp3}</small></div>
         {/each}
@@ -1114,7 +1106,7 @@
   .album-delivery small{color:inherit}
   .transport.compact{position:sticky;top:0;z-index:2}
   audio{width:100%;height:38px}.row{display:flex;gap:.65rem;align-items:end;flex-wrap:wrap;margin:.55rem 0}.row label{flex:1;min-width:100px}
-  .row .check{display:flex;align-items:center;flex:none;min-width:0}.check input{width:auto}
+  .check{display:flex;align-items:center;gap:.4rem}.check input{width:auto}
   .session-controls{padding:.65rem 1rem;align-items:center}
   .session-controls strong{margin-right:auto}
   .transport-controls{align-items:center}
@@ -1175,6 +1167,7 @@
   .primary,.primary:not(:disabled):hover{background:var(--accent-fill);color:#fff;border-color:transparent;font-weight:700}
   .primary:not(:disabled):hover{filter:brightness(.94)}
   .result{display:grid;gap:.25rem;padding:.7rem 0;border-top:1px solid var(--line);margin-top:.5rem}.error{color:var(--danger)}.status{min-height:1.2em}
-  .export-review{display:grid;justify-items:start;gap:.5rem;padding:.8rem;border:1px solid var(--line);border-radius:.7rem;overflow-wrap:anywhere}
+  .output-folders{display:flex;flex-wrap:wrap;gap:.35rem .9rem;margin:.5rem 0 .8rem;color:var(--muted);font-size:.8rem}
+  .output-folders code{color:var(--text)}
   @media(max-width:700px){main{display:block}aside,.transport.compact{position:static}aside{height:auto;margin-bottom:.65rem}.sidebar-footer{margin-top:.5rem}}
 </style>
