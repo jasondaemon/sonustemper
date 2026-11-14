@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block page_title %}SonusTemper{% endblock %}</title>
+  <script src="/static/js/theme.js"></script>
+  <link rel="stylesheet" href="/static/css/theme.css">
   <link rel="stylesheet" href="/static/css/app.css">
   <script src="{{ static_url('vendor/htmx.min.js') }}" defer></script>
   <!-- <script src="https://unpkg.com/htmx.org@1.9.12"></script> -->
@@ -12,17 +14,10 @@
 {% set current_page = current_page or '' %}
 <body class="page-{{ current_page if current_page else 'start' }}">
   <div class="page">
-    <div id="toast" class="toast hidden"></div>
-<div class="top">
-  <div>
-    <h1>{% block title %}{% endblock %}</h1>
-    <div class="sub">{% block subtitle %}{% endblock %}</div>
-  </div>
-  <div class="utilMenu">
-    <button class="utilToggle" id="utilToggleGlobal" aria-haspopup="true" aria-expanded="false">☰</button>
-    <div class="utilDropdown hidden" id="utilDropdownGlobal">
+    <aside class="app-rail">
+      <a class="rail-brand" href="/"><img src="/static/img/sonustemper256.png" alt="">SonusTemper</a>
+      <nav class="rail-navigation" aria-label="SonusTemper">
           <a href="/" class="{% if current_page=='' %}active{% endif %}">Start</a>
-          <div class="divider"></div>
           <a href="/library" class="{% if current_page=='library' %}active{% endif %}">Song Library</a>
           <a href="/albums">Album Studio</a>
           <a href="/mastering" class="{% if current_page=='mastering' %}active{% endif %}">Mastering</a>
@@ -33,9 +28,17 @@
           <a href="/tagging" class="{% if current_page=='tagging' %}active{% endif %}">Tagging</a>
           <a href="/presets" class="{% if current_page=='presets' %}active{% endif %}">Preset Management</a>
           <a href="/docs" class="{% if current_page=='docs' %}active{% endif %}">Documentation</a>
-    </div>
-  </div>
-</div>
+      </nav>
+      <footer class="rail-footer"><button class="theme-settings-link" type="button" data-theme-settings aria-haspopup="dialog">Settings</button></footer>
+    </aside>
+    <div class="page-workspace">
+    <div id="toast" class="toast hidden"></div>
+    <header class="top">
+      <div>
+        <h1>{% block title %}{% endblock %}</h1>
+        <div class="sub">{% block subtitle %}{% endblock %}</div>
+      </div>
+    </header>
     <div class="layout">
       <div class="sidebar-slot">
         {% block sidebar %}{% endblock %}
@@ -47,12 +50,10 @@
     <div class="page-footer">
       SonusTemper {{ app_version_label }} - Developed by <a href="https://www.jasondaemon.net" target="_blank" rel="noopener">jasondaemon.net</a>
     </div>
+    </div>
   </div>
   <script>
     document.addEventListener('DOMContentLoaded', function(){
-      if (typeof setupUtilMenu === 'function') {
-        setupUtilMenu('utilToggleGlobal','utilDropdownGlobal');
-      }
       const search = window.location.search;
       if (search) {
         document.querySelectorAll('a[data-preserve-query="true"]').forEach((link) => {

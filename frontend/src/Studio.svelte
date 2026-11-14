@@ -93,6 +93,7 @@
   let tagEdits = $state<Record<string,{title:string;number:string}>>({});
   let keys = $derived({location, artist_folder: artist, album_folder: album, source});
   let tracks = $derived(library[source] || []);
+  let pendingTracks = $derived(tracks.filter(name => library.delivery?.[name]?.length).length);
   let processing = $derived({
     preset:presetBase, bands, voicing_enabled:eqEnabled, voice_controls:voiceControls,
     cleanup_enabled:cleanupEnabled, corrections, noise_enabled:noiseEnabled, noise,
@@ -148,15 +149,25 @@
   $effect(() => {
     const container = waveform, media = player, url = playbackURL;
     const WaveSurfer = (window as unknown as {WaveSurfer?: {create(options: object): {
-      on(event: 'error', callback: (error: unknown) => void): void; destroy(): void
+      on(event: 'error', callback: (error: unknown) => void): void;
+      setOptions(options: object): void;
+      destroy(): void;
     }}}).WaveSurfer;
     if (!container || !media || !url || !WaveSurfer) return;
     waveError = false;
+    function waveformColors() {
+      const colors = getComputedStyle(document.documentElement);
+      return {waveColor:colors.getPropertyValue('--chart-spectrum').trim(),
+        progressColor:colors.getPropertyValue('--chart-line').trim(),
+        cursorColor:colors.getPropertyValue('--accent').trim()};
+    }
     const wave = WaveSurfer.create({container, media, url:new URL(url, document.baseURI).href, height:240, normalize:false,
-      waveColor:'#4c6451', progressColor:'#b3d68f', cursorColor:'#e8f2d7',
+      ...waveformColors(),
       barWidth:2, barGap:1, dragToSeek:true, autoScroll:false});
     wave.on('error', error => {if (!(error instanceof DOMException && error.name === 'AbortError')) waveError = true;});
-    return () => wave.destroy();
+    const theme = new MutationObserver(() => wave.setOptions(waveformColors()));
+    theme.observe(document.documentElement, {attributeFilter:['data-theme']});
+    return () => {theme.disconnect(); wave.destroy();};
   });
 
   function selectProfile() {
@@ -671,9 +682,11 @@
   </section>
 {/snippet}
 
-<header><a href="/">SonusTemper</a><span>ALBUM STUDIO</span></header>
 <main>
   <aside>
+    <a class="app-brand" href="/"><img src="/static/img/sonustemper256.png" alt="">SonusTemper</a>
+    <div class="studio-location" aria-current="page">Album Studio</div>
+    <div class="library-browser">
     <div class="library-head"><h2>Production library</h2><button onclick={() => action(refreshLibrary)}>Refresh</button></div>
     <label>Storage<select bind:value={location} onchange={() => action(selectLocation)}><option value="">Choose storage</option>{#each locations as item}<option value={item.name} disabled={!item.available}>{item.name}{item.available ? '' : ' · offline'}</option>{/each}</select></label>
     {#if location}
@@ -707,11 +720,18 @@
         </ul>
       </section>
     {/if}
+    </div>
+    <footer class="sidebar-footer"><button class="theme-settings-link" type="button" data-theme-settings aria-haspopup="dialog">Settings</button></footer>
   </aside>
 
   <section class="workspace" aria-label="Album workflow">
     <div class="transport" class:compact={compactPlayer}>
-      <div><small>{artist || 'Production workspace'}</small><h1>{album || 'Album Studio'}</h1><p>{track ? track.replace(/\.wav$/i, '') : loadingLibrary ? 'Loading library…' : 'Select an album with raw or mastered WAVs'}</p></div>
+      <div class="transport-title">
+        <div><small>{artist || 'Album Studio'}</small><h1>{album || 'Production library'}</h1><p>{track ? track.replace(/\.wav$/i, '') : loadingLibrary ? 'Loading library…' : 'Select an album with raw or mastered WAVs'}</p></div>
+        {#if tracks.length}
+          <div class="album-delivery"><strong>{tracks.length} {tracks.length === 1 ? 'song' : 'songs'}</strong><small>{pendingTracks ? `${pendingTracks} to process` : 'All processed'}</small></div>
+        {/if}
+      </div>
       {#if track}
         <div class="wave-stack">
           <div class="waveform" bind:this={waveform} aria-label="Track waveform"></div>
@@ -721,7 +741,7 @@
         {#if waveError}<small>Waveform unavailable. Playback controls are available below.</small>{/if}
         <audio controls preload="metadata" bind:this={player} onloadedmetadata={() => {if (!audition && !noiseMode && player) sourceDuration=player.duration;}}
           ontimeupdate={() => {playhead=player?.currentTime ?? 0;}} onplay={startMonitoring} onpause={() => cancelAnimationFrame(animation)} src={playbackURL}></audio>
-        <div class="row">
+        <div class="row transport-controls">
           <button aria-pressed={compactPlayer} onclick={() => compactPlayer=!compactPlayer}>{compactPlayer ? "Expand player" : "Compact player"}</button>
           <button aria-pressed={!noiseMode && (source === 'mastered' || original) && !audition} onclick={() => setPlayback('original')}>Original</button>
           <button aria-pressed={!noiseMode && !audition && !original && source === 'raw'} disabled={source !== 'raw'} onclick={listenLive}>Live monitor</button>
@@ -914,62 +934,84 @@
 </main>
 
 <style>
-  :global(*){box-sizing:border-box} :global(body){margin:0;background:#111411;color:#eaece2;font:15px system-ui,sans-serif}
-  header{display:flex;align-items:center;gap:1.3rem;padding:.8rem 1.25rem;border-bottom:1px solid #30372e}
-  header a{color:#eaece2;text-decoration:none;font-size:1.25rem;font-weight:650} header span,small{color:#a9b99e} header span{font-size:.67rem;letter-spacing:.2em}
-  main{width:100%;padding:1rem 1.25rem;display:grid;grid-template-columns:minmax(220px,270px) minmax(0,1fr);gap:1.8rem}
-  aside{min-width:0;align-self:start;position:sticky;top:1rem;max-height:calc(100dvh - 2rem);overflow:auto;background:#191e18;padding:1.15rem;border-radius:14px;border:1px solid #30372e}
-  h2{margin:0 0 1rem;font-size:1.02rem} h1{margin:.18rem 0;font-size:clamp(2rem,4vw,3.25rem);letter-spacing:-.055em}
+  :global(*){box-sizing:border-box}
+  :global(body){margin:0;min-height:100vh;background:radial-gradient(ellipse at 20% 0%,var(--frame-glow),var(--frame) 70%);color:var(--text);font:15px var(--font-ui)}
+  main{width:calc(100% - clamp(1.4rem,5vw,4rem));max-width:1800px;margin:clamp(.7rem,3vw,2.5rem) auto;padding:.45rem;display:grid;grid-template-columns:minmax(220px,270px) minmax(0,1fr);gap:.65rem;background:var(--bg);border-radius:1.45rem;box-shadow:0 0 0 1px #ffffff2c}
+  aside{min-width:0;align-self:start;position:sticky;top:.8rem;height:calc(100dvh - clamp(2rem,6vw,5rem) - .9rem);display:flex;flex-direction:column;background:var(--card);padding:1rem;border-radius:1.12rem;box-shadow:var(--card-shadow)}
+  .app-brand{display:flex;align-items:center;gap:.55rem;margin:0 0 .85rem;color:var(--text);text-decoration:none;font-size:1.25rem;font-weight:750;letter-spacing:-.035em}
+  .app-brand img{width:2rem;height:2rem;object-fit:contain}
+  .studio-location{padding:.52rem .7rem;margin-bottom:1rem;border-radius:1rem;background:var(--selected);color:var(--selected-text);font-size:.82rem;font-weight:650}
+  .library-browser{min-height:0;overflow:auto;padding:0 .2rem .4rem .15rem;margin:0 -.15rem}
+  .sidebar-footer{margin-top:auto;padding-top:.65rem;border-top:1px solid var(--line)}
+  h2{margin:0;font-size:.9rem} h1{margin:.12rem 0;font-size:clamp(1.55rem,2.8vw,2.35rem);letter-spacing:-.045em;line-height:1.14;overflow-wrap:anywhere}
+  small{color:var(--muted)}
   .library-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem}.library-head h2{margin:0}.library-head button{font-size:.75rem;padding:.3rem .45rem}
-  p{color:#a9b99e;margin:.5rem 0 1rem} label{display:grid;gap:.35rem;color:#c8d1c1;font-size:.83rem;margin:.55rem 0}
-  select,input,textarea,button{font:inherit;color:inherit;background:#222a20;border:1px solid #414e3d;border-radius:7px;padding:.55rem;min-width:0}
-  select,input,textarea{width:100%} textarea{resize:vertical} button{cursor:pointer} button:hover,button[aria-pressed=true]{border-color:#b3d68f;background:#35482c} button:disabled{opacity:.45;cursor:default}
-  .library-section{margin-top:.85rem;border-top:1px solid #30372e;padding-top:.65rem}
-  .library-section h3{margin:0 0 .4rem;color:#c8d1c1;font-size:.8rem}
+  p{color:var(--muted);margin:.5rem 0 1rem} label{display:grid;gap:.35rem;color:var(--muted);font-size:.83rem;margin:.55rem 0}
+  select,input,textarea,button{font:inherit;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:.55rem;padding:.48rem;min-width:0}
+  select,input,textarea{width:100%} textarea{resize:vertical} button{cursor:pointer} button:not(:disabled):hover{background:var(--surface-hover)} button[aria-pressed=true]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)} button:disabled{opacity:.5;cursor:default}
+  .sidebar-footer .theme-settings-link{background:transparent;border:0;color:var(--muted);font-size:.83rem;padding:.36rem .45rem}
+  .sidebar-footer .theme-settings-link:hover{background:var(--surface);color:var(--text)}
+  .library-section{margin-top:.65rem;border-top:1px solid var(--line);padding-top:.55rem}
+  .library-section h3{margin:0 0 .3rem;color:var(--muted);font-size:.76rem}
   .library-list{list-style:none;display:grid;gap:.25rem;margin:0;padding:0;max-height:clamp(6rem,20vh,15rem);overflow:auto}
-  .library-list button{display:grid;gap:.18rem;width:100%;text-align:left;padding:.42rem .55rem;overflow-wrap:anywhere}
-  .library-list small,.empty-list{font-size:.72rem;color:#a9b99e}
-  .library-list .pending{color:#ffc98e}.library-list .delivered{color:#b3d68f}
+  .library-list button{display:grid;justify-items:start;gap:.15rem;width:100%;text-align:left;padding:.4rem .48rem;overflow-wrap:anywhere;background:transparent;border-color:transparent;font-size:.83rem}
+  .library-list button[aria-pressed=true]{background:var(--accent-soft);border-color:transparent;color:var(--text);font-weight:680}
+  .library-list small,.empty-list{font-size:.69rem;color:var(--muted);font-weight:550}
+  .library-list .pending,.library-list .delivered{padding:.08rem .35rem;border-radius:.45rem}
+  .library-list .pending{color:var(--warning);background:var(--warning-soft)}.library-list .delivered{color:var(--good);background:var(--good-soft)}
   .source-picker{display:flex;gap:.3rem;margin-bottom:.4rem}
   .source-picker button{font-size:.72rem;padding:.3rem .45rem}
-  .waveform{min-height:240px;background:#121a12;border-radius:8px;margin-bottom:.35rem}
+  .waveform{min-height:240px;background:var(--chart);border-radius:.7rem;margin-bottom:.35rem}
   .treatments{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:.65rem;margin-top:.75rem}
-  .treatment{background:#222a20;border:1px solid #414e3d;border-radius:8px;padding:.5rem .75rem}
+  .treatment{background:var(--surface);border:1px solid var(--line);border-radius:.7rem;padding:.5rem .75rem}
   .treatment .check{display:flex;align-items:center;gap:.55rem;font-weight:650}
   .treatment-option{display:grid;grid-template-columns:minmax(7.5rem,1.2fr) minmax(0,1fr) 4.3rem;align-items:center;gap:.45rem}
   .treatment-option label{margin:.2rem 0}
   .treatment-option output,.inline-control output{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
   .treatment:has(.treatment-option){grid-column:1/-1}
-  .frequency-scale{display:flex;justify-content:space-between;margin:.4rem 0;color:#a9b99e;font-size:.75rem}
-  .workspace{min-width:0}.transport{padding:1.1rem;background:#1d281b;border:1px solid #3e5137;border-radius:14px;margin-bottom:1rem}
+  .frequency-scale{display:flex;justify-content:space-between;margin:.4rem 0;color:var(--muted);font-size:.75rem}
+  .workspace{min-width:0}
+  .transport,details,.session-controls{background:var(--card);border-radius:1.12rem;box-shadow:var(--card-shadow)}
+  .transport{padding:1rem 1.15rem;margin-bottom:.65rem}
+  .transport-title{display:flex;justify-content:space-between;align-items:start;gap:.8rem;margin-bottom:.55rem}
+  .transport-title p{margin:.24rem 0 0}
+  .album-delivery{flex:none;display:grid;gap:.12rem;min-width:6.8rem;padding:.55rem .75rem;border-radius:.7rem;background:var(--lavender);color:var(--lavender-text)}
+  .album-delivery small{color:inherit}
   .transport.compact{position:sticky;top:0;z-index:2}
   audio{width:100%;height:38px}.row{display:flex;gap:.65rem;align-items:end;flex-wrap:wrap;margin:.55rem 0}.row label{flex:1;min-width:100px}
   .row .check{display:flex;align-items:center;flex:none;min-width:0}.check input{width:auto}
-  details{padding:.85rem 1rem;margin:.65rem 0;border:1px solid #30372e;border-radius:12px;background:#191e18}
+  .session-controls{padding:.65rem 1rem;align-items:center}
+  .session-controls strong{margin-right:auto}
+  .transport-controls{align-items:center}
+  .transport-controls button,.session-controls button{font-size:.83rem;padding:.42rem .6rem}
+  .transport-controls label{margin:0;max-width:10rem}
+  details{padding:.85rem 1rem;margin:.65rem 0}
   summary{cursor:pointer;font-weight:650;padding:.25rem 0} details[open] summary{margin-bottom:.65rem}
-  .wave-stack{position:relative}.scope{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
-  .scope path,.curve{stroke:#ffa45f;fill:none;stroke-width:1.5}.spectrum{stroke:#55778f;fill:none}.grid{stroke:#46545d}
-  .scope rect{fill:#ae3c33;opacity:.18}.scope rect.hot{opacity:.65}.scope text{font-size:5px;fill:#ff9b90}
+  .wave-stack{position:relative;overflow:hidden;border-radius:.7rem;margin-bottom:.35rem}.scope{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  .scope path,.curve{stroke:var(--chart-line);fill:none;stroke-width:1.5}.spectrum{stroke:var(--chart-spectrum);fill:none}.grid{stroke:var(--chart-grid)}
+  .scope rect{fill:var(--danger);opacity:.12}.scope rect.hot{opacity:.6}.scope text{font-size:5px;fill:var(--danger)}
   .cleanup-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:1rem}
   .cleanup-layout .effect{height:240px}
   @media(max-width:899px){.cleanup-layout{grid-template-columns:1fr}}
-  .clip{background:#912b26;color:#fff}.effect{width:100%;height:150px;background:#101923;border-radius:8px}
+  .clip{background:var(--danger-soft);color:var(--danger)}.effect{width:100%;height:150px;background:var(--chart);border-radius:.7rem}
   .noise-grid{display:grid;grid-template-columns:minmax(0,2fr) minmax(230px,1fr);gap:1rem}
   .noise-grid img{width:100%;min-width:0;border-radius:8px}.cover{max-width:120px;max-height:120px;object-fit:contain}
   .transport.compact .wave-stack{display:none}
   .transport.compact h1{font-size:1.15rem;letter-spacing:0}
   .transport.compact p{margin:.2rem 0}
   .stage-toggle{width:auto;margin-left:.45rem;vertical-align:middle}
-  .stage-status{float:right;font-size:.75rem;color:#a9b99e;font-weight:500}
+  .stage-status{float:right;padding:.12rem .45rem;border-radius:1rem;background:var(--surface);font-size:.75rem;color:var(--muted);font-weight:550}
+  .stage-toggle:checked + .stage-status{background:var(--accent-soft);color:var(--accent)}
   .inline-control{display:grid;grid-template-columns:max-content minmax(60px,1fr) 3rem;align-items:center;gap:.5rem}
   .spectrogram{position:relative;touch-action:none;cursor:crosshair}.spectrogram img{display:block;pointer-events:none}
   .spectrogram-heading{display:flex;flex-wrap:wrap;justify-content:space-between;gap:.35rem;margin-bottom:.5rem}
-  .spectrogram-heading output{color:#a9b99e;font-size:.8rem;font-variant-numeric:tabular-nums}
+  .spectrogram-heading output{color:var(--muted);font-size:.8rem;font-variant-numeric:tabular-nums}
   .spectrogram-playhead{position:absolute;inset-block:0;width:1px;background:#edf2d9;pointer-events:none}
   .marquee{position:absolute;border:1px solid #ffb36b;background:#ffad4933;pointer-events:none}
   @media(max-width:850px){.noise-grid{grid-template-columns:1fr}}
-  .primary{background:#b3d68f;color:#131d0f;font-weight:700}
-  .result{display:grid;gap:.25rem;padding:.7rem 0;border-top:1px solid #30372e;margin-top:.5rem}.error{color:#ffb4a4}.status{min-height:1.2em}
-  .export-review{display:grid;justify-items:start;gap:.5rem;padding:.8rem;border:1px solid #414e3d;border-radius:8px;overflow-wrap:anywhere}
-  @media(max-width:700px){main{display:block;padding:1rem}aside,.transport.compact{position:static}aside{max-height:none;margin-bottom:1rem}}
+  .primary,.primary:not(:disabled):hover{background:var(--accent-fill);color:#fff;border-color:transparent;font-weight:700}
+  .primary:not(:disabled):hover{filter:brightness(.94)}
+  .result{display:grid;gap:.25rem;padding:.7rem 0;border-top:1px solid var(--line);margin-top:.5rem}.error{color:var(--danger)}.status{min-height:1.2em}
+  .export-review{display:grid;justify-items:start;gap:.5rem;padding:.8rem;border:1px solid var(--line);border-radius:.7rem;overflow-wrap:anywhere}
+  @media(max-width:700px){main{display:block}aside,.transport.compact{position:static}aside{height:auto;margin-bottom:.65rem}.sidebar-footer{margin-top:.5rem}}
 </style>

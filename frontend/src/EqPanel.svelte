@@ -98,10 +98,10 @@
 </div>
 <style>
   .editor{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:1rem}
-  svg{display:block;width:100%;height:360px;touch-action:none;background:#101923;border:1px solid #344b59;border-radius:8px}
-  path{fill:none}.grid{stroke:#304352}.spectrum{stroke:#52728b}.curve{stroke:#ff9e57;stroke-width:2}
-  circle{fill:#8cbbff;stroke:#233647;cursor:grab}.off{opacity:.45}
-  .scale{display:flex;justify-content:space-between;color:#aebcc8;font-size:.75rem;margin:.4rem 0}
+  svg{display:block;width:100%;height:360px;touch-action:none;background:var(--chart);border:1px solid var(--chart-grid);border-radius:.7rem}
+  path{fill:none}.grid{stroke:var(--chart-grid)}.spectrum{stroke:var(--chart-spectrum)}.curve{stroke:var(--chart-line);stroke-width:2}
+  circle{fill:var(--chart-handle);stroke:var(--chart-line);cursor:grab}.off{opacity:.45}
+  .scale{display:flex;justify-content:space-between;color:var(--muted);font-size:.75rem;margin:.4rem 0}
   .controls{display:grid;grid-template-columns:minmax(9rem,2fr) minmax(0,3fr);align-items:start;gap:.9rem}
   .parameters,label{display:grid;gap:.35rem}
   .parameters{align-content:start}
@@ -121,12 +121,14 @@
   .voice-amount{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) 3.4rem;align-items:center;gap:.45rem}
   .voice-amount output{text-align:right;font-variant-numeric:tabular-nums}
   .voice input[type=range]{width:100%;min-width:3rem}
-  .stereo,.voice{background:#151c22;border:1px solid #304352;border-radius:8px;padding:.75rem}
+  .stereo,.voice{background:var(--surface);border:1px solid var(--line);border-radius:.7rem;padding:.75rem}
   .band{display:flex;gap:.5rem;align-items:center;margin:.35rem 0}
   .band button{display:flex;justify-content:space-between;gap:.35rem;flex:1;text-align:left;font-size:.8rem}
-  .band button span:last-child{white-space:nowrap;font-variant-numeric:tabular-nums;color:#b6c8d7}
+  .band button span:last-child{white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--muted)}
   .voice input[type=number]{width:5rem;justify-self:end}
-  input,select,button{font:inherit;color:inherit;background:#1d2a35;border:1px solid #415869;border-radius:6px;padding:.35rem}.active{border-color:#86bbfa}
+  input,select,button{font:inherit;color:inherit;background:var(--surface);border:1px solid var(--line);border-radius:.5rem;padding:.35rem}
+  button:not(:disabled):hover{background:var(--surface-hover)}
+  .active{border-color:var(--accent);background:var(--accent-soft)}
   @media(max-width:1150px){.editor{grid-template-columns:1fr}}
   @media(max-width:900px){.lower-controls{grid-template-columns:1fr}.voice{grid-column:auto;grid-template-columns:1fr}}
   @media(max-width:500px){.controls{grid-template-columns:1fr}}
