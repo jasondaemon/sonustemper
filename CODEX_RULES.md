@@ -38,6 +38,8 @@ If reuse is not possible, Codex must explain **why**, and propose the **smallest
 
 ## 2) UI Architecture Rules (Jinja2 + HTMX)
 
+The Album Studio uses a route-scoped Svelte and TypeScript frontend. FastAPI owns persisted state and render settings. The workspace owns its playback state and unsaved edits. The rules below apply to the existing server-rendered pages.
+
 - UI is **server-rendered** using **Jinja2 + HTMX**
 - No SPA framework, no client-side state duplication
 - Pages are composed of **templates → partials**

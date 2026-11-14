@@ -81,3 +81,5 @@ Thumbs.db
 # ================================
 .git/
 **/.git/
+frontend/node_modules/
+sonustemper-ui/app/static/album-workspace/

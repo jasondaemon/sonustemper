@@ -58,3 +58,32 @@ kubectl apply -k k8s/
 - The proxy container waits for the upstream target to resolve before it starts. In K8s the manifest points that at `127.0.0.1`, so the app and proxy stay in the same pod without extra DNS dependencies.
 - The public repo intentionally avoids live cluster IPs, hostnames, and secret names beyond the application-specific object names.
 - If you want a TLS-less local deployment, remove the `tls:` block from the ingress patch before applying.
+
+## Album Studio development
+
+The container build compiles the Svelte frontend. For a source-tree or native
+build, run `npm ci --prefix frontend` and `npm run build --prefix frontend` first.
+The generated static files are served at `/albums` and included by the existing
+native static asset rules.
+
+Set `SONUSTEMPER_ALBUM_LOCATIONS` to a JSON object mapping names to mounted
+directories, for example `{"Music Production":"/music-production"}`. In Compose,
+set it in `.env` and add a bind mount with a Compose override. In Kubernetes,
+set it on the app container and add the corresponding volume mount. Each root
+contains artist folders, album folders, and `raw/` or `mastered/` WAVs. The album
+browser reads those directories directly. Refresh after adding or removing files
+on the share.
+
+Set `SONUSTEMPER_READ_ONLY_ALBUM_LOCATIONS` to a JSON array of names to disable
+exports and lyric edits there. Mount the source share read-only in dev and use a
+writable test copy for renders. The app UID needs read and traverse permissions
+on the NAS. Keep `SONUSTEMPER_LIBRARY_DB` on a persistent volume local to the
+app host for saved sessions, job history, and export recovery. Keep a single app
+replica when sharing that database.
+
+Processing edits follow each track and are saved in this browser. **Apply
+processing to all tracks** sets album defaults. **Save album session** also saves
+the draft on the server. The loudness settings and export selection cover the
+album, with either shared gain or per-track normalization. Replacement removes
+superseded outputs that still match files recorded by SonusTemper. A tag-only
+update operates on previously published MP3s without re-encoding them.

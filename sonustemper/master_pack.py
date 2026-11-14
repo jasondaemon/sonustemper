@@ -520,6 +520,8 @@ def _eq_filter_for_band(band: dict, strength: float) -> str | None:
     q = float(band.get("q", 0.7))
     if btype == "highpass":
         return f"highpass=f={float(freq):g}:t=q:w={q:g}"
+    if btype in {"lowpass", "bandpass", "notch"}:
+        return f"{btype}=f={float(freq):g}:t=q:w={q:g}"
     if btype == "lowshelf":
         return f"bass=f={float(freq):g}:t=q:w={q:g}:g={gain_db:g}"
     if btype == "highshelf":

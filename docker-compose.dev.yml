@@ -23,6 +23,8 @@ services:
 
       # SQLite DB must be local (NOT NFS). Mount host-local storage to /db.
       SONUSTEMPER_LIBRARY_DB: "/db/library.sqlite3"
+      SONUSTEMPER_ALBUM_LOCATIONS: "${SONUSTEMPER_ALBUM_LOCATIONS:-}"
+      SONUSTEMPER_READ_ONLY_ALBUM_LOCATIONS: "${SONUSTEMPER_READ_ONLY_ALBUM_LOCATIONS:-}"
 
       API_KEY: "${API_KEY:-}"
       API_AUTH_DISABLED: "${API_AUTH_DISABLED:-0}"

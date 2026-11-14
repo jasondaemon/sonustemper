@@ -1,0 +1,501 @@
+"""HTTP boundary for the album workspace."""
+from concurrent.futures import ThreadPoolExecutor
+from datetime import date
+from typing import Literal
+import json
+import logging
+import os
+from pathlib import Path
+import shutil
+import tempfile
+from uuid import uuid4
+
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
+
+from sonustemper import album_workflow as workflow
+from sonustemper import master_pack
+from sonustemper.storage import LIBRARY_DB, PREVIEWS_DIR, PRESETS_DIR
+from sonustemper.tools import bundle_root
+
+router = APIRouter()
+worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="album-render")
+logger = logging.getLogger(__name__)
+
+
+class Band(BaseModel):
+    type: str = "peaking"
+    freq_hz: float = Field(ge=20, le=20000)
+    gain_db: float = Field(default=0, ge=-24, le=24)
+    q: float = Field(default=0.7, ge=0.1, le=20)
+    enabled: bool = True
+
+
+class AlbumInput(BaseModel):
+    location: str
+    artist_folder: str
+    album_folder: str
+    source: str = "raw"
+
+
+class Correction(BaseModel):
+    enabled: bool = True
+    value: float = Field(default=0, ge=-24, le=100)
+    options: dict[str, float | bool] = Field(default_factory=dict)
+
+
+class Settings(AlbumInput):
+    tracks: list[str] = Field(min_length=1, max_length=100)
+    preset: str = ""
+    bands: list[Band] | None = Field(default=None, max_length=20)
+    correction: str = ""
+    correction_value: float = Field(default=0, ge=-24, le=100)
+    eq_bypass: bool = False
+    manual_bands: list[Band] = Field(default_factory=list, max_length=20)
+    noise: dict[str, float | str] | None = None
+    noise_enabled: bool = True
+    voicing_enabled: bool = True
+    voice_controls: dict = Field(default_factory=dict)
+    corrections: dict[str, Correction] = Field(default_factory=dict)
+    cleanup_enabled: bool = True
+    strength: int = Field(default=100, ge=0, le=100)
+    stereo_width: float | None = Field(default=None, ge=0.5, le=1.5)
+    guardrails: bool = True
+    balance: str = "album"
+    lufs: float = Field(default=-16, ge=-70, le=-5)
+    peak: float = Field(default=-1.5, ge=-9, le=0)
+    artist: str = Field(default="", max_length=200)
+    album_artist: str = Field(default="", max_length=200)
+    album: str = Field(default="", max_length=200)
+    cover: str = "cover.png"
+    year: int = Field(default_factory=lambda: date.today().year, ge=1, le=9999)
+    tags: dict[str, dict[str, str]] = Field(default_factory=dict)
+    sidecar: bool = False
+    replace: bool = False
+    metadata_only: bool = False
+    level_match: bool = True
+    audition_track: str = ""
+    audition_format: Literal["wav", "mp3"] = "wav"
+    track_overrides: dict[str, dict] = Field(default_factory=dict)
+    preview_start: float = Field(default=0, ge=0, le=36000)
+
+
+def locations() -> dict[str, Path]:
+    return {name: Path(path) for name, path in
+            json.loads(os.getenv("SONUSTEMPER_ALBUM_LOCATIONS") or "{}").items()}
+
+
+def guarded(parent: Path, name: str) -> Path:
+    try:
+        return workflow.child(parent, name)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+def location_root(location: str) -> Path:
+    path = locations().get(location)
+    if path is None:
+        raise HTTPException(404, "Unknown storage location")
+    if not path.is_dir() or not os.access(path, os.R_OK | os.X_OK):
+        raise HTTPException(503, "Storage location is unavailable or access was denied")
+    return path
+
+
+def resolve_album(location: str, artist_folder: str, album_folder: str) -> Path:
+    album = guarded(guarded(location_root(location), artist_folder), album_folder)
+    if not album.is_dir():
+        raise HTTPException(404, "Album not found")
+    return album
+
+
+def selected_tracks(album: Path, source: str, names: list[str]) -> list[Path]:
+    if source not in {"raw", "mastered"}:
+        raise HTTPException(400, "Choose raw or mastered")
+    try:
+        available = workflow.wavs(album, source)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if len(set(names)) != len(names) or not set(names).issubset({p.name for p in available}):
+        raise HTTPException(400, "Choose distinct WAVs from the selected album stage")
+    return [path for path in available if path.name in names]
+
+
+def presets() -> dict:
+    entries = {}
+    for kind, folder in [
+        ("builtin", bundle_root() / "assets/presets/voicings"),
+        ("voicing", PRESETS_DIR / "voicings"),
+        ("profile", PRESETS_DIR / "profiles"),
+    ]:
+        for path in sorted(folder.glob("*.json")):
+            try:
+                data = json.loads(path.read_text())
+                if isinstance(data.get("chain"), dict):
+                    entries[f"{kind}/{path.stem}"] = data
+            except (OSError, ValueError, AttributeError):
+                logger.warning("Could not read album preset %s", path.name)
+    return entries
+
+
+def resolved_settings(settings: Settings) -> dict:
+    from sonustemper.server import _ai_tool_combo_chain, _eq_voice_filters, _noise_filter_chain
+
+    data = settings.model_dump()
+    if settings.balance not in {"album", "track"}:
+        raise HTTPException(400, "Choose album or track loudness")
+    preset = presets().get(settings.preset)
+    if settings.preset and preset is None:
+        raise HTTPException(400, "Unknown mastering preset")
+    chain = dict(preset["chain"]) if preset else {}
+    if settings.bands is not None:
+        chain["eq"] = [band.model_dump() for band in settings.bands if band.enabled]
+    if settings.eq_bypass:
+        chain["eq"] = []
+    corrections = {"", "ai_deglass", "ai_vocal_smooth", "ai_bass_tight",
+                   "ai_transient_soften", "ai_reverb_reduce"}
+    tools = {key: value.model_dump() for key, value in settings.corrections.items()}
+    if settings.correction and not tools:
+        tools[settings.correction] = {"enabled": True, "value": settings.correction_value}
+    if not tools.keys() <= corrections - {""}:
+        raise HTTPException(400, "Unknown correction")
+    correction = _ai_tool_combo_chain(tools) if settings.cleanup_enabled else ""
+    mastering = master_pack._voicing_filters_from_json(
+        {"chain": chain}, settings.strength, settings.stereo_width, True, settings.guardrails
+    )
+    manual = [] if settings.eq_bypass else [
+        master_pack._eq_filter_for_band(band.model_dump(), 1)
+        for band in settings.manual_bands if band.enabled
+    ]
+    data["noise_chain"] = (_noise_filter_chain({**settings.noise, "mode": "remove"})
+                           if settings.noise_enabled and settings.noise else None)
+    data["filters"] = ",".join(filter(None, (
+        correction, *(_eq_voice_filters(settings.voice_controls) if settings.voicing_enabled else []),
+        mastering if settings.voicing_enabled else "", *manual,
+    )))
+    return data
+
+
+def require_writable(location: str) -> None:
+    if location in json.loads(os.getenv("SONUSTEMPER_READ_ONLY_ALBUM_LOCATIONS") or "[]"):
+        raise HTTPException(403, "Choose a writable test location to save or export")
+
+
+@router.get("/api/albums/locations")
+def get_locations():
+    read_only = json.loads(os.getenv("SONUSTEMPER_READ_ONLY_ALBUM_LOCATIONS") or "[]")
+    return [{"name": name, "available": path.is_dir() and os.access(path, os.R_OK | os.X_OK),
+             "writable": name not in read_only and os.access(path, os.W_OK | os.X_OK)}
+            for name, path in locations().items()]
+
+
+def folders(path: Path) -> list[str]:
+    return sorted((p.name for p in path.iterdir() if not p.name.startswith((".", "#"))
+                   and not p.is_symlink() and p.is_dir()), key=str.casefold)
+
+
+@router.get("/api/albums/browse")
+def browse(location: str, artist_folder: str = "", album_folder: str = ""):
+    if not artist_folder:
+        return folders(location_root(location))
+    if not album_folder:
+        path = guarded(location_root(location), artist_folder)
+        if not path.is_dir():
+            raise HTTPException(404, "Artist folder not found")
+        return folders(path)
+    album = resolve_album(location, artist_folder, album_folder)
+    try:
+        stages = {stage: [p.name for p in workflow.wavs(album, stage)]
+                  for stage in ("raw", "mastered", "clean", "normalized")}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {**stages, "covers": sorted(p.name for p in album.iterdir()
+            if p.is_file() and not p.is_symlink() and p.suffix.lower() in {".png", ".jpg", ".jpeg"}),
+            "mp3s": sorted(p.name for p in guarded(album, "mp3s").glob("*.mp3")
+                           if p.is_file() and not p.is_symlink())}
+
+
+@router.get("/api/albums/presets")
+def get_presets():
+    return [{"id": key, "title": data.get("meta", {}).get("title") or key,
+             "bands": data["chain"].get("eq", []), "meta": data.get("meta", {}),
+             "width": data["chain"].get("stereo", {}).get("width")} for key, data in presets().items()]
+
+
+@router.get("/api/albums/audio")
+def source_audio(location: str, artist_folder: str, album_folder: str, source: str, track: str):
+    album = resolve_album(location, artist_folder, album_folder)
+    return FileResponse(selected_tracks(album, source, [track])[0], media_type="audio/wav")
+
+
+@router.get("/api/albums/spectrogram")
+def spectrogram(location: str, artist_folder: str, album_folder: str, source: str, track: str,
+                scale: str = "log", range_db: int = 120):
+    from sonustemper.server import _spectrogram_for_path
+
+    album = resolve_album(location, artist_folder, album_folder)
+    path = selected_tracks(album, source, [track])[0]
+    return _spectrogram_for_path(path, 1200, 384, scale, range_db, "combined", album_axis=True)
+
+
+@router.get("/api/albums/artwork")
+def artwork(location: str, artist_folder: str, album_folder: str, name: str):
+    path = guarded(resolve_album(location, artist_folder, album_folder), name)
+    if not path.is_file() or path.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
+        raise HTTPException(404, "Artwork not found")
+    return FileResponse(path)
+
+
+@router.get("/api/albums/analyze")
+def analyze(location: str, artist_folder: str, album_folder: str, source: str, track: str):
+    from sonustemper.server import _ai_tool_detect_target
+
+    album = resolve_album(location, artist_folder, album_folder)
+    return _ai_tool_detect_target(selected_tracks(album, source, [track])[0])
+
+
+@router.get("/api/albums/text")
+def track_text(location: str, artist_folder: str, album_folder: str, source: str, track: str):
+    album = resolve_album(location, artist_folder, album_folder)
+    stem = selected_tracks(album, source, [track])[0].stem
+    try:
+        lyrics = workflow.text_asset(album, "lyrics", stem, ".txt")
+        prompt = workflow.text_asset(album, "lyric-prompts", stem, ".md")
+        style = workflow.text_asset(album, "styles", stem, ".md")
+    except (UnicodeError, ValueError) as exc:
+        raise HTTPException(400, "Invalid track text file") from exc
+    return {"lyrics": lyrics, "prompt": prompt, "style": style, "draft": workflow.lyrics_draft(prompt)}
+
+
+class Lyrics(AlbumInput):
+    track: str
+    text: str = Field(max_length=30000)
+
+
+class Draft(BaseModel):
+    text: str = Field(max_length=30000)
+
+
+@router.post("/api/albums/lyrics/draft")
+def draft_lyrics(body: Draft):
+    return {"draft": workflow.lyrics_draft(body.text)}
+
+
+@router.put("/api/albums/lyrics")
+def save_lyrics(body: Lyrics):
+    require_writable(body.location)
+    album = resolve_album(body.location, body.artist_folder, body.album_folder)
+    track = selected_tracks(album, body.source, [body.track])[0]
+    folder = guarded(album, "lyrics")
+    folder.mkdir(exist_ok=True)
+    target = guarded(folder, track.stem + ".txt")
+    with tempfile.NamedTemporaryFile(dir=folder, delete=False, mode="w", encoding="utf-8") as stream:
+        temporary = Path(stream.name)
+        stream.write(body.text.rstrip() + "\n")
+    try:
+        os.replace(temporary, target)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return {"saved": True}
+
+
+PROCESSING_FIELDS = {
+    "preset", "bands", "eq_bypass", "manual_bands", "noise", "voicing_enabled",
+    "voice_controls", "corrections", "strength", "stereo_width", "guardrails", "cleanup_enabled", "noise_enabled",
+}
+
+
+def resolve_render(settings: Settings) -> dict:
+    data = resolved_settings(settings)
+    data["track_filters"] = {}
+    data["track_noise"] = {}
+    for name, override in settings.track_overrides.items():
+        if name not in settings.tracks:
+            continue
+        if not override.keys() <= PROCESSING_FIELDS:
+            raise HTTPException(422, "Invalid track override")
+        try:
+            effective = Settings.model_validate({**settings.model_dump(), **override})
+        except ValueError as exc:
+            raise HTTPException(422, "Invalid track processing settings") from exc
+        resolved = resolved_settings(effective)
+        data["track_filters"][name] = resolved["filters"]
+        data["track_noise"][name] = resolved["noise_chain"]
+    return data
+
+
+class Session(AlbumInput):
+    draft: dict
+
+
+def session_key(location: str, artist_folder: str, album_folder: str, source: str) -> str:
+    resolve_album(location, artist_folder, album_folder)
+    if source not in {"raw", "mastered"}:
+        raise HTTPException(400, "Choose raw or mastered")
+    return json.dumps([location, artist_folder, album_folder, source])
+
+
+@router.get("/api/albums/session")
+def get_session(location: str, artist_folder: str, album_folder: str, source: str):
+    key = session_key(location, artist_folder, album_folder, source)
+    return {"draft": workflow.album_session(LIBRARY_DB, key)}
+
+
+@router.put("/api/albums/session")
+def save_session(body: Session):
+    key = session_key(body.location, body.artist_folder, body.album_folder, body.source)
+    if len(json.dumps(body.draft)) > 512_000:
+        raise HTTPException(413, "Album session is too large")
+    return {"draft": workflow.album_session(LIBRARY_DB, key, body.draft)}
+
+
+@router.post("/api/albums/noise-audition")
+def noise_audition(settings: Settings, mode: Literal["remove", "solo"] = "remove"):
+    from sonustemper.server import _noise_filter_chain
+
+    album = resolve_album(settings.location, settings.artist_folder, settings.album_folder)
+    track = selected_tracks(album, settings.source, settings.tracks)[0]
+    if not settings.noise:
+        raise HTTPException(422, "Enable noise removal first")
+    data = resolve_render(settings)
+    chain = _noise_filter_chain({**settings.noise, "mode": mode})
+    PREVIEWS_DIR.mkdir(exist_ok=True, parents=True)
+    directory = tempfile.TemporaryDirectory(prefix="album-noise-", dir=PREVIEWS_DIR)
+    try:
+        output = Path(directory.name) / "audition.wav"
+        workflow.process_track(track, output, data["track_filters"].get(track.name, data["filters"]), chain)
+        return FileResponse(output, media_type="audio/wav", background=BackgroundTask(directory.cleanup))
+    except Exception as exc:
+        directory.cleanup()
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/api/albums/preview")
+def preview(settings: Settings):
+    if settings.metadata_only:
+        raise HTTPException(400, "Tag updates do not change the audio")
+    data = resolve_render(settings)
+    album = resolve_album(settings.location, settings.artist_folder, settings.album_folder)
+    tracks = selected_tracks(album, settings.source, settings.tracks)
+    name = settings.audition_track or tracks[0].name
+    if name not in settings.tracks:
+        raise HTTPException(400, "Include the audition track in the export selection")
+    PREVIEWS_DIR.mkdir(exist_ok=True, parents=True)
+    directory = tempfile.TemporaryDirectory(prefix="album-", dir=PREVIEWS_DIR)
+    try:
+        target = Path(directory.name) / f"preview.{settings.audition_format}"
+        workflow.render_album(album, tracks, data, audition=(name, target, settings.audition_format))
+        mime = "audio/wav" if settings.audition_format == "wav" else "audio/mpeg"
+        return FileResponse(target, media_type=mime, background=BackgroundTask(directory.cleanup))
+    except Exception as exc:
+        directory.cleanup()
+        logger.exception("Album audition failed")
+        raise HTTPException(422, str(exc)) from exc
+
+
+def execute(job, album, tracks, data, album_key):
+    def report(**changes):
+        workflow.record(LIBRARY_DB, job, **{"status": "running", **changes})
+    try:
+        recover_album_jobs(album_key=album_key, publishing_only=True)
+        previous = workflow.published_tracks(LIBRARY_DB, album_key)
+        workflow.render_album(album, tracks, data, report, previous=previous)
+    except Exception as exc:
+        logger.exception("Album render failed")
+        workflow.record(LIBRARY_DB, job, status="failed", error=str(exc))
+
+
+def album_job_inputs(settings: Settings):
+    require_writable(settings.location)
+    album = resolve_album(settings.location, settings.artist_folder, settings.album_folder)
+    if not os.access(album, os.W_OK | os.X_OK):
+        raise HTTPException(403, "The album folder is not writable")
+    tracks = selected_tracks(album, settings.source, settings.tracks)
+    key = json.dumps([settings.location, settings.artist_folder, settings.album_folder])
+    return album, tracks, key
+
+
+@router.on_event("startup")
+def recover_album_jobs(*, album_key: str | None = None, publishing_only: bool = False):
+    statuses = ("failed",) if publishing_only else ("queued", "running", "failed")
+    for job, state in workflow.job_states(LIBRARY_DB, statuses):
+        publication = state.get("publication")
+        if album_key is not None and state.get("album_key") != album_key:
+            continue
+        if not publication and (publishing_only or state["status"] == "failed"):
+            continue
+        try:
+            if state.get("work"):
+                settings = state["settings"]
+                require_writable(settings["location"])
+                album = resolve_album(settings["location"], settings["artist_folder"], settings["album_folder"])
+                work = workflow.child(album, state["work"])
+                if not work.name.startswith(".sonustemper-"):
+                    raise ValueError("Invalid export staging folder")
+                if publication:
+                    if not work.is_dir():
+                        raise ValueError("Export recovery folder is missing")
+                    workflow.rollback_publication(album, work, publication["entries"])
+                if work.exists():
+                    shutil.rmtree(work)
+            workflow.record(LIBRARY_DB, job, status="failed", stage="Interrupted", publication=None,
+                            error="The export stopped before completion. Retry when ready.")
+        except Exception:
+            logger.exception("Could not recover interrupted album export %s", job)
+            workflow.record(LIBRARY_DB, job, status="failed", stage="Recovery needed",
+                            error="Could not restore the previous output. Check album storage access.")
+            if publishing_only:
+                raise RuntimeError("An earlier export still needs recovery") from None
+
+
+@router.post("/api/albums/preflight")
+def preflight(settings: Settings):
+    album, tracks, key = album_job_inputs(settings)
+    previous = workflow.published_tracks(LIBRARY_DB, key)
+    try:
+        cover = workflow.delivery_cover(album, settings.cover)
+        paths = {path for track in tracks for path in previous.get(track.name, {}).get("files", [])
+                 if path.split("/", 1)[0] != "mastered" or settings.source == "raw"}
+        if not settings.metadata_only:
+            paths.update(f"clean/{track.name}" for track in tracks)
+            if settings.source == "raw":
+                paths.update(f"mastered/{track.name}" for track in tracks)
+        existing = sorted(path for path in paths if workflow.publication_path(album, path).exists())
+        taggable = all(previous.get(track.name, {}).get("source") == settings.source and
+                       workflow.publication_path(album, f"mp3s/{previous[track.name]['mp3']}").is_file()
+                       for track in tracks)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"tracks": len(tracks), "existing": existing, "cover": cover.name if cover else None,
+            "can_update_tags": taggable, "will_replace": settings.replace or settings.metadata_only}
+
+
+@router.post("/api/albums/jobs", status_code=202)
+def start_job(settings: Settings):
+    album, tracks, key = album_job_inputs(settings)
+    data = settings.model_dump() if settings.metadata_only else resolve_render(settings)
+    job = uuid4().hex
+    workflow.record(LIBRARY_DB, job, status="queued", stage="Queued", settings=data, album_key=key)
+    worker.submit(execute, job, album, tracks, data, key)
+    return {"id": job}
+
+
+@router.get("/api/albums/jobs/{job}")
+def job_status(job: str):
+    state = workflow.record(LIBRARY_DB, job)
+    if not state:
+        raise HTTPException(404, "Job not found")
+    response = {key: value for key, value in state.items() if key not in {"settings", "work", "publication", "album_key"}}
+    if "results" in response:
+        response["results"] = [{k: v for k, v in result.items() if k != "output_sha256"}
+                               for result in response["results"]]
+    return response
+
+
+@router.get("/albums", include_in_schema=False)
+def album_page():
+    entry = bundle_root() / "sonustemper-ui/app/static/album-workspace/index.html"
+    if not entry.is_file():
+        raise HTTPException(503, "Build the album frontend with npm ci and npm run build in frontend/")
+    return FileResponse(entry, headers={"Cache-Control": "no-store"})

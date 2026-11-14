@@ -1,3 +1,10 @@
+FROM node:22-bookworm-slim AS album-frontend
+WORKDIR /build/frontend
+COPY frontend/package*.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
 FROM python:3.11-slim
 
 ARG APP_UID=1000
@@ -21,6 +28,7 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY sonustemper/ /app/sonustemper/
 COPY sonustemper-ui/app/ /app/sonustemper-ui/app/
+COPY --from=album-frontend /build/sonustemper-ui/app/static/album-workspace/ /app/sonustemper-ui/app/static/album-workspace/
 COPY assets/ /app/assets/
 COPY docs/ /app/docs/
 

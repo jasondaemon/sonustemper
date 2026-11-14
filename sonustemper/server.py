@@ -4110,32 +4110,26 @@ def _noise_filter_chain(payload: dict) -> tuple[str, bool]:
     t0 = payload.get("t0_sec") if payload.get("t0_sec") is not None else payload.get("start_sec")
     t1 = payload.get("t1_sec") if payload.get("t1_sec") is not None else payload.get("end_sec")
     if apply_selection and isinstance(t0, (int, float)) and isinstance(t1, (int, float)) and t1 > t0:
-        fade = 0.05
         t0 = float(t0)
         t1 = float(t1)
+        fade = min(0.05, (t1 - t0) / 2)
+        rise = f"(t-{t0:.9f})/{fade:.9f}"
+        fall = f"({t1:.9f}-t)/{fade:.9f}"
         wet_expr = (
-            f"if(lt(t\\,{t0:.3f})\\,0\\,"
-            f"if(lt(t\\,{t0 + fade:.3f})\\,(t-{t0:.3f})/{fade:.3f}\\,"
-            f"if(lt(t\\,{t1 - fade:.3f})\\,1\\,"
-            f"if(lt(t\\,{t1:.3f})\\,({t1:.3f}-t)/{fade:.3f}\\,0))))"
+            f"clip(min({rise}\\,{fall})\\,0\\,1)"
         )
         if mode == "solo":
             graph = (
                 f"[0:a]{chain}[wet];"
-                f"[wet]volume='{wet_expr}'[out]"
+                f"[wet]volume='{wet_expr}':eval=frame[out]"
             )
             return graph, True
-        dry_expr = (
-            f"if(lt(t\\,{t0:.3f})\\,1\\,"
-            f"if(lt(t\\,{t0 + fade:.3f})\\,1-((t-{t0:.3f})/{fade:.3f})\\,"
-            f"if(lt(t\\,{t1 - fade:.3f})\\,0\\,"
-            f"if(lt(t\\,{t1:.3f})\\,1-(({t1:.3f}-t)/{fade:.3f})\\,1))))"
-        )
+        dry_expr = f"1-{wet_expr}"
         graph = (
             f"[0:a]asplit=2[dry][wet];"
             f"[wet]{chain}[wetf];"
-            f"[wetf]volume='{wet_expr}'[wetv];"
-            f"[dry]volume='{dry_expr}'[dryv];"
+            f"[wetf]volume='{wet_expr}':eval=frame[wetv];"
+            f"[dry]volume='{dry_expr}':eval=frame[dryv];"
             f"[dryv][wetv]amix=inputs=2:normalize=0[out]"
         )
         return graph, True
@@ -4249,7 +4243,7 @@ def _ai_tool_filter_chain(tool_id: str, value: float, options: dict | None) -> s
             filters.append(f"treble=g={shelf_gain:.2f}:f=8000:w=0.7")
             ratio = 1.8 + (depth / 6.0) * 1.2
             threshold = -18.0 - (depth / 6.0) * 6.0
-            filters.append(f"acompressor=threshold={threshold:.1f}dB:ratio={ratio:.2f}:attack=20:release=250:makeup=0")
+            filters.append(f"acompressor=threshold={threshold:.1f}dB:ratio={ratio:.2f}:attack=20:release=250:makeup=1")
         elif value > 0:
             lift = min(4.0, value)
             presence_gain = 1.5 * (lift / 4.0)
@@ -4780,23 +4774,28 @@ def analyze_spectrogram(
     scale: str | None = None,
     stereo: str = "combined",
 ):
-    target = _resolve_analysis_path(path)
+    return _spectrogram_for_path(_resolve_analysis_path(path), w, h, scale or mode, drange, stereo)
+
+
+def _spectrogram_for_path(target: Path, w: int, h: int, mode: str, drange: int, stereo: str,
+                          *, album_axis: bool = False):
     width = max(320, min(8192, int(w)))
     height = max(128, min(1024, int(h)))
     drange = max(40, min(160, int(drange)))
-    requested = scale if scale is not None else mode
-    scale = "log" if str(requested).strip().lower() == "log" else "lin"
+    scale = "log" if str(mode).strip().lower() == "log" else "lin"
     stereo_mode = "separate" if str(stereo).strip().lower() == "separate" else "combined"
     cache_dir = ANALYSIS_TMP_DIR / "spectrograms"
     cache_dir.mkdir(parents=True, exist_ok=True)
     stat = target.stat()
-    key_raw = f"{target.resolve()}::{stat.st_mtime}::{width}::{height}::{scale}::{drange}::{stereo_mode}"
+    axis = "aresample=48000," if album_axis else ""
+    bounds = f":fscale={scale}:start=20:stop=20000" if album_axis else ""
+    key_raw = f"{target.resolve()}::{stat.st_mtime}::{width}::{height}::{scale}::{drange}::{stereo_mode}{bounds}"
     key = hashlib.sha256(key_raw.encode("utf-8")).hexdigest()
     out_path = cache_dir / f"{key}.png"
     if not out_path.exists():
         filt = (
-            f"showspectrumpic=s={width}x{height}:mode={stereo_mode}:"
-            f"scale={scale}:legend=disabled:color=viridis:drange={drange}"
+            f"{axis}showspectrumpic=s={width}x{height}:mode={stereo_mode}:"
+            f"scale={'log' if album_axis else scale}:legend=disabled:color=viridis:drange={drange}{bounds}"
         )
         cmd = [
             FFMPEG_BIN, "-y", "-hide_banner", "-loglevel", "error",
@@ -5307,21 +5306,7 @@ def ai_tool_render_combo(payload: dict = Body(...)):
         "metrics": metrics,
     }
 
-@app.post("/api/eq/render")
-def eq_render(payload: dict = Body(...)):
-    path = (payload.get("path") or "").strip()
-    song_id = (payload.get("song_id") or "").strip()
-    bands = payload.get("bands") if isinstance(payload.get("bands"), list) else []
-    bypass = bool(payload.get("bypass"))
-    voice_controls = payload.get("voice_controls") if isinstance(payload.get("voice_controls"), dict) else {}
-    output_format = (payload.get("output_format") or "same").strip().lower()
-    target = _resolve_analysis_path(path)
-    rel = rel_from_path(target)
-    if not song_id:
-        song, _version = library_store.find_by_rel(rel)
-        song_id = song.get("song_id") if isinstance(song, dict) else ""
-    if not song_id:
-        raise HTTPException(status_code=400, detail="missing_song_id")
+def _eq_voice_filters(voice_controls: dict) -> list[str]:
     voice_bypass = False
     if isinstance(voice_controls, dict):
         voice_bypass = bool(voice_controls.get("bypass"))
@@ -5331,7 +5316,6 @@ def eq_render(payload: dict = Body(...)):
         except Exception:
             return min_v
         return max(min_v, min(max_v, num))
-    filters = []
     voice_filters = []
     if isinstance(voice_controls, dict) and not voice_bypass:
         deesser = voice_controls.get("deesser") if isinstance(voice_controls.get("deesser"), dict) else {}
@@ -5351,6 +5335,33 @@ def eq_render(payload: dict = Body(...)):
             amount = clamp(deharsh.get("amount_db"), -6.0, 0.0)
             if amount < 0:
                 voice_filters.append(f"equalizer=f={freq:g}:width_type=q:width=1.5:g={amount:g}")
+    return voice_filters
+
+
+@app.post("/api/eq/render")
+def eq_render(payload: dict = Body(...)):
+    path = (payload.get("path") or "").strip()
+    song_id = (payload.get("song_id") or "").strip()
+    bands = payload.get("bands") if isinstance(payload.get("bands"), list) else []
+    bypass = bool(payload.get("bypass"))
+    voice_controls = payload.get("voice_controls") if isinstance(payload.get("voice_controls"), dict) else {}
+    output_format = (payload.get("output_format") or "same").strip().lower()
+    target = _resolve_analysis_path(path)
+    rel = rel_from_path(target)
+    if not song_id:
+        song, _version = library_store.find_by_rel(rel)
+        song_id = song.get("song_id") if isinstance(song, dict) else ""
+    if not song_id:
+        raise HTTPException(status_code=400, detail="missing_song_id")
+    def clamp(val, min_v, max_v):
+        try:
+            return max(min_v, min(max_v, float(val)))
+        except (TypeError, ValueError):
+            return min_v
+
+    voice_bypass = bool(voice_controls.get("bypass"))
+    voice_filters = _eq_voice_filters(voice_controls)
+    filters = []
     if not bypass:
         for band in bands:
             if not isinstance(band, dict):
@@ -5512,10 +5523,13 @@ def ai_tool_preset_delete(preset_id: str):
 
 @app.get("/api/ai-tool/detect")
 def ai_tool_detect(path: str, mode: str = "fast"):
+    return _ai_tool_detect_target(_resolve_analysis_path(path), mode)
+
+def _ai_tool_detect_target(target: Path, mode: str = "fast"):
+    path = target.name
     t0 = time.time()
     logger.info("[ai-tool][detect] start path=%s mode=%s", path, mode)
     try:
-        target = _resolve_analysis_path(path)
         mode = (mode or "fast").strip().lower()
         mode = "full" if mode == "full" else "fast"
         duration = _duration_seconds(target) or 0.0
@@ -6178,3 +6192,8 @@ def preview_file(request: Request, preview_id: str):
     resp = FileResponse(fp, media_type=mime, filename=f"preview-{preview_id}.mp3")
     resp.headers["Cache-Control"] = "no-store"
     return resp
+
+
+from sonustemper.album_api import router as album_router
+
+app.include_router(album_router)
