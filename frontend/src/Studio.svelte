@@ -22,7 +22,14 @@
   type Preflight = {tracks:number; existing:string[]; cover:string|null; can_update_tags:boolean; will_replace:boolean};
   type Folder = {name:string; playable:boolean; pending:number|null};
   type Cover = {name:string; size:number};
-  type AlbumFiles = Partial<Record<'raw'|'mastered'|'clean'|'normalized'|'mp3s', string[]>> & {delivery?:Record<string,string[]>; covers?:Cover[]};
+  type PromptKind = 'style' | 'negative' | 'prompt';
+  type TextKind = PromptKind | 'lyrics';
+  type TrackText = Record<TextKind | 'draft', string>;
+  type AlbumFiles = Partial<Record<'raw'|'mastered'|'clean'|'normalized'|'mp3s', string[]>> & {
+    delivery?:Record<string,string[]>; covers?:Cover[]; text_status?:Record<string,Partial<Record<TextKind,boolean>>>;
+  };
+  const promptButtons = [{kind:'style', label:'Style Prompt'}, {kind:'negative', label:'Negative Prompt'},
+    {kind:'prompt', label:'Lyric Prompt'}] as const;
   type LibraryPosition = {location:string; artist:string; album:string; source:string; track:string};
   const positionKey = 'sonustemper:album-library-position';
   let locations = $state<{name:string;available:boolean;writable:boolean}[]>([]);
@@ -51,7 +58,11 @@
   let balance = $state('album'), lufs = $state(-16), peak = $state(-1.5);
   let artistTag = $state(''), albumArtist = $state(''), albumTag = $state(''), cover = $state('');
   let year = $state(new Date().getFullYear());
-  let lyrics = $state(''), prompt = $state(''), style = $state('');
+  let promptDialog: HTMLDialogElement;
+  let promptEditor = $state<{kind:PromptKind; track:string; keys:typeof keys}>();
+  let promptText = $state(''), submissionLyrics = $state('');
+  let promptLoading = $state(false), promptWorking = $state(false), promptLoaded = $state(false);
+  let promptError = $state(''), promptMessage = $state('');
   let replace = $state(false), sidecar = $state(false), auditionFormat = $state<"wav"|"mp3">("wav");
   let previewURL = $state(''), previewKey = $state(''), previewBusy = $state(false);
   let audition = $state(false), player = $state<HTMLAudioElement>();
@@ -386,14 +397,62 @@
   }
 
   async function selectTrack() {
-    const version = ++selectionVersion;
+    ++selectionVersion;
     removeSeekListener?.();
     noiseMode=''; sourceDuration=0; playhead=0; cursor=undefined; selection=undefined;
-    audition = false; original = false; clipped = false; scopePath = ''; lyrics = prompt = style = ''; findings = [];
+    audition = false; original = false; clipped = false; scopePath = ''; findings = [];
     loadTrackProcessing();
-    if (!track) return;
-    const data = await api<{lyrics:string;prompt:string;style:string}>('text?' + new URLSearchParams({...keys, track}));
-    if (version === selectionVersion) ({lyrics, prompt, style} = data);
+  }
+
+  async function openPrompt(name: string, kind: PromptKind) {
+    const editor = {kind, track:name, keys:{...keys}};
+    promptEditor = editor;
+    promptText = submissionLyrics = promptError = promptMessage = '';
+    promptLoading = true;
+    promptLoaded = false;
+    promptDialog.showModal();
+    try {
+      const data = await api<TrackText>('text?' + new URLSearchParams({...editor.keys, track:name}));
+      if (!promptDialog.open || promptEditor?.track !== name || promptEditor.kind !== kind) return;
+      promptText = data[kind];
+      submissionLyrics = data.lyrics || data.draft;
+      promptLoaded = true;
+    } catch (cause) {
+      promptError = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      promptLoading = false;
+    }
+  }
+
+  async function promptAction(run: () => Promise<void>) {
+    promptError = promptMessage = '';
+    promptWorking = true;
+    try { await run(); }
+    catch (cause) { promptError = cause instanceof Error ? cause.message : String(cause); }
+    finally { promptWorking = false; }
+  }
+
+  async function savePrompt(kind: TextKind) {
+    if (!promptEditor) return;
+    const {keys:albumKeys, track:name} = promptEditor;
+    const text = kind === 'lyrics' ? submissionLyrics : promptText;
+    const saved = await api<{text:string; draft?:string}>('text', {...albumKeys, track:name, kind, text}, 'PUT');
+    library.text_status ??= {};
+    library.text_status[name] ??= {};
+    library.text_status[name][kind] = Boolean(saved.text.trim());
+    if (kind === 'lyrics') submissionLyrics = saved.text;
+    if (kind === 'prompt' && !submissionLyrics.trim()) submissionLyrics = saved.draft ?? '';
+    promptMessage = kind === 'lyrics' ? 'Submission lyrics saved' : 'Prompt saved';
+  }
+
+  async function formatLyrics() {
+    submissionLyrics = (await api<{draft:string}>('lyrics/draft', {text:promptText})).draft;
+    promptMessage = 'Check the draft against the recording before submitting.';
+  }
+
+  async function copyPromptText(kind: 'prompt'|'lyrics') {
+    await navigator.clipboard.writeText(kind === 'lyrics' ? submissionLyrics : promptText);
+    promptMessage = kind === 'lyrics' ? 'Submission lyrics copied' : 'Prompt copied';
   }
 
   function songTags(name: string, index: number) {
@@ -927,15 +986,22 @@
           </table>
         </div>
       </details>
-      <details><summary>Lyrics and Suno prompts</summary>
-        <label>Approved lyrics<textarea rows="9" bind:value={lyrics}></textarea></label>
-        <div class="row"><button disabled={!writable} onclick={() => action(async () => {await api('lyrics', {...keys,track,text:lyrics}, 'PUT');status='Lyrics saved';})}>Save lyrics</button>
-        <button onclick={() => action(async () => {await navigator.clipboard.writeText(lyrics);status='Lyrics copied';})}>Copy submission text</button></div>
-        <label>Suno lyric prompt<textarea rows="5" bind:value={prompt}></textarea></label>
-        <div class="row"><button onclick={() => action(async () => {await navigator.clipboard.writeText(prompt);status='Prompt copied';})}>Copy prompt</button>
-        <button onclick={() => action(async () => {if (lyrics && !window.confirm('Replace the unsaved lyric text with a draft?')) return; lyrics = (await api<{draft:string}>('lyrics/draft', {text:prompt})).draft;status='Draft ready for listening review';})}>Draft lyrics from prompt</button></div>
-        <label>Suno style<textarea rows="4" bind:value={style}></textarea></label>
-        <button onclick={() => action(async () => {await navigator.clipboard.writeText(style);status='Style copied';})}>Copy style</button>
+      <details><summary>Prompts and Lyrics</summary>
+        <ul class="prompt-list">
+          {#each tracks as name, index (name)}
+            <li>
+              <div><strong>{songTags(name,index).title || name}</strong></div>
+              <div class="prompt-actions">
+                {#each promptButtons as {kind, label}}
+                  {@const saved = library.text_status?.[name]?.[kind]}
+                  <button type="button" class:saved aria-haspopup="dialog" aria-label={`${label} for ${name}, ${saved ? 'saved' : 'empty'}`} onclick={() => openPrompt(name,kind)}>
+                    {label}<small>{saved ? 'Saved' : 'Empty'}</small>
+                  </button>
+                {/each}
+              </div>
+            </li>
+          {/each}
+        </ul>
       </details>
       <details open><summary>Finalize album</summary>
         <p>Final WAVs go to <code>normalized/</code> and final MP3s to <code>mp3s/</code>. Raw recordings stay untouched.</p>
@@ -970,6 +1036,37 @@
     <p class="status" aria-live="polite">{status}</p>
   </section>
 </main>
+
+<dialog bind:this={promptDialog} class="theme-dialog prompt-dialog" aria-labelledby="prompt-title"
+  oncancel={(event) => {if (promptWorking || promptLoading) event.preventDefault();}}>
+  {#if promptEditor}
+    <div class="prompt-heading">
+      <div><h2 id="prompt-title">{promptButtons.find(item => item.kind === promptEditor?.kind)?.label}</h2><small>{promptEditor.track.replace(/\.wav$/i, '')}</small></div>
+      <button type="button" class="prompt-secondary" disabled={promptWorking || promptLoading} onclick={() => promptDialog.close()}>Close</button>
+    </div>
+    {#if promptLoading}<p role="status">Loading saved text…</p>{/if}
+    {#if promptLoaded}
+      <label>Prompt<textarea rows="7" maxlength="30000" bind:value={promptText} readonly={!writable || promptWorking}></textarea></label>
+      <div class="prompt-toolbar">
+        <button type="button" class="prompt-secondary" disabled={promptWorking || !promptText.trim()} onclick={() => promptAction(() => copyPromptText('prompt'))}>Copy prompt</button>
+        <button type="button" disabled={!writable || promptWorking} onclick={() => promptAction(() => savePrompt(promptEditor!.kind))}>Save prompt</button>
+      </div>
+      {#if promptEditor.kind === 'prompt'}
+        <label>Submission lyrics<textarea rows="9" maxlength="30000" bind:value={submissionLyrics} readonly={promptWorking}></textarea></label>
+        <div class="prompt-toolbar">
+          <button type="button" class="prompt-secondary" disabled={promptWorking || !promptText.trim()} onclick={() => {
+            if (!submissionLyrics.trim() || confirm('Replace the submission text in this editor with a fresh draft?')) void promptAction(formatLyrics);
+          }}>Format lyric prompt</button>
+          <button type="button" class="prompt-secondary" disabled={promptWorking || !submissionLyrics.trim()} onclick={() => promptAction(() => copyPromptText('lyrics'))}>Copy for DistroKid</button>
+          <button type="button" disabled={!writable || promptWorking} onclick={() => promptAction(() => savePrompt('lyrics'))}>Save lyrics</button>
+        </div>
+        <small>Check the text against the recording, including repeated lines, before submitting.</small>
+      {/if}
+    {/if}
+    {#if promptMessage}<p role="status">{promptMessage}</p>{/if}
+    {#if promptError}<p class="error" role="alert">{promptError}</p>{/if}
+  {/if}
+</dialog>
 
 <style>
   :global(*){box-sizing:border-box}
@@ -1048,6 +1145,19 @@
   .album-track-tags th,.album-track-tags td{border-bottom:1px solid var(--line);padding:.4rem .5rem}
   .album-track-tags th:first-child{width:6rem}
   .album-track-tags td:last-child{width:36%;overflow-wrap:anywhere;color:var(--muted)}
+  .prompt-list{list-style:none;padding:0;margin:.3rem 0 0}
+  .prompt-list li{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.55rem;padding:.55rem 0;border-top:1px solid var(--line)}
+  .prompt-list strong{overflow-wrap:anywhere;font-size:.88rem}
+  .prompt-actions,.prompt-toolbar{display:flex;flex-wrap:wrap;gap:.35rem}
+  .prompt-actions button{display:grid;justify-items:start;font-size:.8rem;gap:.1rem;padding:.38rem .52rem}
+  .prompt-actions button.saved{background:var(--good-soft);border-color:transparent;color:var(--good)}
+  .prompt-actions button.saved small{color:inherit}
+  .prompt-dialog{width:min(48rem,calc(100% - 1.25rem))}
+  .prompt-heading{display:flex;justify-content:space-between;align-items:start;gap:.75rem}
+  .prompt-dialog label{margin-top:.9rem}
+  .prompt-dialog textarea{line-height:1.45}
+  .prompt-dialog .prompt-secondary{background:var(--surface);color:var(--text);border:1px solid var(--line)}
+  .prompt-toolbar{margin:.35rem 0 .7rem}
   @media(max-width:600px){.album-tag-fields{grid-template-columns:repeat(2,minmax(0,1fr))}.album-track-tags{min-width:23rem}}
   .transport.compact .wave-stack{display:none}
   .transport.compact h1{font-size:1.15rem;letter-spacing:0}

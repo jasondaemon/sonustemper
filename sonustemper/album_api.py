@@ -231,7 +231,9 @@ def browse(location: str, artist_folder: str = "", album_folder: str = "", statu
         stages = workflow.album_stages(album)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return {**stages, "delivery": workflow.track_delivery(stages), "covers": workflow.cover_options(album)}
+    tracks = list(dict.fromkeys(stages["raw"] + stages["mastered"]))
+    return {**stages, "delivery": workflow.track_delivery(stages), "covers": workflow.cover_options(album),
+            "text_status": workflow.track_text_status(album, tracks)}
 
 
 @router.get("/api/albums/presets")
@@ -287,17 +289,16 @@ def track_text(location: str, artist_folder: str, album_folder: str, source: str
     album = resolve_album(location, artist_folder, album_folder)
     stem = selected_tracks(album, source, [track])[0].stem
     try:
-        lyrics = workflow.text_asset(album, "lyrics", stem, ".txt")
-        prompt = workflow.text_asset(album, "lyric-prompts", stem, ".md")
-        style = workflow.text_asset(album, "styles", stem, ".md")
-    except (UnicodeError, ValueError) as exc:
+        fields = workflow.read_track_text(album, stem)
+    except (OSError, ValueError) as exc:
         raise HTTPException(400, "Invalid track text file") from exc
-    return {"lyrics": lyrics, "prompt": prompt, "style": style, "draft": workflow.lyrics_draft(prompt)}
+    return {**fields, "draft": workflow.lyrics_draft(fields["prompt"])}
 
 
-class Lyrics(AlbumInput):
+class TrackText(AlbumInput):
     track: str
     text: str = Field(max_length=30000)
+    kind: Literal["style", "negative", "prompt", "lyrics"] = "lyrics"
 
 
 class Draft(BaseModel):
@@ -310,21 +311,19 @@ def draft_lyrics(body: Draft):
 
 
 @router.put("/api/albums/lyrics")
-def save_lyrics(body: Lyrics):
+@router.put("/api/albums/text")
+def save_track_text(body: TrackText):
     require_writable(body.location)
     album = resolve_album(body.location, body.artist_folder, body.album_folder)
     track = selected_tracks(album, body.source, [body.track])[0]
-    folder = guarded(album, "lyrics")
-    folder.mkdir(exist_ok=True)
-    target = guarded(folder, track.stem + ".txt")
-    with tempfile.NamedTemporaryFile(dir=folder, delete=False, mode="w", encoding="utf-8") as stream:
-        temporary = Path(stream.name)
-        stream.write(body.text.rstrip() + "\n")
     try:
-        os.replace(temporary, target)
-    finally:
-        temporary.unlink(missing_ok=True)
-    return {"saved": True}
+        text = workflow.write_track_text(album, track.stem, body.kind, body.text)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except OSError as exc:
+        logger.warning("Could not save album %s for %s: %s", body.kind, track.name, exc)
+        raise HTTPException(403, "Could not write to the album folder") from exc
+    return {"saved": True, "text": text, **({"draft": workflow.lyrics_draft(text)} if body.kind == "prompt" else {})}
 
 
 PROCESSING_FIELDS = {

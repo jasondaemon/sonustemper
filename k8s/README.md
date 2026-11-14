@@ -90,3 +90,9 @@ writes the album's WAVs to `normalized/` and MP3s to `mp3s/`. Raw recordings are
 read-only inputs. With replacement enabled, matching previous deliveries for
 the current songs are replaced in the same publication step. A tag-only update
 operates on previously published MP3s without re-encoding them.
+
+**Prompts and Lyrics** reads and saves song files on the share. The two prompt
+editors share `styles/<song>.md`: style text comes first, followed by an optional
+`## Negative Prompt` section. Original lyric prompts stay in `lyric-prompts/`
+as Markdown. Reviewed submission lyrics go in `lyrics/` as plain text, also
+used for MP3 tags and optional lyric sidecars.

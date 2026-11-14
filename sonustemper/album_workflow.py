@@ -9,6 +9,7 @@ import sqlite3
 import subprocess
 import tempfile
 from pathlib import Path
+from threading import Lock
 
 from mutagen.id3 import APIC, ID3, TALB, TIT2, TPE1, TPE2, TRCK, TYER, USLT
 
@@ -87,19 +88,33 @@ def require_full_album(album: Path, stage: str, tracks: list[Path]) -> None:
 
 
 def lyrics_draft(text: str) -> str:
-    match = re.search(r"^## Lyrics\s*\n(.*?)(?=^## |\Z)", text, re.M | re.S)
+    match = re.search(r"^\s*(#{1,6})[ \t]+Lyrics\b[^\n]*\n", text, re.I | re.M)
     if match:
-        text = match[1]
+        text = text[match.end():]
+        text = re.split(rf"(?m)^ {{0,3}}#{{{len(match[1])}}}[ \t]+", text, maxsplit=1)[0]
     lines = []
+    numbers = ("one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten")
     for line in text.splitlines():
         line = line.strip()
-        if re.fullmatch(r"\[(?:intro|verse|pre[- ]?chorus|chorus|bridge|hook|outro|instrumental|break|solo|interlude|refrain)\b[^\]]*\]", line, re.I):
+        line = re.sub(r"\*\*([^*]+)\*\*", r"\1", line)
+        if (line.startswith(("#", "```", "~~~", "http://", "https://"))
+                or re.fullmatch(r"[- _]{3,}|svg", line, re.I)
+                or re.match(r"^(?:artist|album|title|source|status|style|negative prompt|suno song):", line, re.I)):
+            continue
+        if re.fullmatch(r"\[(?:intro|verse|(?:pre|post|final)[- ]?chorus|chorus|bridge|hook|outro|breakdown|refrain)\b[^\]]*\]", line, re.I):
             lines.append("")
             continue
-        if line.startswith(("#", "**")) or line == "svg":
+        if re.fullmatch(r"\((?:repeat|instrumental|silence|pause)\b[^)]*\)|(?:repeat\s+(?:chorus|verse|hook|[x×]?\s*\d+).*|chorus\s*[x×]\s*\d+)", line, re.I):
             continue
-        line = line.rstrip(".,")
-        lines.append(line[:1].upper() + line[1:])
+        # Suno's bracketed production cues can appear anywhere in a lyric line.
+        stripped = re.sub(r"\[[^\]]*\]", "", line).strip()
+        if line and not stripped:
+            continue
+        line = re.sub(r"(?<![\w.])(?:10|[1-9])(?!\w|\.\d)", lambda m: numbers[int(m[0]) - 1], stripped)
+        line = re.sub(r"\s+", " ", line).rstrip(".,:;…").rstrip()
+        line = re.sub(r"(\(\s*)([^\W\d_])", lambda m: m[1] + m[2].upper(), line)
+        line = re.sub(r'^([^\w]*)([^\W\d_])', lambda m: m[1] + m[2].upper(), line, count=1)
+        lines.append(line)
     return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
 
 
@@ -133,6 +148,99 @@ def digest(path: Path) -> str:
 def text_asset(album: Path, stage: str, stem: str, suffix: str) -> str:
     path = child(child(album, stage), stem + suffix)
     return path.read_text(encoding="utf-8") if path.is_file() else ""
+
+
+TRACK_TEXT_FILES = {
+    "style": ("styles", ".md"),
+    "prompt": ("lyric-prompts", ".md"),
+    "lyrics": ("lyrics", ".txt"),
+}
+NEGATIVE_HEADING = re.compile(r"^##[ \t]+Negative Prompt[ \t]*$", re.I | re.M)
+STYLE_WRITE_LOCK = Lock()
+
+
+def split_style_prompts(text: str) -> tuple[str, str]:
+    heading = NEGATIVE_HEADING.search(text)
+    if heading is None:
+        return text, ""
+    style = text[:heading.start()]
+    style = style[:-2] if style.endswith("\n\n") else style.removesuffix("\n")
+    return style, text[heading.end():].removeprefix("\n")
+
+
+def read_track_text(album: Path, stem: str) -> dict[str, str]:
+    fields = {kind: text_asset(album, stage, stem, suffix)
+              for kind, (stage, suffix) in TRACK_TEXT_FILES.items()}
+    fields["style"], fields["negative"] = split_style_prompts(fields["style"])
+    return fields
+
+
+def track_text_status(album: Path, tracks: list[str]) -> dict:
+    stems = {Path(name).stem for name in tracks}
+    by_kind: dict[str, set[str]] = {kind: set() for kind in (*TRACK_TEXT_FILES, "negative")}
+    for kind, (stage, suffix) in TRACK_TEXT_FILES.items():
+        try:
+            folder = child(album, stage)
+            files = list(folder.iterdir()) if folder.is_dir() else []
+        except (OSError, ValueError):
+            continue
+        for path in files:
+            if path.suffix == suffix and path.stem in stems:
+                try:
+                    value = text_asset(album, stage, path.stem, suffix)
+                    if kind == "style":
+                        value, negative = split_style_prompts(value)
+                        if negative.strip():
+                            by_kind["negative"].add(path.stem)
+                    if value.strip():
+                        by_kind[kind].add(path.stem)
+                except (OSError, ValueError):
+                    continue
+    return {name: {kind: Path(name).stem in saved for kind, saved in by_kind.items()} for name in tracks}
+
+
+def write_track_text(album: Path, stem: str, kind: str, text: str) -> str:
+    if kind in {"style", "negative"}:
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        stage, suffix = TRACK_TEXT_FILES["style"]
+        if kind == "style" and NEGATIVE_HEADING.search(text):
+            raise ValueError("Edit the Negative Prompt using its own button")
+        # The two editors update sections of the same file, not separate files.
+        with STYLE_WRITE_LOCK:
+            style, negative = split_style_prompts(text_asset(album, stage, stem, suffix))
+            if kind == "style":
+                style = text
+            else:
+                negative = text
+            combined = style
+            if negative.strip():
+                combined += ("\n\n" if style else "") + "## Negative Prompt\n" + negative
+            save_text_asset(album, stage, stem, suffix, combined)
+    else:
+        stage, suffix = TRACK_TEXT_FILES[kind]
+        if kind == "lyrics":
+            text = text.rstrip()
+            save_text_asset(album, stage, stem, suffix, text + "\n" if text else "")
+        else:
+            save_text_asset(album, stage, stem, suffix, text)
+    return text
+
+
+def save_text_asset(album: Path, stage: str, stem: str, suffix: str, text: str) -> None:
+    folder = child(album, stage)
+    folder.mkdir(exist_ok=True)
+    target = child(folder, stem + suffix)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=folder, delete=False, mode="w", encoding="utf-8") as stream:
+            temporary = Path(stream.name)
+            if target.is_file():
+                os.chmod(temporary, target.stat().st_mode & 0o777)
+            stream.write(text)
+        os.replace(temporary, target)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def record(database: Path, job: str, **changes) -> dict:
