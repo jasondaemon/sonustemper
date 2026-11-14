@@ -93,6 +93,11 @@ are replaced only after the full render; the source recordings and unrelated
 files stay untouched. **Update MP3 tags only** updates tags, cover art, and
 lyrics on previously published MP3s without re-encoding them.
 
+Starting from `raw/` bakes enabled cleanup, EQ, and noise removal into the audio
+before album loudness normalization. The final 24-bit WAV is written to a fresh
+container without source tags or ancillary chunks (including Suno metadata).
+The MP3 is encoded from that WAV and receives only the delivery metadata.
+
 **Prompts and Lyrics** reads and saves song files on the share. The two prompt
 editors share `styles/<song>.md`: style text comes first, followed by an optional
 `## Negative Prompt` section. Original lyric prompts stay in `lyric-prompts/`

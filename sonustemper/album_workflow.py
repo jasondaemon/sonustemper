@@ -351,7 +351,9 @@ def process_track(source: Path, target: Path, filters: str, noise) -> None:
 
 
 def normalize(clean: Path, output: Path, gain: float, ceiling: float) -> tuple[float, float]:
-    ffmpeg(clean, output, "-af", f"volume={gain:.6f}dB", "-c:a", "pcm_s24le", "-bitexact")
+    # Write a fresh PCM WAV, without source tags or generated ancillary metadata.
+    ffmpeg(clean, output, "-af", f"volume={gain:.6f}dB", "-c:a", "pcm_s24le", "-bitexact",
+           "-write_bext", "0", "-write_peak", "0")
     lufs, peak = metrics(output)
     if peak > ceiling + 0.1:
         raise ValueError(f"{clean.name} exceeds the WAV true-peak ceiling")

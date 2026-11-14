@@ -1012,6 +1012,7 @@
           <span><code>normalized/</code> Final WAV</span>
           <span><code>mp3s/</code> Final MP3</span>
         </div>
+        <p>Final WAVs use a new container with no source metadata. Your tags, artwork, and saved lyrics go into the MP3s.</p>
         <label class="check"><input type="checkbox" bind:checked={sidecar} disabled={busy}> Include untimed lyrics files (.lrc)</label>
         {#if !writable}<p>Choose a writable storage location to process this album.</p>{/if}
         <div class="row">
