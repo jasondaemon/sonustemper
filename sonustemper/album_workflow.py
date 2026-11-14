@@ -25,12 +25,48 @@ def child(parent: Path, name: str) -> Path:
     return path
 
 
-def wavs(album: Path, stage: str) -> list[Path]:
+def audio_files(album: Path, stage: str, suffix: str) -> list[Path]:
     folder = child(album, stage)
     if not folder.is_dir():
         return []
     return sorted(p for p in folder.iterdir() if p.is_file() and not p.is_symlink()
-                  and not p.name.startswith(".") and p.suffix.lower() == ".wav")
+                  and not p.name.startswith((".", "#", "@")) and p.suffix.lower() == suffix)
+
+
+def wavs(album: Path, stage: str) -> list[Path]:
+    return audio_files(album, stage, ".wav")
+
+
+DELIVERY_SUFFIX = re.compile(
+    r" \(Integrated -?\d+(?:\.\d+)? LUFS, True Peak -?\d+(?:\.\d+)? dB, Channel [^)]+\)$"
+)
+
+
+def album_stages(album: Path) -> dict[str, list[str]]:
+    return {stage: [path.name for path in audio_files(album, stage, suffix)]
+            for stage, suffix in (("raw", ".wav"), ("mastered", ".wav"), ("clean", ".wav"),
+                                  ("normalized", ".wav"), ("mp3s", ".mp3"))}
+
+
+def track_delivery(stages: dict[str, list[str]]) -> dict[str, list[str]]:
+    clean = {Path(name).stem for name in stages["clean"]}
+    mp3s = {Path(name).stem for name in stages["mp3s"]}
+    masters: dict[str, set[str]] = {}
+    for name in stages["normalized"]:
+        stem = Path(name).stem
+        title = DELIVERY_SUFFIX.sub("", stem)
+        masters.setdefault(title, set()).add(stem)
+
+    missing = {}
+    for name in dict.fromkeys(stages["raw"] + stages["mastered"]):
+        stem = Path(name).stem
+        outputs = masters.get(stem, set())
+        missing[name] = (["Clean WAV"] if stem not in clean else [])
+        if not outputs:
+            missing[name].append("Final WAV")
+        if not outputs.intersection(mp3s) and (outputs or stem not in mp3s):
+            missing[name].append("Matching MP3" if outputs else "MP3")
+    return missing
 
 
 def lyrics_draft(text: str) -> str:

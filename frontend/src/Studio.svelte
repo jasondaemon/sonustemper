@@ -20,12 +20,17 @@
   let waveError = $state(false);
   type Result = {track: string; mp3: string; lufs: number; true_peak: number; mp3_true_peak: number; mp3_peak_warning: boolean};
   type Preflight = {tracks:number; existing:string[]; cover:string|null; can_update_tags:boolean; will_replace:boolean};
+  type Folder = {name:string; playable:boolean; pending:number|null};
+  type AlbumFiles = Partial<Record<'raw'|'mastered'|'clean'|'normalized'|'mp3s'|'covers', string[]>> & {delivery?:Record<string,string[]>};
+  type LibraryPosition = {location:string; artist:string; album:string; source:string; track:string};
+  const positionKey = 'sonustemper:album-library-position';
   let locations = $state<{name:string;available:boolean;writable:boolean}[]>([]);
   let presets = $state<Preset[]>([]);
-  let artists = $state<string[]>([]), albums = $state<string[]>([]);
-  let library = $state<Record<string,string[]>>({});
+  let artists = $state<Folder[]>([]), albums = $state<Folder[]>([]);
+  let library = $state<AlbumFiles>({});
   let location = $state(''), artist = $state(''), album = $state(''), track = $state('');
-  let source = $state('raw');
+  let source = $state<'raw'|'mastered'>('raw');
+  let loadingLibrary = $state(false);
   let preset = $state(''), presetBase = $state(''), bands = $state<Band[]>(defaultBands());
   const reverbControls = [
     {toggle:'enable_side_reduction', key:'side_reduction_pct', title:'Side reduction', min:0,max:40,step:1,unit:'%'},
@@ -134,6 +139,13 @@
   });
 
   $effect(() => {
+    if (location && album && track && tracks.includes(track)) {
+      try { localStorage.setItem(positionKey, JSON.stringify({location, artist, album, source, track})); }
+      catch { /* Browser storage can be disabled. */ }
+    }
+  });
+
+  $effect(() => {
     const container = waveform, media = player, url = playbackURL;
     const WaveSurfer = (window as unknown as {WaveSurfer?: {create(options: object): {
       on(event: 'error', callback: (error: unknown) => void): void; destroy(): void
@@ -172,20 +184,48 @@
     try { await run(); } catch (cause) { error = String(cause instanceof Error ? cause.message : cause); }
   }
 
-  async function selectLocation() {
+  function browseFolders(location: string, artist_folder = '') {
+    return api<Folder[]>('browse?' + new URLSearchParams({location, artist_folder, status:'true'}));
+  }
+
+  function chooseFolder(items: Folder[], name?: string) {
+    return (items.find(item => item.name === name && item.playable) ?? items.find(item => item.playable) ?? items[0])?.name ?? '';
+  }
+
+  async function selectLocation(position?: LibraryPosition) {
     const version = ++selectionVersion;
     readyDraftKey = '';
     artist = album = track = ''; artists = []; albums = []; library = {};
-    const found = location ? await api<string[]>('browse?' + new URLSearchParams({location})) : [];
-    if (version === selectionVersion) artists = found;
+    loadingLibrary = false;
+    if (!location) return;
+    try { localStorage.setItem(positionKey, JSON.stringify(position ?? {location})); }
+    catch { /* Browser storage can be disabled. */ }
+    loadingLibrary = true;
+    try {
+      const found = await browseFolders(location);
+      if (version !== selectionVersion) return;
+      artists = found;
+      artist = chooseFolder(found, position?.artist);
+      await selectArtist(artist === position?.artist ? position : undefined);
+    } finally {
+      if (!artist && version === selectionVersion) loadingLibrary = false;
+    }
   }
 
-  async function selectArtist() {
+  async function selectArtist(position?: LibraryPosition) {
     const version = ++selectionVersion;
     readyDraftKey = '';
     album = track = ''; albums = []; library = {};
-    const found = artist ? await api<string[]>('browse?' + new URLSearchParams({location, artist_folder: artist})) : [];
-    if (version === selectionVersion) albums = found;
+    loadingLibrary = true;
+    try {
+      const found = artist ? await browseFolders(location, artist) : [];
+      if (version !== selectionVersion) return;
+      albums = found;
+      album = chooseFolder(found, position?.album);
+      await selectAlbum(album === position?.album ? position : undefined);
+    } finally {
+      if (version === selectionVersion) loadingLibrary = false;
+    }
   }
 
   function loadProcessing(value:Processing) {
@@ -251,25 +291,29 @@
     tagEdits=saved.tags;
     const a=saved.albumSettings;
     ({balance,lufs,peak,year,replace,sidecar,profile,auditionFormat}=a);
-    cover=library.covers.includes(a.cover) ? a.cover : '';
+    cover=library.covers?.includes(a.cover) ? a.cover : '';
     artistTag=a.artist;albumArtist=a.album_artist;albumTag=a.album;
-    if (tracks.includes(saved.track)) track=saved.track;
     await selectTrack();
     status='Album session reopened';
   }
 
-  async function selectAlbum() {
+  async function selectAlbum(position?: LibraryPosition) {
     const version = ++selectionVersion;
     readyDraftKey = '';
     library = {}; track = ''; results = [];
-    if (!album) return;
-    const found = await api<Record<string,string[]>>('browse?' + new URLSearchParams(keys));
-    if (version !== selectionVersion) return;
-    library = found;
-    source = found.raw.length ? 'raw' : 'mastered';
-    artistTag = albumArtist = artist; albumTag = album;
-    cover = found.covers.includes('cover.png') ? 'cover.png' : '';
-    await selectStage();
+    loadingLibrary = true;
+    try {
+      if (!album) return;
+      const found = await api<AlbumFiles>('browse?' + new URLSearchParams(keys));
+      if (version !== selectionVersion) return;
+      library = found;
+      const rememberedSource = position?.source;
+      source = (rememberedSource === 'raw' || rememberedSource === 'mastered') && position && found[rememberedSource]?.includes(position.track)
+        ? rememberedSource : found.raw?.length ? 'raw' : 'mastered';
+    } finally {
+      if (version === selectionVersion) loadingLibrary = false;
+    }
+    if (version === selectionVersion) await selectStage(position?.track);
   }
 
   async function refreshLibrary() {
@@ -277,15 +321,30 @@
     const foundLocations = await api<typeof locations>('locations');
     if (version !== selectionVersion) return;
     locations = foundLocations;
-    if (!location) return;
-    if (!artist) return selectLocation();
-    if (!album) return selectArtist();
-    const found = await api<Record<string,string[]>>('browse?' + new URLSearchParams(keys));
+    if (!location || !locations.some(item => item.name === location && item.available)) {
+      location = locations.find(item => item.available)?.name || '';
+      return selectLocation();
+    }
+    const refreshedArtists = await browseFolders(location);
+    if (version !== selectionVersion) return;
+    artists = refreshedArtists;
+    if (!artists.some(item => item.name === artist)) {
+      artist = chooseFolder(artists);
+      return selectArtist();
+    }
+    const refreshedAlbums = await browseFolders(location, artist);
+    if (version !== selectionVersion) return;
+    albums = refreshedAlbums;
+    if (!albums.some(item => item.name === album)) {
+      album = chooseFolder(albums);
+      return selectAlbum();
+    }
+    const found = await api<AlbumFiles>('browse?' + new URLSearchParams(keys));
     if (version !== selectionVersion) return;
     library = found;
-    if (!found.covers.includes(cover)) cover = '';
+    if (!found.covers?.includes(cover)) cover = '';
     if (!tracks.includes(track)) {
-      if (!tracks.length && found[source === 'raw' ? 'mastered' : 'raw'].length) {
+      if (!tracks.length && found[source === 'raw' ? 'mastered' : 'raw']?.length) {
         source = source === 'raw' ? 'mastered' : 'raw';
         await selectStage();
       } else {
@@ -297,14 +356,14 @@
     status = 'Library refreshed from storage';
   }
 
-  async function selectStage() {
+  async function selectStage(preferredTrack?: string) {
     readyDraftKey=''; defaults=undefined; overrides={}; tagEdits={};
     balance='album'; profile='guiding-night'; selectProfile();
     year=new Date().getFullYear(); replace=false; sidecar=false; auditionFormat='wav';
     artistTag=albumArtist=artist; albumTag=album;
     cover=library.covers?.includes('cover.png') ? 'cover.png' : '';
     status=''; results=[];
-    track = (library[source] || [])[0] || '';
+    track = preferredTrack && tracks.includes(preferredTrack) ? preferredTrack : tracks[0] || '';
     const ready = selectTrack();
     const version = selectionVersion;
     await ready.catch(cause => { if (version === selectionVersion) error = String(cause); });
@@ -574,39 +633,85 @@
   onMount(() => {
     void action(async () => {
       [locations, presets] = await Promise.all([api('locations'), api('presets')]);
-      const catalog = await fetch('/api/profiles', {cache:'no-store'});
-      if (!catalog.ok) throw new Error('Could not load loudness profiles');
-      profiles = (await catalog.json()).items.filter((item: LoudnessProfile) =>
-        Number.isFinite(item.meta.lufs) && Number.isFinite(item.meta.tp));
-      const catalogNoise=await fetch('/api/library/noise_filters?origin=all');
-      if (catalogNoise.ok) noisePresets=(await catalogNoise.json()).items.filter((item:{noise:unknown})=>item.noise);
-      location = locations.find(item => item.available)?.name || '';
-      await selectLocation();
+      let position: LibraryPosition | null = null;
+      try { position = JSON.parse(localStorage.getItem(positionKey) ?? 'null'); }
+      catch { /* Use the first available storage location. */ }
+      location = locations.find(item => item.available && item.name === position?.location)?.name
+        ?? locations.find(item => item.available)?.name ?? '';
+      await Promise.all([
+        selectLocation(position && location === position.location ? position : undefined),
+        fetch('/api/profiles', {cache:'no-store'}).then(async catalog => {
+          if (!catalog.ok) throw new Error('Could not load loudness profiles');
+          profiles = (await catalog.json()).items.filter((item: LoudnessProfile) =>
+            Number.isFinite(item.meta.lufs) && Number.isFinite(item.meta.tp));
+        }),
+        fetch('/api/library/noise_filters?origin=all').then(async catalog => {
+          if (catalog.ok) noisePresets=(await catalog.json()).items.filter((item:{noise:unknown})=>item.noise);
+        }),
+      ]);
     });
     return () => { removeSeekListener?.(); if (previewURL) URL.revokeObjectURL(previewURL); if (noiseURL) URL.revokeObjectURL(noiseURL); cancelAnimationFrame(animation); engine?.close(); };
   });
 </script>
+
+{#snippet folderList(items: Folder[], selected: string, name: string, choose: (name: string) => void)}
+  <section class="library-section" aria-label={name}>
+    <h3>{name}</h3>
+    <ul class="library-list">
+      {#each items as item (item.name)}
+        <li><button aria-pressed={item.name === selected} onclick={() => choose(item.name)}>
+          <span>{item.name}</span>
+          {#if item.pending === null}<small>Status unavailable</small>
+          {:else if !item.playable}<small>No playable WAVs</small>
+          {:else if item.pending}<small class="pending">{item.pending} to process</small>
+          {:else}<small class="delivered">Processed</small>{/if}
+        </button></li>
+      {:else}<li class="empty-list">{loadingLibrary ? 'Loading…' : `No ${name.toLowerCase()} found`}</li>{/each}
+    </ul>
+  </section>
+{/snippet}
 
 <header><a href="/">SonusTemper</a><span>ALBUM STUDIO</span></header>
 <main>
   <aside>
     <div class="library-head"><h2>Production library</h2><button onclick={() => action(refreshLibrary)}>Refresh</button></div>
     <label>Storage<select bind:value={location} onchange={() => action(selectLocation)}><option value="">Choose storage</option>{#each locations as item}<option value={item.name} disabled={!item.available}>{item.name}{item.available ? '' : ' · offline'}</option>{/each}</select></label>
-    <label>Artist<select bind:value={artist} onchange={() => action(selectArtist)}><option value="">Choose artist</option>{#each artists as item}<option>{item}</option>{/each}</select></label>
-    <label>Album<select bind:value={album} onchange={() => action(selectAlbum)}><option value="">Choose album</option>{#each albums as item}<option>{item}</option>{/each}</select></label>
+    {#if location}
+      {@render folderList(artists, artist, 'Artists', name => {
+        if (name !== artist) {artist = name; void action(selectArtist);}
+      })}
+    {/if}
+    {#if artist}
+      {@render folderList(albums, album, 'Albums', name => {
+        if (name !== album) {album = name; void action(selectAlbum);}
+      })}
+    {/if}
     {#if album}
-      <label>Start from<select bind:value={source} onchange={() => action(selectStage)}><option value="raw">Raw WAVs</option><option value="mastered">Existing masters</option></select></label>
-      <div class="tracks" aria-label="Tracks">
-        {#each tracks as item}
-          <button class:active={item === track} aria-pressed={item === track} onclick={() => {if (track !== item) {rememberTrack(); track = item; void action(selectTrack);}}}>{item.replace(/\.wav$/i, '')}{(item === track ? trackCustom : overrides[item]) ? ' · Custom' : ''}</button>
-        {:else}<p>No WAVs in this stage.</p>{/each}
-      </div>
+      <section class="library-section" aria-label="Songs">
+        <h3>Songs</h3>
+        {#if library.raw?.length && library.mastered?.length}
+          <div class="source-picker" role="group" aria-label="Start from">
+            <button aria-pressed={source === 'raw'} onclick={() => {if (source !== 'raw') {source = 'raw'; void action(selectStage);}}}>Raw WAVs</button>
+            <button aria-pressed={source === 'mastered'} onclick={() => {if (source !== 'mastered') {source = 'mastered'; void action(selectStage);}}}>Existing masters</button>
+          </div>
+        {/if}
+        <ul class="library-list tracks">
+          {#each tracks as item (item)}
+            {@const missing = library.delivery?.[item]}
+            <li><button aria-pressed={item === track} onclick={() => {if (track !== item) {rememberTrack(); track = item; void action(selectTrack);}}}>
+              <span>{item.replace(/\.wav$/i, '')}{(item === track ? trackCustom : overrides[item]) ? ' · Custom' : ''}</span>
+              {#if missing?.length}<small class="pending">Missing {missing.join(', ')}</small>
+              {:else if missing}<small class="delivered">Processed</small>{/if}
+            </button></li>
+          {:else}<li class="empty-list">{loadingLibrary ? 'Loading…' : 'No WAVs in this album'}</li>{/each}
+        </ul>
+      </section>
     {/if}
   </aside>
 
   <section class="workspace" aria-label="Album workflow">
     <div class="transport" class:compact={compactPlayer}>
-      <div><small>{artist || 'Production workspace'}</small><h1>{album || 'Album Studio'}</h1><p>{track ? track.replace(/\.wav$/i, '') : 'Choose an artist and album to begin'}</p></div>
+      <div><small>{artist || 'Production workspace'}</small><h1>{album || 'Album Studio'}</h1><p>{track ? track.replace(/\.wav$/i, '') : loadingLibrary ? 'Loading library…' : 'Select an album with raw or mastered WAVs'}</p></div>
       {#if track}
         <div class="wave-stack">
           <div class="waveform" bind:this={waveform} aria-label="Track waveform"></div>
@@ -813,13 +918,20 @@
   header{display:flex;align-items:center;gap:1.3rem;padding:.8rem 1.25rem;border-bottom:1px solid #30372e}
   header a{color:#eaece2;text-decoration:none;font-size:1.25rem;font-weight:650} header span,small{color:#a9b99e} header span{font-size:.67rem;letter-spacing:.2em}
   main{width:100%;padding:1rem 1.25rem;display:grid;grid-template-columns:minmax(220px,270px) minmax(0,1fr);gap:1.8rem}
-  aside{align-self:start;position:sticky;top:1rem;background:#191e18;padding:1.15rem;border-radius:14px;border:1px solid #30372e}
+  aside{min-width:0;align-self:start;position:sticky;top:1rem;max-height:calc(100dvh - 2rem);overflow:auto;background:#191e18;padding:1.15rem;border-radius:14px;border:1px solid #30372e}
   h2{margin:0 0 1rem;font-size:1.02rem} h1{margin:.18rem 0;font-size:clamp(2rem,4vw,3.25rem);letter-spacing:-.055em}
   .library-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem}.library-head h2{margin:0}.library-head button{font-size:.75rem;padding:.3rem .45rem}
   p{color:#a9b99e;margin:.5rem 0 1rem} label{display:grid;gap:.35rem;color:#c8d1c1;font-size:.83rem;margin:.55rem 0}
   select,input,textarea,button{font:inherit;color:inherit;background:#222a20;border:1px solid #414e3d;border-radius:7px;padding:.55rem;min-width:0}
-  select,input,textarea{width:100%} textarea{resize:vertical} button{cursor:pointer} button:hover,.active,button[aria-pressed=true]{border-color:#b3d68f;background:#35482c} button:disabled{opacity:.45;cursor:default}
-  .tracks{display:grid;gap:.35rem;margin-top:.8rem}.tracks button{text-align:left}
+  select,input,textarea{width:100%} textarea{resize:vertical} button{cursor:pointer} button:hover,button[aria-pressed=true]{border-color:#b3d68f;background:#35482c} button:disabled{opacity:.45;cursor:default}
+  .library-section{margin-top:.85rem;border-top:1px solid #30372e;padding-top:.65rem}
+  .library-section h3{margin:0 0 .4rem;color:#c8d1c1;font-size:.8rem}
+  .library-list{list-style:none;display:grid;gap:.25rem;margin:0;padding:0;max-height:clamp(6rem,20vh,15rem);overflow:auto}
+  .library-list button{display:grid;gap:.18rem;width:100%;text-align:left;padding:.42rem .55rem;overflow-wrap:anywhere}
+  .library-list small,.empty-list{font-size:.72rem;color:#a9b99e}
+  .library-list .pending{color:#ffc98e}.library-list .delivered{color:#b3d68f}
+  .source-picker{display:flex;gap:.3rem;margin-bottom:.4rem}
+  .source-picker button{font-size:.72rem;padding:.3rem .45rem}
   .waveform{min-height:240px;background:#121a12;border-radius:8px;margin-bottom:.35rem}
   .treatments{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:.65rem;margin-top:.75rem}
   .treatment{background:#222a20;border:1px solid #414e3d;border-radius:8px;padding:.5rem .75rem}
@@ -859,5 +971,5 @@
   .primary{background:#b3d68f;color:#131d0f;font-weight:700}
   .result{display:grid;gap:.25rem;padding:.7rem 0;border-top:1px solid #30372e;margin-top:.5rem}.error{color:#ffb4a4}.status{min-height:1.2em}
   .export-review{display:grid;justify-items:start;gap:.5rem;padding:.8rem;border:1px solid #414e3d;border-radius:8px;overflow-wrap:anywhere}
-  @media(max-width:700px){main{display:block;padding:1rem}aside,.transport.compact{position:static}aside{margin-bottom:1rem}}
+  @media(max-width:700px){main{display:block;padding:1rem}aside,.transport.compact{position:static}aside{max-height:none;margin-bottom:1rem}}
 </style>

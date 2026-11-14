@@ -191,29 +191,49 @@ def get_locations():
 
 
 def folders(path: Path) -> list[str]:
-    return sorted((p.name for p in path.iterdir() if not p.name.startswith((".", "#"))
+    return sorted((p.name for p in path.iterdir() if not p.name.startswith((".", "#", "@"))
                    and not p.is_symlink() and p.is_dir()), key=str.casefold)
 
 
+def album_status(path: Path) -> dict:
+    try:
+        stages = workflow.album_stages(path)
+    except (OSError, ValueError):
+        return {"playable": False, "pending": None}
+    tracks = stages["raw"] or stages["mastered"]
+    delivery = workflow.track_delivery(stages)
+    return {"playable": bool(tracks), "pending": sum(bool(delivery[name]) for name in tracks)}
+
+
+def artist_status(path: Path) -> dict:
+    try:
+        albums = [album_status(path / name) for name in folders(path)]
+    except OSError:
+        return {"playable": False, "pending": None}
+    return {"playable": any(item["playable"] for item in albums),
+            "pending": sum(item["pending"] for item in albums) if all(item["pending"] is not None for item in albums) else None}
+
+
 @router.get("/api/albums/browse")
-def browse(location: str, artist_folder: str = "", album_folder: str = ""):
+def browse(location: str, artist_folder: str = "", album_folder: str = "", status: bool = False):
     if not artist_folder:
-        return folders(location_root(location))
+        root = location_root(location)
+        names = folders(root)
+        return [{"name": name, **artist_status(root / name)} for name in names] if status else names
     if not album_folder:
         path = guarded(location_root(location), artist_folder)
         if not path.is_dir():
             raise HTTPException(404, "Artist folder not found")
-        return folders(path)
+        names = folders(path)
+        return [{"name": name, **album_status(path / name)} for name in names] if status else names
     album = resolve_album(location, artist_folder, album_folder)
     try:
-        stages = {stage: [p.name for p in workflow.wavs(album, stage)]
-                  for stage in ("raw", "mastered", "clean", "normalized")}
+        stages = workflow.album_stages(album)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return {**stages, "covers": sorted(p.name for p in album.iterdir()
-            if p.is_file() and not p.is_symlink() and p.suffix.lower() in {".png", ".jpg", ".jpeg"}),
-            "mp3s": sorted(p.name for p in guarded(album, "mp3s").glob("*.mp3")
-                           if p.is_file() and not p.is_symlink())}
+    return {**stages, "delivery": workflow.track_delivery(stages), "covers": sorted(p.name for p in album.iterdir()
+            if not p.name.startswith((".", "#", "@")) and p.is_file() and not p.is_symlink()
+            and p.suffix.lower() in {".png", ".jpg", ".jpeg"})}
 
 
 @router.get("/api/albums/presets")
