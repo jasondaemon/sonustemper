@@ -69,7 +69,7 @@ class Settings(AlbumInput):
     artist: str = Field(default="", max_length=200)
     album_artist: str = Field(default="", max_length=200)
     album: str = Field(default="", max_length=200)
-    cover: str = "cover.png"
+    cover: str = ""
     year: int = Field(default_factory=lambda: date.today().year, ge=1, le=9999)
     tags: dict[str, dict[str, str]] = Field(default_factory=dict)
     sidecar: bool = False
@@ -231,9 +231,7 @@ def browse(location: str, artist_folder: str = "", album_folder: str = "", statu
         stages = workflow.album_stages(album)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return {**stages, "delivery": workflow.track_delivery(stages), "covers": sorted(p.name for p in album.iterdir()
-            if not p.name.startswith((".", "#", "@")) and p.is_file() and not p.is_symlink()
-            and p.suffix.lower() in {".png", ".jpg", ".jpeg"})}
+    return {**stages, "delivery": workflow.track_delivery(stages), "covers": workflow.cover_options(album)}
 
 
 @router.get("/api/albums/presets")
@@ -260,10 +258,19 @@ def spectrogram(location: str, artist_folder: str, album_folder: str, source: st
 
 
 @router.get("/api/albums/artwork")
-def artwork(location: str, artist_folder: str, album_folder: str, name: str):
+def artwork(location: str, artist_folder: str, album_folder: str, name: str, thumbnail: bool = False):
     path = guarded(resolve_album(location, artist_folder, album_folder), name)
-    if not path.is_file() or path.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
+    if not path.is_file() or path.suffix.lower() not in workflow.ARTWORK_SUFFIXES:
         raise HTTPException(404, "Artwork not found")
+    if thumbnail:
+        directory = tempfile.TemporaryDirectory(prefix="album-cover-")
+        try:
+            output = Path(directory.name) / "cover.jpg"
+            workflow.artwork_jpeg(path, output, thumbnail=True)
+            return FileResponse(output, media_type="image/jpeg", background=BackgroundTask(directory.cleanup))
+        except Exception:
+            directory.cleanup()
+            raise HTTPException(422, "Could not preview this cover") from None
     return FileResponse(path)
 
 
@@ -432,6 +439,10 @@ def album_job_inputs(settings: Settings):
     if not os.access(album, os.W_OK | os.X_OK):
         raise HTTPException(403, "The album folder is not writable")
     tracks = selected_tracks(album, settings.source, settings.tracks)
+    try:
+        workflow.require_full_album(album, settings.source, tracks)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
     key = json.dumps([settings.location, settings.artist_folder, settings.album_folder])
     return album, tracks, key
 
@@ -478,6 +489,7 @@ def preflight(settings: Settings):
         paths = {path for track in tracks for path in previous.get(track.name, {}).get("files", [])
                  if path.split("/", 1)[0] != "mastered" or settings.source == "raw"}
         if not settings.metadata_only:
+            paths.update(workflow.delivery_paths(album, tracks))
             paths.update(f"clean/{track.name}" for track in tracks)
             if settings.source == "raw":
                 paths.update(f"mastered/{track.name}" for track in tracks)
@@ -494,6 +506,10 @@ def preflight(settings: Settings):
 @router.post("/api/albums/jobs", status_code=202)
 def start_job(settings: Settings):
     album, tracks, key = album_job_inputs(settings)
+    try:
+        workflow.delivery_cover(album, settings.cover)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     data = settings.model_dump() if settings.metadata_only else resolve_render(settings)
     job = uuid4().hex
     workflow.record(LIBRARY_DB, job, status="queued", stage="Queued", settings=data, album_key=key)

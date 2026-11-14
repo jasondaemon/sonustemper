@@ -21,7 +21,8 @@
   type Result = {track: string; mp3: string; lufs: number; true_peak: number; mp3_true_peak: number; mp3_peak_warning: boolean};
   type Preflight = {tracks:number; existing:string[]; cover:string|null; can_update_tags:boolean; will_replace:boolean};
   type Folder = {name:string; playable:boolean; pending:number|null};
-  type AlbumFiles = Partial<Record<'raw'|'mastered'|'clean'|'normalized'|'mp3s'|'covers', string[]>> & {delivery?:Record<string,string[]>};
+  type Cover = {name:string; size:number};
+  type AlbumFiles = Partial<Record<'raw'|'mastered'|'clean'|'normalized'|'mp3s', string[]>> & {delivery?:Record<string,string[]>; covers?:Cover[]};
   type LibraryPosition = {location:string; artist:string; album:string; source:string; track:string};
   const positionKey = 'sonustemper:album-library-position';
   let locations = $state<{name:string;available:boolean;writable:boolean}[]>([]);
@@ -49,7 +50,7 @@
   ])));
   let balance = $state('album'), lufs = $state(-16), peak = $state(-1.5);
   let artistTag = $state(''), albumArtist = $state(''), albumTag = $state(''), cover = $state('');
-  let year = $state(new Date().getFullYear()), title = $state(''), number = $state('');
+  let year = $state(new Date().getFullYear());
   let lyrics = $state(''), prompt = $state(''), style = $state('');
   let replace = $state(false), sidecar = $state(false), auditionFormat = $state<"wav"|"mp3">("wav");
   let previewURL = $state(''), previewKey = $state(''), previewBusy = $state(false);
@@ -121,7 +122,7 @@
     return saved;
   });
   let draft = $derived({defaults:defaults ?? initialProcessing, overrides:effectiveOverrides,
-    tags:{...tagEdits,[track]:{title,number}}, albumSettings, track});
+    tags:tagEdits, albumSettings, track});
   let settings = $derived({...keys, ...draft.defaults, tracks, ...albumSettings,
     tags:draft.tags, track_overrides:effectiveOverrides});
   let previewSettings = $derived({...settings,audition_track:track,audition_format:auditionFormat});
@@ -264,7 +265,6 @@
 
   function rememberTrack() {
     if (!track) return;
-    tagEdits[track] = {title,number};
     if (trackCustom) overrides[track] = copy(processing);
     else delete overrides[track];
   }
@@ -302,7 +302,7 @@
     tagEdits=saved.tags;
     const a=saved.albumSettings;
     ({balance,lufs,peak,year,replace,sidecar,profile,auditionFormat}=a);
-    cover=library.covers?.includes(a.cover) ? a.cover : '';
+    cover=library.covers?.some(item => item.name === a.cover) ? a.cover : '';
     artistTag=a.artist;albumArtist=a.album_artist;albumTag=a.album;
     await selectTrack();
     status='Album session reopened';
@@ -353,7 +353,7 @@
     const found = await api<AlbumFiles>('browse?' + new URLSearchParams(keys));
     if (version !== selectionVersion) return;
     library = found;
-    if (!found.covers?.includes(cover)) cover = '';
+    if (!found.covers?.some(item => item.name === cover)) cover = '';
     if (!tracks.includes(track)) {
       if (!tracks.length && found[source === 'raw' ? 'mastered' : 'raw']?.length) {
         source = source === 'raw' ? 'mastered' : 'raw';
@@ -372,7 +372,7 @@
     balance='album'; profile='guiding-night'; selectProfile();
     year=new Date().getFullYear(); replace=false; sidecar=false; auditionFormat='wav';
     artistTag=albumArtist=artist; albumTag=album;
-    cover=library.covers?.includes('cover.png') ? 'cover.png' : '';
+    cover=library.covers?.find(item => item.name === 'cover.png')?.name ?? library.covers?.[0]?.name ?? '';
     status=''; results=[];
     track = preferredTrack && tracks.includes(preferredTrack) ? preferredTrack : tracks[0] || '';
     const ready = selectTrack();
@@ -391,13 +391,25 @@
     noiseMode=''; sourceDuration=0; playhead=0; cursor=undefined; selection=undefined;
     audition = false; original = false; clipped = false; scopePath = ''; lyrics = prompt = style = ''; findings = [];
     loadTrackProcessing();
-    const stem = track.replace(/\.wav$/i, '');
-    const match = stem.match(/^(\d+)\.\s*(.*)$/);
-    title = tagEdits[track]?.title ?? match?.[2] ?? stem;
-    number = tagEdits[track]?.number ?? match?.[1] ?? '';
     if (!track) return;
     const data = await api<{lyrics:string;prompt:string;style:string}>('text?' + new URLSearchParams({...keys, track}));
     if (version === selectionVersion) ({lyrics, prompt, style} = data);
+  }
+
+  function songTags(name: string, index: number) {
+    const stem = name.replace(/\.wav$/i, '');
+    const match = stem.match(/^(\d+)\.\s*(.*)$/);
+    return {title:tagEdits[name]?.title ?? (match?.[2] || stem), number:tagEdits[name]?.number ?? match?.[1] ?? String(index + 1)};
+  }
+
+  function editSongTag(name: string, index: number, field: 'number'|'title', value: string) {
+    tagEdits[name] = {...songTags(name, index), [field]:value};
+  }
+
+  function sizeLabel(bytes: number) {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(0)} KB`;
+    return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
   }
 
   function loadPreset() {
@@ -885,9 +897,35 @@
         <p>Static gain respects the WAV peak ceiling. The results report decoded MP3 peaks separately.</p>
       </details>
       <details><summary>Tags and artwork</summary>
-        {#if cover}<img class="cover" alt="Selected album cover" src={'/api/albums/artwork?'+new URLSearchParams({...keys,name:cover})}>{/if}
-        <div class="row"><label>Artist<input bind:value={artistTag}></label><label>Album artist<input bind:value={albumArtist}></label><label>Album<input bind:value={albumTag}></label></div>
-        <div class="row"><label>Track title<input bind:value={title}></label><label>Track number<input bind:value={number}></label><label>Year<input type="number" bind:value={year}></label><label>Cover<select bind:value={cover}><option value="">No artwork</option>{#each library.covers || [] as item}<option>{item}</option>{/each}</select></label></div>
+        <div class="album-tag-fields"><label>Album<input bind:value={albumTag}></label><label>Album artist<input bind:value={albumArtist}></label><label>Artist<input bind:value={artistTag}></label><label>Year<input type="number" min="1" max="9999" bind:value={year}></label></div>
+        <div class="cover-heading"><h3>Album artwork</h3>{#if cover}<button type="button" onclick={() => cover = ''}>Clear selection</button>{/if}</div>
+        {#if library.covers?.length}
+          <div class="cover-grid" role="group" aria-label="Album artwork, 3000 by 3000 pixels">
+            {#each library.covers as item (item.name)}
+              <button type="button" class="cover-option" aria-pressed={item.name === cover} aria-label={`Use ${item.name}, ${sizeLabel(item.size)}`} title={item.name} onclick={() => cover = item.name}>
+                <img alt="" loading="lazy" width="360" height="360" src={'/api/albums/artwork?'+new URLSearchParams({...keys,name:item.name,thumbnail:'true'})}>
+                <span class="cover-filename" aria-hidden="true"><span>{item.name.slice(0, Math.max(0, item.name.length - 11))}</span><span>{item.name.slice(-11)}</span></span>
+                <small>{sizeLabel(item.size)}</small>
+              </button>
+            {/each}
+          </div>
+        {:else}<p>No 3000 × 3000 images found in this album folder.</p>{/if}
+        <h3>Album tracks</h3>
+        <div class="album-tags-scroll">
+          <table class="album-track-tags">
+            <thead><tr><th scope="col">Track #</th><th scope="col">Title</th><th scope="col">Source file</th></tr></thead>
+            <tbody>
+              {#each tracks as name, index (name)}
+                {@const tags = songTags(name, index)}
+                <tr>
+                  <td><input aria-label={`Track number for ${name}`} inputmode="numeric" value={tags.number} oninput={event => editSongTag(name, index, 'number', event.currentTarget.value)}></td>
+                  <td><input aria-label={`Title for ${name}`} value={tags.title} oninput={event => editSongTag(name, index, 'title', event.currentTarget.value)}></td>
+                  <td title={name}>{name}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
       </details>
       <details><summary>Lyrics and Suno prompts</summary>
         <label>Approved lyrics<textarea rows="9" bind:value={lyrics}></textarea></label>
@@ -899,14 +937,14 @@
         <label>Suno style<textarea rows="4" bind:value={style}></textarea></label>
         <button onclick={() => action(async () => {await navigator.clipboard.writeText(style);status='Style copied';})}>Copy style</button>
       </details>
-      <details open><summary>Export</summary>
-        <p>{source === 'raw' ? 'mastered / ' : ''}clean / normalized / mp3s</p>
+      <details open><summary>Finalize album</summary>
+        <p>Final WAVs go to <code>normalized/</code> and final MP3s to <code>mp3s/</code>. Raw recordings stay untouched.</p>
         <div class="row"><strong>All {tracks.length} tracks</strong>
-        <label class="check"><input type="checkbox" bind:checked={replace}> Replace previous outputs</label>
+        <label class="check"><input type="checkbox" bind:checked={replace}> Replace previous outputs for these songs</label>
         <label class="check"><input type="checkbox" bind:checked={sidecar}> Include untimed LRC</label></div>
         {#if !writable}<p>Choose the writable test copy to export.</p>{/if}
         <div class="row">
-          <button class="primary" disabled={busy || !writable} onclick={() => action(() => reviewExport())}>{busy ? 'Export in progress…' : 'Review export'}</button>
+          <button class="primary" disabled={busy || !writable} onclick={() => action(() => reviewExport())}>{busy ? 'Finalization in progress…' : 'Review album export'}</button>
           <button disabled={busy || !writable} onclick={() => action(() => reviewExport(true))}>Review tag update</button>
         </div>
         {#if exportReview && exportReview.key === exportKey}
@@ -919,9 +957,9 @@
               <details><summary>{check.existing.length} existing {check.existing.length === 1 ? 'file' : 'files'}</summary>
                 <ul>{#each check.existing as path}<li>{path}</li>{/each}</ul>
               </details>
-              {#if !check.will_replace}<p>Enable Replace previous outputs and review again to proceed.</p>{/if}
+              {#if !check.will_replace}<p>Enable replacement and review again to proceed.</p>{/if}
             {/if}
-            <button class="primary" disabled={busy || (tagsOnly ? !check.can_update_tags : !!check.existing.length && !check.will_replace)} onclick={() => action(run)}>{tagsOnly ? 'Update tags' : 'Export album'}</button>
+            <button class="primary" disabled={busy || (tagsOnly ? !check.can_update_tags : !!check.existing.length && !check.will_replace)} onclick={() => action(run)}>{tagsOnly ? 'Update album tags' : 'Finalize album'}</button>
           </div>
         {/if}
         {#each results as item}
@@ -995,7 +1033,22 @@
   @media(max-width:899px){.cleanup-layout{grid-template-columns:1fr}}
   .clip{background:var(--danger-soft);color:var(--danger)}.effect{width:100%;height:150px;background:var(--chart);border-radius:.7rem}
   .noise-grid{display:grid;grid-template-columns:minmax(0,2fr) minmax(230px,1fr);gap:1rem}
-  .noise-grid img{width:100%;min-width:0;border-radius:8px}.cover{max-width:120px;max-height:120px;object-fit:contain}
+  .noise-grid img{width:100%;min-width:0;border-radius:8px}
+  .album-tag-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) 6rem;gap:.6rem}
+  .cover-heading{display:flex;align-items:center;justify-content:space-between;gap:.5rem}
+  .cover-heading button{font-size:.8rem}
+  .cover-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(8rem,10rem));gap:.65rem;margin:.4rem 0 1rem}
+  .cover-option{display:grid;gap:.28rem;text-align:left;min-width:0}
+  .cover-option img{width:100%;height:auto;aspect-ratio:1;object-fit:cover;border-radius:.35rem;background:var(--card)}
+  .cover-filename{display:flex;min-width:0;font-size:.8rem;white-space:nowrap}
+  .cover-filename span:first-child{overflow:hidden;text-overflow:ellipsis}
+  .cover-filename span:last-child{flex:none}
+  .album-tags-scroll{overflow-x:auto}
+  .album-track-tags{width:100%;border-collapse:collapse;text-align:left;font-size:.85rem}
+  .album-track-tags th,.album-track-tags td{border-bottom:1px solid var(--line);padding:.4rem .5rem}
+  .album-track-tags th:first-child{width:6rem}
+  .album-track-tags td:last-child{width:36%;overflow-wrap:anywhere;color:var(--muted)}
+  @media(max-width:600px){.album-tag-fields{grid-template-columns:repeat(2,minmax(0,1fr))}.album-track-tags{min-width:23rem}}
   .transport.compact .wave-stack{display:none}
   .transport.compact h1{font-size:1.15rem;letter-spacing:0}
   .transport.compact p{margin:.2rem 0}

@@ -40,6 +40,8 @@ def wavs(album: Path, stage: str) -> list[Path]:
 DELIVERY_SUFFIX = re.compile(
     r" \(Integrated -?\d+(?:\.\d+)? LUFS, True Peak -?\d+(?:\.\d+)? dB, Channel [^)]+\)$"
 )
+ARTWORK_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".avif", ".gif", ".bmp", ".tiff", ".tif"}
+ARTWORK_SIZE = 3000
 
 
 def album_stages(album: Path) -> dict[str, list[str]]:
@@ -67,6 +69,21 @@ def track_delivery(stages: dict[str, list[str]]) -> dict[str, list[str]]:
         if not outputs.intersection(mp3s) and (outputs or stem not in mp3s):
             missing[name].append("Matching MP3" if outputs else "MP3")
     return missing
+
+
+def delivery_paths(album: Path, tracks: list[Path]) -> set[str]:
+    stems = {track.stem for track in tracks}
+    return {f"{stage}/{path.name}" for stage, suffix in (("normalized", ".wav"), ("mp3s", ".mp3"), ("mp3s", ".lrc"))
+            for path in audio_files(album, stage, suffix) if path.stem in stems or DELIVERY_SUFFIX.sub("", path.stem) in stems}
+
+
+def require_full_album(album: Path, stage: str, tracks: list[Path]) -> None:
+    if tracks != wavs(album, stage):
+        raise ValueError("The album track list changed or is incomplete. Refresh and review the full album.")
+    if stage == "mastered":
+        raw = {path.stem for path in wavs(album, "raw")}
+        if raw and raw != {path.stem for path in tracks}:
+            raise ValueError("Existing masters do not match the full raw album. Finalize from Raw WAVs.")
 
 
 def lyrics_draft(text: str) -> str:
@@ -237,13 +254,41 @@ def encode_mp3(source: Path, output: Path) -> None:
     ffmpeg(source, output, "-c:a", "libmp3lame", "-b:a", "320k", "-id3v2_version", "3")
 
 
+def artwork_size(path: Path) -> tuple[int, int] | None:
+    try:
+        probe = subprocess.run([resolve_tool("ffprobe"), "-v", "error", "-select_streams", "v:0",
+                                "-show_entries", "stream=width,height", "-of", "json", str(path)],
+                               check=True, capture_output=True, timeout=8)
+        stream = json.loads(probe.stdout)["streams"][0]
+        return stream["width"], stream["height"]
+    except (OSError, ValueError, KeyError, IndexError, subprocess.SubprocessError):
+        return None
+
+
+def cover_options(album: Path) -> list[dict]:
+    covers = []
+    for path in sorted(album.iterdir(), key=lambda item: item.name.casefold()):
+        if path.name.startswith((".", "#", "@")) or path.suffix.lower() not in ARTWORK_SUFFIXES or path.is_symlink():
+            continue
+        try:
+            if path.is_file() and artwork_size(path) == (ARTWORK_SIZE, ARTWORK_SIZE):
+                covers.append({"name": path.name, "size": path.stat().st_size})
+        except OSError:
+            continue
+    return covers
+
+
+def artwork_jpeg(source: Path, target: Path, *, thumbnail: bool = False) -> None:
+    scale = ("-vf", "scale=360:360") if thumbnail else ()
+    subprocess.run([resolve_tool("ffmpeg"), "-nostdin", "-v", "error", "-i", str(source),
+                    *scale, "-frames:v", "1", "-q:v", "3", str(target)], check=True, timeout=60)
+
+
 def render_artwork(work: Path, cover: Path | None) -> bytes | None:
     if cover is None:
         return None
     artwork = work / "cover.jpg"
-    subprocess.run([resolve_tool("ffmpeg"), "-nostdin", "-v", "error", "-i", str(cover),
-                    "-vf", "scale=1200:1200:force_original_aspect_ratio=decrease",
-                    "-frames:v", "1", "-q:v", "3", str(artwork)], check=True, timeout=60)
+    artwork_jpeg(cover, artwork)
     return artwork.read_bytes()
 
 
@@ -251,10 +296,9 @@ def delivery_cover(album: Path, name: str) -> Path | None:
     if not name:
         return None
     cover = child(album, name)
-    if name == "cover.png" and not cover.exists():
-        return None
-    if not cover.is_file() or cover.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
-        raise ValueError("Choose an existing PNG or JPEG cover")
+    if (not cover.is_file() or cover.suffix.lower() not in ARTWORK_SUFFIXES
+            or artwork_size(cover) != (ARTWORK_SIZE, ARTWORK_SIZE)):
+        raise ValueError("Choose an existing 3000 x 3000 cover image")
     return cover
 
 
@@ -299,14 +343,16 @@ def render_album(album: Path, tracks: list[Path], settings: dict, report=lambda 
     if not tracks:
         raise ValueError("Choose at least one WAV")
     stage = settings["source"]
-    cover = delivery_cover(album, settings.get("cover", "cover.png"))
+    if not audition:
+        require_full_album(album, stage, tracks)
+    cover = None if audition else delivery_cover(album, settings.get("cover", ""))
     output_stages = ["clean", "normalized", "mp3s"]
     if stage == "raw":
         output_stages.insert(0, "mastered")
     if audition is None:
         for directory in output_stages:
             child(album, directory).mkdir(exist_ok=True)
-    full_track_list = wavs(album, "raw") or wavs(album, stage)
+    full_track_list = wavs(album, stage)
     track_order = {track.stem: index for index, track in enumerate(full_track_list, 1)}
     fingerprints = {track.name: digest(track) for track in tracks}
     previous = previous or {}
@@ -351,6 +397,7 @@ def render_album(album: Path, tracks: list[Path], settings: dict, report=lambda 
                     files.append(sidecar_path)
                     checksums[sidecar_path] = digest(sidecar)
                 results.append({**result, "files": files, "output_sha256": checksums})
+            require_full_album(album, stage, tracks)
             publish(album, work, paths, superseded, True, report_publication, results)
             return results
         clean_files = []
@@ -429,9 +476,11 @@ def render_album(album: Path, tracks: list[Path], settings: dict, report=lambda 
         for track in tracks:
             if digest(track) != fingerprints[track.name]:
                 raise ValueError(f"Source changed during render: {track.name}")
+        require_full_album(album, stage, tracks)
         paths = {path for result in outputs for path in result["files"]}
         superseded = {path for path in owned_outputs(album, tracks, previous)
                       if path.split("/", 1)[0] in output_stages}
+        superseded.update(delivery_paths(album, tracks))
         publish(album, work, paths, superseded, settings.get("replace", False), report_publication, outputs)
         return outputs
     finally:
