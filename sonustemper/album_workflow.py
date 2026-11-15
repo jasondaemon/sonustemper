@@ -194,6 +194,7 @@ TRACK_TEXT_FILES = {
 }
 NEGATIVE_HEADING = re.compile(r"^##[ \t]+Negative Prompt[ \t]*$", re.I | re.M)
 STYLE_WRITE_LOCK = Lock()
+LYRICS_WRITE_LOCK = Lock()
 
 
 def split_style_prompts(text: str) -> tuple[str, str]:
@@ -257,7 +258,16 @@ def write_track_text(album: Path, stem: str, kind: str, text: str) -> str:
         stage, suffix = TRACK_TEXT_FILES[kind]
         if kind == "lyrics":
             text = text.rstrip()
-            save_text_asset(album, stage, stem, suffix, text + "\n" if text else "")
+            with LYRICS_WRITE_LOCK:
+                old = text_asset(album, stage, stem, suffix).strip()
+                companion = child(child(album, stage), stem + ".lrc")
+                generated = (bool(old) and companion.is_file() and
+                             companion.read_text(encoding="utf-8", errors="replace") == old + "\n")
+                save_text_asset(album, stage, stem, suffix, text + "\n" if text else "")
+                if text and (generated or not companion.exists()):
+                    save_text_asset(album, stage, stem, ".lrc", text.strip() + "\n")
+                elif not text and generated:
+                    companion.unlink(missing_ok=True)
         else:
             save_text_asset(album, stage, stem, suffix, text)
     return text
@@ -327,7 +337,7 @@ def owned_outputs(album: Path, tracks: list[Path], previous: dict[str, dict]) ->
 
 def publication_path(album: Path, relative: str) -> Path:
     stage, name = relative.split("/", 1)
-    if stage not in {"mastered", "clean", "normalized", "mp3s"}:
+    if stage not in {"mastered", "clean", "normalized", "mp3s"} and not (stage == "lyrics" and name.endswith(".lrc")):
         raise ValueError("Invalid output stage")
     return child(child(album, stage), name)
 
@@ -641,6 +651,18 @@ def tag_delivery(album: Path, mp3: Path, track: str, settings: dict, cover_data:
     return None
 
 
+def stage_missing_lyrics(album: Path, work: Path, track: str, sidecar: Path | None) -> str | None:
+    if sidecar is None:
+        return None
+    relative = f"lyrics/{Path(track).stem}.lrc"
+    if publication_path(album, relative).exists():
+        return None
+    staged = publication_path(work, relative)
+    staged.parent.mkdir(exist_ok=True)
+    shutil.copyfile(sidecar, staged)
+    return relative
+
+
 def album_session(database: Path, key: str, draft: dict | None = None) -> dict | None:
     with sqlite3.connect(database) as conn:
         conn.execute("CREATE TABLE IF NOT EXISTS album_sessions (id TEXT PRIMARY KEY, draft TEXT NOT NULL)")
@@ -714,7 +736,8 @@ def confirm_review(album: Path, tracks: list[Path], settings: dict, work: Path, 
 def publish_deliveries(album: Path, tracks: list[Path], work: Path, outputs: list[dict], stages,
                        replace: bool, report, previous: dict[str, dict]) -> None:
     paths = {path for result in outputs for path in result["files"]}
-    superseded = {path for path in owned_outputs(album, tracks, previous) if path.split("/", 1)[0] in stages}
+    superseded = {path for path in owned_outputs(album, tracks, previous)
+                  if path.split("/", 1)[0] in stages and not path.startswith("lyrics/")}
     # Do not delete or replace a hand-authored lyrics file based on its name alone.
     for relative in paths - superseded:
         if relative.endswith(".lrc"):
@@ -775,7 +798,8 @@ def render_album(album: Path, tracks: list[Path], settings: dict, report=lambda 
                 shutil.copyfile(source_mp3, mp3)
                 sidecar = tag_delivery(album, mp3, track.name, settings, cover_data, track_order)
                 files = [path for path in result["files"] if not path.endswith(".lrc")]
-                superseded.update(path for path in owned_outputs(album, [track], previous) if path.endswith(".lrc"))
+                superseded.update(path for path in owned_outputs(album, [track], previous)
+                                  if path.startswith("mp3s/") and path.endswith(".lrc"))
                 paths.add(relative)
                 checksums = {path: sha for path, sha in result["output_sha256"].items() if not path.endswith(".lrc")}
                 checksums[relative] = digest(mp3)
@@ -786,6 +810,14 @@ def render_album(album: Path, tracks: list[Path], settings: dict, report=lambda 
                     paths.add(sidecar_path)
                     files.append(sidecar_path)
                     checksums[sidecar_path] = digest(sidecar)
+                companion = stage_missing_lyrics(album, work, track.name, sidecar)
+                if companion:
+                    target = publication_path(album, companion)
+                    if target.exists():
+                        raise FileExistsError(f"A lyrics file was added during export: {companion}")
+                    paths.add(companion)
+                    files.append(companion)
+                    checksums[companion] = digest(publication_path(work, companion))
                 results.append({**result, "files": files, "output_sha256": checksums})
             require_full_album(album, stage, tracks)
             publish(album, work, paths, superseded, True, report_publication, results)
@@ -856,6 +888,9 @@ def render_album(album: Path, tracks: list[Path], settings: dict, report=lambda 
                 files.append(f"mastered/{clean.name}")
             if sidecar:
                 files.append(f"mp3s/{sidecar.name}")
+            companion = stage_missing_lyrics(album, work, clean.name, sidecar)
+            if companion:
+                files.append(companion)
             outputs.append({"track": clean.name, "wav": named.name, "mp3": mp3.name,
                             "lufs": lufs, "lra": lra, "true_peak": peak, "mp3_true_peak": mp3_peak,
                             "gain_db": round(gain, 2),

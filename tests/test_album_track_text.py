@@ -43,3 +43,16 @@ class AlbumTrackTextTests(unittest.TestCase):
         fields = read_track_text(self.album, "Song")
         self.assertEqual(fields["prompt"], source)
         self.assertEqual(fields["lyrics"], draft + "\n")
+        self.assertEqual((self.album / "lyrics" / "Song.lrc").read_text(), draft + "\n")
+
+    def test_lyrics_save_updates_generated_lrc_and_preserves_hand_authored_lrc(self):
+        lrc = self.album / "lyrics" / "Song.lrc"
+        write_track_text(self.album, "Song", "lyrics", "First")
+        write_track_text(self.album, "Song", "lyrics", "Second")
+        self.assertEqual(lrc.read_text(), "Second\n")
+        write_track_text(self.album, "Song", "lyrics", "")
+        self.assertFalse(lrc.exists())
+        lrc.write_text("[00:01.00]Hand timed\n")
+        write_track_text(self.album, "Song", "lyrics", "Third")
+        self.assertEqual(lrc.read_text(), "[00:01.00]Hand timed\n")
+        self.assertEqual(read_track_text(self.album, "Song")["lyrics"], "Third\n")

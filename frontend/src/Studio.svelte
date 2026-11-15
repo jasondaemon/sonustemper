@@ -2382,7 +2382,7 @@
           <button type="button" class="prompt-secondary" disabled={promptWorking || !submissionLyrics.trim()} onclick={() => promptAction(() => copyPromptText('lyrics'))}>Copy for DistroKid</button>
           <button type="button" disabled={!writable || promptWorking} onclick={() => promptAction(() => savePrompt('lyrics'))}>Save lyrics</button>
         </div>
-        <small>Check the text against the recording, including repeated lines, before submitting.</small>
+        <small>Save reviewed lyrics as <code>.txt</code> and untimed <code>.lrc</code> in the lyrics folder.</small>
       {/if}
     {/if}
     {#if promptMessage}<p role="status">{promptMessage}</p>{/if}

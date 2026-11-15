@@ -197,6 +197,9 @@ Linear shows the whole 0–24 kHz range with linear intensity; filters still use
 **Prompts and Lyrics** reads and saves song files on the share. The two prompt
 editors share `styles/<song>.md`: style text comes first, followed by an optional
 `## Negative Prompt` section. Original lyric prompts stay in `lyric-prompts/`
-as Markdown. Reviewed submission lyrics go in `lyrics/` as plain text, also
-used for MP3 tags and matching untimed `.lrc` files alongside the MP3s.
-Songs without saved lyrics do not get a lyrics file.
+as Markdown. Saving reviewed submission lyrics writes `lyrics/<song>.txt`
+for copy/paste into DistroKid and `lyrics/<song>.lrc` for untimed playback.
+Publishing also embeds the text in the MP3 tags and writes a matching
+`.lrc` next to each MP3. Publish or use **Update MP3 tags only** to fill in
+missing `.lrc` companions for older lyrics. Existing hand-authored companions
+are not overwritten. Songs without saved lyrics do not get generated lyrics.
