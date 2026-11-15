@@ -31,12 +31,17 @@
   let strength = $state(100), width = $state(1), guardrails = $state(true);
   let waveform = $state<HTMLDivElement>();
   let waveError = $state(false);
-  type Result = {track: string; mp3: string; lufs: number; lra?:number|null; true_peak: number; mp3_true_peak: number; mp3_peak_warning: boolean};
+  type Result = {track:string; mp3:string; lufs:number; lra?:number|null; true_peak:number; mp3_true_peak:number;
+    mp3_peak_warning:boolean; gain_db?:number; source_lufs?:number; source_true_peak?:number};
+  type ReviewLoudness = {target_lufs:number; achieved_lufs:number; ceiling:number; balance:'album'|'track';
+    limits:{track:string; gain_shortfall_db:number; time:number|null}[]};
+  type DeliveryReview = {id:string; key:string; scope:string; rows:Result[]; loudness:ReviewLoudness; expires:number};
   type LoudnessReading = {lufs:number|null;lra:number|null};
   type TrackLoudness = {source:LoudnessReading;final:LoudnessReading|null;final_status?:string};
   let albumMeasurement = $state<{key:string;busy:boolean;rows:Record<string,TrackLoudness|string>}>();
   let measureVersion=0;
-  type AlbumJob = {status:string;stage:string;track?:string;track_number?:number;error?:string;results?:Result[]};
+  type AlbumJob = {status:string;stage:string;track?:string;track_number?:number;error?:string;results?:Result[];
+    loudness?:ReviewLoudness;expires?:number};
   type Folder = {name:string; playable:boolean; pending:number|null};
   type Cover = {name:string; size:number};
   type PromptKind = 'style' | 'negative' | 'prompt';
@@ -90,8 +95,11 @@
   let promptError = $state(''), promptMessage = $state('');
   let sidecar = $state(false), player = $state<HTMLAudioElement>();
   let audioInfo = $state<{song:string;rate?:number}>();
-  type PlaybackMode = 'original'|'cleanup'|'live';
+  type PlaybackMode = 'original'|'cleanup'|'live'|'review';
   let playbackMode = $state<PlaybackMode>('original');
+  let albumReview = $state<DeliveryReview>();
+  let levelMatchReview = $state(false);
+  let reviewCue:{song:string;id:string;time:number}|undefined;
   let cleanupAudio = $state<Record<string,{key:string;url:string}>>({});
   let cleanupRunning = $state<Record<string,boolean>>({});
   let status = $state(''), error = $state(''), busy = $state(false);
@@ -209,6 +217,26 @@
   let draft = $derived({defaults:effectiveDefaults, overrides:effectiveOverrides, tags:tagEdits, albumSettings, shareTone});
   let settings = $derived({...keys, ...draft.defaults, tracks, ...albumSettings,
     tags:draft.tags, track_overrides:effectiveOverrides});
+  function settingsKey(value:unknown) {
+    return JSON.stringify(value, (_key,item) => item && typeof item==='object' && !Array.isArray(item)
+      ? Object.fromEntries(Object.keys(item).sort().map(key=>[key,item[key]])) : item);
+  }
+  let reviewKey = $derived(settingsKey(settings));
+  let currentReview = $derived(albumReview?.key===reviewKey ? albumReview : undefined);
+  let reviewRow = $derived(currentReview?.rows.find(row=>row.track===track));
+  let reviewURL = $derived(currentReview && reviewRow ?
+    '/api/albums/reviews/'+currentReview.id+'/audio?'+new URLSearchParams({track}) : '');
+  $effect(()=>{
+    if (!albumReview) return;
+    const id=albumReview.id;
+    const timer=setTimeout(()=>{
+      if (albumReview?.id===id) {
+        albumReview=undefined;
+        exportStatus='Review expired. Review the album again.';
+      }
+    },Math.max(0,albumReview.expires*1000-Date.now()));
+    return ()=>clearTimeout(timer);
+  });
   let cleanupSong = $derived(JSON.stringify([draftKey,track]));
   let sourceRate = $derived(audioInfo?.song===cleanupSong ? audioInfo.rate : undefined);
   let cleanupRequest = $derived({...keys,tracks:[track],cleanup_version:cleanupVersion,cleanup_enabled:cleanupEnabled,
@@ -220,7 +248,8 @@
   let cleanupBusy = $derived(Boolean(cleanupRunning[cleanupSong]));
   let postReady = $derived(Boolean(cleanupAudio[cleanupSong]?.key===cleanupKey));
   let postError = $state('');
-  let audibleMode = $derived(source==='mastered' || (playbackMode==='cleanup' && !postReady) ? 'original' : playbackMode);
+  let audibleMode = $derived(playbackMode==='review' && reviewURL ? 'review' :
+    playbackMode==='review' || source==='mastered' || (playbackMode==='cleanup' && !postReady) ? 'original' : playbackMode);
   let repairDuration = $derived(analysis?.duration ?? sourceDuration);
   let selectedFix = $derived(repairs.find(item => item.id === activeRepair));
   let reviewQueue = $derived(reviewItems(analysis?.findings ?? [],repairs,noiseSelections));
@@ -251,13 +280,14 @@
   let audioURL = $derived(track ? '/api/albums/audio?' + new URLSearchParams({...keys, track}) : '');
 
   let playbackURL = $derived(playingCompare && compareResult ? compareResult[compareSide] ?? audioURL
-    : noiseMode ? noiseURL : audibleMode!=='original' && postReady ? cleanupAudio[cleanupSong].url : audioURL);
+    : noiseMode ? noiseURL : audibleMode==='review' ? reviewURL
+    : audibleMode!=='original' && postReady ? cleanupAudio[cleanupSong].url : audioURL);
   let lastMediaURL='', lastMediaSong='';
 
   $effect.pre(() => {
     const song=cleanupSong, url=playbackURL;
     if (song===lastMediaSong && lastMediaURL && url && url!==lastMediaURL) {
-      untrack(() => {if (!removeSeekListener) restorePlayhead(url);});
+      untrack(() => {if (!removeSeekListener && !reviewCue) restorePlayhead(url);});
     }
     lastMediaSong=song;lastMediaURL=url;
   });
@@ -585,6 +615,7 @@
 
   async function selectTrack() {
     ++selectionVersion;
+    reviewCue=undefined;
     removeSeekListener?.();
     removeSeekListener=undefined;
     player?.pause();
@@ -837,7 +868,8 @@
   function updatePlayhead() {
     if (!player) return;
     repeatComparisonPassage();
-    if (!(playingCompare && (compareResult?.removed || compareResult?.tone)) && loopRange && repairRange && repairRange.end > repairRange.start && player.currentTime >= repairRange.end) player.currentTime=repairRange.start;
+    if (audibleMode!=='review' && !(playingCompare && (compareResult?.removed || compareResult?.tone)) &&
+        loopRange && repairRange && repairRange.end > repairRange.start && player.currentTime >= repairRange.end) player.currentTime=repairRange.start;
     playhead=player.currentTime;
   }
 
@@ -877,7 +909,13 @@
     library.text_status ??= {};
     library.text_status[name] ??= {};
     library.text_status[name][kind] = Boolean(saved.text.trim());
-    if (kind === 'lyrics') submissionLyrics = saved.text;
+    if (kind === 'lyrics') {
+      submissionLyrics = saved.text;
+      if (currentReview) {
+        albumReview=undefined;
+        exportStatus='Lyrics changed. Review the album again before publishing.';
+      }
+    }
     if (kind === 'prompt' && !submissionLyrics.trim()) submissionLyrics = saved.draft ?? '';
     promptMessage = kind === 'lyrics' ? 'Submission lyrics saved' : 'Prompt saved';
   }
@@ -1078,6 +1116,16 @@
 
   $effect(() => {engine?.setMono(monitorMono);});
   $effect(() => {engine?.setProtection(liveAudition && protectPeaks);});
+  $effect(() => {
+    const row=reviewRow;
+    let gain=0;
+    if (levelMatchReview && !playingCompare && !noiseMode && row && row.source_lufs!=null &&
+        row.source_true_peak!=null && (audibleMode==='original' || audibleMode==='review')) {
+      const target=Math.min(row.source_lufs,row.lufs,row.source_lufs-row.source_true_peak-2,row.lufs-row.true_peak-2);
+      gain=target-(audibleMode==='review'?row.lufs:row.source_lufs);
+    }
+    engine?.setListeningGain(gain);
+  });
 
   function togglePeakProtection(enabled:boolean) {
     protectPeaks=enabled;
@@ -1186,12 +1234,21 @@
 
   function setPlayback(mode:PlaybackMode) {
     if (mode==='cleanup' && !postReady) return;
+    if (mode==='review' && !reviewURL) return;
+    if (mode!=='review') reviewCue=undefined;
     if (mode!==playbackMode || noiseMode || compareActive) resetMonitor();
     noiseMode = '';compareActive=false;
     playbackMode=mode;
   }
 
   function onPlaybackError() {
+    if (audibleMode==='review' && !noiseMode && !playingCompare) {
+      setPlayback('original');
+      albumReview=undefined;
+      exportStatus='';
+      exportError='The reviewed WAV is unavailable. Review the album again.';
+      return;
+    }
     if (!playingCompare) return;
     if (toneCompareReady) {
       toneCompareError='Could not load the comparison. Prepare it again.';
@@ -1200,6 +1257,44 @@
       compareActive=false;
       cleanupError='Could not load the comparison. Render it again.';
     }
+  }
+
+  function loadPlayerMetadata() {
+    if (!player || !Number.isFinite(player.duration)) return;
+    mediaDuration=player.duration;
+    if (playbackURL===audioURL) sourceDuration=player.duration;
+    if (reviewCue?.song===cleanupSong && reviewCue.id===currentReview?.id && playbackURL===reviewURL) {
+      const cue=reviewCue;
+      reviewCue=undefined;
+      player.currentTime=Math.min(cue.time,Math.max(0,player.duration-.001));
+      void player.play().catch(()=>{status='Reviewed WAV ready. Press play to listen.';});
+    }
+  }
+
+  async function hearReviewed(name:string, position=0) {
+    const id=currentReview?.id;
+    if (!id || !tracks.includes(name)) return;
+    if (track!==name) {
+      rememberTrack();
+      track=name;
+      await selectTrack();
+      if (currentReview?.id!==id || track!==name) return;
+    }
+    if (player && player.currentSrc===new URL(reviewURL,document.baseURI).href) {
+      setPlayback('review');
+      seekTo(position);
+      void player.play().catch(()=>{status='Reviewed WAV ready. Press play to listen.';});
+    } else {
+      reviewCue={song:cleanupSong,id,time:position};
+      setPlayback('review');
+    }
+  }
+
+  function onTrackEnded() {
+    if (audibleMode==='review' && !noiseMode && !playingCompare && currentReview) {
+      const next=tracks[tracks.indexOf(track)+1];
+      if (next) void hearReviewed(next);
+    } else repeatComparisonPassage(true);
   }
 
   function listenLive() {
@@ -1424,25 +1519,43 @@
     }
   }
 
-  async function runAlbum(tagsOnly = false) {
+  async function runAlbum(action:'review'|'publish'|'tags') {
     if (busy || !writable || !tracks.length) return;
+    const tagsOnly=action==='tags', reviewing=action==='review', ready=currentReview;
+    if (action==='publish' && !ready) return;
     const request = copy({...settings, replace:!tagsOnly, metadata_only:tagsOnly});
-    const jobKey = draftKey;
+    const jobKey = draftKey, signature=reviewKey;
+    if (reviewing) albumReview=undefined;
+    if (action==='publish' && playbackMode==='review') {
+      player?.pause();
+      setPlayback('original');
+    }
     busy = true; results = []; exportError = ''; exportStatus = 'Submitting album…';
     try {
       if (tagsOnly && !(await api<{can_update_tags:boolean}>('preflight', request)).can_update_tags) {
         throw new Error('Process the full album before updating its MP3 tags.');
       }
-      const {id} = await api<{id:string}>('jobs', request);
+      const endpoint=reviewing ? 'reviews' : tagsOnly ? 'jobs' : 'reviews/'+ready?.id+'/publish';
+      const {id} = await api<{id:string}>(endpoint, request);
       for (;;) {
         const job = await api<AlbumJob>('jobs/' + id);
         const trackProgress = job.track_number ? ` ${job.track_number} of ${request.tracks.length}` : '';
         if (draftKey === jobKey) exportStatus = job.stage + trackProgress + (job.track ? ' · ' + job.track : '');
-        if (job.status === 'failed') throw new Error(job.error || 'Album processing stopped before completion.');
+        if (job.status === 'failed' || job.status === 'expired') throw new Error(job.error || 'Album job did not finish. Try reviewing again.');
+        if (reviewing && job.status==='ready' && job.loudness && job.expires) {
+          if (draftKey===jobKey) {
+            if (reviewKey===signature) {
+              albumReview={id,key:signature,scope:jobKey,rows:job.results ?? [],loudness:job.loudness,expires:job.expires};
+              levelMatchReview=false;
+              exportStatus='Ready to listen. No delivery files have been replaced.';
+            } else exportStatus='Settings changed while rendering. Review the album again.';
+          }
+          break;
+        }
         if (job.status === 'complete') {
           if (draftKey === jobKey) {
             results = job.results || [];
-            if (!tagsOnly) {measureVersion++;albumMeasurement=undefined;}
+            if (!tagsOnly) {albumReview=undefined;measureVersion++;albumMeasurement=undefined;}
             try { await refreshLibrary(); }
             catch { if (draftKey === jobKey) exportError = 'Files were saved, but the library could not refresh.'; }
             if (draftKey === jobKey) exportStatus = tagsOnly ? 'MP3 tags updated.' : 'Album processed. All outputs published.';
@@ -1453,6 +1566,7 @@
       }
     } catch (cause) {
       if (draftKey === jobKey) {
+        if (action==='publish') albumReview=undefined;
         exportStatus = '';
         exportError = cause instanceof Error ? cause.message : String(cause);
       }
@@ -1593,13 +1707,8 @@
             {#if waveError}<small>Waveform unavailable. Playback controls are available below.</small>{/if}
             {#if audioInfo?.song===cleanupSong}
               {#key cleanupSong}
-                <audio controls preload="metadata" bind:this={player} onloadedmetadata={() => {
-                    if (player && Number.isFinite(player.duration)) {
-                      mediaDuration=player.duration;
-                      if (playbackURL===audioURL) sourceDuration=player.duration;
-                    }
-                  }}
-                  ontimeupdate={updatePlayhead} onplay={startMonitoring} onended={()=>repeatComparisonPassage(true)}
+                <audio controls preload="metadata" bind:this={player} onloadedmetadata={loadPlayerMetadata}
+                  ontimeupdate={updatePlayhead} onplay={startMonitoring} onended={onTrackEnded}
                   onemptied={()=>{mediaDuration=0;resetMonitor();}} onerror={onPlaybackError} src={playbackURL}></audio>
               {/key}
             {:else}<small role="status">Loading audio…</small>{/if}
@@ -1613,7 +1722,13 @@
             <button aria-pressed={!playingCompare && !noiseMode && audibleMode==='original'} onclick={() => setPlayback('original')}>Original</button>
             <button aria-pressed={!playingCompare && !noiseMode && audibleMode==='cleanup'} disabled={!postReady} title={postReady?'Cleanup only, with no live EQ':'Available once cleanup is prepared'} onclick={() => setPlayback('cleanup')}>Post Cleanup</button>
             <button aria-pressed={!playingCompare && !noiseMode && audibleMode==='live'} disabled={source !== 'raw'} onclick={listenLive}>Live Monitor</button>
+            {#if reviewURL}<button aria-pressed={!playingCompare && !noiseMode && audibleMode==='review'}
+              title="Listen to the prepared delivery WAV" onclick={()=>setPlayback('review')}>Reviewed WAV</button>{/if}
           </div>
+          {#if reviewRow?.source_lufs!=null && reviewRow.source_true_peak!=null}
+            <label class="check review-match" title="Level-match Original and Reviewed WAV for listening only">
+              <input type="checkbox" bind:checked={levelMatchReview}> Match levels</label>
+          {/if}
           {#if source==='raw' && !toneCompareReady}
             <button type="button" disabled={!canCompareTone || toneCompareBusy} onclick={renderToneComparison}
               title={presetBase?'Compare the full Tone & Stereo stage at matched loudness':'Compare with only EQ switched off or on'}>{toneCompareBusy?'Preparing comparison…':'Compare '+compareToneLabel}</button>
@@ -2181,7 +2296,7 @@
         </ul>
       </details>
       <details open><summary>Finalize album</summary>
-        <p>{source === 'raw' ? 'Process every song using its current settings and the album loudness targets.' : 'Use the existing mastered WAVs and apply the album loudness targets.'} Matching outputs are replaced after the full album renders. Raw recordings stay untouched.</p>
+        <p>Review the full album before replacing delivery files. Raw recordings stay untouched.</p>
         <div class="output-folders" aria-label="Output folders">
           {#if source === 'raw'}<span><code>mastered/</code> Processed WAV</span>{/if}
           <span><code>clean/</code> Clean WAV</span>
@@ -2192,11 +2307,50 @@
         <label class="check"><input type="checkbox" bind:checked={sidecar} disabled={busy}> Include untimed lyrics files (.lrc)</label>
         {#if !writable}<p>Choose a writable storage location to process this album.</p>{/if}
         <div class="row">
-          <button class="primary" disabled={busy || !writable} onclick={() => runAlbum()}>{busy ? 'Album job running…' : `Process album (${tracks.length} ${tracks.length === 1 ? 'song' : 'songs'})`}</button>
-          <button title="Update MP3 tags, cover art and lyrics without re-encoding audio" disabled={busy || !writable} onclick={() => runAlbum(true)}>Update MP3 tags only</button>
+          <button class:primary={!currentReview} disabled={busy || !writable} onclick={() => runAlbum('review')}>{currentReview ? 'Review again' : 'Review album'}</button>
+          <button class:primary={Boolean(currentReview)} disabled={busy || !writable || !currentReview} onclick={() => runAlbum('publish')}>Publish reviewed album</button>
+          <button title="Update MP3 tags, cover art and lyrics without re-encoding audio" disabled={busy || !writable} onclick={() => runAlbum('tags')}>Update MP3 tags only</button>
         </div>
-        {#if exportStatus}<p role="status">{exportStatus}</p>{/if}
+        {#if albumReview?.scope===draftKey && !currentReview && !busy}<p role="status">Settings changed. Review again before publishing.</p>
+        {:else if exportStatus}<p role="status">{exportStatus}</p>{/if}
         {#if exportError}<p class="error" role="alert">{exportError}</p>{/if}
+        {#if currentReview}
+          {@const review=currentReview.loudness}
+          <section class="album-review" aria-label="Album delivery review">
+            <div class="review-summary">
+              <div><small>{review.balance==='track'?'Target per song':'Album target'}</small><strong>{review.target_lufs.toFixed(1)} LUFS</strong></div>
+              <div><small>Reviewed album</small><strong>{review.achieved_lufs.toFixed(1)} LUFS</strong></div>
+              <div><small>WAV ceiling</small><strong>{review.ceiling.toFixed(1)} dBTP</strong></div>
+              <a href="#album-player">Main player ↑</a>
+            </div>
+            {#each review.limits as limit (limit.track)}
+              <div class="review-limiter">
+                <strong>{review.balance==='album'?'Album gain limited by':'Song gain limited by'}</strong>
+                <button type="button" onclick={()=>hearReviewed(limit.track,Math.max(0,(limit.time ?? 0)-.5))}>
+                  {songTags(limit.track,tracks.indexOf(limit.track)).title}{limit.time!=null ? ' · ~'+timeLabel(limit.time) : ''}
+                </button>
+                <span>{limit.gain_shortfall_db.toFixed(1)} dB less gain to respect the WAV ceiling</span>
+              </div>
+            {/each}
+            <div class="album-tags-scroll">
+              <table class="loudness-table" aria-label="Reviewed delivery levels">
+                <thead><tr><th scope="col">Listen</th><th scope="col">Gain (dB)</th><th scope="col">WAV LUFS</th>
+                  <th scope="col">WAV dBTP</th><th scope="col">MP3 dBTP</th></tr></thead>
+                <tbody>
+                  {#each currentReview.rows as row,index (row.track)}
+                    <tr><th scope="row"><button type="button" class="review-track"
+                      aria-pressed={track===row.track && audibleMode==='review' && !noiseMode && !playingCompare}
+                      onclick={()=>hearReviewed(row.track)}>{songTags(row.track,index).title}</button></th>
+                      <td>{row.gain_db==null?'—':(row.gain_db>0?'+':'')+row.gain_db.toFixed(2)}</td>
+                      <td>{row.lufs.toFixed(1)}</td><td>{row.true_peak.toFixed(1)}</td>
+                      <td class:over-peak={row.mp3_peak_warning}>{row.mp3_true_peak.toFixed(1)}{row.mp3_peak_warning?' · Above ceiling':''}</td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        {/if}
         {#each results as item}
           <div class="result"><strong>{item.track}</strong><span>{item.lufs} LUFS{item.lra!=null ? ` · ${item.lra} LU range` : ''} · WAV {item.true_peak} dBTP · MP3 {item.mp3_true_peak} dBTP{item.mp3_peak_warning ? ' · above ceiling' : ''}</span><small>{item.mp3}</small></div>
         {/each}
@@ -2317,6 +2471,15 @@
   }
   .transport-controls{align-items:center}
   .stereo-check-slot{margin-inline-start:auto}
+  .review-match{margin:0;white-space:nowrap}
+  .album-review{border:1px solid var(--line);border-radius:.65rem;padding:.65rem;background:var(--surface)}
+  .review-summary{display:flex;align-items:center;flex-wrap:wrap;gap:.5rem 1.4rem}
+  .review-summary div{display:grid;gap:.1rem;font-variant-numeric:tabular-nums}
+  .review-summary a{margin-inline-start:auto;color:var(--accent);font-size:.8rem}
+  .review-limiter{display:flex;flex-wrap:wrap;align-items:center;gap:.3rem .55rem;margin-top:.55rem;
+    padding:.35rem .5rem;border:1px solid var(--line);border-radius:.4rem;font-size:.8rem}
+  .review-limiter button,.review-track{padding:.23rem .4rem;font-size:.8rem;text-align:left}
+  .over-peak{color:var(--danger);font-weight:650}
   .player-comparison{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.35rem;background:var(--accent-soft);color:var(--text);border:1px solid var(--line);border-radius:.45rem;padding:.42rem .6rem;font-size:.8rem}
   .player-comparison button{font-size:inherit;padding:.25rem .4rem}
   .eq-comparison{display:grid;gap:.3rem;margin:.35rem 0;padding:.48rem .6rem;border:1px solid var(--line);border-radius:.45rem;background:var(--surface)}

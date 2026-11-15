@@ -8,10 +8,12 @@ import shutil
 import sqlite3
 import subprocess
 import tempfile
-from itertools import groupby
+from contextlib import closing
 from functools import lru_cache
+from itertools import groupby
 from pathlib import Path
 from threading import Lock
+from time import time
 
 from mutagen.id3 import APIC, ID3, TALB, TIT2, TPE1, TPE2, TRCK, TYER, USLT
 
@@ -278,13 +280,15 @@ def save_text_asset(album: Path, stage: str, stem: str, suffix: str, text: str) 
             temporary.unlink(missing_ok=True)
 
 
-def record(database: Path, job: str, **changes) -> dict:
-    with sqlite3.connect(database) as conn:
+def record(database: Path, job: str, *, expected_status: str | None = None, **changes) -> dict:
+    with closing(sqlite3.connect(database)) as conn, conn:
         conn.execute("CREATE TABLE IF NOT EXISTS album_jobs (id TEXT PRIMARY KEY, state TEXT NOT NULL)")
         if changes:
             conn.execute("BEGIN IMMEDIATE")
         row = conn.execute("SELECT state FROM album_jobs WHERE id = ?", (job,)).fetchone()
         state = json.loads(row[0]) if row else {}
+        if expected_status is not None and state.get("status") != expected_status:
+            return {}
         if changes:
             state.update(changes)
             conn.execute("INSERT OR REPLACE INTO album_jobs VALUES (?, ?)", (job, json.dumps(state)))
@@ -292,7 +296,7 @@ def record(database: Path, job: str, **changes) -> dict:
 
 
 def job_states(database: Path, statuses: tuple[str, ...]) -> list[tuple[str, dict]]:
-    with sqlite3.connect(database) as conn:
+    with closing(sqlite3.connect(database)) as conn, conn:
         conn.execute("CREATE TABLE IF NOT EXISTS album_jobs (id TEXT PRIMARY KEY, state TEXT NOT NULL)")
         placeholders = ",".join("?" for _ in statuses)
         return [(job, json.loads(state)) for job, state in conn.execute(
@@ -647,8 +651,77 @@ def album_session(database: Path, key: str, draft: dict | None = None) -> dict |
         return json.loads(row[0]) if row else None
 
 
+REVIEW_TTL = 4 * 60 * 60
+
+
+def review_assets(album: Path, tracks: list[Path], cover: Path | None) -> dict:
+    return {"cover": digest(cover) if cover else None, "lyrics": {
+        track.name: hashlib.sha256(text_asset(album, "lyrics", track.stem, ".txt").encode("utf-8")).hexdigest()
+        for track in tracks
+    }}
+
+
+def integrated_album(files: list[Path], work: Path) -> float:
+    if len(files) == 1:
+        return metrics(files[0])[0]
+    joined = work / "album.txt"
+    combined = work / "album.wav"
+    try:
+        joined.write_text("".join("file '" + str(path).replace("'", "'\\''") + "'\n"
+                                  for path in files), encoding="utf-8")
+        subprocess.run([resolve_tool("ffmpeg"), "-nostdin", "-v", "error", "-f", "concat",
+                        "-safe", "0", "-i", str(joined), "-c", "copy", "-rf64", "auto",
+                        str(combined)], check=True, timeout=900)
+        return metrics(combined)[0]
+    finally:
+        joined.unlink(missing_ok=True)
+        combined.unlink(missing_ok=True)
+
+
+def peak_time(path: Path) -> float | None:
+    # EBU meter metadata reports its running true-peak maximum on 100 ms frames.
+    result = subprocess.run([
+        resolve_tool("ffmpeg"), "-nostdin", "-v", "error", "-i", str(path), "-map", "0:a:0",
+        "-af", "ebur128=peak=true:metadata=1,ametadata=mode=print:key=lavfi.r128.true_peak:file=-",
+        "-f", "null", "-",
+    ], capture_output=True, text=True, timeout=900)
+    points = re.findall(r"pts_time:([-+\d.eE]+)\s+lavfi\.r128\.true_peak=([-+\d.eE]+)", result.stdout)
+    if result.returncode == 0 and points:
+        return max(0., float(max(points, key=lambda point: float(point[1]))[0]))
+    return None
+
+
+def confirm_review(album: Path, tracks: list[Path], settings: dict, work: Path, assets: dict, outputs: list[dict],
+                   report, previous: dict[str, dict]) -> None:
+    require_full_album(album, settings["source"], tracks)
+    if [track.name for track in tracks] != [result["track"] for result in outputs]:
+        raise ValueError("The album track list changed. Review it again.")
+    cover = delivery_cover(album, settings.get("cover", ""))
+    if review_assets(album, tracks, cover) != assets:
+        raise ValueError("Cover art or lyrics changed. Review the album again.")
+    for track, row in zip(tracks, outputs):
+        if digest(track) != row["source_sha256"]:
+            raise ValueError(f"{track.name} changed. Review the album again.")
+        for relative, fingerprint in row["output_sha256"].items():
+            if digest(publication_path(work, relative)) != fingerprint:
+                raise ValueError("A reviewed file changed. Review the album again.")
+    stages = {relative.split("/", 1)[0] for row in outputs for relative in row["files"]}
+    for stage in stages:
+        child(album, stage).mkdir(exist_ok=True)
+    publish_deliveries(album, tracks, work, outputs, stages, True, report, previous)
+
+
+def publish_deliveries(album: Path, tracks: list[Path], work: Path, outputs: list[dict], stages,
+                       replace: bool, report, previous: dict[str, dict]) -> None:
+    paths = {path for result in outputs for path in result["files"]}
+    superseded = {path for path in owned_outputs(album, tracks, previous) if path.split("/", 1)[0] in stages}
+    superseded.update(delivery_paths(album, tracks))
+    publish(album, work, paths, superseded, replace, report, outputs)
+
+
 def render_album(album: Path, tracks: list[Path], settings: dict, report=lambda **_: None,
-                 *, audition: tuple[str, Path, str] | None = None, previous: dict[str, dict] | None = None) -> list[dict]:
+                 *, audition: tuple[str, Path, str] | None = None, previous: dict[str, dict] | None = None,
+                 review: bool = False) -> list[dict]:
     if not tracks:
         raise ValueError("Choose at least one WAV")
     stage = settings["source"]
@@ -658,12 +731,13 @@ def render_album(album: Path, tracks: list[Path], settings: dict, report=lambda 
     output_stages = ["clean", "normalized", "mp3s"]
     if stage == "raw":
         output_stages.insert(0, "mastered")
-    if audition is None:
+    if audition is None and not review:
         for directory in output_stages:
             child(album, directory).mkdir(exist_ok=True)
     full_track_list = wavs(album, stage)
     track_order = {track.stem: index for index, track in enumerate(full_track_list, 1)}
     fingerprints = {track.name: digest(track) for track in tracks}
+    assets = review_assets(album, tracks, cover) if review else {}
     previous = previous or {}
     # Keep staged files and backups available to the next process until publication is recorded.
     work = Path(tempfile.mkdtemp(prefix=".sonustemper-", dir=audition[1].parent if audition else album))
@@ -730,20 +804,19 @@ def render_album(album: Path, tracks: list[Path], settings: dict, report=lambda 
         measurements = [metrics(path) for path in clean_files]
         loudness_target = settings["lufs"]
         ceiling = settings["peak"]
-        if settings["balance"] == "album" and len(clean_files) > 1:
-            joined = work / "album.txt"
-            # Temporary filenames are escaped for FFmpeg's concat demuxer.
-            joined.write_text("".join("file '" + str(path).replace("'", "'\\''") + "'\n"
-                                      for path in clean_files), encoding="utf-8")
-            combined = work / "album.wav"
-            subprocess.run([resolve_tool("ffmpeg"), "-nostdin", "-v", "error", "-f", "concat",
-                            "-safe", "0", "-i", str(joined), "-c", "copy", "-rf64", "auto",
-                            str(combined)], check=True, timeout=900)
-            album_lufs, _ = metrics(combined)
-            gain = min(loudness_target - album_lufs, ceiling - max(tp for _, tp in measurements))
+        limits = []
+        if settings["balance"] == "album":
+            album_lufs = integrated_album(clean_files, work) if len(clean_files) > 1 else measurements[0][0]
+            desired = loudness_target - album_lufs
+            limiting = max(range(len(measurements)), key=lambda i: measurements[i][1])
+            gain = min(desired, ceiling - measurements[limiting][1])
             gains = [gain] * len(clean_files)
+            if desired - gain > .05:
+                limits.append((limiting, desired - gain))
         else:
             gains = [min(loudness_target - lufs, ceiling - peak) for lufs, peak in measurements]
+            limits = [(i, loudness_target - lufs - gains[i]) for i, (lufs, _) in enumerate(measurements)
+                      if loudness_target - lufs - gains[i] > .05]
         if audition:
             track_name, destination, format = audition
             index = next(i for i, path in enumerate(clean_files) if path.name == track_name)
@@ -779,18 +852,36 @@ def render_album(album: Path, tracks: list[Path], settings: dict, report=lambda 
                 files.append(f"mp3s/{sidecar.name}")
             outputs.append({"track": clean.name, "wav": named.name, "mp3": mp3.name,
                             "lufs": lufs, "lra": lra, "true_peak": peak, "mp3_true_peak": mp3_peak,
+                            "gain_db": round(gain, 2),
                             "mp3_peak_warning": mp3_peak > ceiling,
                             "source": stage, "source_sha256": fingerprints[clean.name], "files": files,
                             "output_sha256": {path: digest(work / path) for path in files}})
+        if review:
+            report(stage="Checking delivery", track="", track_number=None)
+            for track, row in zip(tracks, outputs):
+                try:
+                    row["source_lufs"], row["source_true_peak"] = metrics(track)
+                except ValueError:
+                    # A silent source cannot be level matched, but can still be reviewed.
+                    pass
+            limit_rows = [{"track": tracks[i].name, "gain_shortfall_db": round(diff, 1),
+                           "time": peak_time(clean_files[i])} for i, diff in limits]
+            achieved = integrated_album([work / "normalized" / row["wav"] for row in outputs], work)
+            if review_assets(album, tracks, cover) != assets:
+                raise ValueError("Cover art or lyrics changed during review. Prepare the album again.")
         for track in tracks:
             if digest(track) != fingerprints[track.name]:
                 raise ValueError(f"Source changed during render: {track.name}")
         require_full_album(album, stage, tracks)
-        paths = {path for result in outputs for path in result["files"]}
-        superseded = {path for path in owned_outputs(album, tracks, previous)
-                      if path.split("/", 1)[0] in output_stages}
-        superseded.update(delivery_paths(album, tracks))
-        publish(album, work, paths, superseded, settings.get("replace", False), report_publication, outputs)
+        if review:
+            shutil.rmtree(work / "delivery", ignore_errors=True)
+            report(status="ready", stage="Ready to review", results=outputs, review_assets=assets, expires=time()+REVIEW_TTL,
+                   loudness={"target_lufs": loudness_target, "achieved_lufs": achieved, "ceiling": ceiling,
+                             "balance": settings["balance"], "limits": limit_rows})
+            retain_work = True
+        else:
+            publish_deliveries(album, tracks, work, outputs, output_stages, settings.get("replace", False),
+                               report_publication, previous)
         return outputs
     finally:
         if not retain_work:

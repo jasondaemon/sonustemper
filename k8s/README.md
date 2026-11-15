@@ -88,12 +88,19 @@ just the selected song without changing the tone already set on the others.
 Cleanup and noise selections stay per song. The loudness settings and export selection cover the
 album, with either shared gain or per-track normalization. **Tags and artwork**
 shows every song and offers 3000 x 3000 images from the album folder. Under
-**Finalize album**, **Process album** runs FFmpeg on all songs and publishes the
-complete set to `mastered/` (when starting from raw), `clean/`, `normalized/`
-(final WAVs), and `mp3s/` (final MP3s and optional lyrics files). Matching outputs
-are replaced only after the full render; the source recordings and unrelated
-files stay untouched. **Update MP3 tags only** updates tags, cover art, and
-lyrics on previously published MP3s without re-encoding them.
+**Finalize album**, **Review album** stages a full render without replacing
+delivery files. Play **Reviewed WAV** in the main player, optionally match it to
+**Original** for listening only, or click a song in the review table. Reviewed
+playback advances through the album. The review shows measured album loudness,
+per-song gain, final WAV and decoded MP3 true peaks, and the approximate
+location of any peak that capped the gain.
+
+**Publish reviewed album** moves those same files to `mastered/` (when starting
+from raw), `clean/`, `normalized/` and `mp3s/`. A change to the source, album
+settings, cover, or lyrics requires a new review. Reviews require a writable
+location for staging and are available for up to four hours. Raw recordings
+are untouched. **Update MP3 tags only** updates tags, cover art, and lyrics on
+previously published MP3s without re-encoding them.
 In the song list, a green check means a final WAV and its matching MP3
 are present. A dim check means the pair is incomplete. Intermediate clean
 WAVs are not required for this status.

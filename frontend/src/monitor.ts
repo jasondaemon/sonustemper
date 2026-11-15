@@ -155,6 +155,9 @@ export function monitor(media: HTMLAudioElement, sampleRate:number|undefined, re
       protect=enabled;
       sendProtection({enabled});
     },
+    setListeningGain(db:number) {
+      output.gain.setTargetAtTime(10**(db/20),context.currentTime,.008);
+    },
     resetMetrics(peakOnly=false) {send({epoch:++meterEpoch,peakOnly});},
     readPeaks(peaks: number[]) {
       for (const [index, channel] of channels.entries()) {

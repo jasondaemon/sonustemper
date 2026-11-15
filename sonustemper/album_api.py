@@ -944,14 +944,124 @@ def start_job(settings: Settings):
     return {"id": job}
 
 
+def review_workspace(album: Path, state: dict) -> Path:
+    name = state.get("work", "")
+    if not name.startswith(".sonustemper-"):
+        raise ValueError("Invalid review workspace")
+    return workflow.child(album, name)
+
+
+def prune_reviews(album_key: str | None = None) -> None:
+    for index, (job, state) in enumerate(workflow.job_states(LIBRARY_DB, ("ready",))):
+        if state["expires"] > time() and state["album_key"] != album_key and index < 3:
+            continue
+        if not workflow.record(LIBRARY_DB, job, expected_status="ready", status="expired", stage="Review expired"):
+            continue
+        try:
+            settings = state["settings"]
+            require_writable(settings["location"])
+            album = resolve_album(settings["location"], settings["artist_folder"], settings["album_folder"])
+            shutil.rmtree(review_workspace(album, state), ignore_errors=True)
+        except (ValueError, HTTPException):
+            logger.warning("Could not remove expired album review %s", job)
+
+
+@router.on_event("startup")
+def expire_album_reviews() -> None:
+    prune_reviews()
+
+
+def execute_review(job: str, album: Path, tracks: list[Path], data: dict, key: str) -> None:
+    def report(**changes):
+        workflow.record(LIBRARY_DB, job, **{"status": "running", **changes})
+    try:
+        recover_album_jobs(album_key=key, publishing_only=True)
+        prune_reviews(key)
+        workflow.render_album(album, tracks, data, report, review=True)
+    except Exception as exc:
+        logger.exception("Album review failed")
+        workflow.record(LIBRARY_DB, job, status="failed", error=str(exc))
+
+
+@router.post("/api/albums/reviews", status_code=202)
+def start_review(settings: Settings):
+    if settings.metadata_only:
+        raise HTTPException(400, "Use Update MP3 tags only for tag changes")
+    album, tracks, key = album_job_inputs(settings)
+    data = resolve_render(settings)
+    job = uuid4().hex
+    workflow.record(LIBRARY_DB, job, status="queued", stage="Queued for review", settings=data, album_key=key)
+    worker.submit(execute_review, job, album, tracks, data, key)
+    return {"id": job}
+
+
+def ready_review(job: str) -> dict:
+    state = workflow.record(LIBRARY_DB, job)
+    if state.get("status") != "ready" or state["expires"] <= time():
+        raise HTTPException(409, "This review is no longer available. Review the album again.")
+    return state
+
+
+@router.get("/api/albums/reviews/{job}/audio")
+def review_audio(job: str, track: str):
+    state = ready_review(job)
+    row = next((item for item in state["results"] if item["track"] == track), None)
+    if row is None:
+        raise HTTPException(404, "Song not in this review")
+    settings = state["settings"]
+    album = resolve_album(settings["location"], settings["artist_folder"], settings["album_folder"])
+    path = workflow.publication_path(review_workspace(album, state), f"normalized/{row['wav']}")
+    if not path.is_file():
+        raise HTTPException(404, "Reviewed WAV is unavailable")
+    return FileResponse(path, media_type="audio/wav", headers={"Cache-Control": "no-store"})
+
+
+def execute_review_publish(job: str, album: Path, tracks: list[Path], state: dict) -> None:
+    work = None
+    retain = False
+
+    def report(**changes):
+        nonlocal retain
+        workflow.record(LIBRARY_DB, job, **{"status": "running", **changes})
+        retain = bool(changes.get("publication"))
+
+    try:
+        report(stage="Verifying reviewed files")
+        recover_album_jobs(album_key=state["album_key"], publishing_only=True)
+        work = review_workspace(album, state)
+        workflow.confirm_review(album, tracks, state["settings"], work, state["review_assets"], state["results"],
+                                report, workflow.published_tracks(LIBRARY_DB, state["album_key"]))
+    except Exception as exc:
+        logger.exception("Publishing reviewed album failed")
+        workflow.record(LIBRARY_DB, job, status="failed", error=str(exc))
+    finally:
+        if work is not None and not retain:
+            shutil.rmtree(work, ignore_errors=True)
+
+
+@router.post("/api/albums/reviews/{job}/publish", status_code=202)
+def publish_review(job: str, settings: Settings):
+    state = ready_review(job)
+    album, tracks, key = album_job_inputs(settings)
+    data = resolve_render(settings)
+    if key != state["album_key"] or json.dumps(data, sort_keys=True) != json.dumps(state["settings"], sort_keys=True):
+        raise HTTPException(409, "Album settings changed. Review the album again.")
+    if not workflow.record(LIBRARY_DB, job, expected_status="ready", status="queued", stage="Queued to publish"):
+        raise HTTPException(409, "This review is no longer available. Review the album again.")
+    worker.submit(execute_review_publish, job, album, tracks, state)
+    return {"id": job}
+
+
 @router.get("/api/albums/jobs/{job}")
 def job_status(job: str):
     state = workflow.record(LIBRARY_DB, job)
     if not state:
         raise HTTPException(404, "Job not found")
-    response = {key: value for key, value in state.items() if key not in {"settings", "work", "publication", "album_key"}}
+    response = {key: value for key, value in state.items() if key not in {
+        "settings", "work", "publication", "album_key", "review_assets",
+    }}
     if "results" in response:
-        response["results"] = [{k: v for k, v in result.items() if k != "output_sha256"}
+        response["results"] = [{k: v for k, v in result.items() if k not in {"source_sha256", "output_sha256"}}
                                for result in response["results"]]
     return response
 
