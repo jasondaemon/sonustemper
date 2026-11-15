@@ -1,7 +1,8 @@
 /// <reference types="vite/client" />
 import meterURL from './meter.worklet.ts?worker&url';
 import type {MonitorMetrics} from './meterMath';
-import type {MeterMessage} from './meter.worklet';
+import type {MeterMessage, MeterReading} from './meter.worklet';
+import {songClips, type ClipSpan} from './clipTimeline';
 
 export type Band = {type: string; freq_hz: number; gain_db: number; q: number; enabled?: boolean};
 
@@ -38,7 +39,7 @@ export function filterNode(context: BaseAudioContext, band: Band) {
 }
 
 export function monitor(media: HTMLAudioElement, sampleRate:number|undefined, report:(metrics:MonitorMetrics)=>void,
-                        unavailable:()=>void) {
+                        unavailable:()=>void, reportClips:(clips:ClipSpan[])=>void) {
   const context = openContext(sampleRate);
   const input = context.createMediaElementSource(media);
   const analyser = context.createAnalyser();
@@ -68,21 +69,34 @@ export function monitor(media: HTMLAudioElement, sampleRate:number|undefined, re
   }
   let meter:AudioWorkletNode|undefined, meterOutput:GainNode|undefined, meterEpoch=0, closed=false;
   let meterActive=!media.paused && media.readyState>=3;
+  let timestamping=false, clipFrom=context.currentTime, stopClock=context.currentTime;
+  const forgetClipTiming=()=>{clipFrom=context.currentTime;};
   const send=(message:MeterMessage)=>meter?.port.postMessage(message);
   const setActive=(active:boolean)=>{meterActive=active;send({active});};
-  const play=()=>setActive(true), stop=()=>setActive(false);
+  const play=()=>setActive(true);
+  const stop=()=>{if (meterActive) stopClock=context.currentTime;setActive(false);};
+  const timingEvents=['seeking','seeked','ratechange','emptied'];
   const stopEvents=['pause','waiting','ended','emptied'];
   media.addEventListener('playing',play);
   for (const event of stopEvents) media.addEventListener(event,stop);
+  for (const event of timingEvents) media.addEventListener(event,forgetClipTiming);
   void (async()=>{
     try {
       await context.audioWorklet.addModule(meterURL);
       if (closed) return;
       meter=new AudioWorkletNode(context,'studio-meter',{numberOfInputs:2,numberOfOutputs:1,
         outputChannelCount:[1],channelCount:2,channelCountMode:'explicit'});
-      meter.port.onmessage=({data}:MessageEvent<{epoch:number;metrics:MonitorMetrics}>)=>{
-        if (!closed && data.epoch===meterEpoch) report(data.metrics);
+      meter.port.onmessage=({data}:MessageEvent<MeterReading>)=>{
+        if (closed || data.epoch!==meterEpoch) return;
+        timestamping=true;
+        report(data.metrics);
+        if (data.clips.length && !media.seeking) {
+          const clips=songClips(data.clips,meterActive?context.currentTime:stopClock,
+            media.currentTime,media.playbackRate,clipFrom,media.duration);
+          if (clips.length) reportClips(clips);
+        }
       };
+      meter.onprocessorerror=()=>{timestamping=false;unavailable();};
       stereo.connect(meter,0,0);
       analyser.connect(meter,0,1);
       meterOutput=context.createGain();
@@ -106,6 +120,8 @@ export function monitor(media: HTMLAudioElement, sampleRate:number|undefined, re
   }
   return {
     context, analyser,
+    timestampsClips:()=>timestamping,
+    forgetClipTiming,
     setMono(enabled:boolean) {
       dry.gain.setTargetAtTime(enabled?0:1,context.currentTime,.008);
       mono.gain.setTargetAtTime(enabled?1:0,context.currentTime,.008);
@@ -181,6 +197,7 @@ export function monitor(media: HTMLAudioElement, sampleRate:number|undefined, re
       closed=true;
       media.removeEventListener('playing',play);
       for (const event of stopEvents) media.removeEventListener(event,stop);
+      for (const event of timingEvents) media.removeEventListener(event,forgetClipTiming);
       if (meter) {
         stereo.disconnect(meter);
         analyser.disconnect(meter);

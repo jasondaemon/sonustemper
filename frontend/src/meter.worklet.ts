@@ -1,17 +1,22 @@
 import {monitorMath} from './meterMath';
+import type {MonitorMetrics} from './meterMath';
+import type {ClipSpan} from './clipTimeline';
 
 declare const sampleRate:number;
+declare const currentFrame:number;
 declare function registerProcessor(name:string, processor:typeof AudioWorkletProcessor):void;
 declare class AudioWorkletProcessor {
   readonly port:MessagePort;
 }
 
 export type MeterMessage = {active:boolean}|{epoch:number;peakOnly?:boolean};
+export type MeterReading = {epoch:number;metrics:MonitorMetrics;clips:ClipSpan[]};
 
 class StudioMeter extends AudioWorkletProcessor {
   private meter=monitorMath(sampleRate);
   private active=false;
   private epoch=0;
+  private clips:ClipSpan[]=[];
   constructor() {
     super();
     this.port.onmessage=({data}:MessageEvent<MeterMessage>) => {
@@ -21,19 +26,27 @@ class StudioMeter extends AudioWorkletProcessor {
       } else {
         this.epoch=data.epoch;
         if (data.peakOnly) this.meter.resetPeak();
-        else this.meter=monitorMath(sampleRate);
+        else {this.meter=monitorMath(sampleRate);this.clips=[];}
         this.publish();
       }
     };
   }
   private publish() {
-    this.port.postMessage({epoch:this.epoch,metrics:this.meter.read()});
+    this.port.postMessage({epoch:this.epoch,metrics:this.meter.read(),clips:this.clips} satisfies MeterReading);
+    this.clips=[];
   }
   process(inputs:Float32Array[][]) {
     const [stereo,output]=inputs;
     if (!this.active || !stereo?.length || !output?.length) return true;
     const [sl,sr=sl]=stereo, [ol,or=ol]=output;
-    for(let i=0;i<ol.length;i++) if (this.meter.measure(sl[i],sr[i],ol[i],or[i])) this.publish();
+    let first=ol.length,last=-1,channels=0,ready=false;
+    for(let i=0;i<ol.length;i++) {
+      const flags=(Math.abs(ol[i])>=1 ? 1 : 0) | (Math.abs(or[i])>=1 ? 2 : 0);
+      if (flags) {first=Math.min(first,i);last=i;channels|=flags;}
+      if (this.meter.measure(sl[i],sr[i],ol[i],or[i])) ready=true;
+    }
+    if (channels) this.clips.push({start:(currentFrame+first)/sampleRate,end:(currentFrame+last+1)/sampleRate,channels});
+    if (ready) this.publish();
     return true;
   }
 }

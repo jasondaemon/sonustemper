@@ -10,6 +10,7 @@
   import {defaultNoise, savedNoise, type NoiseSelection, type NoiseSettings} from './noiseSelections';
   import {defaultFindingCut, findingKey, findingPlan, findingTitle, isNoiseFinding, maxRepairs, noiseForFinding, overlappingFix, rangeLabel, repairBand, repairTypes, reviewItems, timeLabel, type Analysis, type Finding, type Range, type Repair, type RepairKind, type ReviewItem} from './repairs';
   import {advanceMeter, emptyMeters} from './levels';
+  import {mergeClips, type ClipSpan} from './clipTimeline';
   import {emptyMonitorMetrics} from './meterMath';
   import {monitor, activeBand, filterNode, spectrumPath, defaultBands, type Band} from './monitor';
   type Preset = {id: string; title: string; bands: Band[]; width?: number; meta: {tags?: string[]}};
@@ -139,11 +140,11 @@
     (noise.apply_scope==='global' || noise.t1_sec>noise.t0_sec) ? asNoiseBox(noise) : undefined);
   let engine = $state<ReturnType<typeof monitor>>();
   let monitorMedia:HTMLAudioElement | undefined;
-  let spectrum = $state(''), eqCurve = $state(''), scopePath = $state('');
+  let spectrum = $state(''), eqCurve = $state('');
   let meterChannels = $state(emptyMeters());
+  let clipSpans = $state<ClipSpan[]>([]), mediaDuration = $state(0);
   let monitorMetrics = $state(emptyMonitorMetrics());
   let metersUnavailable = $state(false), monitorMono = $state(false);
-  let outputClipped = $derived(meterChannels.some(channel => channel.clipped));
   let animation = 0;
   let selectionVersion = 0;
   let writable = $derived(locations.find(item => item.name === location)?.writable);
@@ -567,7 +568,7 @@
     removeSeekListener=undefined;
     player?.pause();
     engine?.close();engine=undefined;monitorMedia=undefined;cancelAnimationFrame(animation);
-    noiseMode=''; sourceDuration=0; playhead=0; cursor=undefined; selection=undefined;
+    noiseMode=''; sourceDuration=0; mediaDuration=0; playhead=0; cursor=undefined; selection=undefined;
     dragStart=undefined;draggingNoise=false;
     specStart=0; specZoom=1; specWidth=1200;
     playbackMode='original';resetMonitor();metersUnavailable=false;
@@ -1001,9 +1002,20 @@
 
   $effect(() => {engine?.setMono(monitorMono);});
 
+  function resetClips() {
+    meterChannels=emptyMeters();clipSpans=[];
+    engine?.forgetClipTiming();
+  }
+
   function resetMonitor() {
-    meterChannels=emptyMeters();monitorMetrics=emptyMonitorMetrics();scopePath='';
+    resetClips();monitorMetrics=emptyMonitorMetrics();
     engine?.resetMetrics();
+  }
+
+  function recordClips(clips:ClipSpan[]) {
+    clipSpans=mergeClips(clipSpans,clips);
+    const mask=clips.reduce((channels,clip)=>channels|clip.channels,0);
+    meterChannels=meterChannels.map((channel,index)=>({...channel,clipped:channel.clipped || Boolean(mask & (1<<index))}));
   }
 
   function resetTruePeak() {
@@ -1015,28 +1027,31 @@
     if (!player) return;
     if (monitorMedia !== player) {
       engine?.close();metersUnavailable=false;monitorMedia=player;
-      engine=monitor(player,sourceRate,metrics=>monitorMetrics=metrics,()=>metersUnavailable=true);
+      engine=monitor(player,sourceRate,metrics=>monitorMetrics=metrics,()=>metersUnavailable=true,recordClips);
     }
     void engine?.context.resume();
     cancelAnimationFrame(animation);
     const audio = engine;
     if (!audio) return;
     const bins = new Float32Array(audio.analyser.frequencyBinCount);
-    const samples = new Float32Array(audio.analyser.fftSize);
     const peaks = [0, 0];
     let previous = performance.now() / 1000;
     const frame = (timestamp:number) => {
       const now = timestamp / 1000;
       const elapsed = Math.max(0, now - previous);
       previous = now;
-      const playing = player && !player.paused && !player.ended;
+      const media = player;
+      const playing = media && !media.paused && !media.ended;
       if (playing) {
         repeatComparisonPassage();
         audio.readPeaks(peaks);
+        if (!audio.timestampsClips() && !media.seeking && Number.isFinite(media.duration)) {
+          const channels=(peaks[0]>=1 ? 1 : 0) | (peaks[1]>=1 ? 2 : 0);
+          if (channels) recordClips([{start:Math.max(0,media.currentTime-1024/audio.context.sampleRate),
+            end:media.currentTime,channels}]);
+        }
         audio.analyser.getFloatFrequencyData(bins);
-        audio.analyser.getFloatTimeDomainData(samples);
         spectrum=spectrumPath(bins,audio.context.sampleRate);
-        scopePath=Array.from({length:180},(_,i)=>(i?'L':'M')+(i*600/179)+' '+(50-Math.max(-1,Math.min(1,samples[Math.floor(i*samples.length/180)]))*48)).join(' ');
       }
       meterChannels = meterChannels.map((channel, index) => advanceMeter(channel, playing ? peaks[index] : 0, now, elapsed));
       if (playing || meterChannels.some(channel => channel.hold > -60)) animation=requestAnimationFrame(frame);
@@ -1087,6 +1102,7 @@
 
   function setPlayback(mode:PlaybackMode) {
     if (mode==='cleanup' && !postReady) return;
+    if (mode!==playbackMode || noiseMode || compareActive) resetMonitor();
     noiseMode = '';compareActive=false;
     playbackMode=mode;
   }
@@ -1458,14 +1474,23 @@
           <div class="player-audio">
             <div class="wave-stack">
               <div class="waveform" bind:this={waveform} aria-label="Track waveform"></div>
-              <svg class="scope" class:clipped={outputClipped} viewBox="0 0 600 100" preserveAspectRatio="none"
-                aria-label={outputClipped ? 'Live output waveform, clipping detected' : 'Live output waveform'} role="img">
-                <path class="scope-wave" d={scopePath}/>
-                <path class="clip-lines" d="M0 2H600 M0 98H600"/>
-              </svg>
               {#if repairRange && repairDuration > 0 && source === 'raw'}
                 <div class="repair-overlay" aria-hidden="true" style:left={`${Math.min(100,repairRange.start/repairDuration*100)}%`}
                   style:width={`${Math.max(0,Math.min(100,(repairRange.end-repairRange.start)/repairDuration*100))}%`}></div>
+              {/if}
+              {#if clipSpans.length && mediaDuration>0}
+                <svg class="clip-overlay" viewBox="0 0 1000 100" preserveAspectRatio="none" role="img"
+                  aria-label={`${clipSpans.length} monitored clipping ${clipSpans.length===1?'passage':'passages'}`}>
+                  {#each clipSpans as clip}
+                    {@const x=clip.start/mediaDuration*1000}
+                    {@const w=(clip.end-clip.start)/mediaDuration*1000}
+                    <g>
+                      <title>{rangeLabel(clip)} · {clip.channels===3?'Left and right':clip.channels===1?'Left':'Right'} clip</title>
+                      <rect class="clip-region" {x} width={w} y="1" height="98"/>
+                      <path class="clip-marker" d={`M${x} 1V99`}/>
+                    </g>
+                  {/each}
+                </svg>
               {/if}
             </div>
             {#if source === 'raw'}
@@ -1475,13 +1500,18 @@
             {#if waveError}<small>Waveform unavailable. Playback controls are available below.</small>{/if}
             {#if audioInfo?.song===cleanupSong}
               {#key cleanupSong}
-                <audio controls preload="metadata" bind:this={player} onloadedmetadata={() => {if (playbackURL===audioURL && player) sourceDuration=player.duration;}}
+                <audio controls preload="metadata" bind:this={player} onloadedmetadata={() => {
+                    if (player && Number.isFinite(player.duration)) {
+                      mediaDuration=player.duration;
+                      if (playbackURL===audioURL) sourceDuration=player.duration;
+                    }
+                  }}
                   ontimeupdate={updatePlayhead} onplay={startMonitoring} onended={()=>repeatComparisonPassage(true)}
-                  onemptied={resetMonitor} onerror={onPlaybackError} src={playbackURL}></audio>
+                  onemptied={()=>{mediaDuration=0;resetMonitor();}} onerror={onPlaybackError} src={playbackURL}></audio>
               {/key}
             {:else}<small role="status">Loading audio…</small>{/if}
           </div>
-          <StereoMeter channels={meterChannels} reset={() => meterChannels=emptyMeters()} metrics={monitorMetrics}
+          <StereoMeter channels={meterChannels} reset={resetClips} metrics={monitorMetrics}
             {resetTruePeak} unavailable={metersUnavailable}/>
         </div>
         <div class="row transport-controls">
@@ -2115,11 +2145,12 @@
   summary{cursor:pointer;font-weight:650;padding:.25rem 0} details[open] summary{margin-bottom:.65rem}
   .player-panel{display:grid;grid-template-columns:minmax(0,1fr) 5.85rem;gap:.55rem}
   .player-audio{min-width:0}
-  .wave-stack{position:relative;overflow:hidden;border-radius:.7rem;margin-bottom:.35rem}.scope{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  .wave-stack{position:relative;overflow:hidden;border-radius:.7rem;margin-bottom:.35rem}
   .repair-overlay{position:absolute;inset-block:0;pointer-events:none;background:var(--accent-soft);opacity:.42;border-inline:1px solid var(--accent)}
-  .scope-wave{stroke:var(--chart-line);fill:none;stroke-width:1.5}.grid{stroke:var(--chart-grid)}
-  .clip-lines{fill:none;stroke:var(--danger);stroke-width:1;opacity:.25;vector-effect:non-scaling-stroke}
-  .scope.clipped .clip-lines{stroke:#ee4e59;stroke-width:2;opacity:1}
+  .grid{stroke:var(--chart-grid)}
+  .clip-overlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  .clip-region{fill:#ee4e59;opacity:.17}
+  .clip-marker{fill:none;stroke:#ee4e59;stroke-width:1.5;vector-effect:non-scaling-stroke}
   .repair-header,.fix-heading{display:flex;justify-content:space-between;align-items:center;gap:.45rem;flex-wrap:wrap}
   .repair-header h3{margin:.35rem 0;font-size:.9rem}
   .noise-workbench h3{font-size:.84rem;margin:.2rem 0 .4rem}

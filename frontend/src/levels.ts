@@ -12,7 +12,7 @@ export function advanceMeter(channel: MeterChannel, peak: number, now: number, e
   const level = Math.max(db, channel.level - 32 * elapsed);
   const hit = db > floor && db >= channel.hold;
   const hold = hit ? db : Math.max(level, channel.hold - 12 * Math.min(elapsed, Math.max(0, now - channel.until)));
-  return {...channel, level, hold, until:hit ? now + holdSeconds : channel.until, clipped:channel.clipped || peak >= 1};
+  return {...channel, level, hold, until:hit ? now + holdSeconds : channel.until};
 }
 
 export function meterPosition(db:number, thresholds:number[]): number {

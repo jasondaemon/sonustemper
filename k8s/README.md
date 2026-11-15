@@ -146,6 +146,9 @@ folds playback only; the correlation meter always uses the stereo signal
 before that fold. **Measure full songs** under **Album loudness** measures
 integrated LUFS and loudness range on the actual source and final WAV files.
 Playback, loops and unrendered processing changes do not affect that summary.
+Red marks on the track waveform show where sample clipping was heard in the
+current monitor playback, not the signal level at the playhead. The L/R clip
+lights stay latched; click their reset button to clear those marks and lights.
 New sessions
 run noise removal and repairs before **Tone & Stereo** (presets or custom EQ),
 then measure loudness for delivery. Older sessions retain their original order
