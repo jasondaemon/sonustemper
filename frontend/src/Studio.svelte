@@ -100,6 +100,7 @@
   let monitorMedia:HTMLAudioElement | undefined;
   let spectrum = $state(''), cleanupCurve = $state(''), eqCurve = $state(''), scopePath = $state('');
   let meterChannels = $state(emptyMeters()), original = $state(false);
+  let outputClipped = $derived(meterChannels.some(channel => channel.clipped));
   let animation = 0;
   let selectionVersion = 0;
   let findings = $state<{summary:string;suggested_tool_id:string;suggested_value?:number;recommended_settings?:Record<string,number|boolean>}[]>([]);
@@ -817,7 +818,11 @@
           <div class="player-audio">
             <div class="wave-stack">
               <div class="waveform" bind:this={waveform} aria-label="Track waveform"></div>
-              <svg class="scope" viewBox="0 0 600 100" preserveAspectRatio="none" aria-label="Live output waveform" role="img"><path d={scopePath}/></svg>
+              <svg class="scope" class:clipped={outputClipped} viewBox="0 0 600 100" preserveAspectRatio="none"
+                aria-label={outputClipped ? 'Live output waveform, clipping detected' : 'Live output waveform'} role="img">
+                <path class="scope-wave" d={scopePath}/>
+                <path class="clip-lines" d="M0 2H600 M0 98H600"/>
+              </svg>
             </div>
             {#if waveError}<small>Waveform unavailable. Playback controls are available below.</small>{/if}
             <audio controls preload="metadata" bind:this={player} onloadedmetadata={() => {if (!audition && !noiseMode && player) sourceDuration=player.duration;}}
@@ -1130,7 +1135,9 @@
   .player-panel{display:grid;grid-template-columns:minmax(0,1fr) clamp(3.8rem,8vw,5rem);gap:.55rem}
   .player-audio{min-width:0}
   .wave-stack{position:relative;overflow:hidden;border-radius:.7rem;margin-bottom:.35rem}.scope{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
-  .scope path,.curve{stroke:var(--chart-line);fill:none;stroke-width:1.5}.spectrum{stroke:var(--chart-spectrum);fill:none}.grid{stroke:var(--chart-grid)}
+  .scope-wave,.curve{stroke:var(--chart-line);fill:none;stroke-width:1.5}.spectrum{stroke:var(--chart-spectrum);fill:none}.grid{stroke:var(--chart-grid)}
+  .clip-lines{fill:none;stroke:var(--danger);stroke-width:1;opacity:.25;vector-effect:non-scaling-stroke}
+  .scope.clipped .clip-lines{stroke:#ee4e59;stroke-width:2;opacity:1}
   .cleanup-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:1rem}
   .cleanup-layout .effect{height:240px}
   @media(max-width:899px){.cleanup-layout{grid-template-columns:1fr}}
