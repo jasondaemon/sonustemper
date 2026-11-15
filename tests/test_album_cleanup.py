@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 from sonustemper.album_cleanup import analyze, combine_noise_chains, repair_filter
-from sonustemper.album_workflow import compare_repair, process_album_track, render_album, wavs
+from sonustemper.album_workflow import compare_repair, process_album_track, render_album, repair_batches, wavs
 
 
 def amplitude(path, start, frequency):
@@ -22,6 +22,20 @@ def amplitude(path, start, frequency):
 
 @unittest.skipUnless(shutil.which("ffmpeg"), "FFmpeg is required")
 class AlbumCleanupTests(unittest.TestCase):
+    def test_batch_reuses_identical_filters_and_can_skip_one_fix(self):
+        fixes = [{"id":str(index), "start":index * 2, "end":index * 2 + 1, "filter":"volume=-6dB"}
+                 for index in range(35)]
+        self.assertEqual([len(batch) for batch in repair_batches(fixes, "1")], [24, 10])
+        with tempfile.TemporaryDirectory() as directory:
+            track, target = (Path(directory) / name for name in ("source.wav", "filtered.wav"))
+            subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=f=400:r=48000:d=6",
+                            "-c:a", "pcm_s24le", str(track)], check=True)
+            settings = {"repair_chain":{"global":"", "tone":"", "fixes":fixes}}
+            process_album_track(track, target, settings, skip_fix="1")
+            self.assertAlmostEqual(amplitude(target, .25, 400) / amplitude(track, .25, 400), .501, places=2)
+            self.assertAlmostEqual(amplitude(target, 2.25, 400), amplitude(track, 2.25, 400), places=3)
+            self.assertAlmostEqual(amplitude(target, 4.25, 400) / amplitude(track, 4.25, 400), .501, places=2)
+
     def test_noise_stack_keeps_both_bounded_regions(self):
         def window(start, end, frequency):
             wet = f"between(t,{start},{end})"

@@ -1,7 +1,8 @@
 <script lang="ts">
   import {untrack} from 'svelte';
   import {rangeLabel, repairTypes, type Finding} from './repairs';
-  let {findings, active, select}: {findings:Finding[];active:Finding|undefined;select:(item:Finding)=>void} = $props();
+  let {findings, active, select, covered, ignored}: {findings:Finding[];active:Finding|undefined;select:(item:Finding)=>void;
+    covered:(item:Finding)=>boolean;ignored:(item:Finding)=>boolean} = $props();
   const categories = [
     {kind:'all', title:'All'}, {kind:'rumble', title:'Low end'}, {kind:'presence', title:'Presence'},
     {kind:'highs', title:'Highs'}, {kind:'peak', title:'Peaks'},
@@ -41,7 +42,9 @@
       <li><button type="button" aria-pressed={item===active} onclick={() => select(item)} onkeydown={event=>move(event,index)}>
         <span class="time">{rangeLabel(item)}</span>
         <span class="title">{item.kind==='peak' ? 'Near full scale' : repairTypes[item.kind].title}</span>
-        <small>{item.evidence_db} {item.kind==='peak'?'dBFS':'dB rel.'}</small>
+        {#if covered(item)}<small class="covered">Covered</small>
+        {:else if ignored(item)}<small>Skipped</small>
+        {:else}<small>{item.evidence_db} {item.kind==='peak'?'dBFS':'dB rel.'}</small>{/if}
       </button></li>
     {/each}
   </ul>
@@ -63,5 +66,6 @@
   .time{font-size:.72rem;color:var(--muted)}
   .title{font-weight:650}
   small{font-size:.68rem;color:var(--muted)}
+  .covered{color:var(--good);background:var(--good-soft);border-radius:.3rem;padding:.08rem .22rem}
   @media(max-width:520px){li button{grid-template-columns:1fr max-content}.title{grid-row:2;grid-column:1/-1}}
 </style>

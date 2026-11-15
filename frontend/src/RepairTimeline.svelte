@@ -36,6 +36,8 @@
         {/each}
       </div>
     {/if}
+    {#if repairs.length>5}<small class="lanes-label">{repairs.length} approved fixes · scroll to review</small>{/if}
+    <div class="fix-lanes" aria-label="Approved repair timeline" class:many={repairs.length>5}>
     {#each repairs as fix, index (fix.id)}
       <button type="button" class="fix-lane" class:active={fix.id===selected} class:off={!enabled || !fix.enabled} style:--fix={repairColors[index%repairColors.length]}
         aria-label={`${repairTypes[fix.kind].title}, ${rangeLabel(fix)}, ${fix.amount} dB`} aria-pressed={fix.id===selected}
@@ -44,6 +46,7 @@
         <span class="lane-number">{index+1}</span>
       </button>
     {/each}
+    </div>
   </div>
 {/if}
 
@@ -55,6 +58,8 @@
   .findings-lane{position:relative;height:.62rem;background:var(--surface)}
   .findings-lane button{position:absolute;inset-block:1px;border:0;padding:0;min-width:4px;border-radius:2px;background:var(--warning);opacity:.75;cursor:pointer}
   .findings-lane button.peak{background:var(--danger)}
+  .fix-lanes{display:grid}.fix-lanes.many{max-height:5.2rem;overflow:auto;overscroll-behavior-y:contain}
+  .lanes-label{padding-block:.12rem;border-top:1px solid var(--chart-grid)}
   .fix-lane{position:relative;border:0;border-top:1px solid var(--chart-grid);background:none;cursor:pointer;padding:0;min-height:1rem;text-align:left;color:var(--text)}
   .fix-lane:hover,.fix-lane.active{background:var(--surface-hover)}
   .fix-line{position:absolute;height:2px;min-width:3px;background:var(--fix);filter:brightness(var(--repair-brightness,1));border-radius:1px}

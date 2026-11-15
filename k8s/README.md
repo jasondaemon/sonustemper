@@ -101,7 +101,10 @@ The MP3 is encoded from that WAV and receives only the delivery metadata.
 **Cleanup & repair** analyzes a full track and marks measured frequency and
 sample-peak hints beneath its waveform. Hints do not apply processing. Approved
 whole-song or time-range fixes have separate timeline lines and response curves.
-The matched before/after audition changes only the selected fix. New sessions
+Preview a finding at the suggested cut before approving it; the matched
+before/after audition changes only that fix. **Apply all** adds uncovered
+findings at the current cut, leaves skipped findings, peak warnings, and existing fixes alone, and
+offers an undo. New sessions
 run noise removal and repairs before **Tone & Stereo** (presets or custom EQ),
 then measure loudness for delivery. Older sessions retain their original order
 until explicitly upgraded. Applying settings to the album leaves each song's

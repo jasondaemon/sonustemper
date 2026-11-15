@@ -97,7 +97,7 @@ class Settings(AlbumInput):
     corrections: dict[str, Correction] = Field(default_factory=dict)
     cleanup_enabled: bool = True
     cleanup_version: Literal[1, 2] = 1
-    repairs: list[Repair] = Field(default_factory=list, max_length=24)
+    repairs: list[Repair] = Field(default_factory=list, max_length=128)
     strength: int = Field(default=100, ge=0, le=100)
     stereo_width: float | None = Field(default=None, ge=0.5, le=1.5)
     guardrails: bool = True
@@ -200,6 +200,8 @@ def resolved_settings(settings: Settings) -> dict:
         raise HTTPException(400, "Unknown correction")
     if settings.cleanup_version == 2 and "ai_deglass" in tools:
         tools["ai_deglass"]["options"]["afftdn_strength"] = 0
+    if settings.cleanup_version == 2:
+        tools["ai_platform_safe"] = {"enabled": False}
     correction = _ai_tool_combo_chain(tools) if settings.cleanup_enabled else ""
     mastering = master_pack._voicing_filters_from_json(
         {"chain": chain}, settings.strength, settings.stereo_width, True, settings.guardrails
@@ -407,6 +409,18 @@ PROCESSING_FIELDS = {
 }
 
 
+def effective_track_settings(settings: Settings, override: dict) -> Settings:
+    if not override.keys() <= PROCESSING_FIELDS:
+        raise HTTPException(422, "Invalid track override")
+    merged = {**settings.model_dump(), **override}
+    if "noise" in override and "noise_selections" not in override:
+        merged["noise_selections"] = None
+    try:
+        return Settings.model_validate(merged)
+    except ValueError as exc:
+        raise HTTPException(422, "Invalid track processing settings") from exc
+
+
 def resolve_render(settings: Settings) -> dict:
     data = resolved_settings(settings)
     data["track_filters"] = {}
@@ -415,16 +429,7 @@ def resolve_render(settings: Settings) -> dict:
     for name, override in settings.track_overrides.items():
         if name not in settings.tracks:
             continue
-        if not override.keys() <= PROCESSING_FIELDS:
-            raise HTTPException(422, "Invalid track override")
-        try:
-            merged = {**settings.model_dump(), **override}
-            if "noise" in override and "noise_selections" not in override:
-                merged["noise_selections"] = None
-            effective = Settings.model_validate(merged)
-        except ValueError as exc:
-            raise HTTPException(422, "Invalid track processing settings") from exc
-        resolved = resolved_settings(effective)
+        resolved = resolved_settings(effective_track_settings(settings, override))
         data["track_filters"][name] = resolved["filters"]
         data["track_noise"][name] = resolved["noise_chain"]
         data["track_repairs"][name] = resolved["repair_chain"]
@@ -484,6 +489,7 @@ def noise_audition(settings: Settings, mode: Literal["remove", "solo"] = "remove
 
 class RepairAudition(Settings):
     repair_id: str = Field(min_length=1, max_length=64)
+    candidate: Repair | None = None
 
 
 @router.post("/api/albums/repair-audition")
@@ -494,8 +500,23 @@ def repair_audition(settings: RepairAudition):
         raise HTTPException(400, "Choose a raw track to audition")
     album = resolve_album(settings.location, settings.artist_folder, settings.album_folder)
     track = selected_tracks(album, settings.source, [settings.audition_track])[0]
-    data = resolve_render(settings)
-    plan = data["track_repairs"].get(track.name, data["repair_chain"])
+    if settings.candidate:
+        # Audition-only candidate. Keep the rest of the effective track settings fixed.
+        effective = effective_track_settings(settings, settings.track_overrides.get(track.name, {}))
+        staged = resolved_settings(effective)
+        plan = staged["repair_chain"]
+        if plan is None:
+            raise HTTPException(422, "Enable the repair-before-EQ chain to audition a finding")
+        fix = settings.candidate
+        if fix.id != settings.repair_id or not fix.enabled or fix.amount <= 0 or fix.end is None or fix.end - fix.start < .05:
+            raise HTTPException(422, "Invalid suggested repair range")
+        if any(item["id"] == fix.id for item in plan["fixes"]):
+            raise HTTPException(422, "Suggested repair ID already exists")
+        plan["fixes"].append({**fix.model_dump(), "filter": cleanup.repair_filter(fix.model_dump())})
+        data = staged
+    else:
+        data = resolve_render(settings)
+    plan = data.get("track_repairs", {}).get(track.name, data["repair_chain"])
     fix = next((item for item in (plan or {}).get("fixes", []) if item["id"] == settings.repair_id), None)
     if not fix:
         raise HTTPException(422, "Enable this correction before auditioning it")

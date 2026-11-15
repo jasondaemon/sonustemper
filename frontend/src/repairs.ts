@@ -11,6 +11,28 @@ export type Repair = {id:string; kind:RepairKind; enabled:boolean; amount:number
 export type Finding = Range & {kind:RepairKind|'peak'; evidence_db:number; amount?:number; frequency?:number};
 export type Analysis = {duration:number; windows:number; findings:Finding[]};
 
+export const maxRepairs = 128;
+export const defaultFindingCut = 2;
+export const findingKey = (item:Finding) => `${item.kind}-${item.start}-${item.end}`;
+
+export function overlappingFix(range:{kind:Finding['kind'];start:number;end:number|null}, repairs:Repair[], ignore='') {
+  return repairs.find(fix => fix.id!==ignore && fix.kind===range.kind && range.start<(fix.end ?? Infinity)
+    && fix.start<(range.end ?? Infinity));
+}
+
+export function findingPlan(findings:Finding[], existing:Repair[], amount:number) {
+  const proposed:Repair[] = [];
+  let covered=0, warnings=0, limited=0;
+  for (const item of findings) {
+    if (item.kind==='peak' || item.end-item.start<.05) {warnings++;continue;}
+    if (overlappingFix(item,existing) || overlappingFix(item,proposed)) {covered++;continue;}
+    if (existing.length+proposed.length>=maxRepairs) {limited++;continue;}
+    proposed.push({id:`finding-${findingKey(item)}`,kind:item.kind,enabled:true,amount,
+      start:item.start,end:item.end,frequency:item.frequency ?? repairTypes[item.kind].frequency});
+  }
+  return {proposed,covered,warnings,limited};
+}
+
 export function repairBand(fix:Repair): Band {
   const {type,q} = repairTypes[fix.kind];
   return {type,q,freq_hz:fix.frequency,gain_db:-fix.amount,enabled:fix.enabled};

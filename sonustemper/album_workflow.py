@@ -8,6 +8,7 @@ import shutil
 import sqlite3
 import subprocess
 import tempfile
+from itertools import groupby
 from pathlib import Path
 from threading import Lock
 
@@ -350,23 +351,40 @@ def process_track(source: Path, target: Path, filters: str, noise) -> None:
         intermediate.unlink(missing_ok=True)
 
 
+def repair_batches(fixes: list[dict], skip_fix: str = ""):
+    enabled = (fix for fix in fixes if fix["id"] != skip_fix)
+    for (_, whole_song), group in groupby(enabled, key=lambda fix: (fix["filter"], fix["end"] is None)):
+        batch = list(group)
+        if whole_song:
+            yield from ([fix] for fix in batch)
+            continue
+        ordered = sorted(batch, key=lambda fix: fix["start"])
+        if any(a["end"] > b["start"] for a, b in zip(ordered, ordered[1:])):
+            yield from ([fix] for fix in batch)
+        else:
+            for start in range(0, len(ordered), 24):
+                yield ordered[start:start + 24]
+
+
 def apply_repair_chain(source: Path, target: Path, plan: dict, skip_fix: str = "") -> None:
     graph = [f"[0:a:0]{plan['global'] or 'anull'}[repair0]"]
     current = "repair0"
-    for index, fix in enumerate(plan["fixes"], 1):
-        if fix["id"] == skip_fix:
-            continue
+    for index, batch in enumerate(repair_batches(plan["fixes"], skip_fix), 1):
+        fix = batch[0]
         following = f"repair{index}"
         if fix["end"] is None:
             graph.append(f"[{current}]{fix['filter']}[{following}]")
         else:
-            start, end = fix["start"], fix["end"]
-            fade = min(.045, (end - start) / 2)
-            # Keep both IIR paths running and blend without changing the song's timing.
-            wet = f"clip(min((t-{start:.9f})/{fade:.9f},({end:.9f}-t)/{fade:.9f}),0,1)"
+            # Identical filters with disjoint time windows can reuse one wet path.
+            fades = []
+            for item in batch:
+                start, end = item["start"], item["end"]
+                fade = min(.045, (end - start) / 2)
+                fades.append(f"clip(min((t-{start:.9f})/{fade:.9f},({end:.9f}-t)/{fade:.9f}),0,1)")
+            wet = "+".join(fades)
             graph.extend([
                 f"[{current}]asetnsamples=n=128:p=0,asplit[dry{index}][wet{index}]",
-                f"[dry{index}]volume='1-{wet}':eval=frame[d{index}]",
+                f"[dry{index}]volume='1-({wet})':eval=frame[d{index}]",
                 f"[wet{index}]{fix['filter']},volume='{wet}':eval=frame[w{index}]",
                 f"[d{index}][w{index}]amix=inputs=2:duration=first:normalize=0[{following}]",
             ])
