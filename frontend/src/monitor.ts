@@ -15,11 +15,32 @@ export function monitor(media: HTMLAudioElement) {
   const analyser = context.createAnalyser();
   analyser.fftSize = 4096;
   analyser.connect(context.destination);
+  // Match playback's speaker mix before splitting, so mono plays and meters on both sides.
+  const stereo = context.createGain();
+  stereo.channelCount = 2;
+  stereo.channelCountMode = 'explicit';
+  const splitter = context.createChannelSplitter(2);
+  analyser.connect(stereo);
+  stereo.connect(splitter);
+  const channels = [context.createAnalyser(), context.createAnalyser()];
+  const samples = new Float32Array(2048);
+  for (const [index, channel] of channels.entries()) {
+    channel.fftSize = samples.length;
+    splitter.connect(channel, index);
+  }
   let nodes: AudioNode[] = [];
   let filters: BiquadFilterNode[] = [];
   let layout = "";
   return {
     context, analyser,
+    readPeaks(peaks: number[]) {
+      for (const [index, channel] of channels.entries()) {
+        channel.getFloatTimeDomainData(samples);
+        let peak = 0;
+        for (const sample of samples) peak = Math.max(peak, Math.abs(sample));
+        peaks[index] = peak;
+      }
+    },
     update(bands: Band[], width: number) {
       const active = bands.filter(band => band.enabled !== false);
       const nextLayout = JSON.stringify([active.map(band => band.type), width]);

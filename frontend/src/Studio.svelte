@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import EqPanel from './EqPanel.svelte';
+  import StereoMeter from './StereoMeter.svelte';
+  import {advanceMeter, emptyMeters} from './levels';
   import {monitor, filterNode, spectrumPath, defaultBands, type Band} from './monitor';
   type Preset = {id: string; title: string; bands: Band[]; width?: number; meta: {tags?: string[]}};
   type LoudnessProfile = {name: string; origin: string; meta: {title: string; lufs: number | null; tp: number | null; category?: string; order?: number}};
@@ -97,7 +99,7 @@
   let engine = $state<ReturnType<typeof monitor>>();
   let monitorMedia:HTMLAudioElement | undefined;
   let spectrum = $state(''), cleanupCurve = $state(''), eqCurve = $state(''), scopePath = $state('');
-  let samplePeak = $state(-120), clipped = $state(false), original = $state(false);
+  let meterChannels = $state(emptyMeters()), original = $state(false);
   let animation = 0;
   let selectionVersion = 0;
   let findings = $state<{summary:string;suggested_tool_id:string;suggested_value?:number;recommended_settings?:Record<string,number|boolean>}[]>([]);
@@ -399,7 +401,7 @@
     ++selectionVersion;
     removeSeekListener?.();
     noiseMode=''; sourceDuration=0; playhead=0; cursor=undefined; selection=undefined;
-    audition = false; original = false; clipped = false; scopePath = ''; findings = [];
+    audition = false; original = false; meterChannels = emptyMeters(); scopePath = ''; findings = [];
     loadTrackProcessing();
   }
 
@@ -568,18 +570,24 @@
     if (!audio) return;
     const bins = new Float32Array(audio.analyser.frequencyBinCount);
     const samples = new Float32Array(audio.analyser.fftSize);
-    const frame = () => {
-      audio.analyser.getFloatFrequencyData(bins);
-      audio.analyser.getFloatTimeDomainData(samples);
-      spectrum=spectrumPath(bins,audio.context.sampleRate);
-      let max=0;
-      for (const value of samples) max=Math.max(max,Math.abs(value));
-      samplePeak=20*Math.log10(Math.max(.000001,max));
-      clipped ||= max>=1;
-      scopePath=Array.from({length:180},(_,i)=>(i?'L':'M')+(i*600/179)+' '+(50-Math.max(-1,Math.min(1,samples[Math.floor(i*samples.length/180)]))*48)).join(' ');
-      animation=requestAnimationFrame(frame);
+    const peaks = [0, 0];
+    let previous = performance.now() / 1000;
+    const frame = (timestamp:number) => {
+      const now = timestamp / 1000;
+      const elapsed = Math.max(0, now - previous);
+      previous = now;
+      const playing = player && !player.paused && !player.ended;
+      if (playing) {
+        audio.readPeaks(peaks);
+        audio.analyser.getFloatFrequencyData(bins);
+        audio.analyser.getFloatTimeDomainData(samples);
+        spectrum=spectrumPath(bins,audio.context.sampleRate);
+        scopePath=Array.from({length:180},(_,i)=>(i?'L':'M')+(i*600/179)+' '+(50-Math.max(-1,Math.min(1,samples[Math.floor(i*samples.length/180)]))*48)).join(' ');
+      }
+      meterChannels = meterChannels.map((channel, index) => advanceMeter(channel, playing ? peaks[index] : 0, now, elapsed));
+      if (playing || meterChannels.some(channel => channel.hold > -60)) animation=requestAnimationFrame(frame);
     };
-    frame();
+    animation=requestAnimationFrame(frame);
   }
   async function renderPreview() {
     if (previewBusy) return;
@@ -805,20 +813,23 @@
         {/if}
       </div>
       {#if track}
-        <div class="wave-stack">
-          <div class="waveform" bind:this={waveform} aria-label="Track waveform"></div>
-          <svg class="scope" viewBox="0 0 600 100" preserveAspectRatio="none" aria-label="Live output waveform" role="img"><rect class:hot={clipped} x="0" y="0" width="600" height="9"/><rect class:hot={clipped} x="0" y="91" width="600" height="9"/>
-            <text x="8" y="7">CLIP</text><path d={scopePath}/></svg>
+        <div class="player-panel">
+          <div class="player-audio">
+            <div class="wave-stack">
+              <div class="waveform" bind:this={waveform} aria-label="Track waveform"></div>
+              <svg class="scope" viewBox="0 0 600 100" preserveAspectRatio="none" aria-label="Live output waveform" role="img"><path d={scopePath}/></svg>
+            </div>
+            {#if waveError}<small>Waveform unavailable. Playback controls are available below.</small>{/if}
+            <audio controls preload="metadata" bind:this={player} onloadedmetadata={() => {if (!audition && !noiseMode && player) sourceDuration=player.duration;}}
+              ontimeupdate={() => {playhead=player?.currentTime ?? 0;}} onplay={startMonitoring} onemptied={() => {meterChannels=emptyMeters();scopePath='';}} src={playbackURL}></audio>
+          </div>
+          <StereoMeter channels={meterChannels} reset={() => meterChannels=emptyMeters()} />
         </div>
-        {#if waveError}<small>Waveform unavailable. Playback controls are available below.</small>{/if}
-        <audio controls preload="metadata" bind:this={player} onloadedmetadata={() => {if (!audition && !noiseMode && player) sourceDuration=player.duration;}}
-          ontimeupdate={() => {playhead=player?.currentTime ?? 0;}} onplay={startMonitoring} onpause={() => cancelAnimationFrame(animation)} src={playbackURL}></audio>
         <div class="row transport-controls">
           <button aria-pressed={compactPlayer} onclick={() => compactPlayer=!compactPlayer}>{compactPlayer ? "Expand player" : "Compact player"}</button>
           <button aria-pressed={!noiseMode && (source === 'mastered' || original) && !audition} onclick={() => setPlayback('original')}>Original</button>
           <button aria-pressed={!noiseMode && !audition && !original && source === 'raw'} disabled={source !== 'raw'} onclick={listenLive}>Live monitor</button>
           <button disabled={previewBusy} onclick={() => action(renderPreview)}>{previewBusy ? 'Rendering audition…' : 'Render export audition'}</button>
-          <button class:clip={clipped} onclick={() => clipped=false}>{clipped?'CLIP · reset':'Peak '+samplePeak.toFixed(1)+' dBFS'}</button>
           <button aria-pressed={!noiseMode && audition} disabled={!canAudition} onclick={() => setPlayback('export')}>Hear export</button>
           {#if noiseMode}<small>{noiseMode==='solo'?'Solo noise':'Filtered track'} audition</small>{/if}
           {#if audition && !canAudition}<small>Previous export audition · render again for current settings</small>{/if}
@@ -1065,11 +1076,11 @@
   :global(*){box-sizing:border-box}
   :global(body){margin:0;min-height:100vh;background:radial-gradient(ellipse at 20% 0%,var(--frame-glow),var(--frame) 70%);color:var(--text);font:15px var(--font-ui)}
   main{width:calc(100% - clamp(1.4rem,5vw,4rem));max-width:1800px;margin:clamp(.7rem,3vw,2.5rem) auto;padding:.45rem;display:grid;grid-template-columns:minmax(220px,270px) minmax(0,1fr);gap:.65rem;background:var(--bg);border-radius:1.45rem;box-shadow:0 0 0 1px #ffffff2c}
-  aside{min-width:0;align-self:start;position:sticky;top:.8rem;height:calc(100dvh - clamp(2rem,6vw,5rem) - .9rem);display:flex;flex-direction:column;background:var(--card);padding:1rem;border-radius:1.12rem;box-shadow:var(--card-shadow)}
+  aside{min-width:0;align-self:start;min-height:calc(100dvh - clamp(2rem,6vw,5rem) - .9rem);display:flex;flex-direction:column;background:var(--card);padding:1rem;border-radius:1.12rem;box-shadow:var(--card-shadow)}
   .app-brand{display:flex;align-items:center;gap:.55rem;margin:0 0 .85rem;color:var(--text);text-decoration:none;font-size:1.25rem;font-weight:750;letter-spacing:-.035em}
   .app-brand img{width:2rem;height:2rem;object-fit:contain}
   .studio-location{padding:.52rem .7rem;margin-bottom:1rem;border-radius:1rem;background:var(--selected);color:var(--selected-text);font-size:.82rem;font-weight:650}
-  .library-browser{min-height:0;overflow:auto;padding:0 .2rem .4rem .15rem;margin:0 -.15rem}
+  .library-browser{padding-bottom:.55rem}
   .sidebar-footer{margin-top:auto;padding-top:.65rem;border-top:1px solid var(--line)}
   h2{margin:0;font-size:.9rem} h1{margin:.12rem 0;font-size:clamp(1.55rem,2.8vw,2.35rem);letter-spacing:-.045em;line-height:1.14;overflow-wrap:anywhere}
   small{color:var(--muted)}
@@ -1082,6 +1093,7 @@
   .library-section{margin-top:.65rem;border-top:1px solid var(--line);padding-top:.55rem}
   .library-section h3{margin:0 0 .3rem;color:var(--muted);font-size:.76rem}
   .library-list{list-style:none;display:grid;gap:.25rem;margin:0;padding:0;max-height:clamp(6rem,20vh,15rem);overflow:auto}
+  .tracks{max-height:none;overflow:visible}
   .library-list button{display:grid;justify-items:start;gap:.15rem;width:100%;text-align:left;padding:.4rem .48rem;overflow-wrap:anywhere;background:transparent;border-color:transparent;font-size:.83rem}
   .library-list button[aria-pressed=true]{background:var(--accent-soft);border-color:transparent;color:var(--text);font-weight:680}
   .library-list small,.empty-list{font-size:.69rem;color:var(--muted);font-weight:550}
@@ -1115,13 +1127,14 @@
   .transport-controls label{margin:0;max-width:10rem}
   details{padding:.85rem 1rem;margin:.65rem 0}
   summary{cursor:pointer;font-weight:650;padding:.25rem 0} details[open] summary{margin-bottom:.65rem}
+  .player-panel{display:grid;grid-template-columns:minmax(0,1fr) clamp(3.8rem,8vw,5rem);gap:.55rem}
+  .player-audio{min-width:0}
   .wave-stack{position:relative;overflow:hidden;border-radius:.7rem;margin-bottom:.35rem}.scope{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
   .scope path,.curve{stroke:var(--chart-line);fill:none;stroke-width:1.5}.spectrum{stroke:var(--chart-spectrum);fill:none}.grid{stroke:var(--chart-grid)}
-  .scope rect{fill:var(--danger);opacity:.12}.scope rect.hot{opacity:.6}.scope text{font-size:5px;fill:var(--danger)}
   .cleanup-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:1rem}
   .cleanup-layout .effect{height:240px}
   @media(max-width:899px){.cleanup-layout{grid-template-columns:1fr}}
-  .clip{background:var(--danger-soft);color:var(--danger)}.effect{width:100%;height:150px;background:var(--chart);border-radius:.7rem}
+  .effect{width:100%;height:150px;background:var(--chart);border-radius:.7rem}
   .noise-grid{display:grid;grid-template-columns:minmax(0,2fr) minmax(230px,1fr);gap:1rem}
   .noise-grid img{width:100%;min-width:0;border-radius:8px}
   .album-tag-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) 6rem;gap:.6rem}
@@ -1153,6 +1166,8 @@
   .prompt-toolbar{margin:.35rem 0 .7rem}
   @media(max-width:600px){.album-tag-fields{grid-template-columns:repeat(2,minmax(0,1fr))}.album-track-tags{min-width:23rem}}
   .transport.compact .wave-stack{display:none}
+  .transport.compact .player-panel{height:6rem;align-items:stretch}
+  .transport.compact .player-audio{align-self:end}
   .transport.compact h1{font-size:1.15rem;letter-spacing:0}
   .transport.compact p{margin:.2rem 0}
   .stage-toggle{width:auto;margin-left:.45rem;vertical-align:middle}
@@ -1170,5 +1185,5 @@
   .result{display:grid;gap:.25rem;padding:.7rem 0;border-top:1px solid var(--line);margin-top:.5rem}.error{color:var(--danger)}.status{min-height:1.2em}
   .output-folders{display:flex;flex-wrap:wrap;gap:.35rem .9rem;margin:.5rem 0 .8rem;color:var(--muted);font-size:.8rem}
   .output-folders code{color:var(--text)}
-  @media(max-width:700px){main{display:block}aside,.transport.compact{position:static}aside{height:auto;margin-bottom:.65rem}.sidebar-footer{margin-top:.5rem}}
+  @media(max-width:700px){main{display:block}.transport.compact{position:static}aside{min-height:0;margin-bottom:.65rem}.sidebar-footer{margin-top:.5rem}}
 </style>
