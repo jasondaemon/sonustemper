@@ -14,7 +14,7 @@ from threading import BoundedSemaphore
 from time import time
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, model_validator
 from starlette.background import BackgroundTask
@@ -22,6 +22,7 @@ from starlette.background import BackgroundTask
 from sonustemper import album_workflow as workflow
 from sonustemper import album_cleanup as cleanup
 from sonustemper import master_pack
+from sonustemper import spectral_cleanup
 from sonustemper.storage import LIBRARY_DB, PREVIEWS_DIR, PRESETS_DIR
 from sonustemper.tools import bundle_root
 
@@ -74,6 +75,8 @@ class NoiseSelection(BaseModel):
     apply_scope: Literal["global", "selection"] = "selection"
     t0_sec: float = Field(default=0, ge=0, le=36000)
     t1_sec: float = Field(default=0, ge=0, le=36000)
+    method: Literal["legacy", "spectral", "profile"] = "legacy"
+    label: Literal["quiet_fuzz", "narrow_tone"] | None = None
 
     @model_validator(mode="after")
     def validate_range(self):
@@ -81,6 +84,8 @@ class NoiseSelection(BaseModel):
             raise ValueError("High frequency must exceed low frequency")
         if self.apply_scope == "selection" and self.t1_sec - self.t0_sec < .01:
             raise ValueError("Noise selections must be at least 0.01 seconds long")
+        if self.method == "profile" and self.apply_scope != "selection":
+            raise ValueError("A noise profile needs a selected time range")
         return self
 
 
@@ -213,13 +218,16 @@ def resolved_settings(settings: Settings) -> dict:
         master_pack._eq_filter_for_band(band.model_dump(), 1)
         for band in settings.manual_bands if band.enabled
     ]
+    data["spectral_noise"] = []
     if not settings.noise_enabled:
         data["noise_chain"] = None
     elif settings.noise_selections is not None:
         data["noise_chain"] = cleanup.combine_noise_chains([
             _noise_filter_chain({**item.model_dump(), "mode": "remove"})
-            for item in settings.noise_selections if item.enabled
+            for item in settings.noise_selections if item.enabled and item.method == "legacy"
         ])
+        data["spectral_noise"] = [item.model_dump() for item in settings.noise_selections
+                                  if item.enabled and item.method != "legacy"]
     else:
         data["noise_chain"] = _noise_filter_chain({**settings.noise, "mode": "remove"}) if settings.noise else None
     voice = _eq_voice_filters(settings.voice_controls)
@@ -357,9 +365,24 @@ def analyze(location: str, artist_folder: str, album_folder: str, source: str, t
         raise HTTPException(422, "Could not read the song's sample rate and duration")
     try:
         return cleanup.analyze(path, int(rate), float(duration))
-    except (ValueError, OSError, subprocess.SubprocessError) as exc:
+    except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
         logger.warning("Album analysis failed for %s: %s", path.name, exc)
         raise HTTPException(422, "Full-song analysis could not finish. Check the source WAV and try again.") from exc
+
+
+@router.get("/api/albums/noise-matches")
+def noise_matches(location: str, artist_folder: str, album_folder: str, source: str, track: str,
+                  start: float = Query(ge=0, le=36000), end: float = Query(gt=0, le=36000)):
+    if source != "raw" or not .3 <= end - start <= 10:
+        raise HTTPException(422, "Select 0.3 to 10 seconds of steady fuzz to search for")
+    path = selected_tracks(resolve_album(location, artist_folder, album_folder), source, [track])[0]
+    try:
+        return {"findings": spectral_cleanup.detect(path, (start, end))}
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
+        logger.warning("Noise profile search failed for %s: %s", path.name, exc)
+        raise HTTPException(422, "Could not search the song for similar noise") from exc
 
 
 @router.get("/api/albums/text")
@@ -428,6 +451,7 @@ def resolve_render(settings: Settings) -> dict:
     data = resolved_settings(settings)
     data["track_filters"] = {}
     data["track_noise"] = {}
+    data["track_spectral_noise"] = {}
     data["track_repairs"] = {}
     for name, override in settings.track_overrides.items():
         if name not in settings.tracks:
@@ -435,6 +459,7 @@ def resolve_render(settings: Settings) -> dict:
         resolved = resolved_settings(effective_track_settings(settings, override))
         data["track_filters"][name] = resolved["filters"]
         data["track_noise"][name] = resolved["noise_chain"]
+        data["track_spectral_noise"][name] = resolved["spectral_noise"]
         data["track_repairs"][name] = resolved["repair_chain"]
     return data
 
@@ -473,7 +498,8 @@ def noise_audition(settings: Settings, mode: Literal["remove", "solo"] = "remove
     data = resolve_render(settings)
     if mode == "solo" and not settings.noise:
         raise HTTPException(422, "Choose a noise selection to solo")
-    if mode == "remove" and not data["track_noise"].get(track.name, data["noise_chain"]):
+    if mode == "remove" and not (data["track_noise"].get(track.name, data["noise_chain"]) or
+                                 data["track_spectral_noise"].get(track.name, data["spectral_noise"])):
         raise HTTPException(422, "Enable at least one noise selection first")
     PREVIEWS_DIR.mkdir(exist_ok=True, parents=True)
     directory = tempfile.TemporaryDirectory(prefix="album-noise-", dir=PREVIEWS_DIR)
@@ -614,12 +640,54 @@ def repair_batch_audition(settings: BatchAudition):
 
 
 @router.get("/api/albums/repair-batch-audition/{token}/{side}")
-def get_repair_batch_audition(token: UUID, side: Literal["before", "after"]):
+def get_repair_batch_audition(token: UUID, side: Literal["before", "after", "removed"]):
     folder = PREVIEWS_DIR / "album-comparisons" / token.hex
     path = folder / f"{side}.wav"
     if not path.is_file() or time() - folder.stat().st_mtime > BATCH_PREVIEW_AGE:
         raise HTTPException(404, "Comparison expired. Render it again.")
     return FileResponse(path, media_type="audio/wav", headers={"Cache-Control": "private, no-store"})
+
+
+class NoiseComparison(Settings):
+    candidate: NoiseSelection
+
+
+@router.post("/api/albums/noise-comparison")
+def noise_comparison(settings: NoiseComparison):
+    if settings.source != "raw" or len(settings.tracks) != 1:
+        raise HTTPException(400, "Choose one raw track to compare")
+    album = resolve_album(settings.location, settings.artist_folder, settings.album_folder)
+    track = selected_tracks(album, settings.source, settings.tracks)[0]
+    candidate = settings.candidate
+    current = settings.noise_selections or []
+    remaining = [item for item in current if settings.noise_enabled and item.id != candidate.id]
+    if not candidate.enabled or len(remaining) >= 24:
+        raise HTTPException(422, "Enable the selection or free up a selection slot before comparing")
+    without = settings.model_copy(update={"noise_selections": remaining, "noise_enabled": True})
+    with_candidate = without.model_copy(update={"noise_selections": [*remaining, candidate]})
+    # Keep the position in the list stable when comparing an existing correction.
+    if settings.noise_enabled and any(item.id == candidate.id for item in current):
+        with_candidate = without.model_copy(update={"noise_selections": [
+            candidate if item.id == candidate.id else item for item in current
+        ]})
+    if not compare_slots.acquire(blocking=False):
+        raise HTTPException(429, "Other comparisons are rendering. Try again in a moment.")
+    root = PREVIEWS_DIR / "album-comparisons"
+    token = uuid4().hex
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        prune_batch_auditions(root)
+        with tempfile.TemporaryDirectory(prefix=".spectral-", dir=root) as temporary:
+            folder = Path(temporary) / "preview"
+            folder.mkdir()
+            workflow.compare_noise(track, resolved_settings(without), resolved_settings(with_candidate), folder)
+            folder.rename(root / token)
+    except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
+        logger.warning("Noise comparison failed for %s: %s", track.name, exc)
+        raise HTTPException(422, "Could not render that selection for comparison") from exc
+    finally:
+        compare_slots.release()
+    return {side: f"/api/albums/repair-batch-audition/{token}/{side}" for side in ("before", "after", "removed")}
 
 
 @router.post("/api/albums/render-cleanup")

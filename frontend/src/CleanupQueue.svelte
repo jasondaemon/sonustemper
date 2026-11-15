@@ -1,8 +1,8 @@
 <script lang="ts">
   import {untrack, type Snippet} from 'svelte';
-  import {rangeLabel, repairColors, repairTypes, type Finding, type ReviewItem} from './repairs';
-  let {items, active, cleanupEnabled, ignored, select, editor}: {
-    items:ReviewItem[];active:string;cleanupEnabled:boolean;ignored:(item:Finding)=>boolean;
+  import {findingTitle, rangeLabel, repairColors, type Finding, type ReviewItem} from './repairs';
+  let {items, active, cleanupEnabled, noiseEnabled, ignored, select, editor}: {
+    items:ReviewItem[];active:string;cleanupEnabled:boolean;noiseEnabled:boolean;ignored:(item:Finding)=>boolean;
     select:(item:ReviewItem)=>void;editor:Snippet<[ReviewItem]>;
   } = $props();
 
@@ -11,11 +11,12 @@
   let kind = $state<'all'|Finding['kind']>('all');
   const views = [{id:'all',title:'All'}, {id:'review',title:'To review'}, {id:'applied',title:'Applied'}] as const;
   const kinds = [{id:'all',title:'All types'}, {id:'rumble',title:'Low end'}, {id:'presence',title:'Presence'},
-    {id:'highs',title:'Highs'}, {id:'peak',title:'Peaks'}] as const;
-  const needsReview = (item:ReviewItem) => !item.fix && !ignored(item.findings[0]);
-  let counts = $derived({all:items.length,review:items.filter(needsReview).length,applied:items.filter(item=>item.fix).length});
+    {id:'highs',title:'Highs'}, {id:'quiet_fuzz',title:'Quiet-gap fuzz'}, {id:'narrow_tone',title:'Narrow tones'}, {id:'peak',title:'Peaks'}] as const;
+  const applied = (item:ReviewItem) => Boolean(item.fix || item.noise);
+  const needsReview = (item:ReviewItem) => !applied(item) && !ignored(item.findings[0]);
+  let counts = $derived({all:items.length,review:items.filter(needsReview).length,applied:items.filter(applied).length});
   let visible = $derived(items.filter(item=>(kind==='all'||item.kind===kind)
-    && (view==='all'||(view==='applied'?item.fix:needsReview(item)))));
+    && (view==='all'||(view==='applied'?applied(item):needsReview(item)))));
   let list = $state<HTMLOListElement>();
 
   $effect(() => {
@@ -23,7 +24,7 @@
     untrack(() => {
       if (!selected) return;
       if (kind!=='all' && selected.kind!==kind) kind='all';
-      if ((view==='applied' && !selected.fix) || (view==='review' && !needsReview(selected))) view='all';
+      if ((view==='applied' && !applied(selected)) || (view==='review' && !needsReview(selected))) view='all';
     });
   });
 
@@ -48,12 +49,13 @@
   <ol bind:this={list} class:many={visible.length>7}>
     {#each visible as item,index (item.id)}
       {@const expanded = item.id===active}
-      {@const status = item.fix ? cleanupEnabled && item.fix.enabled && item.fix.amount>0 ? 'Applied' : 'Bypassed'
+      {@const status = item.noise ? noiseEnabled && item.noise.enabled && item.noise.band_depth_db>0 ? 'Applied' : 'Bypassed'
+        : item.fix ? cleanupEnabled && item.fix.enabled && item.fix.amount>0 ? 'Applied' : 'Bypassed'
         : ignored(item.findings[0]) ? 'Skipped' : item.kind==='peak' ? 'Warning' : 'To review'}
       <li id={`cleanup-row-${item.id}`} class:expanded>
         <button type="button" class="queue-row" aria-expanded={expanded} onclick={()=>select(item)} onkeydown={event=>navigate(event,index)}>
           <span class="queue-time">{rangeLabel(item)}</span>
-          <strong>{#if item.number}<span class="queue-number" style:--fix={repairColors[(item.number-1)%repairColors.length]}>{item.number}</span>{/if}{item.kind==='peak' ? 'Near full scale' : repairTypes[item.kind].title}</strong>
+          <strong>{#if item.number}<span class="queue-number" style:--fix={repairColors[(item.number-1)%repairColors.length]}>{item.number}</span>{/if}{findingTitle(item.kind)}</strong>
           <span class="queue-status" class:applied={status==='Applied'} class:warning={status==='Warning'}>{status}</span>
           <span class="queue-caret" aria-hidden="true">{expanded ? '−' : '+'}</span>
         </button>

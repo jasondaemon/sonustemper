@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 
 from sonustemper.tools import resolve_tool
+from sonustemper import spectral_cleanup
 
 
 FILTERS = {
@@ -128,7 +129,10 @@ def _analyze(path: Path, size: int, modified: int, inode: int, rate: int, durati
         bands = {kind: _frames(Path(folder) / f"{kind}.txt") for kind in filters if kind != "full"}
         if any(len(frames) != len(full) for frames in bands.values()):
             raise ValueError("Analysis bands did not cover the same time windows")
+    spectral = spectral_cleanup.detect(path)
     current = path.stat()
     if (current.st_size, current.st_mtime_ns, current.st_ino) != (size, modified, inode):
         raise ValueError("Source changed during analysis. Run it again.")
-    return {"duration": duration, "windows": len(full), "findings": _findings(full, bands, duration)}
+    findings = _findings(full, bands, duration) + spectral
+    return {"duration": duration, "windows": len(full),
+            "findings": sorted(findings, key=lambda item: (item["start"], item["kind"]))}

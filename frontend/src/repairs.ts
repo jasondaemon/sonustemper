@@ -1,4 +1,5 @@
 import type {Band} from './monitor';
+import {defaultNoise, type NoiseFindingKind, type NoiseSelection} from './noiseSelections';
 
 export const repairTypes = {
   rumble: {title:'Reduce low-end rumble', frequency:55, type:'lowshelf', q:.7},
@@ -8,28 +9,47 @@ export const repairTypes = {
 export type RepairKind = keyof typeof repairTypes;
 export type Range = {start:number; end:number};
 export type Repair = {id:string; kind:RepairKind; enabled:boolean; amount:number; frequency:number; start:number; end:number|null};
-export type Finding = Range & {kind:RepairKind|'peak'; evidence_db:number; amount?:number; frequency?:number};
+export type Finding = Range & {kind:RepairKind|'peak'|NoiseFindingKind; evidence_db:number; amount?:number; frequency?:number;
+  f_low?:number; f_high?:number; method?:'spectral'|'profile'};
 export type Analysis = {duration:number; windows:number; findings:Finding[]};
-export type ReviewItem = {id:string;kind:Finding['kind'];start:number;end:number|null;fix?:Repair;findings:Finding[];number?:number};
+export type ReviewItem = {id:string;kind:Finding['kind'];start:number;end:number|null;fix?:Repair;noise?:NoiseSelection;findings:Finding[];number?:number};
+
+export const isNoiseFinding = (kind:Finding['kind']):kind is NoiseFindingKind => kind==='quiet_fuzz'||kind==='narrow_tone';
+export function findingTitle(kind:Finding['kind']) {
+  if (kind==='quiet_fuzz') return 'Possible quiet-gap fuzz';
+  if (kind==='narrow_tone') return 'Possible narrow tone';
+  return kind==='peak' ? 'Near full scale' : repairTypes[kind].title;
+}
 
 export const maxRepairs = 128;
 export const defaultFindingCut = 2;
-export const findingKey = (item:Finding) => `${item.kind}-${item.start}-${item.end}`;
+export const findingKey = (item:Finding) => `${item.kind}-${item.start}-${item.end}${isNoiseFinding(item.kind) ? `-${item.f_low}` : ''}`;
+
+export function noiseForFinding(item:Finding):NoiseSelection|undefined {
+  if (!isNoiseFinding(item.kind) || !item.f_low || !item.f_high) return;
+  return {...defaultNoise,id:`finding-${findingKey(item)}`, enabled:true,label:item.kind,
+    f_low:item.f_low,f_high:item.f_high,band_depth_db:item.amount ?? 8,method:item.method ?? 'spectral',
+    apply_scope:'selection',t0_sec:item.start,t1_sec:item.end};
+}
 
 export function overlappingFix(range:{kind:Finding['kind'];start:number;end:number|null}, repairs:Repair[], ignore='') {
   return repairs.find(fix => fix.id!==ignore && fix.kind===range.kind && range.start<(fix.end ?? Infinity)
     && fix.start<(range.end ?? Infinity));
 }
 
-export function reviewItems(findings:Finding[], repairs:Repair[]): ReviewItem[] {
+export function reviewItems(findings:Finding[], repairs:Repair[], selections:NoiseSelection[]): ReviewItem[] {
   const applied = repairs.map((fix, index):ReviewItem => ({
     id:fix.id,kind:fix.kind,start:fix.start,end:fix.end,fix,findings:[],number:index+1,
   }));
+  for (const noise of selections) if (noise.label) {
+    applied.push({id:noise.id,kind:noise.label,start:noise.apply_scope==='global'?0:noise.t0_sec,
+      end:noise.apply_scope==='global'?null:noise.t1_sec,noise,findings:[]});
+  }
   const queue=[...applied];
   for (const finding of findings) {
     const id=`finding-${findingKey(finding)}`;
-    const cover=repairs.find(fix=>fix.id===id) ?? overlappingFix(finding,repairs);
-    const row=cover && applied.find(item=>item.id===cover.id);
+    const cover=overlappingFix(finding,repairs);
+    const row=applied.find(item=>item.id===id) ?? (cover && applied.find(item=>item.id===cover.id));
     if (row) row.findings.push(finding);
     else queue.push({id,kind:finding.kind,start:finding.start,end:finding.end,findings:[finding]});
   }
@@ -40,6 +60,7 @@ export function findingPlan(findings:Finding[], existing:Repair[], amount:number
   const proposed:Repair[] = [];
   let covered=0, warnings=0, limited=0;
   for (const item of findings) {
+    if (isNoiseFinding(item.kind)) continue;
     if (item.kind==='peak' || item.end-item.start<.05) {warnings++;continue;}
     if (overlappingFix(item,existing) || overlappingFix(item,proposed)) {covered++;continue;}
     if (existing.length+proposed.length>=maxRepairs) {limited++;continue;}

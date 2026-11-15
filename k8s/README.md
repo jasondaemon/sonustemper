@@ -105,7 +105,18 @@ sample-peak hints beneath its waveform. Hints do not apply processing. Approved
 whole-song or time-range fixes have separate timeline lines and response curves.
 Findings and applied fixes share one review list. Expand a row to adjust the
 cut, inspect its response curve, or switch that repair's Before/After preview
-in the main player without adding another transport.
+in the main player without adding another transport. The full-song scan can
+also flag steady fuzz in quiet gaps and persistent narrow tones. These
+spectrogram suggestions need individual review and are not included in
+**Apply all EQ**. Check whether the sound is part of the song before applying.
+Open a suggestion or drag a box in **Noise removal** for time- and
+frequency-limited edits. New boxes use spectral attenuation. **Sample noise
+in this box** uses a measured profile from the selection; **Find similar
+fuzz** scans the full song for other quiet passages with a matching profile.
+Existing saved EQ-style band cuts keep their original behavior.
+**Before**, **After**, and **Removed** compare just that selection at the same
+gain through the main player. **Removed** plays the difference between
+the two renders so you can check for wanted audio in the removed signal.
 Preview a finding at the suggested cut before approving it; the matched
 before/after audition changes only that fix. **Apply all** adds uncovered
 findings at the current cut, leaves skipped findings, peak warnings, and existing fixes alone, and

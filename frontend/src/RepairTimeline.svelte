@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {rangeLabel, repairColors, repairTypes, type Finding, type Range, type Repair} from './repairs';
+  import {findingTitle, isNoiseFinding, rangeLabel, repairColors, repairTypes, type Finding, type Range, type Repair} from './repairs';
   let {repairs, findings, duration, range, selected, enabled, selectFinding, selectFix, setRange}: {
     repairs:Repair[]; findings:Finding[]; duration:number; range:Range|undefined; selected:string; enabled:boolean;
     selectFinding:(item:Finding)=>void; selectFix:(id:string)=>void; setRange:(range:Range)=>void;
@@ -30,9 +30,9 @@
     {#if findings.length}
       <div class="findings-lane" aria-label="Analysis findings">
         {#each findings as item}
-          <button type="button" class:peak={item.kind==='peak'} style:left={`${x(item.start)}%`}
-            style:width={`${x(item.end)-x(item.start)}%`} title={`${item.kind==='peak' ? 'Near full scale' : repairTypes[item.kind].title} · ${rangeLabel(item)}`}
-            aria-label={`${item.kind==='peak' ? 'Near full scale' : repairTypes[item.kind].title}, ${rangeLabel(item)}`} onclick={() => selectFinding(item)}></button>
+          <button type="button" class:peak={item.kind==='peak'} class:spectral={isNoiseFinding(item.kind)} style:left={`${x(item.start)}%`}
+            style:width={`${x(item.end)-x(item.start)}%`} title={`${findingTitle(item.kind)} · ${rangeLabel(item)}`}
+            aria-label={`${findingTitle(item.kind)}, ${rangeLabel(item)}`} onclick={() => selectFinding(item)}></button>
         {/each}
       </div>
     {/if}
@@ -58,6 +58,7 @@
   .findings-lane{position:relative;height:.62rem;background:var(--surface)}
   .findings-lane button{position:absolute;inset-block:1px;border:0;padding:0;min-width:4px;border-radius:2px;background:var(--warning);opacity:.75;cursor:pointer}
   .findings-lane button.peak{background:var(--danger)}
+  .findings-lane button.spectral{background:var(--chart-line)}
   .fix-lanes{display:grid}.fix-lanes.many{max-height:5.2rem;overflow:auto;overscroll-behavior-y:contain}
   .lanes-label{padding-block:.12rem;border-top:1px solid var(--chart-grid)}
   .fix-lane{position:relative;border:0;border-top:1px solid var(--chart-grid);background:none;cursor:pointer;padding:0;min-height:1rem;text-align:left;color:var(--text)}

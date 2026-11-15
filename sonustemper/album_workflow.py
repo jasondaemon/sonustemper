@@ -402,6 +402,23 @@ def process_album_track(source: Path, target: Path, settings: dict, *, skip_fix:
     filters = settings.get("track_filters", {}).get(source.name, settings.get("filters")) or "anull"
     noise = settings.get("track_noise", {}).get(source.name, settings.get("noise_chain"))
     plan = settings.get("track_repairs", {}).get(source.name, settings.get("repair_chain"))
+    spectral = settings.get("track_spectral_noise", {}).get(source.name, settings.get("spectral_noise"))
+    if spectral:
+        from sonustemper import spectral_cleanup
+
+        with tempfile.TemporaryDirectory(prefix="album-spectral-stage-") as folder:
+            stage = Path(folder) / "input.wav"
+            if plan is None or noise:
+                process_track(source, stage, filters if plan is None else "", noise)
+            else:
+                stage = source
+            if plan is None:
+                spectral_cleanup.render(stage, target, spectral)
+            else:
+                cleaned = Path(folder) / "cleaned.wav"
+                spectral_cleanup.render(stage, cleaned, spectral)
+                apply_repair_chain(cleaned, target, plan, skip_fix)
+        return
     if plan is None:
         process_track(source, target, filters, noise)
     elif noise:
@@ -413,6 +430,17 @@ def process_album_track(source: Path, target: Path, settings: dict, *, skip_fix:
             cleaned.unlink(missing_ok=True)
     else:
         apply_repair_chain(source, target, plan, skip_fix)
+
+
+def compare_noise(track: Path, before: dict, after: dict, folder: Path) -> None:
+    dry, wet, removed = (folder / f"{name}.wav" for name in ("before", "after", "removed"))
+    process_album_track(track, dry, before)
+    process_album_track(track, wet, after)
+    subprocess.run([
+        resolve_tool("ffmpeg"), "-nostdin", "-v", "error", "-y", "-i", str(dry), "-i", str(wet),
+        "-filter_complex", "[1:a]volume=-1[inverted];[0:a][inverted]amix=inputs=2:duration=first:normalize=0",
+        "-map_metadata", "-1", "-c:a", "pcm_f32le", str(removed),
+    ], check=True, capture_output=True, timeout=900)
 
 
 def compare_repair(track: Path, settings: dict, repair_id: str, start: float, length: float) -> tuple[bytes, bytes]:
