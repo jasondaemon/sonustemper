@@ -101,6 +101,9 @@ The MP3 is encoded from that WAV and receives only the delivery metadata.
 **Cleanup & repair** analyzes a full track and marks measured frequency and
 sample-peak hints beneath its waveform. Hints do not apply processing. Approved
 whole-song or time-range fixes have separate timeline lines and response curves.
+Findings and applied fixes share one review list. Expand a row to adjust the
+cut, inspect its response curve, or switch that repair's Before/After preview
+in the main player without adding another transport.
 Preview a finding at the suggested cut before approving it; the matched
 before/after audition changes only that fix. **Apply all** adds uncovered
 findings at the current cut, leaves skipped findings, peak warnings, and existing fixes alone, and

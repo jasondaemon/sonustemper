@@ -10,6 +10,7 @@ export type Range = {start:number; end:number};
 export type Repair = {id:string; kind:RepairKind; enabled:boolean; amount:number; frequency:number; start:number; end:number|null};
 export type Finding = Range & {kind:RepairKind|'peak'; evidence_db:number; amount?:number; frequency?:number};
 export type Analysis = {duration:number; windows:number; findings:Finding[]};
+export type ReviewItem = {id:string;kind:Finding['kind'];start:number;end:number|null;fix?:Repair;findings:Finding[];number?:number};
 
 export const maxRepairs = 128;
 export const defaultFindingCut = 2;
@@ -18,6 +19,21 @@ export const findingKey = (item:Finding) => `${item.kind}-${item.start}-${item.e
 export function overlappingFix(range:{kind:Finding['kind'];start:number;end:number|null}, repairs:Repair[], ignore='') {
   return repairs.find(fix => fix.id!==ignore && fix.kind===range.kind && range.start<(fix.end ?? Infinity)
     && fix.start<(range.end ?? Infinity));
+}
+
+export function reviewItems(findings:Finding[], repairs:Repair[]): ReviewItem[] {
+  const applied = repairs.map((fix, index):ReviewItem => ({
+    id:fix.id,kind:fix.kind,start:fix.start,end:fix.end,fix,findings:[],number:index+1,
+  }));
+  const queue=[...applied];
+  for (const finding of findings) {
+    const id=`finding-${findingKey(finding)}`;
+    const cover=repairs.find(fix=>fix.id===id) ?? overlappingFix(finding,repairs);
+    const row=cover && applied.find(item=>item.id===cover.id);
+    if (row) row.findings.push(finding);
+    else queue.push({id,kind:finding.kind,start:finding.start,end:finding.end,findings:[finding]});
+  }
+  return queue.sort((a,b)=>a.start-b.start || a.kind.localeCompare(b.kind));
 }
 
 export function findingPlan(findings:Finding[], existing:Repair[], amount:number) {

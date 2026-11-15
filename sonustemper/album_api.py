@@ -572,16 +572,24 @@ def repair_batch_audition(settings: BatchAudition):
     track = selected_tracks(album, settings.source, [settings.audition_track])[0]
     effective = effective_track_settings(settings, settings.track_overrides.get(track.name, {}))
     bypass = set(settings.bypass_repair_ids)
+    audition_only = bool(settings.candidate_repairs) and not effective.cleanup_enabled
     if settings.candidate_repairs:
         if any(not fix.enabled or fix.amount <= 0 or fix.end is None for fix in settings.candidate_repairs):
             raise HTTPException(422, "Invalid suggested repair")
         try:
-            effective = Settings.model_validate({**effective.model_dump(), "repairs": [*effective.repairs, *settings.candidate_repairs]})
+            combined = Settings.model_validate({**effective.model_dump(), "repairs": [*effective.repairs, *settings.candidate_repairs]})
         except ValueError as exc:
             raise HTTPException(422, "Invalid suggested repairs") from exc
         bypass = {fix.id for fix in settings.candidate_repairs}
+        if audition_only:
+            # For an individual suggestion, leave existing cleanup bypassed in both versions.
+            staged = resolved_settings(combined.model_copy(update={"cleanup_enabled": True}))["repair_chain"]
+        else:
+            effective = combined
     data = resolved_settings(effective)
     plan = data["repair_chain"]
+    if audition_only and plan and staged:
+        plan["fixes"] = [fix for fix in staged["fixes"] if fix["id"] in bypass]
     if not plan or not bypass <= {fix["id"] for fix in plan["fixes"]}:
         raise HTTPException(422, "Enable the repairs before comparing the batch")
     if not compare_slots.acquire(blocking=False):
