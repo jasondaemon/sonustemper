@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 import unittest
 
-from sonustemper.album_cleanup import analyze, repair_filter
+from sonustemper.album_cleanup import analyze, combine_noise_chains, repair_filter
 from sonustemper.album_workflow import compare_repair, process_album_track, render_album, wavs
 
 
@@ -22,6 +22,27 @@ def amplitude(path, start, frequency):
 
 @unittest.skipUnless(shutil.which("ffmpeg"), "FFmpeg is required")
 class AlbumCleanupTests(unittest.TestCase):
+    def test_noise_stack_keeps_both_bounded_regions(self):
+        def window(start, end, frequency):
+            wet = f"between(t,{start},{end})"
+            return (f"[0:a]asplit[dry][wet];[wet]equalizer=f={frequency}:t=q:w=2:g=-16,"
+                    f"volume='{wet}':eval=frame[w];[dry]volume='1-{wet}':eval=frame[d];"
+                    "[w][d]amix=inputs=2:normalize=0[out]", True)
+
+        with tempfile.TemporaryDirectory() as directory:
+            track, target = (Path(directory) / name for name in ("source.wav", "filtered.wav"))
+            subprocess.run([
+                "ffmpeg", "-v", "error", "-f", "lavfi", "-i",
+                "aevalsrc=0.13*sin(2*PI*400*t)+0.13*sin(2*PI*3500*t):s=48000:d=5",
+                "-c:a", "pcm_s24le", str(track),
+            ], check=True)
+            stack = combine_noise_chains([window(1, 2, 400), window(3, 4, 3500)])
+            process_album_track(track, target, {"noise_chain": stack})
+            for hz in (400, 3500):
+                self.assertAlmostEqual(amplitude(track, 4.25, hz), amplitude(target, 4.25, hz), places=3)
+            self.assertLess(amplitude(target, 1.25, 400), amplitude(track, 1.25, 400) * .25)
+            self.assertLess(amplitude(target, 3.25, 3500), amplitude(track, 3.25, 3500) * .25)
+
     def test_full_analysis_finds_late_band(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "song.wav"

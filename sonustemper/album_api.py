@@ -14,7 +14,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from starlette.background import BackgroundTask
 
 from sonustemper import album_workflow as workflow
@@ -59,6 +59,28 @@ class Repair(BaseModel):
     end: float | None = Field(default=None, gt=0, le=36000)
 
 
+class NoiseSelection(BaseModel):
+    id: str = Field(min_length=1, max_length=64)
+    enabled: bool = True
+    f_low: float = Field(ge=20, le=20000)
+    f_high: float = Field(ge=20, le=20000)
+    band_depth_db: float = Field(default=18, ge=0, le=30)
+    afftdn_strength: float = Field(default=0, ge=0, le=1)
+    hp_hz: float = Field(default=0, ge=0, le=20000)
+    lp_hz: float = Field(default=0, ge=0, le=20000)
+    apply_scope: Literal["global", "selection"] = "selection"
+    t0_sec: float = Field(default=0, ge=0, le=36000)
+    t1_sec: float = Field(default=0, ge=0, le=36000)
+
+    @model_validator(mode="after")
+    def validate_range(self):
+        if self.f_high <= self.f_low:
+            raise ValueError("High frequency must exceed low frequency")
+        if self.apply_scope == "selection" and self.t1_sec - self.t0_sec < .01:
+            raise ValueError("Noise selections must be at least 0.01 seconds long")
+        return self
+
+
 class Settings(AlbumInput):
     tracks: list[str] = Field(min_length=1, max_length=100)
     preset: str = ""
@@ -68,6 +90,7 @@ class Settings(AlbumInput):
     eq_bypass: bool = False
     manual_bands: list[Band] = Field(default_factory=list, max_length=20)
     noise: dict[str, float | str] | None = None
+    noise_selections: list[NoiseSelection] | None = Field(default=None, max_length=24)
     noise_enabled: bool = True
     voicing_enabled: bool = True
     voice_controls: dict = Field(default_factory=dict)
@@ -185,8 +208,15 @@ def resolved_settings(settings: Settings) -> dict:
         master_pack._eq_filter_for_band(band.model_dump(), 1)
         for band in settings.manual_bands if band.enabled
     ]
-    data["noise_chain"] = (_noise_filter_chain({**settings.noise, "mode": "remove"})
-                           if settings.noise_enabled and settings.noise else None)
+    if not settings.noise_enabled:
+        data["noise_chain"] = None
+    elif settings.noise_selections is not None:
+        data["noise_chain"] = cleanup.combine_noise_chains([
+            _noise_filter_chain({**item.model_dump(), "mode": "remove"})
+            for item in settings.noise_selections if item.enabled
+        ])
+    else:
+        data["noise_chain"] = _noise_filter_chain({**settings.noise, "mode": "remove"}) if settings.noise else None
     voice = _eq_voice_filters(settings.voice_controls)
     tone = [mastering if settings.voicing_enabled else "", *manual]
     if settings.cleanup_version == 2:
@@ -280,12 +310,17 @@ def source_audio(location: str, artist_folder: str, album_folder: str, source: s
 
 @router.get("/api/albums/spectrogram")
 def spectrogram(location: str, artist_folder: str, album_folder: str, source: str, track: str,
-                scale: str = "log", range_db: int = 120):
+                scale: Literal["log", "lin"] = "log", range_db: int = 120,
+                width: int = 1200,
+                overview: bool = False):
     from sonustemper.server import _spectrogram_for_path
 
     album = resolve_album(location, artist_folder, album_folder)
     path = selected_tracks(album, source, [track])[0]
-    return _spectrogram_for_path(path, 1200, 384, scale, range_db, "combined", album_axis=True)
+    if width not in {1200, 2400, 4800, 8192}:
+        raise HTTPException(400, "Unsupported spectrogram width")
+    return _spectrogram_for_path(path, 960 if overview else width, 128 if overview else 384,
+                                 scale, range_db, "combined", album_axis=True)
 
 
 @router.get("/api/albums/artwork")
@@ -368,6 +403,7 @@ PROCESSING_FIELDS = {
     "preset", "bands", "eq_bypass", "manual_bands", "noise", "voicing_enabled",
     "voice_controls", "corrections", "strength", "stereo_width", "guardrails", "cleanup_enabled", "noise_enabled",
     "cleanup_version", "repairs",
+    "noise_selections",
 }
 
 
@@ -382,7 +418,10 @@ def resolve_render(settings: Settings) -> dict:
         if not override.keys() <= PROCESSING_FIELDS:
             raise HTTPException(422, "Invalid track override")
         try:
-            effective = Settings.model_validate({**settings.model_dump(), **override})
+            merged = {**settings.model_dump(), **override}
+            if "noise" in override and "noise_selections" not in override:
+                merged["noise_selections"] = None
+            effective = Settings.model_validate(merged)
         except ValueError as exc:
             raise HTTPException(422, "Invalid track processing settings") from exc
         resolved = resolved_settings(effective)
@@ -423,18 +462,20 @@ def noise_audition(settings: Settings, mode: Literal["remove", "solo"] = "remove
 
     album = resolve_album(settings.location, settings.artist_folder, settings.album_folder)
     track = selected_tracks(album, settings.source, settings.tracks)[0]
-    if not settings.noise:
-        raise HTTPException(422, "Enable noise removal first")
     data = resolve_render(settings)
-    chain = _noise_filter_chain({**settings.noise, "mode": mode})
+    if mode == "solo" and not settings.noise:
+        raise HTTPException(422, "Choose a noise selection to solo")
+    if mode == "remove" and not data["track_noise"].get(track.name, data["noise_chain"]):
+        raise HTTPException(422, "Enable at least one noise selection first")
     PREVIEWS_DIR.mkdir(exist_ok=True, parents=True)
     directory = tempfile.TemporaryDirectory(prefix="album-noise-", dir=PREVIEWS_DIR)
     try:
         output = Path(directory.name) / "audition.wav"
-        if mode == "solo" and settings.cleanup_version == 2:
+        if mode == "solo":
+            chain = _noise_filter_chain({**settings.noise, "mode": "solo"})
             workflow.process_track(track, output, "", chain)
         else:
-            workflow.process_album_track(track, output, data, noise_override=chain)
+            workflow.process_album_track(track, output, data)
         return FileResponse(output, media_type="audio/wav", background=BackgroundTask(directory.cleanup))
     except Exception as exc:
         directory.cleanup()

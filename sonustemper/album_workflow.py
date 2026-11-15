@@ -380,9 +380,9 @@ def apply_repair_chain(source: Path, target: Path, plan: dict, skip_fix: str = "
         raise RuntimeError(result.stderr.strip()[-800:] or "Could not render album corrections")
 
 
-def process_album_track(source: Path, target: Path, settings: dict, *, skip_fix: str = "", noise_override=None) -> None:
+def process_album_track(source: Path, target: Path, settings: dict, *, skip_fix: str = "") -> None:
     filters = settings.get("track_filters", {}).get(source.name, settings.get("filters")) or "anull"
-    noise = noise_override if noise_override is not None else settings.get("track_noise", {}).get(source.name, settings.get("noise_chain"))
+    noise = settings.get("track_noise", {}).get(source.name, settings.get("noise_chain"))
     plan = settings.get("track_repairs", {}).get(source.name, settings.get("repair_chain"))
     if plan is None:
         process_track(source, target, filters, noise)

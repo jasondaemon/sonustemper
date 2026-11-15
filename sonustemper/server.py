@@ -4789,7 +4789,7 @@ def _spectrogram_for_path(target: Path, w: int, h: int, mode: str, drange: int, 
     stat = target.stat()
     axis = "aresample=48000," if album_axis else ""
     bounds = f":fscale={scale}:start=20:stop=20000" if album_axis else ""
-    key_raw = f"{target.resolve()}::{stat.st_mtime}::{width}::{height}::{scale}::{drange}::{stereo_mode}{bounds}"
+    key_raw = f"{target.resolve()}::{stat.st_mtime_ns}::{stat.st_size}::{width}::{height}::{scale}::{drange}::{stereo_mode}{bounds}"
     key = hashlib.sha256(key_raw.encode("utf-8")).hexdigest()
     out_path = cache_dir / f"{key}.png"
     if not out_path.exists():
@@ -4797,15 +4797,15 @@ def _spectrogram_for_path(target: Path, w: int, h: int, mode: str, drange: int, 
             f"{axis}showspectrumpic=s={width}x{height}:mode={stereo_mode}:"
             f"scale={'log' if album_axis else scale}:legend=disabled:color=viridis:drange={drange}{bounds}"
         )
-        cmd = [
-            FFMPEG_BIN, "-y", "-hide_banner", "-loglevel", "error",
-            "-i", str(target), "-lavfi", filt, "-frames:v", "1",
-            str(out_path),
-        ]
-        proc = run_cmd(cmd)
-        if proc.returncode != 0 or not out_path.exists():
-            err = (proc.stderr or proc.stdout or "").strip()
-            raise HTTPException(status_code=500, detail=err or "spectrogram_failed")
+        with tempfile.TemporaryDirectory(prefix="spectrogram-", dir=cache_dir) as folder:
+            rendered = Path(folder) / "image.png"
+            cmd = [FFMPEG_BIN, "-y", "-hide_banner", "-loglevel", "error", "-i", str(target),
+                   "-lavfi", filt, "-frames:v", "1", str(rendered)]
+            proc = run_cmd(cmd)
+            if proc.returncode != 0 or not rendered.is_file():
+                err = (proc.stderr or proc.stdout or "").strip()
+                raise HTTPException(status_code=500, detail=err or "spectrogram_failed")
+            rendered.replace(out_path)
     return FileResponse(out_path, media_type="image/png")
 
 

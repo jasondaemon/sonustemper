@@ -107,6 +107,12 @@ then measure loudness for delivery. Older sessions retain their original order
 until explicitly upgraded. Applying settings to the album leaves each song's
 time-range fixes on that song.
 
+**Noise removal** has a zoomable log/linear spectrogram and full-song scrub
+overview. Save several time/frequency regions or whole-song bands for each
+track. Enabled entries run in list order, including when auditioning the
+filtered track. Solo previews only the selection being edited. Album-wide
+settings copy whole-song bands but keep time ranges on their own tracks.
+
 **Prompts and Lyrics** reads and saves song files on the share. The two prompt
 editors share `styles/<song>.md`: style text comes first, followed by an optional
 `## Negative Prompt` section. Original lyric prompts stay in `lyric-prompts/`

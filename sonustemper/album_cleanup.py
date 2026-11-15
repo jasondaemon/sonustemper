@@ -2,6 +2,7 @@
 from functools import lru_cache
 from pathlib import Path
 import math
+import re
 import subprocess
 import tempfile
 
@@ -13,6 +14,28 @@ FILTERS = {
     "presence": ("highpass=f=2500,lowpass=f=6000", -7, 3500),
     "highs": ("highpass=f=8000", -13, 9500),
 }
+
+
+def combine_noise_chains(chains: list[tuple[str, bool]]) -> tuple[str, bool] | None:
+    if not chains:
+        return None
+    if not any(complex_graph for _, complex_graph in chains):
+        return ",".join(chain for chain, _ in chains), False
+    graph = []
+    previous = "0:a"
+    for index, (chain, complex_graph) in enumerate(chains):
+        output = "out" if index == len(chains) - 1 else f"stack{index}"
+        if complex_graph:
+            # Scope the existing selection filter's internal labels to this pass.
+            def label(match):
+                name = match[1]
+                new = previous if name == "0:a" else output if name == "out" else f"n{index}_{name}"
+                return f"[{new}]"
+            graph.append(re.sub(r"\[([\w:]+)\]", label, chain))
+        else:
+            graph.append(f"[{previous}]{chain}[{output}]")
+        previous = output
+    return ";".join(graph), True
 
 
 def repair_filter(fix: dict) -> str:

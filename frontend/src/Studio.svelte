@@ -3,7 +3,9 @@
   import EqPanel from './EqPanel.svelte';
   import StereoMeter from './StereoMeter.svelte';
   import RepairTimeline from './RepairTimeline.svelte';
+  import FindingsBrowser from './FindingsBrowser.svelte';
   import VoiceControls from './VoiceControls.svelte';
+  import {defaultNoise, savedNoise, type NoiseSelection, type NoiseSettings} from './noiseSelections';
   import {rangeLabel, repairBand, repairColors, repairTypes, timeLabel, type Analysis, type Finding, type Range, type Repair, type RepairKind} from './repairs';
   import {advanceMeter, emptyMeters} from './levels';
   import {monitor, filterNode, spectrumPath, defaultBands, type Band} from './monitor';
@@ -60,6 +62,7 @@
       ? {options:{...reverbDefaults}}
       : {})}
   ])));
+  let reverbConfig = $derived(corrections.ai_reverb_reduce.options!);
   let balance = $state('album'), lufs = $state(-16), peak = $state(-1.5);
   let artistTag = $state(''), albumArtist = $state(''), albumTag = $state(''), cover = $state('');
   let year = $state(new Date().getFullYear());
@@ -88,9 +91,9 @@
     vocal_smooth:{enabled:false,freq_hz:4500,amount_db:0},
     deharsh:{enabled:false,freq_hz:3200,amount_db:0}
   });
-  const defaultNoise = {f_low:100, f_high:500, band_depth_db:18, afftdn_strength:.35, hp_hz:0, lp_hz:0,
-    t0_sec:0,t1_sec:0,apply_scope:'global'};
-  let noise = $state({...defaultNoise});
+  let noise = $state<NoiseSettings>({...defaultNoise}), noiseSelections = $state<NoiseSelection[]>([]);
+  let noiseEditorOpen = $state(false), editingNoise = $state(''), noiseError = $state('');
+  let hasNoise = $derived(noiseEnabled && noiseSelections.some(item=>item.enabled));
   let noisePresets = $state<{id:string;origin:string;meta:{title:string};noise:Partial<typeof defaultNoise>}[]>([]);
   let noiseURL = $state(''), noiseMode = $state(''), noiseBusy = $state(false);
   let sourceDuration = $state(0);
@@ -98,15 +101,21 @@
   let selection = $state<{x:number;y:number;endX:number;endY:number}>();
   let dragStart: {x:number;y:number}|undefined;
   let draggingNoise = $state(false);
-  let specScale = $state('log'), specRange = $state(120);
+  let specScale = $state<'log'|'lin'>('log'), specRange = $state(120);
+  let specZoom = $state(1), specStart = $state(0), specWidth = $state(1200);
+  let specEnd = $derived(specStart + 1/specZoom);
+  let specFailed = $state(false), specLoading = $state(false);
   let cursor = $state<{x:number;y:number}>();
   let playhead = $state(0);
   const frequencyAt = (y:number) => Math.round(specScale === 'log' ? 20 * 1000 ** (1-y) : 20 + 19980 * (1-y));
   const frequencyY = (hz:number) => 1 - (specScale === 'log' ? Math.log(hz/20)/Math.log(1000) : (hz-20)/19980);
-  let visibleSelection = $derived(draggingNoise ? selection : sourceDuration > 0 && noise.t1_sec > noise.t0_sec ? {
-    x:noise.t0_sec/sourceDuration, endX:Math.min(1,noise.t1_sec/sourceDuration),
-    y:frequencyY(noise.f_high), endY:frequencyY(noise.f_low),
-  } : undefined);
+  const asNoiseBox = (item:NoiseSettings) => ({
+    x:item.apply_scope==='global' ? 0 : Math.min(1,item.t0_sec/sourceDuration),
+    endX:item.apply_scope==='global' ? 1 : Math.min(1,item.t1_sec/sourceDuration),
+    y:frequencyY(item.f_high), endY:frequencyY(item.f_low),
+  });
+  let visibleSelection = $derived(draggingNoise ? selection : sourceDuration > 0 && noiseEditorOpen && noise.f_high>noise.f_low &&
+    (noise.apply_scope==='global' || noise.t1_sec>noise.t0_sec) ? asNoiseBox(noise) : undefined);
   let engine = $state<ReturnType<typeof monitor>>();
   let monitorMedia:HTMLAudioElement | undefined;
   let spectrum = $state(''), cleanupCurve = $state(''), eqCurve = $state(''), scopePath = $state('');
@@ -121,10 +130,10 @@
   let pendingTracks = $derived(tracks.filter(name => library.delivery?.[name]?.length).length);
   let processing = $derived({
     preset:presetBase, bands, voicing_enabled:eqEnabled, voice_controls:voiceControls,
-    cleanup_enabled:cleanupEnabled, corrections, noise_enabled:noiseEnabled, noise,
+    cleanup_enabled:cleanupEnabled, corrections, noise_enabled:noiseEnabled, noise_selections:noiseSelections,
     strength, stereo_width:width, guardrails, cleanup_version:cleanupVersion, repairs
   });
-  type Processing = typeof processing;
+  type Processing = typeof processing & {noise?:Partial<NoiseSettings>};
   type Draft = {defaults:Processing; overrides:Record<string,Processing>; tags:typeof tagEdits;
     albumSettings:typeof albumSettings; track:string};
   let defaults = $state<Processing>();
@@ -137,7 +146,7 @@
   function copy<T>(value:T):T {return JSON.parse(JSON.stringify(value));}
   const initialProcessing = {preset:'', bands:defaultBands(), voicing_enabled:false,
     voice_controls:{}, cleanup_enabled:false, corrections:{}, noise_enabled:false,
-    noise:defaultNoise, strength:100, stereo_width:1, guardrails:true, cleanup_version:2, repairs:[]} as Processing;
+    noise_selections:[], strength:100, stereo_width:1, guardrails:true, cleanup_version:2, repairs:[]} as Processing;
   let trackCustom = $derived(Boolean(track && inherited && JSON.stringify(processing) !== inherited));
   let effectiveOverrides = $derived.by(() => {
     const saved = {...overrides};
@@ -286,7 +295,8 @@
     }]));
     cleanupEnabled = draft.cleanup_enabled ?? Object.keys(draft.corrections ?? {}).length > 0;
     noiseEnabled = draft.noise_enabled ?? Boolean(draft.noise);
-    noise = {...defaultNoise,...draft.noise};
+    noiseSelections = savedNoise(draft);
+    noise = {...defaultNoise}; noiseEditorOpen=false; editingNoise=''; noiseError='';
     strength = draft.strength ?? 100; guardrails = draft.guardrails ?? true;
     width = draft.stereo_width ?? activePreset?.width ?? 1;
   }
@@ -301,20 +311,24 @@
     const otherEdits = tracks.some(item => item !== track && overrides[item]);
     if (otherEdits && !confirm('Replace other songs’ whole-song processing? Their selected ranges will stay in place.')) return;
     const current = copy(processing);
-    const trackOnlyNoise = current.noise_enabled && current.noise.apply_scope === 'selection';
-    const global = {...current, repairs:current.repairs.filter(fix => fix.end === null)};
-    defaults = trackOnlyNoise ? {...global, noise_enabled:false, noise:{...defaultNoise}} : global;
+    const globalNoise = current.noise_selections.filter(item=>item.apply_scope==='global');
+    const global = {...current, repairs:current.repairs.filter(fix => fix.end === null),
+      noise_selections:globalNoise, noise_enabled:current.noise_enabled && globalNoise.length>0};
     const next:Record<string,Processing> = {};
     for (const name of tracks) {
       const previous = name === track ? current : overrides[name];
       const ranges = previous?.repairs?.filter(fix => fix.end !== null) ?? [];
-      const localNoise = previous?.noise_enabled && previous.noise.apply_scope === 'selection';
-      if (ranges.length || localNoise) next[name] = {...defaults,
-        ...(localNoise ? {noise_enabled:true,noise:previous.noise} : {}),
-        repairs:[...defaults.repairs.filter(fix => !ranges.some(range => range.kind === fix.kind)), ...ranges],
-        cleanup_version:ranges.length ? 2 : defaults.cleanup_version,
-        cleanup_enabled:defaults.cleanup_enabled || ranges.some(fix => fix.enabled)};
+      const localNoise = previous ? savedNoise(previous).filter(item=>item.apply_scope==='selection') : [];
+      if (localNoise.length+globalNoise.length>24) {error='There would be more than 24 noise selections on a song. Remove a selection before copying.';return;}
+      if (ranges.length || localNoise.length) next[name] = {...global,
+        noise_enabled:global.noise_enabled || Boolean(previous?.noise_enabled && localNoise.some(item=>item.enabled)),
+        noise_selections:[...globalNoise.map(item => ({...item,enabled:global.noise_enabled && item.enabled})),
+          ...localNoise.map(item => ({...item,enabled:Boolean(previous?.noise_enabled && item.enabled)}))],
+        repairs:[...global.repairs.filter(fix => !ranges.some(range => range.kind === fix.kind)), ...ranges],
+        cleanup_version:ranges.length ? 2 : global.cleanup_version,
+        cleanup_enabled:global.cleanup_enabled || ranges.some(fix => fix.enabled)};
     }
+    defaults = global;
     overrides = next;
     loadTrackProcessing();
     status = 'Whole-song settings applied. Selected ranges stay with their own songs.';
@@ -323,7 +337,9 @@
   function loadTrackProcessing() {
     loadProcessing(defaults ?? initialProcessing);
     inherited = JSON.stringify(processing);
-    if (overrides[track]) loadProcessing({... (defaults ?? initialProcessing), ...overrides[track]});
+    const trackSettings=overrides[track];
+    if (trackSettings) loadProcessing({... (defaults ?? initialProcessing), ...trackSettings,
+      ...(trackSettings.noise && !trackSettings.noise_selections ? {noise_selections:savedNoise(trackSettings)} : {})});
   }
 
   async function saveSession() {
@@ -429,6 +445,8 @@
     ++selectionVersion;
     removeSeekListener?.();
     noiseMode=''; sourceDuration=0; playhead=0; cursor=undefined; selection=undefined;
+    dragStart=undefined;draggingNoise=false;
+    specStart=0; specZoom=1; specWidth=1200;
     audition = false; original = false; meterChannels = emptyMeters(); scopePath = '';
     analysis=undefined; analyzeBusy=false; cleanupError=''; activeFinding=undefined; activeRepair=''; repairRange=undefined; loopRange=false;
     clearCompare();
@@ -814,6 +832,22 @@
     return {x:Math.max(0,Math.min(1,(event.clientX-bounds.left)/bounds.width)),
       y:Math.max(0,Math.min(1,(event.clientY-bounds.top)/bounds.height))};
   }
+  function centerSpectrum(time:number) {
+    if (sourceDuration>0) specStart=Math.max(0,Math.min(1-1/specZoom,time/sourceDuration-.5/specZoom));
+  }
+
+  function zoomSpectrum(value:number) {
+    const center=specZoom===1 ? playhead : (specStart+.5/specZoom)*sourceDuration;
+    specZoom=value;
+    centerSpectrum(center);
+  }
+
+  function loadSpectrumDetail() {specWidth=specZoom<=1?1200:specZoom<=3?2400:specZoom<=6?4800:8192;}
+
+  let specQuery = $derived({...keys,track,scale:specScale,range_db:String(specRange)});
+  let specImage = $derived('/api/albums/spectrogram?'+new URLSearchParams({...specQuery,width:String(specWidth)}));
+  let specOverview = $derived('/api/albums/spectrogram?'+new URLSearchParams({...specQuery,overview:'true'}));
+  $effect(() => {if (specImage) {specFailed=false;specLoading=true;}});
   function drawNoise(event:PointerEvent) {
     const point=selectionPoint(event);
     cursor=point;
@@ -822,32 +856,73 @@
       endX:Math.max(dragStart.x,point.x),endY:Math.max(dragStart.y,point.y)};
   }
   function finishNoise(event:PointerEvent) {
+    if (!dragStart) return;
     drawNoise(event);
     dragStart=undefined;draggingNoise=false;
-    if (!selection || !player || selection.endX-selection.x < .002 || selection.endY-selection.y < .002) {
-      selection=undefined;return;
-    }
-    noise.f_low=frequencyAt(selection.endY);noise.f_high=frequencyAt(selection.y);
-    noise.t0_sec=selection.x*sourceDuration;noise.t1_sec=selection.endX*sourceDuration;
-    noise.apply_scope='selection';noiseEnabled=true;
-    if (noiseMode) listenLive();
+    const box=selection;selection=undefined;
+    if (!box || !player || (box.endX-box.x)*event.currentTarget.clientWidth < 4 || box.endY-box.y < .01) return;
+    const start=+(box.x*sourceDuration).toFixed(2), end=+(box.endX*sourceDuration).toFixed(2);
+    if (end-start<.01) return;
+    editNoise();
+    noise={...defaultNoise,f_low:frequencyAt(box.endY),f_high:frequencyAt(box.y),t0_sec:start,t1_sec:end,apply_scope:'selection'};
   }
+
+  function editNoise(item?:NoiseSelection) {
+    noise=item ? {...item} : {...defaultNoise};
+    editingNoise=item?.id ?? '';noiseError='';noiseEditorOpen=true;
+    if (item?.apply_scope==='selection') {
+      centerSpectrum((item.t0_sec+item.t1_sec)/2);
+      seekTo(item.t0_sec);
+    }
+  }
+
+  function closeNoiseEditor() {noiseEditorOpen=false;editingNoise='';noiseError='';}
+
+  let validNoiseDraft = $derived([noise.f_low,noise.f_high,noise.band_depth_db,noise.afftdn_strength,noise.hp_hz,noise.lp_hz].every(Number.isFinite)
+    && noise.f_low >= 20 && noise.f_high <= 20000 && noise.f_high>noise.f_low
+    && noise.hp_hz>=0 && noise.hp_hz<=20000 && noise.lp_hz>=0 && noise.lp_hz<=20000
+    && (noise.apply_scope==='global' || (Number.isFinite(noise.t0_sec) && Number.isFinite(noise.t1_sec) && noise.t0_sec>=0
+      && noise.t1_sec-noise.t0_sec>=.01 && noise.t1_sec<=Math.min(36000,sourceDuration+.01))));
+
+  function stopNoisePreview() {if (noiseMode) listenLive();}
+
+  function saveNoise() {
+    noiseError='';
+    if (!validNoiseDraft) {noiseError='Check that frequencies and times are in order and the range is inside the song.';return;}
+    if (!editingNoise && noiseSelections.length>=24) {noiseError='A track can have up to 24 noise selections.';return;}
+    if (editingNoise) {
+      noiseSelections=noiseSelections.map(item=>item.id===editingNoise ? {...noise,id:item.id,enabled:item.enabled} : item);
+    } else {
+      const id=Array.from(crypto.getRandomValues(new Uint8Array(12)),byte=>byte.toString(16).padStart(2,'0')).join('');
+      noiseSelections=[...noiseSelections,{...noise,id,enabled:true}];
+      noiseEnabled=true;
+    }
+    stopNoisePreview();closeNoiseEditor();
+  }
+
+  function removeNoise(id:string) {
+    noiseSelections=noiseSelections.filter(item=>item.id!==id);
+    if (editingNoise===id) closeNoiseEditor();
+    stopNoisePreview();
+  }
+
   async function auditionNoise(mode:'remove'|'solo') {
     const version=selectionVersion;
-    const payload=JSON.stringify({...keys,...processing,noise,tracks:[track]});
+    const build=()=>JSON.stringify({...keys,...processing,...(mode==='solo'?{noise}:{}),tracks:[track]});
+    const payload=build();
     noiseBusy=true;
     try {
       const response=await fetch('/api/albums/noise-audition?mode='+mode,{method:'POST',
         headers:{'Content-Type':'application/json'},body:payload});
       if (!response.ok) throw new Error((await response.json()).detail);
       const blob=await response.blob();
-      if (version!==selectionVersion || !player || payload!==JSON.stringify({...keys,...processing,noise,tracks:[track]})) return;
+      if (version!==selectionVersion || !player || payload!==build()) return;
       const next=URL.createObjectURL(blob);
-      restorePlayhead(next, noise.apply_scope==='selection' ? noise.t0_sec : undefined, true);
+      restorePlayhead(next, mode==='solo' && noise.apply_scope==='selection' ? noise.t0_sec : undefined, true);
       if (noiseURL) URL.revokeObjectURL(noiseURL);
       noiseURL=next;
       noiseMode=mode;
-      status=mode==='solo'?'Solo noise audition':'Filtered track audition';
+      status=mode==='solo'?'Solo noise selection':'All enabled noise selections audition';
     } finally {noiseBusy=false;}
   }
 
@@ -1031,17 +1106,10 @@
         </div>
         {#if analyzeBusy}<p role="status">Scanning from start to finish. You can keep adjusting the song.</p>
         {:else if analysis}<p role="status">Analyzed {timeLabel(analysis.duration)} · {analysis.findings.length ? `${analysis.findings.length} findings` : 'No findings at these thresholds'}</p>{/if}
-        {#if analysis?.findings.length}
-          <label>Findings<select aria-label="Full-song findings" onchange={(event) => {
-            const item=analysis?.findings[Number(event.currentTarget.value)];
-            if (event.currentTarget.value && item) chooseFinding(item);
-          }} value={activeFinding ? analysis.findings.indexOf(activeFinding) : ''}>
-            <option value="">Choose a finding</option>
-            {#each analysis.findings as finding, index}
-              <option value={index}>{rangeLabel(finding)} · {finding.kind === 'peak' ? 'Near full scale' : repairTypes[finding.kind].title}</option>
-            {/each}
-          </select></label>
-        {/if}
+        <div class="findings-workbench" class:with-findings={Boolean(analysis?.findings.length)}>
+        {#if analysis?.findings.length}<FindingsBrowser findings={analysis.findings} active={activeFinding} select={chooseFinding}/>{/if}
+        <div class="findings-review">
+        <h3>{activeFinding ? rangeLabel(activeFinding) : 'Correction scope'}</h3>
         {#if activeFinding}
           <p class="repair-finding">{activeFinding.kind === 'peak'
             ? `Sample peak: ${activeFinding.evidence_db} dBFS. Near full scale is not proof of clipping; listen to the passage.`
@@ -1061,6 +1129,8 @@
           <label>Correction<select aria-label="Correction type" bind:value={manualKind}>{#each Object.entries(repairTypes) as [kind, config]}<option value={kind}>{config.title}</option>{/each}</select></label>
           <button type="button" disabled={!repairRange || repairRange.end-repairRange.start < .05} onclick={() => setFixScope(manualKind,true)}>Add to range</button>
           <button type="button" onclick={() => setFixScope(manualKind,false)}>Add to whole song</button>
+        </div>
+        </div>
         </div>
         {#if cleanupError}<p class="error" role="alert">{cleanupError}</p>{/if}
         {#if cleanupVersion === 1}<p>Legacy chain retained for this saved song. <button type="button" onclick={upgradeCleanup}>Use repair before EQ</button></p>{/if}
@@ -1116,30 +1186,33 @@
           </div>
         {/if}
         <details class="repair-manual"><summary>Manual cleanup tools</summary>
-        {#if cleanupVersion === 2}<VoiceControls bind:voice={voiceControls} onEdit={() => {cleanupEnabled=true;listenLive();}}/>{/if}
         <p>Live monitor approximates whole-song tonal changes. Use the comparison for range fixes or Hear export for the full chain.</p>
-        <div class="treatments">
-          {#each treatments as tool}
-            <div class="treatment">
-              <label class="check"><input type="checkbox" bind:checked={corrections[tool.id].enabled} onchange={() => {cleanupEnabled=true;listenLive();}} disabled={source !== 'raw'}> {tool.title}</label>
-              {#if tool.id === 'ai_reverb_reduce'}
-                <small>Perceptual shaping, not reverb detection.</small>
+        <div class="manual-tools">
+          <div class="manual-tonal">
+            <h3>Tonal adjustments</h3>
+            {#each treatments.filter(item=>item.id!=='ai_reverb_reduce') as tool}
+              <div class="treatment-option">
+                <label class="check"><input type="checkbox" bind:checked={corrections[tool.id].enabled} onchange={() => {cleanupEnabled=true;listenLive();}}> {tool.title}</label>
+                <input aria-label={tool.title + ' amount'} type="range" min="-6" max="4" step=".1" bind:value={corrections[tool.id].value} oninput={listenLive} disabled={!corrections[tool.id].enabled}><output>{corrections[tool.id].value} dB</output>
+              </div>
+            {/each}
+          </div>
+          <details class="manual-tail">
+            <summary>Stereo &amp; tail shaping <span class="stage-status">{corrections.ai_reverb_reduce.enabled?'On':'Off'}</span></summary>
+                <label class="check"><input type="checkbox" bind:checked={corrections.ai_reverb_reduce.enabled} onchange={() => {cleanupEnabled=true;listenLive();}}> Enable tail shaping</label>
                 {#each reverbControls as option}
-                  {@const config = corrections[tool.id].options!}
                   <div class="treatment-option">
-                    <label class="check"><input type="checkbox" checked={Boolean(config[option.toggle])} onchange={(event)=>config[option.toggle]=event.currentTarget.checked}> {option.title}</label>
+                    <label class="check"><input type="checkbox" disabled={!corrections.ai_reverb_reduce.enabled} checked={Boolean(reverbConfig[option.toggle])} onchange={(event)=>reverbConfig[option.toggle]=event.currentTarget.checked}> {option.title}</label>
                     <input aria-label={option.title} type="range" min={option.min} max={option.max} step={option.step}
-                      value={Number(config[option.key])} disabled={!corrections[tool.id].enabled || !config[option.toggle]}
-                      oninput={(event)=>config[option.key]=+event.currentTarget.value}>
-                    <output>{config[option.key]} {option.unit}</output>
+                      value={Number(reverbConfig[option.key])} disabled={!corrections.ai_reverb_reduce.enabled || !reverbConfig[option.toggle]}
+                      oninput={(event)=>reverbConfig[option.key]=+event.currentTarget.value}>
+                    <output>{reverbConfig[option.key]} {option.unit}</output>
                   </div>
                 {/each}
-                <label>Gate ratio<input type="number" min="1.5" max="4" step=".1" bind:value={corrections[tool.id].options!.gate_ratio}></label>
-              {:else}
-                <label class="inline-control"><span>Amount</span><input aria-label={tool.title + ' amount'} type="range" min="-6" max="4" step=".1" bind:value={corrections[tool.id].value} oninput={listenLive} disabled={!corrections[tool.id].enabled}><output>{corrections[tool.id].value} dB</output></label>
-              {/if}
-            </div>
-          {/each}
+                <label class="gate-ratio">Gate ratio<input type="number" min="1.5" max="4" step=".1" disabled={!corrections.ai_reverb_reduce.enabled || !reverbConfig.enable_tail_gate} bind:value={reverbConfig.gate_ratio}></label>
+                <small>Shapes the mix; it does not detect or isolate reverb.</small>
+          </details>
+          {#if cleanupVersion === 2}<div class="manual-voice"><VoiceControls bind:voice={voiceControls} onEdit={() => {cleanupEnabled=true;listenLive();}}/></div>{/if}
         </div>
         </details>
         {@render noisePanel()}
@@ -1167,42 +1240,94 @@
           combined={combinedCurve} legacyVoice={cleanupVersion===1 ? legacyVoice : undefined}/>
       </details>
       {#snippet noisePanel()}
-      <details class="repair-manual"><summary>Noise removal <input class="stage-toggle" type="checkbox" aria-label="Enable Noise removal" bind:checked={noiseEnabled} onclick={(event)=>event.stopPropagation()}><span class="stage-status">{noiseEnabled ? 'Enabled' : 'Off'}</span></summary>
-        <p>{cleanupVersion===2 ? 'Noise removal runs before repairs and Tone & Stereo.' : 'Legacy session: noise removal runs after the EQ chain.'}</p>
-        <div class="noise-grid">
-          <div>
-            <div class="spectrogram-heading"><strong>Track spectrogram</strong><output>{cursor && sourceDuration ? `${(cursor.x*sourceDuration).toFixed(2)} s · ${frequencyAt(cursor.y)} Hz` : 'Time · Frequency'}</output></div>
+      <details class="repair-manual noise-panel"><summary>Noise removal <input class="stage-toggle" type="checkbox" aria-label="Enable Noise removal" bind:checked={noiseEnabled} onclick={(event)=>event.stopPropagation()} onchange={stopNoisePreview}><span class="stage-status">{hasNoise ? `${noiseSelections.filter(item=>item.enabled).length} active` : 'Off'}</span></summary>
+        <p>{cleanupVersion===2 ? 'Noise removal runs before repairs and Tone & Stereo.' : 'Legacy session: noise removal runs after the EQ chain.'} Drag a box, then add it to the song’s selections.</p>
+        <div class="spectrogram-toolbar">
+          <div class="switch-pair" role="group" aria-label="Frequency scale">
+            <button type="button" aria-pressed={specScale==='log'} onclick={()=>specScale='log'}>Log</button>
+            <button type="button" aria-pressed={specScale==='lin'} onclick={()=>specScale='lin'}>Linear</button>
+          </div>
+          <label>Time zoom <input aria-label="Spectrogram time zoom" type="range" min="1" max="16" step="1" value={specZoom}
+            oninput={event=>zoomSpectrum(+event.currentTarget.value)} onchange={loadSpectrumDetail}><output>{specZoom}×</output></label>
+          <button type="button" disabled={specZoom===1} onclick={()=>{zoomSpectrum(1);loadSpectrumDetail();}}>Fit song</button>
+          <label>Display range <input aria-label="Spectrogram display range" type="number" min="40" max="160" step="5" value={specRange}
+            onchange={(event)=>specRange=Math.max(40,Math.min(160,Number(event.currentTarget.value)||120))}></label>
+          <output class="spec-cursor">{cursor && sourceDuration ? `${timeLabel(cursor.x*sourceDuration)} · ${frequencyAt(cursor.y)} Hz` : 'Time · Frequency'}</output>
+        </div>
+        <div class="spectro-viewport">
             <div class="spectrogram" role="region" aria-label="Drag to select a time and frequency region"
-              onpointerdown={(event)=>{if (!(sourceDuration>0)) return; dragStart=selectionPoint(event);draggingNoise=true;event.currentTarget.setPointerCapture(event.pointerId);}}
+              style:width={`${specZoom*100}%`} style:left={`${-specStart*specZoom*100}%`}
+              onpointerdown={(event)=>{if (event.button!==0 || !(sourceDuration>0) || specFailed || specLoading) return; dragStart=selectionPoint(event);draggingNoise=true;event.currentTarget.setPointerCapture(event.pointerId);}}
               onpointermove={drawNoise} onpointerleave={() => cursor=undefined} onpointerup={finishNoise} onpointercancel={()=>{dragStart=undefined;draggingNoise=false;selection=undefined;}}>
-              <img loading="lazy" alt="Source track spectrogram" src={'/api/albums/spectrogram?'+new URLSearchParams({...keys,track,scale:specScale,range_db:String(specRange)})}>
-              {#if sourceDuration>0}<div class="spectrogram-playhead" aria-hidden="true" style:left={Math.min(100,playhead/sourceDuration*100)+'%'}></div>{/if}
+              <img loading="lazy" alt="Source track spectrogram" src={specImage} onload={()=>specLoading=false} onerror={()=>{specFailed=true;specLoading=false;}}>
+              {#if sourceDuration>0}
+                {#each noiseSelections as item,index (item.id)}
+                  {@const box=asNoiseBox(item)}
+                  <div class="saved-noise-box" class:bypassed={!noiseEnabled||!item.enabled} class:focused={editingNoise===item.id}
+                    style:left={`${box.x*100}%`} style:top={`${box.y*100}%`} style:width={`${(box.endX-box.x)*100}%`}
+                    style:height={`${(box.endY-box.y)*100}%`} aria-hidden="true"><span>{index+1}</span></div>
+                {/each}
+                <div class="spectrogram-playhead" aria-hidden="true" style:left={`${Math.min(100,playhead/sourceDuration*100)}%`}></div>
+              {/if}
               {#if visibleSelection}<div class="marquee" style:left={visibleSelection.x*100+'%'} style:top={visibleSelection.y*100+'%'}
                 style:width={(visibleSelection.endX-visibleSelection.x)*100+'%'} style:height={(visibleSelection.endY-visibleSelection.y)*100+'%'}></div>{/if}
             </div>
-            {#if noise.t1_sec>noise.t0_sec}<p>{noise.t0_sec.toFixed(1)}–{noise.t1_sec.toFixed(1)} s · {noise.f_low}–{noise.f_high} Hz</p>{/if}
-            <small>Drag to select a time and frequency range. Hear filtered track renders the current noise settings.</small>
+            {#if specLoading || specFailed}<span class="spectro-status" role="status">{specFailed ? 'Could not load the spectrogram.' : 'Drawing spectrogram…'}</span>{/if}
+        </div>
+        <div class="spec-overview">
+          <img loading="lazy" alt="Full-song spectrogram overview" src={specOverview}>
+          <div class="overview-window" style:left={`${specStart*100}%`} style:width={`${100/specZoom}%`} aria-hidden="true"></div>
+          {#if sourceDuration>0}<div class="spectrogram-playhead" aria-hidden="true" style:left={`${Math.min(100,playhead/sourceDuration*100)}%`}></div>{/if}
+          <input aria-label="Scrub full song" type="range" min="0" max={sourceDuration||1} step=".01" value={playhead}
+            disabled={sourceDuration<=0} oninput={(event)=>{const time=+event.currentTarget.value;centerSpectrum(time);seekTo(time);}}>
+        </div>
+        <div class="overview-labels"><small>{timeLabel(specStart*sourceDuration)} – {timeLabel(specEnd*sourceDuration)} in view</small><small>Drag overview to scrub and move the close-up</small></div>
+        <div class="noise-workbench">
+          <div class="noise-list">
+            <div class="fix-heading"><h3>Noise selections <small>{noiseSelections.length}</small></h3><button type="button" onclick={()=>editNoise()}>New selection</button></div>
+            {#each noiseSelections as item,index (item.id)}
+              <div class="noise-item">
+                <input type="checkbox" aria-label={`Enable noise selection ${index+1}`} bind:checked={item.enabled} onchange={stopNoisePreview}>
+                <button type="button" aria-pressed={editingNoise===item.id} onclick={()=>editNoise(item)}>
+                  <strong>{index+1}. {item.f_low}–{item.f_high} Hz</strong>
+                  <small>{item.apply_scope==='global' ? 'Whole song' : rangeLabel({start:item.t0_sec,end:item.t1_sec})} · {item.band_depth_db} dB cut</small>
+                </button>
+                <button type="button" aria-label={`Remove noise selection ${index+1}`} onclick={()=>removeNoise(item.id)}>Remove</button>
+              </div>
+            {:else}<p>No selections yet. Drag on the spectrogram or enter a band manually.</p>{/each}
+            <button type="button" disabled={!hasNoise||noiseBusy} onclick={()=>action(()=>auditionNoise('remove'))}>{noiseBusy ? 'Rendering…' : 'Hear filtered track'}</button>
+            <small>Plays all enabled selections. Where they overlap, the cuts stack.</small>
           </div>
-          <div>
-            <div class="row"><label>Scale<select bind:value={specScale}><option value="log">Log</option><option value="lin">Linear</option></select></label>
-              <label>Display range<input type="number" min="40" max="160" bind:value={specRange}></label></div>
+          {#if noiseEditorOpen}
+          <div class="noise-editor">
+            <h3>{editingNoise ? 'Edit selection' : 'New selection'}</h3>
+            <div class="switch-pair" role="group" aria-label="Noise selection scope">
+              <button type="button" aria-pressed={noise.apply_scope==='selection'} onclick={()=>noise.apply_scope='selection'}>Time range</button>
+              <button type="button" aria-pressed={noise.apply_scope==='global'} onclick={()=>noise.apply_scope='global'}>Whole song</button>
+            </div>
+            {#if noise.apply_scope==='selection'}<div class="row"><label>Start (s)<input type="number" min="0" max={sourceDuration} step=".01" bind:value={noise.t0_sec}></label>
+              <label>End (s)<input type="number" min="0" max={sourceDuration} step=".01" bind:value={noise.t1_sec}></label></div>{/if}
             <div class="row"><label>Low frequency (Hz)<input type="number" min="20" max="20000" bind:value={noise.f_low}></label>
               <label>High frequency (Hz)<input type="number" min="20" max="20000" bind:value={noise.f_high}></label></div>
             <label class="inline-control"><span>Filter depth</span><input aria-label="Filter depth" type="range" min="0" max="30" bind:value={noise.band_depth_db}><output>{noise.band_depth_db} dB</output></label>
-            <label class="inline-control"><span>Denoise strength</span><input aria-label="Denoise strength" type="range" min="0" max="1" step=".01" bind:value={noise.afftdn_strength}><output>{noise.afftdn_strength}</output></label>
-            <div class="row"><label>High-pass (Hz, 0 off)<input type="number" min="0" max="20000" bind:value={noise.hp_hz}></label>
-              <label>Low-pass (Hz, 0 off)<input type="number" min="0" max="20000" bind:value={noise.lp_hz}></label></div>
-            <label>Noise preset<select aria-label="Noise preset" onchange={(event)=>{
-              const item=noisePresets.find(preset=>preset.origin+'/'+preset.id===event.currentTarget.value);
-              if(item){noise={...defaultNoise,...Object.fromEntries(Object.entries(item.noise).filter(([key,value])=>key in defaultNoise && typeof value==='number' && key!=='t0_sec' && key!=='t1_sec'))};noiseEnabled=true;}
-            }}><option value="">Manual</option>{#each noisePresets as item}<option value={item.origin+'/'+item.id}>{item.meta.title}</option>{/each}</select></label>
-            <label>Apply to<select bind:value={noise.apply_scope}><option value="global">Entire track</option><option value="selection" disabled={noise.t1_sec<=noise.t0_sec}>Selected time range</option></select></label>
+            <details class="noise-advanced"><summary>Advanced filters and presets</summary>
+              <label class="inline-control"><span>Denoise strength</span><input aria-label="Denoise strength" type="range" min="0" max="1" step=".01" bind:value={noise.afftdn_strength}><output>{noise.afftdn_strength}</output></label>
+              <small>Denoise and high/low pass affect more than the highlighted band.</small>
+              <div class="row"><label>High-pass (Hz, 0 off)<input type="number" min="0" max="20000" bind:value={noise.hp_hz}></label>
+                <label>Low-pass (Hz, 0 off)<input type="number" min="0" max="20000" bind:value={noise.lp_hz}></label></div>
+              <label>Noise preset<select aria-label="Noise preset" onchange={(event)=>{
+                const item=noisePresets.find(preset=>preset.origin+'/'+preset.id===event.currentTarget.value);
+                if(item) noise={...noise,...Object.fromEntries(Object.entries(item.noise).filter(([key,value])=>key in defaultNoise && typeof value==='number' && key!=='t0_sec' && key!=='t1_sec'))};
+              }}><option value="">Manual</option>{#each noisePresets as item}<option value={item.origin+'/'+item.id}>{item.meta.title}</option>{/each}</select></label>
+            </details>
+            {#if noiseError}<p class="error" role="alert">{noiseError}</p>{/if}
             <div class="row">
-              <button disabled={!noiseEnabled || noiseBusy || draggingNoise || source!=='raw'} onclick={()=>action(()=>auditionNoise('solo'))}>Solo noise</button>
-              <button disabled={!noiseEnabled || noiseBusy || draggingNoise || source!=='raw'} onclick={()=>action(()=>auditionNoise('remove'))}>Hear filtered track</button>
-              <button onclick={()=>{selection=undefined;noise.t0_sec=0;noise.t1_sec=0;noise.apply_scope='global';listenLive();}}>Clear selection</button>
+              <button type="button" class="primary" disabled={!validNoiseDraft} onclick={saveNoise}>{editingNoise?'Save selection':'Add selection'}</button>
+              <button type="button" disabled={!validNoiseDraft||noiseBusy} onclick={()=>action(()=>auditionNoise('solo'))}>Solo selection</button>
+              <button type="button" onclick={closeNoiseEditor}>Cancel</button>
             </div>
           </div>
+          {/if}
         </div>
       </details>
       {/snippet}
@@ -1363,13 +1488,18 @@
   .source-picker{display:flex;gap:.3rem;margin-bottom:.4rem}
   .source-picker button{font-size:.72rem;padding:.3rem .45rem}
   .waveform{min-height:240px;background:var(--chart);border-radius:.7rem;margin-bottom:.35rem}
-  .treatments{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:.65rem;margin-top:.75rem}
-  .treatment{background:var(--surface);border:1px solid var(--line);border-radius:.7rem;padding:.5rem .75rem}
-  .treatment .check{display:flex;align-items:center;gap:.55rem;font-weight:650}
-  .treatment-option{display:grid;grid-template-columns:minmax(7.5rem,1.2fr) minmax(0,1fr) 4.3rem;align-items:center;gap:.45rem}
-  .treatment-option label{margin:.2rem 0}
+  .manual-tools{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:.55rem;max-width:66rem}
+  .manual-tonal,.manual-tail{background:var(--surface);border:1px solid var(--line);border-radius:.55rem;padding:.48rem .65rem}
+  .manual-tail{box-shadow:none;margin:0}
+  .manual-voice{grid-column:1/-1}
+  .manual-tools h3{font-size:.84rem;margin:.25rem 0 .35rem}
+  .treatment-option{display:grid;grid-template-columns:minmax(5.5rem,1.18fr) minmax(2.3rem,1fr) max-content;align-items:center;gap:.38rem;min-height:1.8rem}
+  .treatment-option+.treatment-option{border-top:1px solid var(--line)}
+  .treatment-option label{margin:.15rem 0;font-size:.76rem;color:var(--text)}
+  .treatment-option input[type=range]{padding:0}
+  .treatment-option output{min-width:3.5rem;font-size:.75rem}
+  .gate-ratio{grid-template-columns:auto minmax(0,4rem);justify-content:start;align-items:center}
   .treatment-option output,.inline-control output{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
-  .treatment:has(.treatment-option){grid-column:1/-1}
   .frequency-scale{display:flex;justify-content:space-between;margin:.4rem 0;color:var(--muted);font-size:.75rem}
   .workspace{min-width:0}
   .transport,details,.session-controls{background:var(--card);border-radius:1.12rem;box-shadow:var(--card-shadow)}
@@ -1399,6 +1529,13 @@
   .cleanup-layout .effect{height:190px}
   .repair-header,.fix-heading{display:flex;justify-content:space-between;align-items:center;gap:.45rem;flex-wrap:wrap}
   .repair-header h3,.cleanup-layout h3{margin:.35rem 0;font-size:.9rem}
+  .findings-workbench{display:grid;gap:.55rem;align-items:start;margin:.55rem 0 .8rem}
+  .findings-workbench.with-findings{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  .findings-review{max-width:32rem;border:1px solid var(--line);border-radius:.55rem;padding:.45rem .62rem}
+  .findings-review h3,.noise-workbench h3{font-size:.84rem;margin:.2rem 0 .4rem}
+  .findings-review label{max-width:15rem;flex:0 1 auto}
+  .findings-review input[type=number]{width:6rem}
+  .findings-review .row{align-items:center}
   .repair-range-controls button,.repair-compare button,.repair-list button{font-size:.81rem;padding:.35rem .52rem}
   .repair-finding{background:var(--warning-soft);color:var(--text);padding:.48rem .6rem;border-radius:.35rem}
   .repair-curve,.legacy-curve{fill:none;stroke-width:1.5;vector-effect:non-scaling-stroke}
@@ -1412,8 +1549,14 @@
   .repair-manual{border:1px solid var(--line);box-shadow:none}
   @media(max-width:899px){.cleanup-layout{grid-template-columns:1fr}}
   .effect{width:100%;height:150px;background:var(--chart);border-radius:.7rem}
-  .noise-grid{display:grid;grid-template-columns:minmax(0,2fr) minmax(230px,1fr);gap:1rem}
-  .noise-grid img{width:100%;min-width:0;border-radius:8px}
+  .noise-workbench{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.7rem;margin-top:.7rem}
+  .noise-editor,.noise-list{min-width:0;border:1px solid var(--line);border-radius:.55rem;padding:.5rem .65rem}
+  .noise-list>small{display:block;margin-top:.35rem}
+  .noise-item{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:.35rem;padding:.3rem 0;border-top:1px solid var(--line)}
+  .noise-item input{width:auto}.noise-item button{font-size:.76rem;padding:.28rem .4rem}
+  .noise-item button[aria-pressed]{display:grid;gap:.12rem;text-align:left}
+  .noise-item small{overflow-wrap:anywhere}
+  .noise-advanced{border:1px solid var(--line);border-radius:.45rem;padding:.4rem .55rem;box-shadow:none;font-size:.8rem}
   .album-tag-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) 6rem;gap:.6rem}
   .cover-heading{display:flex;align-items:center;justify-content:space-between;gap:.5rem}
   .cover-heading button{font-size:.8rem}
@@ -1451,12 +1594,30 @@
   .stage-status{float:right;padding:.12rem .45rem;border-radius:1rem;background:var(--surface);font-size:.75rem;color:var(--muted);font-weight:550}
   .stage-toggle:checked + .stage-status{background:var(--accent-soft);color:var(--accent)}
   .inline-control{display:grid;grid-template-columns:max-content minmax(60px,1fr) 3rem;align-items:center;gap:.5rem}
-  .spectrogram{position:relative;touch-action:none;cursor:crosshair}.spectrogram img{display:block;pointer-events:none}
-  .spectrogram-heading{display:flex;flex-wrap:wrap;justify-content:space-between;gap:.35rem;margin-bottom:.5rem}
-  .spectrogram-heading output{color:var(--muted);font-size:.8rem;font-variant-numeric:tabular-nums}
+  .spectrogram-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem .7rem;margin-bottom:.45rem}
+  .switch-pair{display:flex;gap:.18rem}.switch-pair button,.spectrogram-toolbar button{font-size:.76rem;padding:.28rem .42rem}
+  .spectrogram-toolbar label{display:flex;align-items:center;margin:0;white-space:nowrap}
+  .spectrogram-toolbar input[type=number]{width:3.75rem;padding:.25rem}
+  .spectrogram-toolbar input[type=range]{width:clamp(4rem,11vw,9rem);padding:0}
+  .spectrogram-toolbar output{font-size:.76rem;font-variant-numeric:tabular-nums;color:var(--muted)}
+  .spec-cursor{margin-left:auto}
+  .spectro-viewport,.spec-overview{position:relative;overflow:hidden;border-radius:.4rem;background:var(--chart);isolation:isolate}
+  .spectro-viewport{height:clamp(13rem,29vw,21rem)}
+  .spectrogram{position:absolute;inset-block:0;touch-action:none;cursor:crosshair}
+  .spectrogram img,.spec-overview img{display:block;width:100%;height:100%;pointer-events:none}
+  .spectro-status{position:absolute;inset:50% auto auto 50%;transform:translate(-50%,-50%);padding:.3rem .5rem;background:var(--card);color:var(--text);border-radius:.3rem}
+  .spec-overview{height:2.7rem;margin-top:.28rem}
+  .spec-overview input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:ew-resize}
+  .spec-overview:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+  .overview-window{position:absolute;inset-block:0;border:2px solid #fff;border-radius:.3rem;background:#ffffff1c;box-shadow:0 0 0 100vw #0005;pointer-events:none}
+  .overview-labels{display:flex;justify-content:space-between;gap:.5rem;margin-top:.25rem}
   .spectrogram-playhead{position:absolute;inset-block:0;width:1px;background:#edf2d9;pointer-events:none}
   .marquee{position:absolute;border:1px solid #ffb36b;background:#ffad4933;pointer-events:none}
-  @media(max-width:850px){.noise-grid{grid-template-columns:1fr}}
+  .saved-noise-box{position:absolute;pointer-events:none;border:1px solid #86e9ed;background:#86e9ed26}
+  .saved-noise-box span{position:absolute;top:0;left:0;line-height:1;padding:.1rem .16rem;background:#15292a;color:#d9ffff;font-size:.65rem}
+  .saved-noise-box.focused{outline:1px solid #fff}
+  .saved-noise-box.bypassed{opacity:.45;border-style:dashed}
+  @media(max-width:850px){.manual-tools,.noise-workbench,.findings-workbench.with-findings{grid-template-columns:1fr}}
   .primary,.primary:not(:disabled):hover{background:var(--accent-fill);color:#fff;border-color:transparent;font-weight:700}
   .primary:not(:disabled):hover{filter:brightness(.94)}
   .result{display:grid;gap:.25rem;padding:.7rem 0;border-top:1px solid var(--line);margin-top:.5rem}.error{color:var(--danger)}.status{min-height:1.2em}
