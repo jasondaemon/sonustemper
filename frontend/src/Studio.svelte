@@ -13,6 +13,7 @@
   import {mergeClips, type ClipSpan} from './clipTimeline';
   import {emptyMonitorMetrics} from './meterMath';
   import {monitor, activeBand, filterNode, spectrumPath, defaultBands, type Band} from './monitor';
+  import {browserToneKey, matchingBrowserTone, maxSavedTones, maxToneName, readBrowserTones, toneSnapshot, type BrowserTone} from './browserTonePresets';
   type Preset = {id:string; title:string; bands:Band[]; width?:number; compression:boolean;
     group:'curated'|'legacy'|'user'; meta:{description?:string}};
   type LoudnessProfile = {name: string; origin: string; meta: {title: string; lufs: number | null; tp: number | null; category?: string; order?: number}};
@@ -55,6 +56,9 @@
   let source = $state<'raw'|'mastered'>('raw');
   let loadingLibrary = $state(false);
   let preset = $state(''), presetBase = $state(''), bands = $state<Band[]>(defaultBands());
+  let browserTones = $state<BrowserTone[]>([]);
+  let browserToneName = $state(''), preferredBrowserTone = $state(''), browserToneMessage = $state('');
+  let browserToneError = $state('');
   let activePreset = $derived(presets.find(item => item.id === presetBase));
   let curatedPreset = $derived(activePreset?.group==='curated');
   let displayedStrength = $derived(curatedPreset ? strength/2 : strength);
@@ -163,6 +167,7 @@
     cleanup_enabled:cleanupEnabled, corrections, noise_enabled:noiseEnabled, noise_selections:noiseSelections,
     strength, stereo_width:width, guardrails, cleanup_version:cleanupVersion, repairs
   });
+  let selectedBrowserTone = $derived(eqEnabled ? matchingBrowserTone(browserTones,processing,preferredBrowserTone) : undefined);
   type Processing = Omit<typeof processing,'voice_controls'|'corrections'> & {
     voice_controls:{[K in keyof typeof voiceControls]?:Partial<(typeof voiceControls)[K]>};
     corrections:Record<string,Partial<Correction>|undefined>;
@@ -421,8 +426,10 @@
     repairs = draft.repairs ?? [];
     presetBase = draft.preset;
     bands = draft.bands;
-    const presetBands = presets.find(item=>item.id===draft.preset)?.bands;
-    preset = presetBands?.length===bands.length && presetBands.every((item,index)=>{
+    const base = presets.find(item=>item.id===draft.preset);
+    const presetBands = base?.group==='user' ? undefined : base?.bands;
+    preferredBrowserTone = '';
+    preset = !matchingBrowserTone(browserTones,draft) && presetBands?.length===bands.length && presetBands.every((item,index)=>{
       const saved = bands[index];
       return item.type===saved.type && item.freq_hz===saved.freq_hz &&
         (item.gain_db ?? 0)===(saved.gain_db ?? 0) && (item.q ?? .7)===(saved.q ?? .7) &&
@@ -901,6 +908,8 @@
   }
 
   function loadPreset() {
+    preferredBrowserTone = '';
+    if (!preset) return;
     const selected = presets.find(item => item.id === preset);
     presetBase = preset;
     eqEnabled = true;
@@ -908,6 +917,53 @@
     strength = 100;
     width = selected?.width ?? 1;
     bands = (selected?.bands ?? defaultBands()).map(band => ({...band, gain_db:band.gain_db ?? 0, q:band.q ?? .7}));
+  }
+
+  function saveBrowserTone() {
+    browserToneMessage = '';
+    browserToneError = '';
+    const name = browserToneName.trim();
+    const tone = toneSnapshot(processing);
+    if (!name || name.length>maxToneName) {browserToneError='Enter a preset name.';return;}
+    if (!tone) {browserToneError='Check your EQ settings before saving this preset.';return;}
+    try {
+      const current = readBrowserTones(localStorage.getItem(browserToneKey));
+      if (current.some(item=>item.name.toLowerCase()===name.toLowerCase())) {
+        browserToneError='A preset with that name already exists.';return;
+      }
+      if (current.length>=maxSavedTones) {browserToneError='Delete a saved preset before adding another.';return;}
+      const next = [...current,{name,tone}];
+      localStorage.setItem(browserToneKey,JSON.stringify(next));
+      browserTones = next;
+      preferredBrowserTone = name;
+      browserToneName = '';
+      browserToneMessage = `Saved ${name} in this browser.`;
+    } catch {browserToneError='Could not save the preset in this browser.';}
+  }
+
+  function applyBrowserTone({name,tone}:BrowserTone) {
+    preset = '';
+    presetBase = tone.preset;
+    bands = copy(tone.bands);
+    strength = tone.strength;
+    width = tone.stereo_width;
+    guardrails = tone.guardrails;
+    eqEnabled = true;
+    preferredBrowserTone = name;
+    browserToneMessage = '';
+    browserToneError = '';
+    listenLive();
+  }
+
+  function deleteBrowserTone(name:string) {
+    browserToneMessage = '';
+    browserToneError = '';
+    try {
+      const next = readBrowserTones(localStorage.getItem(browserToneKey)).filter(item=>item.name!==name);
+      localStorage.setItem(browserToneKey,JSON.stringify(next));
+      browserTones = next;
+      browserToneMessage = `Deleted ${name}. Current settings are unchanged.`;
+    } catch {browserToneError='Could not delete the preset from this browser.';}
   }
 
   function markCustom(reset = false) {
@@ -1402,6 +1458,13 @@
   onMount(() => {
     try {protectPeaks=localStorage.getItem(peakProtectionKey)!=='off';}
     catch { /* Browser storage can be disabled. */ }
+    const syncBrowserTones = (event?:StorageEvent) => {
+      if (event && (event.storageArea!==localStorage || (event.key!==browserToneKey && event.key!==null))) return;
+      try {browserTones=readBrowserTones(localStorage.getItem(browserToneKey));}
+      catch { /* Saving will report that browser storage is unavailable. */ }
+    };
+    syncBrowserTones();
+    window.addEventListener('storage',syncBrowserTones);
     void action(async () => {
       [locations, presets] = await Promise.all([api<typeof locations>('locations'), api<Preset[]>('presets')]);
       let position: LibraryPosition | null = null;
@@ -1421,7 +1484,7 @@
         }),
       ]);
     });
-    return () => { removeSeekListener?.();clearCompare();for(const item of Object.values(cleanupAudio)) URL.revokeObjectURL(item.url);if (noiseURL) URL.revokeObjectURL(noiseURL);cancelAnimationFrame(animation);engine?.close(); };
+    return () => { window.removeEventListener('storage',syncBrowserTones);removeSeekListener?.();clearCompare();for(const item of Object.values(cleanupAudio)) URL.revokeObjectURL(item.url);if (noiseURL) URL.revokeObjectURL(noiseURL);cancelAnimationFrame(animation);engine?.close(); };
   });
 </script>
 
@@ -1817,19 +1880,43 @@
                 <option value={item.id}>{item.title}</option>
               {/each}
             </optgroup>
-            {#if presets.some(item=>item.group==='user')}
-              <optgroup label="User presets">
-                {#each presets.filter(item=>item.group==='user') as item}
-                  <option value={item.id}>{item.title}</option>
-                {/each}
-              </optgroup>
-            {/if}
             {#if activePreset?.group==='legacy'}
               <option value={activePreset.id}>{activePreset.title} · Legacy</option>
             {/if}
           </select></label>
-          {#if activePreset && !preset}<small>Custom EQ based on {activePreset.title}.</small>
+          {#if activePreset?.group==='user'}<small>Using the saved album's legacy tone: {activePreset.title}.</small>
+          {:else if activePreset && !preset && !selectedBrowserTone}<small>Custom EQ based on {activePreset.title}.</small>
           {:else if activePreset?.meta.description}<small>{activePreset.meta.description}</small>{/if}
+          {#if browserTones.length}
+            <div class="browser-tones">
+              <small id="browser-tone-list-label">Saved in this browser</small>
+              <ul aria-labelledby="browser-tone-list-label">
+                {#each browserTones as item (item.name)}
+                  {@const missingBase = item.tone.preset && !presets.some(base=>base.id===item.tone.preset)}
+                  <li>
+                    <button type="button" title={missingBase ? 'Base preset is unavailable' : item.name}
+                      aria-pressed={selectedBrowserTone?.name===item.name} disabled={!!missingBase}
+                      onclick={()=>applyBrowserTone(item)}>{item.name}</button>
+                    <button type="button" class="delete-tone" aria-label={'Delete preset '+item.name}
+                      title={'Delete '+item.name} onclick={()=>deleteBrowserTone(item.name)}>×</button>
+                  </li>
+                {/each}
+              </ul>
+            </div>
+          {/if}
+          {#if !preset}
+            {#if activePreset?.group==='user'}
+              <small>Reset EQ or choose a built-in to save a preset without a legacy server dependency.</small>
+            {:else}
+              <form class="browser-tone-save" onsubmit={(event)=>{event.preventDefault();saveBrowserTone();}}>
+                <input type="text" aria-label="Preset name" placeholder="Preset name" maxlength={maxToneName}
+                  bind:value={browserToneName}>
+                <button type="submit" disabled={!browserToneName.trim()}>Save preset</button>
+              </form>
+            {/if}
+          {/if}
+          {#if browserToneError}<small class="error tone-message" role="alert">{browserToneError}</small>
+          {:else if browserToneMessage}<small class="tone-message" role="status">{browserToneMessage}</small>{/if}
           {#if preset || curatedPreset}
             <label class="inline-control"><span>Strength</span><input aria-label="Preset strength" type="range" min="0" max="100" step={curatedPreset ? .5 : 1}
               value={displayedStrength} oninput={(event) => {strength=+event.currentTarget.value*(curatedPreset ? 2 : 1);eqEnabled=true;listenLive();}}><output>{displayedStrength}%</output></label>
@@ -2182,6 +2269,15 @@
   .transport.compact{position:sticky;top:0;z-index:2}
   audio{width:100%;height:38px}.row{display:flex;gap:.65rem;align-items:end;flex-wrap:wrap;margin:.55rem 0}.row label{flex:1;min-width:100px}
   .check{display:flex;align-items:center;gap:.4rem}.check input{width:auto}
+  .browser-tones,.browser-tone-save{margin:.45rem 0}
+  .browser-tones ul{list-style:none;display:grid;gap:.22rem;padding:0;margin:.22rem 0}
+  .browser-tones li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.25rem}
+  .browser-tone-save{display:flex;flex-wrap:wrap;gap:.25rem}
+  .browser-tones button,.browser-tone-save button{font-size:.76rem}
+  .browser-tones button:first-child{text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .browser-tones .delete-tone{padding-inline:.5rem;min-width:2rem}
+  .browser-tone-save input{flex:1 1 7rem;width:auto;font-size:.8rem}
+  .tone-message{display:block;margin:.3rem 0}
   .tone-scope{display:flex;flex-wrap:wrap;align-items:center;gap:.28rem .65rem;margin:.1rem 0 .65rem;padding:.45rem .6rem;border:1px solid var(--line);border-radius:.5rem;background:var(--surface)}
   .tone-scope label{margin:0;font-weight:650}
   .transport-controls{align-items:center}

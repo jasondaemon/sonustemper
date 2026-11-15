@@ -140,9 +140,15 @@ Mono). **50% strength** is the reference sound for these five presets.
 The range above 50% pushes EQ, dynamics, and width further, with the width
 control still capped at 1.50. Low cuts stay at their selected frequency above
 0%; 0% bypasses the preset completely. Saved settings keep the same sound.
-User presets stay in the menu. Previously selected
-built-ins are labeled Legacy and still render with their original settings.
-The original voicings, including Glue, remain in the separate preset library.
+To reuse your own tone, select **Custom**, name it, and choose **Save preset**.
+Select it from **Saved in this browser**, or use its **×** to delete it without
+changing albums where it was already applied. Names and the reusable preset
+list stay in browser storage. Applying one saves the actual processing settings
+with the album as usual, not the preset name. Clearing this site's browser
+data removes the list.
+Legacy server presets are no longer offered for new selections in Tone &
+Stereo. Sessions that already use one still render unchanged. The original
+voicings, including Glue, remain in the separate preset library.
 
 **Compare Preset** renders **Preset Off** and **Preset On** in the main player
 at matched loudness. It switches EQ, preset compression, and width together,
