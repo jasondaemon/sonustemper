@@ -90,11 +90,12 @@ def _analyze(path: Path, size: int, modified: int, inode: int, rate: int, durati
         graph = [f"[0:a:0]asetnsamples=n={rate // 2}:p=0,asplit={len(filters)}{labels}"]
         for kind, chain in filters.items():
             per_channel = "Peak_level" if kind == "full" else "none"
-            output = "[out]" if kind == "full" else ",anullsink"
             graph.append(f"[{kind}]{chain}astats=metadata=1:reset=1:measure_overall=RMS_level:"
-                         f"measure_perchannel={per_channel},ametadata=mode=print:file={kind}.txt{output}")
+                         f"measure_perchannel={per_channel},ametadata=mode=print:file={kind}.txt[out_{kind}]")
+        # FFmpeg 7's scheduler requires an output sink with a muxer for every metrics branch.
+        maps = [arg for kind in filters for arg in ("-map", f"[out_{kind}]")]
         result = subprocess.run([resolve_tool("ffmpeg"), "-nostdin", "-v", "error", "-i", str(path),
-                                 "-filter_complex", ";".join(graph), "-map", "[out]", "-f", "null", "-"],
+                                 "-filter_complex", ";".join(graph), *maps, "-f", "null", "-"],
                                 cwd=folder, capture_output=True, text=True, timeout=900)
         if result.returncode:
             raise ValueError(result.stderr.strip()[-600:] or "Audio analysis failed")
