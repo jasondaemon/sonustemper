@@ -142,11 +142,15 @@
   });
   type Processing = typeof processing & {noise?:Partial<NoiseSettings>};
   type Draft = {defaults:Processing; overrides:Record<string,Processing>; tags:typeof tagEdits;
-    albumSettings:typeof albumSettings; track:string};
+    albumSettings:typeof albumSettings; shareTone?:boolean};
   let defaults = $state<Processing>();
   let overrides = $state<Record<string,Processing>>({});
-  let inherited = $state('');
+  let inherited = $state.raw<Processing>();
+  let shareTone = $state(false);
   let readyDraftKey = $state('');
+  let sessionBaseline = '';
+  let sessionSyncFailed = $state<Record<string, boolean>>({});
+  const sessionSaves = new Map<string, {body:string; timer?:ReturnType<typeof setTimeout>; saving?:boolean}>();
   let draftKey = $derived('sonustemper:album:' + JSON.stringify([location, artist, album, source]));
   let albumSettings = $derived({balance, lufs, peak, artist:artistTag, album_artist:albumArtist,
     album:albumTag, cover, year, sidecar, profile});
@@ -154,15 +158,21 @@
   const initialProcessing = {preset:'', bands:defaultBands(), voicing_enabled:false,
     voice_controls:{}, cleanup_enabled:false, corrections:{}, noise_enabled:false,
     noise_selections:[], strength:100, stereo_width:1, guardrails:true, cleanup_version:2, repairs:[]} as Processing;
-  let trackCustom = $derived(Boolean(track && inherited && JSON.stringify(processing) !== inherited));
+  function toneOf({preset,bands,voicing_enabled,strength,stereo_width,guardrails}:Processing) {
+    return {preset,bands,voicing_enabled,strength,stereo_width,guardrails};
+  }
+  let sharedTone = $derived(shareTone ? toneOf(processing) : undefined);
+  let trackCustom = $derived(Boolean(track && inherited &&
+    JSON.stringify(processing) !== JSON.stringify({...inherited,...sharedTone})));
+  let effectiveDefaults = $derived(shareTone ? {...(defaults ?? initialProcessing),...sharedTone} : (defaults ?? initialProcessing));
   let effectiveOverrides = $derived.by(() => {
     const saved = {...overrides};
     if (trackCustom) saved[track] = processing;
     else delete saved[track];
+    if (sharedTone) for (const name of Object.keys(saved)) saved[name] = {...saved[name],...sharedTone};
     return saved;
   });
-  let draft = $derived({defaults:defaults ?? initialProcessing, overrides:effectiveOverrides,
-    tags:tagEdits, albumSettings, track});
+  let draft = $derived({defaults:effectiveDefaults, overrides:effectiveOverrides, tags:tagEdits, albumSettings, shareTone});
   let settings = $derived({...keys, ...draft.defaults, tracks, ...albumSettings,
     tags:draft.tags, track_overrides:effectiveOverrides});
   let cleanupSong = $derived(JSON.stringify([draftKey,track]));
@@ -174,6 +184,7 @@
       Object.values(voiceControls).some(item=>item.enabled && item.amount_db<0))))));
   let cleanupBusy = $derived(Boolean(cleanupRunning[cleanupSong]));
   let postReady = $derived(Boolean(cleanupAudio[cleanupSong]?.key===cleanupKey));
+  let postError = $state('');
   let audibleMode = $derived(source==='mastered' || (playbackMode==='cleanup' && !postReady) ? 'original' : playbackMode);
   let repairDuration = $derived(analysis?.duration ?? sourceDuration);
   let selectedFix = $derived(repairs.find(item => item.id === activeRepair));
@@ -210,8 +221,14 @@
 
   $effect(() => {
     if (track && readyDraftKey === draftKey) {
-      try { localStorage.setItem(draftKey, JSON.stringify(draft)); }
-      catch { /* Save album session remains available when browser storage is full. */ }
+      const snapshot = JSON.stringify(draft);
+      if (snapshot === sessionBaseline) return;
+      sessionBaseline = snapshot;
+      try {
+        localStorage.setItem(draftKey, snapshot);
+        localStorage.setItem(draftKey+':pending', '1');
+      } catch { /* Server autosave also works without browser storage. */ }
+      scheduleSessionSave(draftKey, JSON.stringify({...keys,draft}));
     }
   });
 
@@ -264,6 +281,38 @@
       throw new Error(typeof payload.detail === 'string' ? payload.detail : 'Request failed (' + result.status + ')');
     }
     return result.json();
+  }
+
+  function scheduleSessionSave(key:string, body:string) {
+    let entry = sessionSaves.get(key);
+    if (!entry) {
+      entry = {body};
+      sessionSaves.set(key, entry);
+    }
+    entry.body = body;
+    clearTimeout(entry.timer);
+    if (!entry.saving) entry.timer = setTimeout(() => void syncSession(key), 500);
+  }
+
+  async function syncSession(key:string) {
+    const entry = sessionSaves.get(key);
+    if (!entry || entry.saving) return;
+    const {body} = entry;
+    entry.saving = true;
+    try {
+      const result = await fetch('/api/albums/session', {method:'PUT', headers:{'Content-Type':'application/json'}, body});
+      if (!result.ok) throw new Error('Session sync failed');
+      delete sessionSyncFailed[key];
+      if (entry.body === body) {
+        try { localStorage.removeItem(key+':pending'); } catch { /* Browser storage can be disabled. */ }
+      }
+    } catch {
+      sessionSyncFailed[key] = true;
+    } finally {
+      entry.saving = false;
+      if (entry.body !== body) void syncSession(key);
+      else sessionSaves.delete(key);
+    }
   }
 
   async function action(run: () => Promise<void>) {
@@ -345,48 +394,26 @@
     if (!track) return;
     if (trackCustom) overrides[track] = copy(processing);
     else delete overrides[track];
+    if (shareTone) defaults = copy(effectiveDefaults);
   }
 
-  function applyToAlbum() {
-    const otherEdits = tracks.some(item => item !== track && overrides[item]);
-    if (otherEdits && !confirm('Replace other songs’ whole-song processing? Their selected ranges will stay in place.')) return;
-    const current = copy(processing);
-    const globalNoise = current.noise_selections.filter(item=>item.apply_scope==='global');
-    const global = {...current, repairs:current.repairs.filter(fix => fix.end === null),
-      noise_selections:globalNoise, noise_enabled:current.noise_enabled && globalNoise.length>0};
-    const next:Record<string,Processing> = {};
-    for (const name of tracks) {
-      const previous = name === track ? current : overrides[name];
-      const ranges = previous?.repairs?.filter(fix => fix.end !== null) ?? [];
-      const localNoise = previous ? savedNoise(previous).filter(item=>item.apply_scope==='selection') : [];
-      const retainedRepairs=[...global.repairs.filter(fix => !ranges.some(range => range.kind === fix.kind)), ...ranges];
-      if (localNoise.length+globalNoise.length>24) {error='There would be more than 24 noise selections on a song. Remove a selection before copying.';return;}
-      if (retainedRepairs.length>maxRepairs) {error=`There would be more than ${maxRepairs} repairs on a song. Remove a fix before copying.`;return;}
-      if (ranges.length || localNoise.length) next[name] = {...global,
-        noise_enabled:global.noise_enabled || Boolean(previous?.noise_enabled && localNoise.some(item=>item.enabled)),
-        noise_selections:[...globalNoise.map(item => ({...item,enabled:global.noise_enabled && item.enabled})),
-          ...localNoise.map(item => ({...item,enabled:Boolean(previous?.noise_enabled && item.enabled)}))],
-        repairs:retainedRepairs,
-        cleanup_version:ranges.length ? 2 : global.cleanup_version,
-        cleanup_enabled:global.cleanup_enabled || ranges.some(fix => fix.enabled)};
+  function setToneScope(checked:boolean) {
+    if (!checked) {
+      const nextOverrides = copy(effectiveOverrides);
+      defaults = copy(effectiveDefaults);
+      overrides = nextOverrides;
+      if (inherited) inherited = {...inherited,...copy(toneOf(processing))};
     }
-    defaults = global;
-    overrides = next;
-    loadTrackProcessing();
-    status = 'Whole-song settings applied. Selected ranges stay with their own songs.';
+    shareTone = checked;
   }
 
   function loadTrackProcessing() {
     loadProcessing(defaults ?? initialProcessing);
-    inherited = JSON.stringify(processing);
+    inherited = copy(processing);
     const trackSettings=overrides[track];
     if (trackSettings) loadProcessing({... (defaults ?? initialProcessing), ...trackSettings,
-      ...(trackSettings.noise && !trackSettings.noise_selections ? {noise_selections:savedNoise(trackSettings)} : {})});
-  }
-
-  async function saveSession() {
-    await api('session',{...keys,draft},'PUT');
-    status = 'Album session saved';
+      ...(trackSettings.noise && !trackSettings.noise_selections ? {noise_selections:savedNoise(trackSettings)} : {}),
+      ...(shareTone ? toneOf(processing) : {})});
   }
 
   async function reopenSession() {
@@ -397,13 +424,13 @@
     if (version !== selectionVersion || !saved) return;
     defaults=saved.defaults;
     overrides=saved.overrides;
+    shareTone=saved.shareTone ?? false;
     tagEdits=saved.tags;
     const a=saved.albumSettings;
     ({balance,lufs,peak,year,sidecar,profile}=a);
     cover=library.covers?.some(item => item.name === a.cover) ? a.cover : '';
     artistTag=a.artist;albumArtist=a.album_artist;albumTag=a.album;
-    await selectTrack();
-    status='Album session reopened';
+    loadTrackProcessing();
   }
 
   async function selectAlbum(position?: LibraryPosition) {
@@ -466,7 +493,7 @@
   }
 
   async function selectStage(preferredTrack?: string) {
-    readyDraftKey=''; defaults=undefined; overrides={}; tagEdits={};
+    readyDraftKey=''; defaults=undefined; overrides={}; tagEdits={}; shareTone=false;
     balance='album'; profile='guiding-night'; selectProfile();
     year=new Date().getFullYear(); sidecar=false;
     artistTag=albumArtist=artist; albumTag=album;
@@ -479,7 +506,15 @@
     const key = draftKey;
     if (track && version === selectionVersion) {
       try { await reopenSession(); }
-      finally { if (key === draftKey) readyDraftKey=key; }
+      finally {
+        if (key === draftKey && version === selectionVersion && track) {
+          sessionBaseline=JSON.stringify(draft);
+          readyDraftKey=key;
+          try {
+            if (localStorage.getItem(key+':pending')) scheduleSessionSave(key, JSON.stringify({...keys,draft}));
+          } catch { /* No browser draft to retry. */ }
+        }
+      }
     }
   }
 
@@ -490,7 +525,7 @@
     dragStart=undefined;draggingNoise=false;
     specStart=0; specZoom=1; specWidth=1200;
     playbackMode='original';meterChannels=emptyMeters();scopePath='';
-    analysis=undefined; analyzeBusy=false; cleanupError=''; activeFinding=undefined; activeRepair=''; repairRange=undefined; loopRange=false;customRepairOpen=false;
+    analysis=undefined; analyzeBusy=false; cleanupError=''; postError=''; activeFinding=undefined; activeRepair=''; repairRange=undefined; loopRange=false;customRepairOpen=false;
     appliedMessage='';lastApplied=undefined;
     ignoredFindings=[];
     try {
@@ -900,7 +935,7 @@
   async function renderPostCleanup() {
     if (cleanupBusy || !canRenderCleanup || !upgradeCleanup()) return;
     const song=cleanupSong, signature=cleanupKey;
-    cleanupRunning[song]=true;cleanupError='';
+    cleanupRunning[song]=true;postError='';
     try {
       const result = await fetch('/api/albums/render-cleanup', {method:'POST',headers:{'Content-Type':'application/json'},body:signature});
       if (!result.ok) throw new Error((await result.json()).detail || 'Cleanup render failed');
@@ -916,7 +951,7 @@
         URL.revokeObjectURL(cleanupAudio[key].url);delete cleanupAudio[key];
       }
     } catch (cause) {
-      if (song===cleanupSong && signature===cleanupKey) cleanupError=String(cause instanceof Error ? cause.message : cause);
+      if (song===cleanupSong && signature===cleanupKey) postError=String(cause instanceof Error ? cause.message : cause);
     } finally {delete cleanupRunning[song];}
   }
 
@@ -1155,8 +1190,8 @@
         <ul class="library-list tracks">
           {#each tracks as item (item)}
             {@const missing = library.delivery?.[item]}
-            <li><button aria-pressed={item === track} onclick={() => {if (track !== item) {rememberTrack(); track = item; void action(selectTrack);}}}>
-              <span>{item.replace(/\.wav$/i, '')}{(item === track ? trackCustom : overrides[item]) ? ' · Custom' : ''}</span>
+            <li><button aria-pressed={item === track} disabled={readyDraftKey !== draftKey} onclick={() => {if (track !== item) {rememberTrack(); track = item; void action(selectTrack);}}}>
+              <span>{item.replace(/\.wav$/i, '')}</span>
               {#if missing?.length}<small class="pending">Missing {missing.join(', ')}</small>
               {:else if missing}<small class="delivered">Processed</small>{/if}
             </button></li>
@@ -1206,13 +1241,16 @@
           <button aria-pressed={compactPlayer} onclick={() => compactPlayer=!compactPlayer}>{compactPlayer ? "Expand player" : "Compact player"}</button>
           <div class="play-source" role="group" aria-label="Playback source">
             <button aria-pressed={!playingCompare && !noiseMode && audibleMode==='original'} onclick={() => setPlayback('original')}>Original</button>
-            <button aria-pressed={!playingCompare && !noiseMode && audibleMode==='cleanup'} disabled={!postReady} title={postReady?'Cleanup only, with no live EQ':'Render cleanup first'} onclick={() => setPlayback('cleanup')}>Post Cleanup</button>
+            <button aria-pressed={!playingCompare && !noiseMode && audibleMode==='cleanup'} disabled={!postReady} title={postReady?'Cleanup only, with no live EQ':'Available once cleanup is prepared'} onclick={() => setPlayback('cleanup')}>Post Cleanup</button>
             <button aria-pressed={!playingCompare && !noiseMode && audibleMode==='live'} disabled={source !== 'raw'} onclick={listenLive}>Live Monitor</button>
           </div>
           {#if noiseMode}<small>{noiseMode==='solo'?'Solo noise':'Filtered track'} audition</small>{/if}
-          {#if cleanupBusy}<small role="status">Rendering cleanup WAV…</small>
+          {#if cleanupBusy}<small role="status">Preparing Post Cleanup…</small>
+          {:else if !postReady && canRenderCleanup}
+            <button type="button" onclick={renderPostCleanup} title="Prepare a WAV with cleanup and noise removal, without EQ or loudness changes">{cleanupAudio[cleanupSong]?'Update Post Cleanup':'Prepare Post Cleanup'}</button>
           {:else if !playingCompare && !noiseMode && audibleMode==='live'}<small>Live EQ on {postReady?'Post Cleanup':'Original'}</small>{/if}
         </div>
+        {#if postError}<p class="error" role="alert">{postError}</p>{/if}
         {#if playingCompare && compareResult}
           <div class="player-comparison" role="status"><span><strong>{compareSide==='before'?'Before':'After'}</strong> · {compareResult.label}</span>
             <button type="button" onclick={()=>compareActive=false}>Exit comparison</button></div>
@@ -1220,41 +1258,24 @@
       {/if}
     </div>
     {#if error}<p class="error" role="alert">{error}</p>{/if}
-    {#if track}
-      <div class="row session-controls">
-        <strong>{trackCustom ? 'Custom track processing' : 'Using album processing'}</strong>
-        {#if source === 'raw'}
-          <button onclick={applyToAlbum}>Apply processing to all tracks</button>
-          <button disabled={!trackCustom} onclick={() => {delete overrides[track];loadTrackProcessing();}}>Use album processing for this track</button>
-        {/if}
-        <button onclick={() => action(saveSession)}>Save album session</button>
-      </div>
+    {#if track && readyDraftKey !== draftKey}<p role="status">Loading album settings…</p>{/if}
+    {#if track && readyDraftKey === draftKey}
+      {#if sessionSyncFailed[draftKey]}<p class="error" role="status">Could not sync album settings. Changes are kept here when browser storage is available.</p>{/if}
       {#if source === 'raw'}
       <details bind:this={cleanupPanel}><summary>Cleanup &amp; repair <input class="stage-toggle" type="checkbox" aria-label="Enable cleanup" bind:checked={cleanupEnabled} onclick={(event)=>event.stopPropagation()}><span class="stage-status">{cleanupEnabled ? 'Enabled' : 'Off'}</span></summary>
         <div class="repair-header">
           <div><h3>Review repairs</h3><small>Findings and applied fixes share this list. Before and After play in the main player.</small></div>
           <button type="button" class="primary" disabled={analyzeBusy} onclick={analyzeSong}>{analyzeBusy ? 'Analyzing…' : 'Analyze full song'}</button>
         </div>
-        <div class="cleanup-audio-actions">
-          <button type="button" disabled={!canRenderCleanup || cleanupBusy} onclick={renderPostCleanup}>{cleanupBusy?'Rendering cleanup WAV…':'Render cleanup'}</button>
-          {#if postReady}<span role="status">Post Cleanup ready</span>
-          {:else if cleanupAudio[cleanupSong]}<small>Cleanup settings changed. Render again to listen.</small>
-          {:else}<small>Renders cleanup only, without EQ or album loudness.</small>{/if}
-        </div>
         {#if analyzeBusy}<p role="status">Scanning from start to finish. You can keep adjusting the song.</p>
         {:else if analysis}<p role="status">Analyzed {timeLabel(analysis.duration)} · {analysis.findings.length ? `${analysis.findings.length} findings` : 'No findings at these thresholds'}</p>{/if}
-        {#if bulkPlan.proposed.length || lastApplied || appliedSuggestionIds.length || batchVisible}
+        {#if bulkPlan.proposed.length || lastApplied}
           <div class="finding-actions">
             {#if bulkPlan.proposed.length}
               <label><span>Default cut</span><input type="range" aria-label="Suggested cut" min=".5" max="6" step=".5" bind:value={findingCut}><output>{findingCut} dB</output></label>
-              <button type="button" disabled={compareBusy || Boolean(batchBusy)} onclick={()=>renderBatchComparison('pending')}>{batchBusy==='pending'?'Rendering full song…':`Preview all (${bulkPlan.proposed.length})`}</button>
-              <button type="button" disabled={cleanupBusy} onclick={()=>applyFindings(true)} title="Add all uncovered findings and render Post Cleanup">Apply all ({bulkPlan.proposed.length})</button>
+              <button type="button" class="primary" disabled={cleanupBusy} onclick={()=>applyFindings(true)} title="Add all uncovered findings and prepare Post Cleanup for the main player">Apply all ({bulkPlan.proposed.length})</button>
             {/if}
             {#if lastApplied}<button type="button" onclick={undoFindings}>Undo last apply</button>{/if}
-            {#if appliedSuggestionIds.length}
-              <button type="button" disabled={compareBusy || Boolean(batchBusy)} onclick={()=>renderBatchComparison('applied')}>{batchBusy==='applied'?'Rendering full song…':'Compare applied suggestions'}</button>
-            {/if}
-            {#if batchVisible}{@render comparisonButtons(true)}{/if}
           </div>
         {/if}
         {#if appliedMessage}<p class="applied-message" role="status">{appliedMessage}</p>{/if}
@@ -1263,6 +1284,20 @@
         {#if reviewQueue.length}
           <CleanupQueue items={reviewQueue} active={activeRow} {cleanupEnabled} ignored={(item)=>ignoredFindings.includes(findingKey(item))}
             select={(item)=>selectReviewItem(item)} editor={reviewEditor}/>
+        {/if}
+        {#if bulkPlan.proposed.length || appliedSuggestionIds.length}
+          <details class="custom-repair"><summary>Batch audition</summary>
+            <div class="repair-row-actions">
+              {#if bulkPlan.proposed.length}
+                <button type="button" disabled={compareBusy || Boolean(batchBusy)} onclick={()=>renderBatchComparison('pending')}>{batchBusy==='pending'?'Preparing full song…':`Preview all (${bulkPlan.proposed.length})`}</button>
+              {/if}
+              {#if appliedSuggestionIds.length}
+                <button type="button" disabled={compareBusy || Boolean(batchBusy)} onclick={()=>renderBatchComparison('applied')}>{batchBusy==='applied'?'Preparing full song…':'Compare applied suggestions'}</button>
+              {/if}
+            </div>
+            {#if batchVisible}{@render comparisonButtons(true)}
+            {:else}<small>Loudness-matched before and after in the main player.</small>{/if}
+          </details>
         {/if}
         <details class="custom-repair" bind:open={customRepairOpen}><summary>Add a custom repair</summary>
         <div class="row repair-range-controls">
@@ -1282,7 +1317,7 @@
         </div>
         </details>
         <details class="repair-manual"><summary>Manual cleanup tools</summary>
-        <p>Render cleanup to hear these changes on their own, then switch to Live Monitor to add EQ.</p>
+        <p>Use Post Cleanup in the main player to hear these changes on their own.</p>
         <div class="manual-tools">
           <div class="manual-tonal">
             <h3>Tonal adjustments</h3>
@@ -1314,7 +1349,7 @@
         {@render noisePanel()}
       </details>
       {#snippet comparisonButtons(batch=false)}
-        <div class="compare-switch" class:batch-controls={batch} role="group" aria-label={batch?'Batch comparison':'Compare this repair'}>
+        <div class="compare-switch" role="group" aria-label={batch?'Batch comparison':'Compare this repair'}>
           {#if batch}<strong>{compareResult?.count} {compareResult?.batch==='pending'?'proposed':'applied'} fixes</strong>{/if}
           <button type="button" aria-pressed={playingCompare && compareSide==='before'} onclick={()=>switchComparison('before')}>Before</button>
           <button type="button" aria-pressed={playingCompare && compareSide==='after'} onclick={()=>switchComparison('after')}>After</button>
@@ -1340,42 +1375,51 @@
                 <small>Centered at {proposedFix.frequency} Hz</small>
               {/if}
               {#if finding}<small>Measured band: {finding.evidence_db} dB relative to the full signal{row.findings.length>1 ? ` · ${row.findings.length} linked findings` : ''}.</small>{/if}
-            </div>
-            {#if selectedCurve}
-              <div class="row-curve"><svg viewBox="0 0 600 150" preserveAspectRatio="none" aria-label="Response of this repair" role="img">
-                <path class="grid" d="M0 75H600 M200 0V150 M400 0V150"/>
-                <path class="repair-curve" class:proposed={!fix} d={selectedCurve}/>
-              </svg><small><span>20 Hz</span><span>200 Hz</span><span>2 kHz</span><span>20 kHz</span></small></div>
-            {/if}
-          </div>
-          {#if fix && cleanupEnabled && fix.enabled && fix.amount && boostAtFix>.5}
-            <small class="repair-overlap">Tone EQ adds about {boostAtFix.toFixed(1)} dB at {fix.frequency} Hz, where this fix cuts.</small>
-          {/if}
-          <div class="repair-row-actions">
-            {#if rowCompareReady}{@render comparisonButtons()}
-            {:else}<button type="button" disabled={!canCompare || compareBusy || Boolean(batchBusy)} onclick={renderComparison}>{compareBusy?'Rendering…':'Preview before / after'}</button>{/if}
-            {#if row.end!==null}<button type="button" aria-pressed={loopRange} onclick={()=>{loopRange=!loopRange;if (loopRange) seekTo(row.start);}}>Loop passage</button>{/if}
-            {#if fix}<button type="button" onclick={()=>removeReviewFix(row)}>Remove fix</button>
-            {:else if proposedFix}
-              {#if !findingIgnored}<button type="button" class="primary" disabled={repairs.length>=maxRepairs} onclick={()=>applyFindings()}>Apply finding</button>{/if}
-              <button type="button" onclick={toggleIgnoredFinding}>{findingIgnored?'Include in Apply all':'Skip finding'}</button>
-            {/if}
-          </div>
-          {#if fix}
-            <details class="item-scope"><summary>Edit time range</summary>
-              <div class="row repair-range-controls">
-                <label>Start (s)<input type="number" min="0" max={repairDuration} step=".01" value={repairRange?.start ?? fix.start}
-                  oninput={(event)=>setRepairRange({start:Math.max(0,Number(event.currentTarget.value)),end:repairRange?.end ?? fix.end ?? repairDuration})}></label>
-                <label>End (s)<input type="number" min="0" max={repairDuration} step=".01" value={repairRange?.end ?? fix.end ?? ''}
-                  oninput={(event)=>setRepairRange({start:repairRange?.start ?? fix.start,end:Math.min(repairDuration,Math.max(0,Number(event.currentTarget.value)))})}></label>
-                <button type="button" disabled={!repairRange || repairRange.end-repairRange.start<.05 || (fix.start===repairRange.start && fix.end===repairRange.end)} onclick={()=>setFixScope(fix.kind,true,fix.id)}>Save range</button>
-                {#if fix.end!==null}<button type="button" onclick={()=>setFixScope(fix.kind,false,fix.id)}>Use whole song</button>{/if}
+              {#if fix && cleanupEnabled && fix.enabled && fix.amount && boostAtFix>.5}
+                <small class="repair-overlap">Tone EQ adds about {boostAtFix.toFixed(1)} dB at {fix.frequency} Hz, where this fix cuts.</small>
+              {/if}
+              {#if fix}
+                <details class="item-scope"><summary>Edit time range</summary>
+                  <div class="row repair-range-controls">
+                    <label>Start (s)<input type="number" min="0" max={repairDuration} step=".01" value={repairRange?.start ?? fix.start}
+                      oninput={(event)=>setRepairRange({start:Math.max(0,Number(event.currentTarget.value)),end:repairRange?.end ?? fix.end ?? repairDuration})}></label>
+                    <label>End (s)<input type="number" min="0" max={repairDuration} step=".01" value={repairRange?.end ?? fix.end ?? ''}
+                      oninput={(event)=>setRepairRange({start:repairRange?.start ?? fix.start,end:Math.min(repairDuration,Math.max(0,Number(event.currentTarget.value)))})}></label>
+                    <button type="button" disabled={!repairRange || repairRange.end-repairRange.start<.05 || (fix.start===repairRange.start && fix.end===repairRange.end)} onclick={()=>setFixScope(fix.kind,true,fix.id)}>Save range</button>
+                    {#if fix.end!==null}<button type="button" onclick={()=>setFixScope(fix.kind,false,fix.id)}>Use whole song</button>{/if}
+                  </div>
+                </details>
+              {/if}
+              <div class="repair-row-actions">
+                {#if fix}<button type="button" onclick={()=>removeReviewFix(row)}>Remove fix</button>
+                {:else if proposedFix}
+                  {#if !findingIgnored}<button type="button" class="primary" disabled={repairs.length>=maxRepairs} onclick={()=>applyFindings()}>Apply finding</button>{/if}
+                  <button type="button" onclick={toggleIgnoredFinding}>{findingIgnored?'Include in Apply all':'Skip finding'}</button>
+                {/if}
               </div>
-            </details>
-          {/if}
+            </div>
+            <div class="repair-row-audition">
+              {#if selectedCurve}
+                <div class="row-curve"><svg viewBox="0 0 600 150" preserveAspectRatio="none" aria-label="Response of this repair" role="img">
+                  <path class="grid" d="M0 75H600 M200 0V150 M400 0V150"/>
+                  <path class="repair-curve" class:proposed={!fix} d={selectedCurve}/>
+                </svg><small><span>20 Hz</span><span>200 Hz</span><span>2 kHz</span><span>20 kHz</span></small></div>
+              {/if}
+              <div class="repair-row-actions">
+                {#if rowCompareReady}{@render comparisonButtons()}
+                {:else}<button type="button" disabled={!canCompare || compareBusy || Boolean(batchBusy)} onclick={renderComparison}>{compareBusy?'Preparing…':'Preview before / after'}</button>{/if}
+                {#if row.end!==null}<button type="button" aria-pressed={loopRange} onclick={()=>{loopRange=!loopRange;if (loopRange) seekTo(row.start);}}>Loop passage</button>{/if}
+              </div>
+            </div>
+          </div>
         {/if}
       {/snippet}
       <details open><summary>Tone &amp; Stereo <input class="stage-toggle" type="checkbox" aria-label="Enable Realtime EQ and stereo" bind:checked={eqEnabled} onclick={(event)=>event.stopPropagation()} onchange={() => {if (eqEnabled) listenLive();}}><span class="stage-status">{eqEnabled ? 'Enabled' : 'Off'}</span></summary>
+        <div class="tone-scope">
+          <label class="check"><input type="checkbox" checked={shareTone} aria-describedby="tone-scope-note"
+            onchange={(event)=>setToneScope(event.currentTarget.checked)}> Apply to full album</label>
+          <small id="tone-scope-note">{shareTone ? 'All songs use this EQ and stereo setup. Uncheck to edit this song separately.' : 'Share this EQ and stereo setup across all songs. Cleanup stays per song.'}</small>
+        </div>
         {#snippet presetControls()}
           <label>EQ Preset<select bind:value={preset} onchange={loadPreset} disabled={source !== 'raw'}>
             <option value="">Custom</option>
@@ -1664,7 +1708,7 @@
   .gate-ratio{grid-template-columns:auto minmax(0,4rem);justify-content:start;align-items:center}
   .treatment-option output,.inline-control output{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
   .workspace{min-width:0}
-  .transport,details,.session-controls{background:var(--card);border-radius:1.12rem;box-shadow:var(--card-shadow)}
+  .transport,details{background:var(--card);border-radius:1.12rem;box-shadow:var(--card-shadow)}
   .transport{padding:1rem 1.15rem;margin-bottom:.65rem}
   .transport-title{display:flex;justify-content:space-between;align-items:start;gap:.8rem;margin-bottom:.55rem}
   .transport-title p{margin:.24rem 0 0}
@@ -1673,13 +1717,13 @@
   .transport.compact{position:sticky;top:0;z-index:2}
   audio{width:100%;height:38px}.row{display:flex;gap:.65rem;align-items:end;flex-wrap:wrap;margin:.55rem 0}.row label{flex:1;min-width:100px}
   .check{display:flex;align-items:center;gap:.4rem}.check input{width:auto}
-  .session-controls{padding:.65rem 1rem;align-items:center}
-  .session-controls strong{margin-right:auto}
+  .tone-scope{display:flex;flex-wrap:wrap;align-items:center;gap:.28rem .65rem;margin:.1rem 0 .65rem;padding:.45rem .6rem;border:1px solid var(--line);border-radius:.5rem;background:var(--surface)}
+  .tone-scope label{margin:0;font-weight:650}
   .transport-controls{align-items:center}
   .player-comparison{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.35rem;background:var(--accent-soft);color:var(--text);border:1px solid var(--line);border-radius:.45rem;padding:.42rem .6rem;font-size:.8rem}
   .player-comparison button{font-size:inherit;padding:.25rem .4rem}
   .play-source{display:flex;flex-wrap:wrap;gap:.28rem}
-  .transport-controls button,.session-controls button{font-size:.83rem;padding:.42rem .6rem}
+  .transport-controls button{font-size:.83rem;padding:.42rem .6rem}
   details{padding:.85rem 1rem;margin:.65rem 0}
   summary{cursor:pointer;font-weight:650;padding:.25rem 0} details[open] summary{margin-bottom:.65rem}
   .player-panel{display:grid;grid-template-columns:minmax(0,1fr) clamp(3.8rem,8vw,5rem);gap:.55rem}
@@ -1691,28 +1735,29 @@
   .scope.clipped .clip-lines{stroke:#ee4e59;stroke-width:2;opacity:1}
   .repair-header,.fix-heading{display:flex;justify-content:space-between;align-items:center;gap:.45rem;flex-wrap:wrap}
   .repair-header h3{margin:.35rem 0;font-size:.9rem}
-  .cleanup-audio-actions{display:flex;flex-wrap:wrap;align-items:center;gap:.45rem;margin:.55rem 0;font-size:.82rem}
-  .cleanup-audio-actions span{color:var(--good)}
   .noise-workbench h3{font-size:.84rem;margin:.2rem 0 .4rem}
   .finding-actions{display:flex;flex-wrap:wrap;align-items:center;gap:.35rem .6rem;margin:.5rem 0;padding:.48rem .6rem;background:var(--surface);border:1px solid var(--line);border-radius:.55rem}
   .finding-actions label{display:flex;align-items:center;gap:.4rem;margin:0}
   .finding-actions input{width:clamp(4rem,13vw,9rem);padding:0}
   .finding-actions output{white-space:nowrap;min-width:3.5rem;font-variant-numeric:tabular-nums}
-  .finding-actions button,.repair-row-actions button,.repair-range-controls button{font-size:.8rem;padding:.34rem .5rem}
+  .finding-actions button,.repair-row-actions button,.repair-range-controls button,.compare-switch button{font-size:.8rem;padding:.34rem .5rem}
   .applied-message{color:var(--good);font-size:.85rem;margin:.4rem 0}
   .custom-repair{border:1px solid var(--line);padding:.3rem .45rem;box-shadow:none;font-size:.83rem;border-radius:.4rem;margin:.6rem 0 .15rem}
   .custom-repair[open] summary{margin-bottom:.2rem}
   .repair-range-controls label{flex:0 1 auto;max-width:15rem}
   .repair-range-controls input[type=number]{width:6rem}
-  .repair-row-content{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(8rem,1fr);align-items:center;gap:.65rem;max-width:52rem}
+  .repair-row-content{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start;gap:.75rem 1rem}
   .repair-row-settings{min-width:0}.repair-row-settings small{display:block;margin:.25rem 0}
+  .repair-row-audition{min-width:0;border-inline-start:1px solid var(--line);padding-inline-start:1rem}
   .repair-row-settings .inline-control{grid-template-columns:5rem minmax(0,1fr) 4rem;margin:.18rem 0}
   .repair-toggle{margin:.2rem 0}
   .repair-row-actions,.compare-switch{display:flex;align-items:center;flex-wrap:wrap;gap:.3rem}
   .repair-row-actions{margin:.4rem 0 0}
   .compare-switch a{color:var(--accent);font-size:.75rem;padding:.12rem .2rem}
-  .batch-controls{border-left:1px solid var(--line);padding-left:.4rem}.batch-controls strong{font-size:.78rem}
-  .row-curve svg{display:block;width:100%;height:60px;background:var(--chart);border:1px solid var(--line);border-radius:.35rem}
+  .custom-repair > .compare-switch,.custom-repair > small{margin-top:.35rem}
+  .custom-repair > small{display:block}
+  .compare-switch strong{font-size:.78rem}
+  .row-curve svg{display:block;width:100%;height:clamp(60px,7vw,90px);background:var(--chart);border:1px solid var(--line);border-radius:.35rem}
   .row-curve small{display:flex;justify-content:space-between;font-size:.65rem}
   .repair-curve{fill:none;stroke:var(--chart-line);stroke-width:1.8;vector-effect:non-scaling-stroke}
   .repair-curve.proposed{stroke:var(--warning);stroke-dasharray:5 4}
@@ -1720,7 +1765,7 @@
   .item-scope[open] summary{margin-bottom:0}
   .repair-overlap{background:var(--warning-soft);padding:.4rem .5rem;border-radius:.3rem;color:var(--warning)}
   .repair-manual{border:1px solid var(--line);box-shadow:none}
-  @media(max-width:570px){.repair-row-content{grid-template-columns:1fr}.batch-controls{padding-left:0;border-left:0}}
+  @media(max-width:700px){.repair-row-content{grid-template-columns:1fr}.repair-row-audition{padding-inline-start:0;border-inline-start:0;border-top:1px solid var(--line);padding-top:.55rem}}
   .noise-workbench{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.7rem;margin-top:.7rem}
   .noise-editor,.noise-list{min-width:0;border:1px solid var(--line);border-radius:.55rem;padding:.5rem .65rem}
   .noise-list>small{display:block;margin-top:.35rem}

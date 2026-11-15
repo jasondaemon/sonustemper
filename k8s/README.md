@@ -81,9 +81,11 @@ on the NAS. Keep `SONUSTEMPER_LIBRARY_DB` on a persistent volume local to the
 app host for saved sessions, job history, and export recovery. Keep a single app
 replica when sharing that database.
 
-Processing edits follow each track and are saved in this browser. **Apply
-processing to all tracks** sets album defaults. **Save album session** also saves
-the draft on the server. The loudness settings and export selection cover the
+Processing edits follow each song and save automatically in this browser and
+on the server. In **Tone & Stereo**, **Apply to full album** shares the current
+EQ and stereo settings across all songs. Uncheck it to make further edits on
+just the selected song without changing the tone already set on the others.
+Cleanup and noise selections stay per song. The loudness settings and export selection cover the
 album, with either shared gain or per-track normalization. **Tags and artwork**
 shows every song and offers 3000 x 3000 images from the album folder. Under
 **Finalize album**, **Process album** runs FFmpeg on all songs and publishes the
@@ -107,17 +109,18 @@ in the main player without adding another transport.
 Preview a finding at the suggested cut before approving it; the matched
 before/after audition changes only that fix. **Apply all** adds uncovered
 findings at the current cut, leaves skipped findings, peak warnings, and existing fixes alone, and
-offers an undo. **Preview all** and **Compare applied suggestions** render a
+offers an undo. Under **Batch audition**, **Preview all** and **Compare applied suggestions** render a
 seekable, loudness-matched pair for the full song without writing to the album.
-**Apply all** also renders a temporary WAV for **Post Cleanup** playback. This
+**Apply all** also prepares a temporary WAV for **Post Cleanup** playback. Use
+**Prepare Post Cleanup** in the main player after tweaking fixes or adding one
+at a time. This
 version includes enabled cleanup and noise removal, but no creative EQ or album
 loudness. **Live Monitor** adds live EQ and stereo adjustments to that WAV (or
 to **Original** when no current cleanup render is available).
 New sessions
 run noise removal and repairs before **Tone & Stereo** (presets or custom EQ),
 then measure loudness for delivery. Older sessions retain their original order
-until explicitly upgraded. Applying settings to the album leaves each song's
-time-range fixes on that song.
+until explicitly upgraded.
 
 **Noise removal** has a zoomable log/linear spectrogram and full-song scrub
 overview. Save several time/frequency regions or whole-song bands for each
