@@ -8,9 +8,10 @@ import unittest
 
 from sonustemper.album_cleanup import analyze, combine_noise_chains, repair_filter
 from sonustemper.album_workflow import (
-    compare_repair, compare_song_repairs, metrics, process_album_track, render_album,
+    compare_repair, compare_song_repairs, compare_tone, metrics, process_album_track, render_album,
     render_cleanup_audio, repair_batches, wavs,
 )
+from sonustemper.master_pack import _eq_filter_for_band
 
 
 def amplitude(path, start, frequency):
@@ -25,6 +26,40 @@ def amplitude(path, start, frequency):
 
 @unittest.skipUnless(shutil.which("ffmpeg"), "FFmpeg is required")
 class AlbumCleanupTests(unittest.TestCase):
+    def test_eq_ab_matches_level_keeps_cleanup_and_renders_notch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            track = folder / "song.wav"
+            subprocess.run([
+                "ffmpeg", "-v", "error", "-f", "lavfi", "-i",
+                "aevalsrc=0.14*sin(2*PI*400*t)+0.10*sin(2*PI*1500*t)+0.07*sin(2*PI*3500*t):s=44100:d=6",
+                "-c:a", "pcm_s24le", str(track),
+            ], check=True)
+            original = track.read_bytes()
+            notch = _eq_filter_for_band({"type":"notch", "freq_hz":1500, "q":2}, 1)
+            self.assertTrue(notch.startswith("bandreject="))
+            dynamics = "acompressor=threshold=0.18:ratio=1.5:attack=10:release=100"
+            common = {"global":"", "fixes":[{"id":"repair","start":2,"end":4,
+                                            "filter":"equalizer=f=3500:t=q:w=2:g=-8"}]}
+            off = {"repair_chain":{**common,"tone":dynamics}}
+            on = {"repair_chain":{**common,"tone":f"{notch},{dynamics}"}}
+            levels = compare_tone(track, off, on, folder)
+            before, after = folder / "before.wav", folder / "after.wav"
+            self.assertLessEqual(abs(metrics(before)[0]-metrics(after)[0]), .2)
+            self.assertLessEqual(abs(metrics(after)[0]-levels["matched_lufs"]), .2)
+            self.assertLessEqual(metrics(after)[1], -1.9)
+            for version in (before, after):
+                outside = amplitude(version,.5,3500)/amplitude(version,.5,400)
+                inside = amplitude(version,2.5,3500)/amplitude(version,2.5,400)
+                self.assertLess(inside, outside * .5)
+            self.assertLess(amplitude(after,.5,1500), amplitude(before,.5,1500)*.01)
+            full_render = folder / "tone.wav"
+            process_album_track(track, full_render, on)
+            self.assertAlmostEqual(levels["on_peak"], metrics(full_render)[1], places=1)
+            self.assertAlmostEqual(amplitude(full_render,2.5,3500)/amplitude(full_render,2.5,400),
+                                   amplitude(after,2.5,3500)/amplitude(after,2.5,400), places=3)
+            self.assertEqual(track.read_bytes(), original)
+
     def test_full_song_before_after_comparison_bypasses_only_requested_fixes(self):
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)

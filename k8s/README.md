@@ -130,6 +130,13 @@ at a time. This
 version includes enabled cleanup and noise removal, but no creative EQ or album
 loudness. **Live Monitor** adds live EQ and stereo adjustments to that WAV (or
 to **Original** when no current cleanup render is available).
+**Compare EQ** prepares a level-matched pair in the same player. **EQ Off**
+and **EQ On** use the same cleanup, stereo width, and preset dynamics, and
+match only the playback level. The headroom check shows the true peaks before
+this listening gain. Neither preview changes the album's loudness settings.
+Drag a range on the cleanup timeline to loop it in the comparison. Live Monitor
+uses EQ and width only; use **Compare EQ** to hear the FFmpeg tone chain with
+preset dynamics before album loudness normalization.
 New sessions
 run noise removal and repairs before **Tone & Stereo** (presets or custom EQ),
 then measure loudness for delivery. Older sessions retain their original order

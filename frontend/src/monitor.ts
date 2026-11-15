@@ -1,16 +1,39 @@
 export type Band = {type: string; freq_hz: number; gain_db: number; q: number; enabled?: boolean};
 
+export function activeBand(band: Band, rate: number) {
+  return band.enabled !== false && Number.isFinite(band.freq_hz) && band.freq_hz > 0 && band.freq_hz < rate/2 &&
+    Number.isFinite(band.gain_db) && Number.isFinite(band.q) && band.q > 0;
+}
+
+const isShelf = (band:Band) => band.type === 'lowshelf' || band.type === 'highshelf';
+const webQ = (band:Band) => ['lowpass','highpass'].includes(band.type) ? 20 * Math.log10(band.q) : band.q;
+
 export function filterNode(context: BaseAudioContext, band: Band) {
+  if (!activeBand(band,context.sampleRate)) return context.createIIRFilter([1],[1]);
+  if (isShelf(band)) {
+    // Cookbook shelves with the Q-based damping used by FFmpeg's bass/treble.
+    const direction = band.type === 'lowshelf' ? 1 : -1;
+    const omega = 2*Math.PI*band.freq_hz/context.sampleRate;
+    const A = 10 ** (band.gain_db/40);
+    const center = A+1, slope = direction*(A-1), cosine = Math.cos(omega);
+    const damping = Math.sqrt(2*A)*Math.sin(omega)/(2*band.q);
+    return context.createIIRFilter([
+      A*(center - slope*cosine + damping), 2*A*(slope - center*cosine), A*(center - slope*cosine - damping),
+    ], [
+      center + slope*cosine + damping, -2*(slope + center*cosine), center + slope*cosine - damping,
+    ]);
+  }
   const node = context.createBiquadFilter();
-  node.type = (['peak', 'bell'].includes(band.type) ? 'peaking' : band.type) as BiquadFilterType;
+  const aliases:Record<string,BiquadFilterType> = {peak:'peaking',bell:'peaking',bandreject:'notch'};
+  node.type = aliases[band.type] ?? band.type as BiquadFilterType;
   node.frequency.value = band.freq_hz;
   node.gain.value = band.gain_db;
-  node.Q.value = band.q;
+  node.Q.value = webQ(band);
   return node;
 }
 
-export function monitor(media: HTMLAudioElement) {
-  const context = new AudioContext();
+export function monitor(media: HTMLAudioElement, sampleRate?:number) {
+  const context = openContext(sampleRate);
   const input = context.createMediaElementSource(media);
   const analyser = context.createAnalyser();
   analyser.fftSize = 4096;
@@ -28,9 +51,16 @@ export function monitor(media: HTMLAudioElement) {
     channel.fftSize = samples.length;
     splitter.connect(channel, index);
   }
-  let nodes: AudioNode[] = [];
-  let filters: BiquadFilterNode[] = [];
+  type Path = {entry:AudioNode; mix:GainNode; nodes:AudioNode[]; filters:(IIRFilterNode|BiquadFilterNode)[]; timer?:ReturnType<typeof setTimeout>};
+  let path:Path|undefined;
+  const paths = new Set<Path>();
   let layout = "";
+  function disconnect(previous:Path) {
+    clearTimeout(previous.timer);
+    input.disconnect(previous.entry);
+    previous.nodes.forEach(node => node.disconnect());
+    paths.delete(previous);
+  }
   return {
     context, analyser,
     readPeaks(peaks: number[]) {
@@ -42,28 +72,32 @@ export function monitor(media: HTMLAudioElement) {
       }
     },
     update(bands: Band[], width: number) {
-      const active = bands.filter(band => band.enabled !== false);
-      const nextLayout = JSON.stringify([active.map(band => band.type), width]);
-      if (layout === nextLayout) {
+      const active = bands.filter(band => activeBand(band,context.sampleRate));
+      const nextLayout = JSON.stringify([active.map(band => isShelf(band) ? [band.type,band.freq_hz,band.gain_db,band.q] : band.type), width]);
+      if (path && layout === nextLayout) {
         for (const [index, band] of active.entries()) {
-          filters[index].frequency.setTargetAtTime(band.freq_hz, context.currentTime, .012);
-          filters[index].gain.setTargetAtTime(band.gain_db, context.currentTime, .012);
-          filters[index].Q.setTargetAtTime(band.q, context.currentTime, .012);
+          const filter = path.filters[index];
+          if (!('Q' in filter)) continue;
+          filter.frequency.setTargetAtTime(band.freq_hz, context.currentTime, .012);
+          filter.gain.setTargetAtTime(band.gain_db, context.currentTime, .012);
+          filter.Q.setTargetAtTime(webQ(band), context.currentTime, .012);
         }
         return;
       }
       layout = nextLayout;
-      input.disconnect();
-      nodes.forEach(node => node.disconnect());
-      filters = active.map(band => filterNode(context, band));
-      nodes = [...filters];
-      let tail: AudioNode = input;
+      const entry = context.createGain(), mix = context.createGain();
+      const filters = active.map(band => filterNode(context, band));
+      const nodes:AudioNode[] = [entry,mix,...filters];
+      let tail: AudioNode = entry;
       for (const filter of filters) { tail.connect(filter); tail = filter; }
       if (width !== 1) {
+        const speakers = context.createGain();
+        speakers.channelCount = 2;
+        speakers.channelCountMode = 'explicit';
         const split = context.createChannelSplitter(2), merge = context.createChannelMerger(2);
-        tail.channelCount = 2;
-        tail.connect(split);
-        nodes.push(split, merge);
+        tail.connect(speakers);
+        speakers.connect(split);
+        nodes.push(speakers, split, merge);
         for (let channel = 0; channel < 2; channel++) {
           for (let destination = 0; destination < 2; destination++) {
             const gain = context.createGain();
@@ -75,10 +109,36 @@ export function monitor(media: HTMLAudioElement) {
         }
         tail = merge;
       }
-      tail.connect(analyser);
+      tail.connect(mix);
+      mix.connect(analyser);
+      const previous = path;
+      path = {entry,mix,nodes,filters};
+      paths.add(path);
+      if (previous && context.state === 'running') {
+        const now = context.currentTime, end = now+.018;
+        mix.gain.setValueAtTime(0,now);
+        mix.gain.linearRampToValueAtTime(1,end);
+        if (typeof previous.mix.gain.cancelAndHoldAtTime === 'function') previous.mix.gain.cancelAndHoldAtTime(now);
+        else {
+          const gain = previous.mix.gain.value;
+          previous.mix.gain.cancelScheduledValues(now);
+          previous.mix.gain.setValueAtTime(gain,now);
+        }
+        previous.mix.gain.linearRampToValueAtTime(0,end);
+        previous.timer = setTimeout(() => disconnect(previous),55);
+      } else if (previous) disconnect(previous);
+      input.connect(entry);
     },
-    close() { input.disconnect(); nodes.forEach(node => node.disconnect()); void context.close(); }
+    close() { paths.forEach(disconnect); void context.close(); }
   };
+}
+
+function openContext(sampleRate?:number) {
+  try {return new AudioContext({sampleRate});}
+  catch (error) {
+    if (!sampleRate) throw error;
+    return new AudioContext();
+  }
 }
 
 export function spectrumPath(values: Float32Array, sampleRate: number) {

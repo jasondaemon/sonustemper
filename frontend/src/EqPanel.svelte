@@ -1,8 +1,8 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { defaultBands, type Band } from './monitor';
-  let {bands = $bindable(), spectrum, curve, combined='', presetControls, stereoControls, onEdit, legacyVoice}:
-    {bands:Band[]; spectrum:string; curve:string; combined?:string; presetControls:Snippet; stereoControls:Snippet; onEdit:(reset?:boolean)=>void; legacyVoice?:Snippet} = $props();
+  let {bands = $bindable(), spectrum, curve, combined='', strength=100, presetControls, stereoControls, onEdit, legacyVoice}:
+    {bands:Band[]; spectrum:string; curve:string; combined?:string; strength?:number; presetControls:Snippet; stereoControls:Snippet; onEdit:(reset?:boolean)=>void; legacyVoice?:Snippet} = $props();
   let selected = $state<number | null>(null);
   let dragging = $state(false);
   let band = $derived(selected === null ? undefined : bands[selected]);
@@ -28,7 +28,7 @@
       <path class="spectrum" d={spectrum}/><path class="curve" d={curve}/>
       {#if combined}<path class="combined" d={combined}/>{/if}
       {#each bands as item, index}
-        <circle aria-hidden="true" cx={x(item.freq_hz)} cy={y(item.gain_db)} r={selected===index ? 7 : 4}
+        <circle aria-hidden="true" cx={x(item.freq_hz)} cy={y(hasGain(item.type) ? item.gain_db*strength/100 : 0)} r={selected===index ? 7 : 4}
           class:off={item.enabled === false}
           onpointerdown={(event) => {selected=index;dragging=true;((event.currentTarget as SVGCircleElement).ownerSVGElement)?.setPointerCapture(event.pointerId);}}/>
       {/each}

@@ -321,6 +321,15 @@ def source_audio(location: str, artist_folder: str, album_folder: str, source: s
     return FileResponse(selected_tracks(album, source, [track])[0], media_type="audio/wav")
 
 
+@router.get("/api/albums/audio-info")
+def source_audio_info(location: str, artist_folder: str, album_folder: str, source: str, track: str):
+    from sonustemper.server import _ai_tool_audio_info
+
+    album = resolve_album(location, artist_folder, album_folder)
+    info = _ai_tool_audio_info(selected_tracks(album, source, [track])[0])
+    return {"sample_rate": info.get("sample_rate")}
+
+
 @router.get("/api/albums/spectrogram")
 def spectrogram(location: str, artist_folder: str, album_folder: str, source: str, track: str,
                 scale: Literal["log", "lin"] = "log", range_db: int = 120,
@@ -725,6 +734,39 @@ def render_cleanup(settings: Settings):
         raise HTTPException(422, "Could not render post-cleanup audio") from exc
     finally:
         compare_slots.release()
+
+
+@router.post("/api/albums/eq-comparison")
+def eq_comparison(settings: Settings):
+    if settings.source != "raw" or len(settings.tracks) != 1:
+        raise HTTPException(400, "Choose one raw track to compare")
+    album = resolve_album(settings.location, settings.artist_folder, settings.album_folder)
+    track = selected_tracks(album, settings.source, settings.tracks)[0]
+    effective = effective_track_settings(settings, settings.track_overrides.get(track.name, {}))
+    if effective.cleanup_version != 2 or not effective.voicing_enabled:
+        raise HTTPException(422, "Enable Tone & Stereo and use the repair-before-EQ chain first")
+    on = resolved_settings(effective.model_copy(update={"eq_bypass": False}))
+    off = resolved_settings(effective.model_copy(update={"eq_bypass": True}))
+    if on["repair_chain"]["tone"] == off["repair_chain"]["tone"]:
+        raise HTTPException(422, "Add an enabled EQ band before comparing")
+    if not compare_slots.acquire(blocking=False):
+        raise HTTPException(429, "Other comparisons are rendering. Try again in a moment.")
+    root = PREVIEWS_DIR / "album-comparisons"
+    token = uuid4().hex
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        prune_batch_auditions(root)
+        with tempfile.TemporaryDirectory(prefix=".eq-", dir=root) as temporary:
+            folder = Path(temporary) / "preview"
+            folder.mkdir()
+            levels = workflow.compare_tone(track, off, on, folder)
+            folder.rename(root / token)
+    except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
+        logger.warning("EQ comparison failed for %s: %s", track.name, exc)
+        raise HTTPException(422, "Could not render a level-matched EQ comparison for this song") from exc
+    finally:
+        compare_slots.release()
+    return {**levels, **{side: f"/api/albums/repair-batch-audition/{token}/{side}" for side in ("before", "after")}}
 
 
 @router.post("/api/albums/preview")

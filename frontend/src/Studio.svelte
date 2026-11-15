@@ -9,7 +9,7 @@
   import {defaultNoise, savedNoise, type NoiseSelection, type NoiseSettings} from './noiseSelections';
   import {defaultFindingCut, findingKey, findingPlan, findingTitle, isNoiseFinding, maxRepairs, noiseForFinding, overlappingFix, rangeLabel, repairBand, repairTypes, reviewItems, timeLabel, type Analysis, type Finding, type Range, type Repair, type RepairKind, type ReviewItem} from './repairs';
   import {advanceMeter, emptyMeters} from './levels';
-  import {monitor, filterNode, spectrumPath, defaultBands, type Band} from './monitor';
+  import {monitor, activeBand, filterNode, spectrumPath, defaultBands, type Band} from './monitor';
   type Preset = {id: string; title: string; bands: Band[]; width?: number; meta: {tags?: string[]}};
   type LoudnessProfile = {name: string; origin: string; meta: {title: string; lufs: number | null; tp: number | null; category?: string; order?: number}};
   type Correction = {enabled: boolean; value: number; options?: Record<string, number | boolean>};
@@ -73,6 +73,7 @@
   let promptLoading = $state(false), promptWorking = $state(false), promptLoaded = $state(false);
   let promptError = $state(''), promptMessage = $state('');
   let sidecar = $state(false), player = $state<HTMLAudioElement>();
+  let audioInfo = $state<{song:string;rate?:number}>();
   type PlaybackMode = 'original'|'cleanup'|'live';
   let playbackMode = $state<PlaybackMode>('original');
   let cleanupAudio = $state<Record<string,{key:string;url:string}>>({});
@@ -91,8 +92,10 @@
   let lastApplied = $state<{ids:string[];wasEnabled:boolean;manual:string}>();
   let compareBusy = $state(false), compareActive = $state(false), customRepairOpen = $state(false);
   type BatchMode = 'pending'|'applied';
-  let compareResult = $state<{before:string;after:string;removed?:string;start?:number;range?:Range;key:string;label:string;batch?:BatchMode;count?:number}>();
+  type ToneLevels = {off_peak:number;on_peak:number;matched_lufs:number};
+  let compareResult = $state<{before:string;after:string;removed?:string;start?:number;range?:Range;key:string;label:string;batch?:BatchMode;count?:number;tone?:ToneLevels}>();
   let batchBusy = $state<BatchMode>();
+  let toneCompareBusy = $state(false), toneCompareError = $state('');
   type ComparisonSide = 'before'|'after'|'removed';
   let compareSide = $state<ComparisonSide>('after');
   let loopNoise = $state(false);
@@ -185,6 +188,7 @@
   let settings = $derived({...keys, ...draft.defaults, tracks, ...albumSettings,
     tags:draft.tags, track_overrides:effectiveOverrides});
   let cleanupSong = $derived(JSON.stringify([draftKey,track]));
+  let sourceRate = $derived(audioInfo?.song===cleanupSong ? audioInfo.rate : undefined);
   let cleanupRequest = $derived({...keys,tracks:[track],cleanup_version:cleanupVersion,cleanup_enabled:cleanupEnabled,
     repairs,corrections,voice_controls:voiceControls,noise_enabled:noiseEnabled,noise_selections:noiseSelections,voicing_enabled:false});
   let cleanupKey = $derived(JSON.stringify(cleanupRequest));
@@ -212,11 +216,14 @@
   let appliedBatchKey = $derived(JSON.stringify(['applied',keys,track,processing]));
   let batchVisible = $derived(Boolean(compareResult?.batch && compareResult.key===(compareResult.batch==='pending' ? pendingBatchKey : appliedBatchKey)));
   let rowCompareReady = $derived(Boolean(compareResult && !compareResult.batch && compareResult.key===compareKey));
+  let toneCompareKey = $derived(JSON.stringify(['tone',keys,track,processing]));
+  let toneCompareReady = $derived(Boolean(compareResult?.tone && compareResult.key===toneCompareKey));
   let editorNoiseCandidate = $derived(noiseEditorOpen ? {...noise,id:editingNoise || 'unsaved-selection',enabled:true} : undefined);
   let rowNoiseKey = $derived(activeNoiseRow ? noiseComparisonKey(noiseForRow(activeNoiseRow)) : '');
   let editorNoiseKey = $derived(noiseComparisonKey(editorNoiseCandidate));
-  let playingCompare = $derived(compareActive && (batchVisible || rowCompareReady || noiseComparisonReady(rowNoiseKey) || noiseComparisonReady(editorNoiseKey)));
-  let noiseLoopRange = $derived(playingCompare && loopNoise ? compareResult?.range : undefined);
+  let playingCompare = $derived(compareActive && (toneCompareReady || batchVisible || rowCompareReady || noiseComparisonReady(rowNoiseKey) || noiseComparisonReady(editorNoiseKey)));
+  let comparisonLoopRange = $derived(playingCompare ?
+    (compareResult?.tone ? (loopRange ? repairRange : undefined) : (loopNoise ? compareResult?.range : undefined)) : undefined);
   let audioURL = $derived(track ? '/api/albums/audio?' + new URLSearchParams({...keys, track}) : '');
 
   let playbackURL = $derived(playingCompare && compareResult ? compareResult[compareSide] ?? audioURL
@@ -232,6 +239,18 @@
   });
 
   $effect(() => {if (compareActive && !playingCompare) compareActive=false;});
+
+  $effect(() => {
+    if (!track) return;
+    const song=cleanupSong;
+    const controller=new AbortController();
+    const query=new URLSearchParams({...keys,track});
+    void fetch('/api/albums/audio-info?'+query,{signal:controller.signal,cache:'no-store'})
+      .then(async response=> response.ok ? await response.json() as {sample_rate:number|null} : undefined)
+      .then(info=>{if (!controller.signal.aborted) audioInfo={song,rate:info?.sample_rate || undefined};})
+      .catch(()=>{if (!controller.signal.aborted) audioInfo={song};});
+    return ()=>controller.abort();
+  });
 
   $effect(() => {
     if (track && readyDraftKey === draftKey) {
@@ -535,11 +554,14 @@
   async function selectTrack() {
     ++selectionVersion;
     removeSeekListener?.();
+    removeSeekListener=undefined;
+    player?.pause();
+    engine?.close();engine=undefined;monitorMedia=undefined;cancelAnimationFrame(animation);
     noiseMode=''; sourceDuration=0; playhead=0; cursor=undefined; selection=undefined;
     dragStart=undefined;draggingNoise=false;
     specStart=0; specZoom=1; specWidth=1200;
     playbackMode='original';meterChannels=emptyMeters();scopePath='';
-    analysis=undefined; analyzeBusy=false; cleanupError=''; postError=''; activeFinding=undefined; activeRepair=''; repairRange=undefined; loopRange=false;customRepairOpen=false;
+    analysis=undefined; analyzeBusy=false; cleanupError=''; postError=''; toneCompareError=''; activeFinding=undefined; activeRepair=''; repairRange=undefined; loopRange=false;customRepairOpen=false;
     appliedMessage='';lastApplied=undefined;
     ignoredFindings=[];
     try {
@@ -739,11 +761,27 @@
     } finally {batchBusy=undefined;}
   }
 
+  async function renderToneComparison() {
+    if (!track || source!=='raw' || !eqEnabled || toneCompareBusy || !upgradeCleanup()) return;
+    const key=toneCompareKey, version=selectionVersion;
+    toneCompareBusy=true;toneCompareError='';
+    try {
+      const response=await api<ToneLevels & {before:string;after:string}>('eq-comparison',{...keys,...processing,tracks:[track]});
+      if (version!==selectionVersion || key!==toneCompareKey) return;
+      const {before,after,...tone}=response;
+      clearCompare();
+      compareSide='after';
+      compareResult={before,after,tone,key,label:'EQ comparison'};
+    } catch (cause) {
+      if (version===selectionVersion && key===toneCompareKey) toneCompareError=String(cause instanceof Error ? cause.message : cause);
+    } finally {toneCompareBusy=false;}
+  }
+
   function switchComparison(side:ComparisonSide) {
     const url=compareResult?.[side];
-    if (!player || !url || (!batchVisible && !rowCompareReady && !noiseComparisonReady(rowNoiseKey) && !noiseComparisonReady(editorNoiseKey))) return;
+    if (!player || !url || (!toneCompareReady && !batchVisible && !rowCompareReady && !noiseComparisonReady(rowNoiseKey) && !noiseComparisonReady(editorNoiseKey))) return;
     if (playingCompare && compareSide===side) {void player.play().catch(()=>{});return;}
-    const range=loopNoise ? compareResult?.range : undefined;
+    const range=toneCompareReady ? (loopRange ? repairRange : undefined) : (loopNoise ? compareResult?.range : undefined);
     const inRange=!range || (player.currentTime>=range.start && player.currentTime<range.end);
     restorePlayhead(url,playingCompare && inRange ? undefined : range?.start ?? compareResult?.start,true);
     noiseMode='';compareSide=side;compareActive=true;
@@ -752,12 +790,12 @@
   function toggleNoiseLoop() {
     if (!compareResult?.range) return;
     loopNoise=!loopNoise;
-    if (noiseLoopRange) seekTo(noiseLoopRange.start);
+    if (comparisonLoopRange) seekTo(comparisonLoopRange.start);
   }
 
-  function repeatNoisePassage(ended=false) {
-    const media=player, range=noiseLoopRange;
-    if (!media || !range || media.seeking || media.readyState<1) return;
+  function repeatComparisonPassage(ended=false) {
+    const media=player, range=comparisonLoopRange;
+    if (!media || !range || range.end<=range.start || media.seeking || media.readyState<1) return;
     if (!ended && (media.paused || (media.currentTime>=range.start && media.currentTime<range.end))) return;
     media.currentTime=range.start;
     if (ended) void media.play().catch(()=>{});
@@ -765,8 +803,8 @@
 
   function updatePlayhead() {
     if (!player) return;
-    repeatNoisePassage();
-    if (!(playingCompare && compareResult?.removed) && loopRange && repairRange && repairRange.end > repairRange.start && player.currentTime >= repairRange.end) player.currentTime=repairRange.start;
+    repeatComparisonPassage();
+    if (!(playingCompare && (compareResult?.removed || compareResult?.tone)) && loopRange && repairRange && repairRange.end > repairRange.start && player.currentTime >= repairRange.end) player.currentTime=repairRange.start;
     playhead=player.currentTime;
   }
 
@@ -896,12 +934,21 @@
   let voiceBands = $derived(Object.entries(voiceControls).filter(([,control]) => control.enabled)
     .map(([name,control]) => band('peaking', control.freq_hz, control.amount_db, name==='deesser'?2:name==='deharsh'?1.5:1.2)));
   let offlineCurveContext: OfflineAudioContext | undefined;
+  let offlineRate=0;
+  function curveContext(rate=sourceRate ?? 48000) {
+    if (!offlineCurveContext || offlineRate!==rate) {
+      try {offlineCurveContext=new OfflineAudioContext(1,1,rate);}
+      catch {offlineCurveContext=new OfflineAudioContext(1,1,48000);}
+      offlineRate=rate;
+    }
+    return offlineCurveContext;
+  }
   let toneBands = $derived(bands.map(item=>({...item,gain_db:item.gain_db*strength/100})));
-  let selectedCurve = $derived(comparisonFix ? drawCurve(offlineCurveContext ??= new OfflineAudioContext(1,1,48000),
+  let selectedCurve = $derived(comparisonFix ? drawCurve(curveContext(),
     [{...repairBand(comparisonFix),enabled:true}]) : '');
   let activeRepairIds = $derived(cleanupEnabled ? repairs.filter(fix => fix.enabled && (fix.end === null || (playhead >= fix.start && playhead < fix.end))).map(fix => fix.id).join(',') : '');
   let boostAtFix = $derived(selectedFix && eqEnabled ? gainAt(toneBands, selectedFix.frequency) : 0);
-  let combinedCurve = $derived(activeRepairIds && eqEnabled ? drawCurve(offlineCurveContext ??= new OfflineAudioContext(1,1,48000), [
+  let combinedCurve = $derived(activeRepairIds && eqEnabled ? drawCurve(curveContext(), [
     ...toneBands, ...cleanupBands, ...voiceBands, ...repairs.filter(fix=>activeRepairIds.split(',').includes(fix.id)).map(repairBand),
   ]) : '');
   let liveEQ = $derived(source==='raw' && audibleMode==='live' && !noiseMode && !playingCompare && eqEnabled);
@@ -909,12 +956,13 @@
 
 
   function gainAt(filters:Band[], frequency:number) {
-    const context = offlineCurveContext ??= new OfflineAudioContext(1,1,48000);
+    const context = curveContext();
+    if (frequency>=context.sampleRate/2) return 0;
     const frequencyArray = new Float32Array([frequency]);
     const magnitude = new Float32Array(1), phase = new Float32Array(1);
     let gain = 0;
     for (const item of filters) {
-      if (item.enabled === false || !Number.isFinite(item.freq_hz) || !Number.isFinite(item.gain_db) || !Number.isFinite(item.q)) continue;
+      if (!activeBand(item,context.sampleRate)) continue;
       filterNode(context,item).getFrequencyResponse(frequencyArray,magnitude,phase);
       gain += 20*Math.log10(Math.max(.00001,magnitude[0]));
     }
@@ -924,7 +972,7 @@
   function drawCurve(context:BaseAudioContext, filters:Band[]) {
     const frequencies = Float32Array.from({length:160}, (_,i)=>Math.min(context.sampleRate/2-.01,20*1000**(i/159)));
     const db = new Float32Array(frequencies.length);
-    for (const item of filters.filter(item => item.enabled!==false && Number.isFinite(item.freq_hz))) {
+    for (const item of filters.filter(item => activeBand(item,context.sampleRate))) {
       const magnitude = new Float32Array(frequencies.length);
       filterNode(context,item).getFrequencyResponse(frequencies,magnitude,new Float32Array(frequencies.length));
       magnitude.forEach((value,i)=>db[i]+=20*Math.log10(Math.max(.00001,value)));
@@ -938,13 +986,12 @@
     const widthValue = liveEQ
       ? (Number.isFinite(width) ? width : 1) : 1;
     audio?.update(valid,widthValue);
-    const curveContext = audio?.context ?? (offlineCurveContext ??= new OfflineAudioContext(1, 1, 48000));
-    eqCurve = drawCurve(curveContext,[...(cleanupVersion === 1 ? voiceBands : []), ...toneBands]);
+    eqCurve = drawCurve(audio?.context ?? curveContext(),[...(cleanupVersion === 1 ? voiceBands : []), ...toneBands]);
   });
 
   function startMonitoring() {
     if (!player) return;
-    if (monitorMedia !== player) {engine?.close(); engine=monitor(player);monitorMedia=player;}
+    if (monitorMedia !== player) {engine?.close(); engine=monitor(player,sourceRate);monitorMedia=player;}
     void engine?.context.resume();
     cancelAnimationFrame(animation);
     const audio = engine;
@@ -959,7 +1006,7 @@
       previous = now;
       const playing = player && !player.paused && !player.ended;
       if (playing) {
-        repeatNoisePassage();
+        repeatComparisonPassage();
         audio.readPeaks(peaks);
         audio.analyser.getFloatFrequencyData(bins);
         audio.analyser.getFloatTimeDomainData(samples);
@@ -1017,6 +1064,17 @@
     if (mode==='cleanup' && !postReady) return;
     noiseMode = '';compareActive=false;
     playbackMode=mode;
+  }
+
+  function onPlaybackError() {
+    if (!playingCompare) return;
+    if (toneCompareReady) {
+      toneCompareError='Could not load the EQ comparison. Prepare it again.';
+      clearCompare();
+    } else {
+      compareActive=false;
+      cleanupError='Could not load the comparison. Render it again.';
+    }
   }
 
   function listenLive() {
@@ -1368,9 +1426,13 @@
                 range={repairRange} selected={activeRepair} enabled={cleanupEnabled} selectFinding={chooseFinding} selectFix={chooseRepair} setRange={setRepairRange}/></div>
             {/if}
             {#if waveError}<small>Waveform unavailable. Playback controls are available below.</small>{/if}
-            <audio controls preload="metadata" bind:this={player} onloadedmetadata={() => {if (playbackURL===audioURL && player) sourceDuration=player.duration;}}
-              ontimeupdate={updatePlayhead} onplay={startMonitoring} onended={()=>repeatNoisePassage(true)} onemptied={() => {meterChannels=emptyMeters();scopePath='';}}
-              onerror={()=>{if (playingCompare) {compareActive=false;cleanupError='Could not load the comparison. Render it again.';}}} src={playbackURL}></audio>
+            {#if audioInfo?.song===cleanupSong}
+              {#key cleanupSong}
+                <audio controls preload="metadata" bind:this={player} onloadedmetadata={() => {if (playbackURL===audioURL && player) sourceDuration=player.duration;}}
+                  ontimeupdate={updatePlayhead} onplay={startMonitoring} onended={()=>repeatComparisonPassage(true)}
+                  onemptied={() => {meterChannels=emptyMeters();scopePath='';}} onerror={onPlaybackError} src={playbackURL}></audio>
+              {/key}
+            {:else}<small role="status">Loading audio…</small>{/if}
           </div>
           <StereoMeter channels={meterChannels} reset={() => meterChannels=emptyMeters()} />
         </div>
@@ -1381,6 +1443,10 @@
             <button aria-pressed={!playingCompare && !noiseMode && audibleMode==='cleanup'} disabled={!postReady} title={postReady?'Cleanup only, with no live EQ':'Available once cleanup is prepared'} onclick={() => setPlayback('cleanup')}>Post Cleanup</button>
             <button aria-pressed={!playingCompare && !noiseMode && audibleMode==='live'} disabled={source !== 'raw'} onclick={listenLive}>Live Monitor</button>
           </div>
+          {#if source==='raw' && !toneCompareReady}
+            <button type="button" disabled={!eqEnabled || toneCompareBusy} onclick={renderToneComparison}
+              title={eqEnabled?'Compare the render with only EQ switched off or on':'Enable Tone & Stereo to compare EQ'}>{toneCompareBusy?'Preparing EQ comparison…':'Compare EQ'}</button>
+          {/if}
           {#if noiseMode}<small>{noiseMode==='solo'?'Solo noise':'Filtered track'} audition</small>{/if}
           {#if cleanupBusy}<small role="status">Preparing Post Cleanup…</small>
           {:else if !postReady && canRenderCleanup}
@@ -1388,8 +1454,23 @@
           {:else if !playingCompare && !noiseMode && audibleMode==='live'}<small>Live EQ on {postReady?'Post Cleanup':'Original'}</small>{/if}
         </div>
         {#if postError}<p class="error" role="alert">{postError}</p>{/if}
+        {#if toneCompareError}<p class="error" role="alert">{toneCompareError}</p>{/if}
+        {#if toneCompareReady && compareResult?.tone}
+          {@const levels=compareResult.tone}
+          <div class="eq-comparison">
+            <div class="compare-switch" role="group" aria-label="EQ comparison">
+              <button type="button" aria-pressed={playingCompare && compareSide==='before'} onclick={()=>switchComparison('before')}>EQ Off</button>
+              <button type="button" aria-pressed={playingCompare && compareSide==='after'} onclick={()=>switchComparison('after')}>EQ On</button>
+              {#if repairRange && repairRange.end>repairRange.start}
+                <button type="button" aria-pressed={loopRange} onclick={()=>{loopRange=!loopRange;if (loopRange && repairRange) seekTo(repairRange.start);}}>Loop passage</button>
+              {/if}
+              <small>Level matched to {levels.matched_lufs.toFixed(1)} LUFS · Cleanup, stereo and dynamics retained</small>
+            </div>
+            <small>Headroom check (before level matching): {levels.off_peak.toFixed(1)} dBTP off · {levels.on_peak.toFixed(1)} dBTP on</small>
+          </div>
+        {/if}
         {#if playingCompare && compareResult}
-          <div class="player-comparison" role="status"><span><strong>{compareSide==='before'?'Before':compareSide==='removed'?'Removed':'After'}</strong> · {compareResult.label}{noiseLoopRange?' · Looping selection':''}</span>
+          <div class="player-comparison" role="status"><span><strong>{compareResult.tone ? (compareSide==='before'?'EQ Off':'EQ On') : compareSide==='before'?'Before':compareSide==='removed'?'Removed':'After'}</strong> · {compareResult.label}{comparisonLoopRange?' · Looping selection':''}</span>
             <button type="button" onclick={()=>compareActive=false}>Exit comparison</button></div>
         {/if}
       {/if}
@@ -1641,7 +1722,7 @@
           <VoiceControls bind:voice={voiceControls} onEdit={() => {eqEnabled=true;listenLive();}}/>
         {/snippet}
         <EqPanel bind:bands {presetControls} {stereoControls} onEdit={markCustom} {spectrum} curve={eqCurve || 'M0 75H600'}
-          combined={combinedCurve} legacyVoice={cleanupVersion===1 ? legacyVoice : undefined}/>
+          {strength} combined={combinedCurve} legacyVoice={cleanupVersion===1 ? legacyVoice : undefined}/>
       </details>
       {#snippet noisePanel()}
       <details class="repair-manual noise-panel"><summary>Noise removal <input class="stage-toggle" type="checkbox" aria-label="Enable Noise removal" bind:checked={noiseEnabled} onclick={(event)=>event.stopPropagation()} onchange={stopNoisePreview}><span class="stage-status">{hasNoise ? `${noiseSelections.filter(item=>item.enabled).length} active` : 'Off'}</span></summary>
@@ -1939,6 +2020,7 @@
   .transport-controls{align-items:center}
   .player-comparison{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.35rem;background:var(--accent-soft);color:var(--text);border:1px solid var(--line);border-radius:.45rem;padding:.42rem .6rem;font-size:.8rem}
   .player-comparison button{font-size:inherit;padding:.25rem .4rem}
+  .eq-comparison{display:grid;gap:.3rem;margin:.35rem 0;padding:.48rem .6rem;border:1px solid var(--line);border-radius:.45rem;background:var(--surface)}
   .play-source{display:flex;flex-wrap:wrap;gap:.28rem}
   .transport-controls button{font-size:.83rem;padding:.42rem .6rem}
   details{padding:.85rem 1rem;margin:.65rem 0}

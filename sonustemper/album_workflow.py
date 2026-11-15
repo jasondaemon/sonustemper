@@ -476,11 +476,30 @@ def compare_song_repairs(track: Path, settings: dict, bypass: set[str], folder: 
         rendered = folder / f"{name}-float.wav"
         process_album_track(track, rendered, render_settings)
         versions.append((rendered, *metrics(rendered)))
+    write_matched_pair(versions, folder)
+
+
+def write_matched_pair(versions: list[tuple[Path, float, float]], folder: Path, *, native_format=False) -> float:
     level = comparison_level(versions)
+    format_options = [] if native_format else ["-ac", "2", "-ar", "48000"]
     for name, (path, lufs, _) in zip(("before", "after"), versions):
         ffmpeg(path, folder / f"{name}.wav", "-af", f"volume={level - lufs:.6f}dB",
-               "-ac", "2", "-ar", "48000", "-c:a", "pcm_s24le", "-bitexact")
+               *format_options, "-c:a", "pcm_s24le", "-bitexact")
         path.unlink()
+    return level
+
+
+def compare_tone(track: Path, off: dict, on: dict, folder: Path) -> dict:
+    cleaned = folder / "post-cleanup.wav"
+    render_cleanup_audio(track, cleaned, on)
+    versions = []
+    for side, data in (("before", off), ("after", on)):
+        rendered = folder / f"{side}-float.wav"
+        ffmpeg(cleaned, rendered, "-af", data["repair_chain"]["tone"] or "anull", "-c:a", "pcm_f32le")
+        versions.append((rendered, *metrics(rendered)))
+    cleaned.unlink()
+    level = write_matched_pair(versions, folder, native_format=True)
+    return {"off_peak": versions[0][2], "on_peak": versions[1][2], "matched_lufs": level}
 
 
 def render_cleanup_audio(track: Path, target: Path, settings: dict) -> None:
