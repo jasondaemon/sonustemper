@@ -2312,8 +2312,8 @@
   .guardrail-switches{display:flex;flex-wrap:wrap;align-items:center;column-gap:.9rem}
   .guardrail-switches label{margin:0;min-height:1.8rem;white-space:nowrap}
   @container stereo (min-width:33rem){
-    .stereo-controls{grid-template-columns:minmax(0,1fr) auto}
-    .tone-guardrails{min-width:12rem;border-block-start:none;padding-block-start:0;border-inline-start:1px solid var(--line);padding-inline-start:1rem}
+    .stereo-controls{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .tone-guardrails{border-block-start:none;padding-block-start:0;border-inline-start:1px solid var(--line);padding-inline-start:1rem}
   }
   .transport-controls{align-items:center}
   .stereo-check-slot{margin-inline-start:auto}
