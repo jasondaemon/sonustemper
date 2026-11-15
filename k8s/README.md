@@ -198,4 +198,5 @@ Linear shows the whole 0–24 kHz range with linear intensity; filters still use
 editors share `styles/<song>.md`: style text comes first, followed by an optional
 `## Negative Prompt` section. Original lyric prompts stay in `lyric-prompts/`
 as Markdown. Reviewed submission lyrics go in `lyrics/` as plain text, also
-used for MP3 tags and optional lyric sidecars.
+used for MP3 tags and matching untimed `.lrc` files alongside the MP3s.
+Songs without saved lyrics do not get a lyrics file.

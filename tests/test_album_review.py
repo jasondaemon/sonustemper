@@ -4,6 +4,8 @@ import subprocess
 import tempfile
 import unittest
 
+from mutagen.id3 import ID3
+
 from sonustemper import album_workflow as workflow
 
 
@@ -22,6 +24,9 @@ class AlbumReviewTests(unittest.TestCase):
                                 "-c:a", "pcm_s24le", str(album / "raw" / name)], check=True)
             tracks = workflow.wavs(album, "raw")
             original = {track: workflow.digest(track) for track in tracks}
+            lyric = "Hold on\n\nLook ahead"
+            workflow.write_track_text(album, tracks[0].stem, "lyrics", lyric)
+            workflow.write_track_text(album, tracks[1].stem, "prompt", "[Verse]\nNot reviewed")
             settings = {"source": "raw", "balance": "album", "lufs": -14, "peak": -1.5, "year": 2026}
             state = {}
             outputs = workflow.render_album(album, tracks, settings, lambda **changes: state.update(changes),
@@ -36,16 +41,21 @@ class AlbumReviewTests(unittest.TestCase):
             self.assertAlmostEqual(limit["time"], 3, delta=.12)
             self.assertGreater(limit["gain_shortfall_db"], 8)
             self.assertAlmostEqual(outputs[1]["true_peak"], -1.5, delta=.1)
+            first = work / "mp3s" / outputs[0]["mp3"]
+            second = work / "mp3s" / outputs[1]["mp3"]
+            self.assertEqual(first.with_suffix(".lrc").read_text(), lyric + "\n")
+            self.assertEqual(ID3(first).getall("USLT")[0].text, lyric)
+            self.assertFalse(second.with_suffix(".lrc").exists())
+            self.assertFalse(ID3(second).getall("USLT"))
 
             def approve():
                 workflow.confirm_review(album, tracks, settings, work, state["review_assets"],
                                         outputs, lambda **changes: state.update(changes), {})
 
-            lyrics = album / "lyrics" / f"{tracks[0].stem}.txt"
             workflow.write_track_text(album, tracks[0].stem, "lyrics", "Edited after review")
             with self.assertRaisesRegex(ValueError, "lyrics changed"):
                 approve()
-            lyrics.unlink()
+            workflow.write_track_text(album, tracks[0].stem, "lyrics", lyric)
             self.assertFalse((album / "normalized").exists())
             with tracks[0].open("ab") as handle:
                 handle.write(b"changed")
@@ -56,10 +66,24 @@ class AlbumReviewTests(unittest.TestCase):
 
             reviewed = {relative: workflow.digest(work / relative)
                         for row in outputs for relative in row["files"]}
+            foreign = album / "mp3s" / first.with_suffix(".lrc").name
+            foreign.parent.mkdir()
+            foreign.write_text("[00:01.00]Hold on\n")
+            with self.assertRaisesRegex(FileExistsError, "unmanaged lyrics"):
+                approve()
+            self.assertEqual(foreign.read_text(), "[00:01.00]Hold on\n")
+            foreign.unlink()
             approve()
             self.assertEqual(state["status"], "complete")
             self.assertEqual(reviewed, {relative: workflow.digest(album / relative) for relative in reviewed})
             self.assertEqual(original, {track: workflow.digest(track) for track in tracks})
+
+            workflow.write_track_text(album, tracks[0].stem, "lyrics", "")
+            workflow.write_track_text(album, tracks[1].stem, "lyrics", "New reviewed lyrics")
+            workflow.render_album(album, tracks, {**settings, "metadata_only": True},
+                                  previous={row["track"]: row for row in outputs})
+            self.assertFalse(foreign.exists())
+            self.assertEqual((album / "mp3s" / second.with_suffix(".lrc").name).read_text(), "New reviewed lyrics\n")
 
     def test_ready_review_can_only_be_claimed_once(self):
         with tempfile.TemporaryDirectory() as directory:

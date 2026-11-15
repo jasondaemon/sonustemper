@@ -119,7 +119,6 @@ class Settings(AlbumInput):
     cover: str = ""
     year: int = Field(default_factory=lambda: date.today().year, ge=1, le=9999)
     tags: dict[str, dict[str, str]] = Field(default_factory=dict)
-    sidecar: bool = False
     replace: bool = False
     metadata_only: bool = False
     level_match: bool = True

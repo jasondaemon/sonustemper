@@ -634,7 +634,7 @@ def tag_delivery(album: Path, mp3: Path, track: str, settings: dict, cover_data:
     if lyrics:
         tags.add(USLT(encoding=1, lang="eng", desc="", text=lyrics))
     tags.save(mp3, v2_version=3)
-    if lyrics and settings.get("sidecar"):
+    if lyrics:
         sidecar = mp3.with_suffix(".lrc")
         sidecar.write_text(lyrics + "\n", encoding="utf-8")
         return sidecar
@@ -715,7 +715,13 @@ def publish_deliveries(album: Path, tracks: list[Path], work: Path, outputs: lis
                        replace: bool, report, previous: dict[str, dict]) -> None:
     paths = {path for result in outputs for path in result["files"]}
     superseded = {path for path in owned_outputs(album, tracks, previous) if path.split("/", 1)[0] in stages}
-    superseded.update(delivery_paths(album, tracks))
+    # Do not delete or replace a hand-authored lyrics file based on its name alone.
+    for relative in paths - superseded:
+        if relative.endswith(".lrc"):
+            target = publication_path(album, relative)
+            if target.is_file() and digest(target) != digest(publication_path(work, relative)):
+                raise FileExistsError(f"An unmanaged lyrics file exists: {relative}")
+    superseded.update(path for path in delivery_paths(album, tracks) if not path.endswith(".lrc"))
     publish(album, work, paths, superseded, replace, report, outputs)
 
 

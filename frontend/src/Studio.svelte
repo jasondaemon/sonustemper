@@ -93,7 +93,7 @@
   let promptText = $state(''), submissionLyrics = $state('');
   let promptLoading = $state(false), promptWorking = $state(false), promptLoaded = $state(false);
   let promptError = $state(''), promptMessage = $state('');
-  let sidecar = $state(false), player = $state<HTMLAudioElement>();
+  let player = $state<HTMLAudioElement>();
   let audioInfo = $state<{song:string;rate?:number}>();
   type PlaybackMode = 'original'|'cleanup'|'live'|'review';
   let playbackMode = $state<PlaybackMode>('original');
@@ -195,7 +195,7 @@
   let draftKey = $derived('sonustemper:album:' + JSON.stringify([location, artist, album, source]));
   let measurement = $derived(albumMeasurement?.key===draftKey ? albumMeasurement : undefined);
   let albumSettings = $derived({balance, lufs, peak, artist:artistTag, album_artist:albumArtist,
-    album:albumTag, cover, year, sidecar, profile});
+    album:albumTag, cover, year, profile});
   function copy<T>(value:T):T {return JSON.parse(JSON.stringify(value));}
   const initialProcessing:Processing = {preset:'', bands:defaultBands(), voicing_enabled:false,
     voice_controls:{}, cleanup_enabled:false, corrections:{}, noise_enabled:false,
@@ -521,7 +521,7 @@
     shareTone=saved.shareTone ?? false;
     tagEdits=saved.tags;
     const a=saved.albumSettings;
-    ({balance,lufs,peak,year,sidecar,profile}=a);
+    ({balance,lufs,peak,year,profile}=a);
     cover=library.covers?.some(item => item.name === a.cover) ? a.cover : '';
     artistTag=a.artist;albumArtist=a.album_artist;albumTag=a.album;
     loadTrackProcessing();
@@ -590,7 +590,7 @@
     measureVersion++;albumMeasurement=undefined;
     readyDraftKey=''; defaults=undefined; overrides={}; tagEdits={}; shareTone=false;
     balance='album'; profile='guiding-night'; selectProfile();
-    year=new Date().getFullYear(); sidecar=false;
+    year=new Date().getFullYear();
     artistTag=albumArtist=artist; albumTag=album;
     cover=library.covers?.find(item => item.name === 'cover.png')?.name ?? library.covers?.[0]?.name ?? '';
     status=''; exportStatus=''; exportError=''; results=[];
@@ -2303,8 +2303,7 @@
           <span><code>normalized/</code> Final WAV</span>
           <span><code>mp3s/</code> Final MP3</span>
         </div>
-        <p>Final WAVs use a new container with no source metadata. Your tags, artwork, and saved lyrics go into the MP3s.</p>
-        <label class="check"><input type="checkbox" bind:checked={sidecar} disabled={busy}> Include untimed lyrics files (.lrc)</label>
+        <p>Final WAVs contain no source metadata. Saved lyrics go into the MP3 tags and a matching <code>.lrc</code> file.</p>
         {#if !writable}<p>Choose a writable storage location to process this album.</p>{/if}
         <div class="row">
           <button class:primary={!currentReview} disabled={busy || !writable} onclick={() => runAlbum('review')}>{currentReview ? 'Review again' : 'Review album'}</button>
