@@ -1,0 +1,16 @@
+{
+  "meta": {
+    "title": "Punch",
+    "description": "Adds bass weight, clears muddy low mids, and lets drum attacks through."
+  },
+  "chain": {
+    "eq": [
+      {"type": "highpass", "freq_hz": 30, "q": 0.707},
+      {"type": "lowshelf", "freq_hz": 95, "gain_db": 2.6, "q": 0.8},
+      {"type": "peaking", "freq_hz": 230, "gain_db": -1.6, "q": 0.9},
+      {"type": "peaking", "freq_hz": 3600, "gain_db": 1.4, "q": 1}
+    ],
+    "dynamics": {"density": 0.32, "transient_focus": 0.86, "smoothness": 0.16},
+    "stereo": {"width": 1.02}
+  }
+}

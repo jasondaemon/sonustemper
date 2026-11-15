@@ -133,13 +133,23 @@ at a time. This
 version includes enabled cleanup and noise removal, but no creative EQ or album
 loudness. **Live Monitor** adds live EQ and stereo adjustments to that WAV (or
 to **Original** when no current cleanup render is available).
-**Compare EQ** prepares a level-matched pair in the same player. **EQ Off**
-and **EQ On** use the same cleanup, stereo width, and preset dynamics, and
-match only the playback level. The headroom check shows the true peaks before
-this listening gain. Neither preview changes the album's loudness settings.
+**Tone & Stereo** offers **Clean** (subsonic cut only), **Clarity** (less low-mid
+haze, more vocal presence), **Punch** (bass weight and preserved attacks),
+**Warm** (more body, softer highs), and **Wide** (more side level; check in
+Mono). Strength scales EQ gains, preset compression, and stereo width back
+toward neutral. Low cuts stay at their selected frequency above 0%; 0% bypasses
+the new preset completely. User presets stay in the menu. Previously selected
+built-ins are labeled Legacy and still render with their original settings.
+The original voicings, including Glue, remain in the separate preset library.
+
+**Compare Preset** renders **Preset Off** and **Preset On** in the main player
+at matched loudness. It switches EQ, preset compression, and width together,
+keeping cleanup identical. **Compare EQ** for custom EQ without a preset
+switches just the EQ. The headroom readout shows true peaks before the listening
+gain. Neither comparison writes album audio or changes album loudness settings.
 Drag a range on the cleanup timeline to loop it in the comparison. Live Monitor
-uses EQ and width only; use **Compare EQ** to hear the FFmpeg tone chain with
-preset dynamics before album loudness normalization.
+uses EQ and width only; use **Compare Preset** to hear preset compression
+before album loudness normalization.
 The player meter also shows three-second short-term LUFS and an estimated
 monitor true-peak hold. Click the true-peak readout to reset it. **Mono**
 folds playback only; the correlation meter always uses the stereo signal

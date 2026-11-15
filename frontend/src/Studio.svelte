@@ -13,7 +13,8 @@
   import {mergeClips, type ClipSpan} from './clipTimeline';
   import {emptyMonitorMetrics} from './meterMath';
   import {monitor, activeBand, filterNode, spectrumPath, defaultBands, type Band} from './monitor';
-  type Preset = {id: string; title: string; bands: Band[]; width?: number; meta: {tags?: string[]}};
+  type Preset = {id:string; title:string; bands:Band[]; width?:number; compression:boolean;
+    group:'curated'|'legacy'|'user'; meta:{description?:string}};
   type LoudnessProfile = {name: string; origin: string; meta: {title: string; lufs: number | null; tp: number | null; category?: string; order?: number}};
   type Correction = {enabled: boolean; value: number; options?: Record<string, number | boolean>};
   const treatments = [
@@ -55,6 +56,8 @@
   let loadingLibrary = $state(false);
   let preset = $state(''), presetBase = $state(''), bands = $state<Band[]>(defaultBands());
   let activePreset = $derived(presets.find(item => item.id === presetBase));
+  let curatedPreset = $derived(activePreset?.group==='curated');
+  let effectiveWidth = $derived(curatedPreset ? 1+(width-1)*strength/100 : width);
   const reverbControls = [
     {toggle:'enable_side_reduction', key:'side_reduction_pct', title:'Side reduction', min:0,max:40,step:1,unit:'%'},
     {toggle:'enable_mid_suppress',key:'mid_suppress_db',title:'Mid suppression',min:-6,max:0,step:.1,unit:'dB'},
@@ -228,6 +231,8 @@
   let rowCompareReady = $derived(Boolean(compareResult && !compareResult.batch && compareResult.key===compareKey));
   let toneCompareKey = $derived(JSON.stringify(['tone',keys,track,processing]));
   let toneCompareReady = $derived(Boolean(compareResult?.tone && compareResult.key===toneCompareKey));
+  let compareToneLabel = $derived(presetBase ? 'Preset' : 'EQ');
+  let canCompareTone = $derived(eqEnabled && (!curatedPreset || strength > 0));
   let editorNoiseCandidate = $derived(noiseEditorOpen ? {...noise,id:editingNoise || 'unsaved-selection',enabled:true} : undefined);
   let rowNoiseKey = $derived(activeNoiseRow ? noiseComparisonKey(noiseForRow(activeNoiseRow)) : '');
   let editorNoiseKey = $derived(noiseComparisonKey(editorNoiseCandidate));
@@ -414,7 +419,12 @@
     presetBase = draft.preset;
     bands = draft.bands;
     const presetBands = presets.find(item=>item.id===draft.preset)?.bands;
-    preset = presetBands && JSON.stringify(presetBands.map(item=>({...item,gain_db:item.gain_db ?? 0,q:item.q ?? .7}))) === JSON.stringify(bands) ? draft.preset : '';
+    preset = presetBands?.length===bands.length && presetBands.every((item,index)=>{
+      const saved = bands[index];
+      return item.type===saved.type && item.freq_hz===saved.freq_hz &&
+        (item.gain_db ?? 0)===(saved.gain_db ?? 0) && (item.q ?? .7)===(saved.q ?? .7) &&
+        (item.enabled !== false)===(saved.enabled !== false);
+    }) ? draft.preset : '';
     eqEnabled = draft.voicing_enabled;
     voiceControls = {
       deesser:{enabled:false,freq_hz:6500,amount_db:0,...draft.voice_controls?.deesser},
@@ -773,16 +783,17 @@
   }
 
   async function renderToneComparison() {
-    if (!track || source!=='raw' || !eqEnabled || toneCompareBusy || !upgradeCleanup()) return;
-    const key=toneCompareKey, version=selectionVersion;
+    if (!track || source!=='raw' || !canCompareTone || toneCompareBusy || !upgradeCleanup()) return;
+    const key=toneCompareKey, version=selectionVersion, label=compareToneLabel;
     toneCompareBusy=true;toneCompareError='';
     try {
-      const response=await api<ToneLevels & {before:string;after:string}>('eq-comparison',{...keys,...processing,tracks:[track]});
+      const endpoint=label==='Preset' ? 'preset-comparison' : 'eq-comparison';
+      const response=await api<ToneLevels & {before:string;after:string}>(endpoint,{...keys,...processing,tracks:[track]});
       if (version!==selectionVersion || key!==toneCompareKey) return;
       const {before,after,...tone}=response;
       clearCompare();
       compareSide='after';
-      compareResult={before,after,tone,key,label:'EQ comparison'};
+      compareResult={before,after,tone,key,label:label+' comparison'};
     } catch (cause) {
       if (version===selectionVersion && key===toneCompareKey) toneCompareError=String(cause instanceof Error ? cause.message : cause);
     } finally {toneCompareBusy=false;}
@@ -899,7 +910,7 @@
   function markCustom(reset = false) {
     eqEnabled = true;
     listenLive();
-    if (preset && !reset && strength !== 100) {
+    if (preset && !curatedPreset && !reset && strength !== 100) {
       for (const band of bands) band.gain_db *= strength / 100;
       strength = 100;
     }
@@ -954,7 +965,8 @@
     }
     return offlineCurveContext;
   }
-  let toneBands = $derived(bands.map(item=>({...item,gain_db:item.gain_db*strength/100})));
+  let toneBands = $derived(curatedPreset && strength===0 ? [] :
+    bands.map(item=>({...item,gain_db:item.gain_db*strength/100})));
   let selectedCurve = $derived(comparisonFix ? drawCurve(curveContext(),
     [{...repairBand(comparisonFix),enabled:true}]) : '');
   let activeRepairIds = $derived(cleanupEnabled ? repairs.filter(fix => fix.enabled && (fix.end === null || (playhead >= fix.start && playhead < fix.end))).map(fix => fix.id).join(',') : '');
@@ -995,7 +1007,7 @@
     const audio = engine;
     const valid = liveBands.filter(item => Number.isFinite(item.freq_hz) && Number.isFinite(item.gain_db) && Number.isFinite(item.q));
     const widthValue = liveEQ
-      ? (Number.isFinite(width) ? width : 1) : 1;
+      ? (Number.isFinite(effectiveWidth) ? effectiveWidth : 1) : 1;
     audio?.update(valid,widthValue);
     eqCurve = drawCurve(audio?.context ?? curveContext(),[...(cleanupVersion === 1 ? voiceBands : []), ...toneBands]);
   });
@@ -1110,7 +1122,7 @@
   function onPlaybackError() {
     if (!playingCompare) return;
     if (toneCompareReady) {
-      toneCompareError='Could not load the EQ comparison. Prepare it again.';
+      toneCompareError='Could not load the comparison. Prepare it again.';
       clearCompare();
     } else {
       compareActive=false;
@@ -1522,8 +1534,8 @@
             <button aria-pressed={!playingCompare && !noiseMode && audibleMode==='live'} disabled={source !== 'raw'} onclick={listenLive}>Live Monitor</button>
           </div>
           {#if source==='raw' && !toneCompareReady}
-            <button type="button" disabled={!eqEnabled || toneCompareBusy} onclick={renderToneComparison}
-              title={eqEnabled?'Compare the render with only EQ switched off or on':'Enable Tone & Stereo to compare EQ'}>{toneCompareBusy?'Preparing EQ comparison…':'Compare EQ'}</button>
+            <button type="button" disabled={!canCompareTone || toneCompareBusy} onclick={renderToneComparison}
+              title={presetBase?'Compare the full Tone & Stereo stage at matched loudness':'Compare with only EQ switched off or on'}>{toneCompareBusy?'Preparing comparison…':'Compare '+compareToneLabel}</button>
           {/if}
           {#if noiseMode}<small>{noiseMode==='solo'?'Solo noise':'Filtered track'} audition</small>{/if}
           {#if cleanupBusy}<small role="status">Preparing Post Cleanup…</small>
@@ -1538,19 +1550,19 @@
         {#if toneCompareReady && compareResult?.tone}
           {@const levels=compareResult.tone}
           <div class="eq-comparison">
-            <div class="compare-switch" role="group" aria-label="EQ comparison">
-              <button type="button" aria-pressed={playingCompare && compareSide==='before'} onclick={()=>switchComparison('before')}>EQ Off</button>
-              <button type="button" aria-pressed={playingCompare && compareSide==='after'} onclick={()=>switchComparison('after')}>EQ On</button>
+            <div class="compare-switch" role="group" aria-label={compareResult.label}>
+              <button type="button" aria-pressed={playingCompare && compareSide==='before'} onclick={()=>switchComparison('before')}>{compareToneLabel} Off</button>
+              <button type="button" aria-pressed={playingCompare && compareSide==='after'} onclick={()=>switchComparison('after')}>{compareToneLabel} On</button>
               {#if repairRange && repairRange.end>repairRange.start}
                 <button type="button" aria-pressed={loopRange} onclick={()=>{loopRange=!loopRange;if (loopRange && repairRange) seekTo(repairRange.start);}}>Loop passage</button>
               {/if}
-              <small>Level matched to {levels.matched_lufs.toFixed(1)} LUFS · Cleanup, stereo and dynamics retained</small>
+              <small>Level matched to {levels.matched_lufs.toFixed(1)} LUFS · {presetBase ? 'Same cleanup on both sides' : 'Cleanup, width and dynamics retained'}</small>
             </div>
             <small>Headroom check (before level matching): {levels.off_peak.toFixed(1)} dBTP off · {levels.on_peak.toFixed(1)} dBTP on</small>
           </div>
         {/if}
         {#if playingCompare && compareResult}
-          <div class="player-comparison" role="status"><span><strong>{compareResult.tone ? (compareSide==='before'?'EQ Off':'EQ On') : compareSide==='before'?'Before':compareSide==='removed'?'Removed':'After'}</strong> · {compareResult.label}{comparisonLoopRange?' · Looping selection':''}</span>
+          <div class="player-comparison" role="status"><span><strong>{compareResult.tone ? compareToneLabel+(compareSide==='before'?' Off':' On') : compareSide==='before'?'Before':compareSide==='removed'?'Removed':'After'}</strong> · {compareResult.label}{comparisonLoopRange?' · Looping selection':''}</span>
             <button type="button" onclick={()=>compareActive=false}>Exit comparison</button></div>
         {/if}
       {/if}
@@ -1784,19 +1796,36 @@
           <small id="tone-scope-note">{shareTone ? 'All songs use this EQ and stereo setup. Uncheck to edit this song separately.' : 'Share this EQ and stereo setup across all songs. Cleanup stays per song.'}</small>
         </div>
         {#snippet presetControls()}
-          <label>EQ Preset<select bind:value={preset} onchange={loadPreset} disabled={source !== 'raw'}>
+          <label>Tone preset<select bind:value={preset} onchange={loadPreset} disabled={source !== 'raw'}>
             <option value="">Custom</option>
-            {#each presets as item}
-              <option value={item.id}>{item.title}{item.id.startsWith('voicing/') ? ' · User' : ''}</option>
-            {/each}
+            <optgroup label="Mastering">
+              {#each presets.filter(item=>item.group==='curated') as item}
+                <option value={item.id}>{item.title}</option>
+              {/each}
+            </optgroup>
+            {#if presets.some(item=>item.group==='user')}
+              <optgroup label="User presets">
+                {#each presets.filter(item=>item.group==='user') as item}
+                  <option value={item.id}>{item.title}</option>
+                {/each}
+              </optgroup>
+            {/if}
+            {#if activePreset?.group==='legacy'}
+              <option value={activePreset.id}>{activePreset.title} · Legacy</option>
+            {/if}
           </select></label>
-          {#if preset}<label class="inline-control"><span>Strength</span><input aria-label="Preset strength" type="range" min="0" max="100" bind:value={strength} oninput={() => {eqEnabled=true;listenLive();}}><output>{strength}%</output></label>{/if}
+          {#if activePreset && !preset}<small>Custom EQ based on {activePreset.title}.</small>
+          {:else if activePreset?.meta.description}<small>{activePreset.meta.description}</small>{/if}
+          {#if preset || curatedPreset}<label class="inline-control"><span>Strength</span><input aria-label="Preset strength" type="range" min="0" max="100" bind:value={strength} oninput={() => {eqEnabled=true;listenLive();}}><output>{strength}%</output></label>{/if}
         {/snippet}
         {#snippet stereoControls()}
-          <strong>Stereo and dynamics</strong>
-          <label class="inline-control"><span>Stereo width</span><input aria-label="Stereo width" type="range" min=".5" max="1.5" step=".01" bind:value={width} oninput={() => {eqEnabled=true;listenLive();}}><output>{width.toFixed(2)}</output></label>
-          <label class="check"><input type="checkbox" bind:checked={guardrails}> Compression guardrails</label>
-          {#if presetBase}<small>Preset compression is applied when processing the album, not in Live Monitor.</small>{/if}
+          <strong>{activePreset?.compression ? 'Stereo and dynamics' : 'Stereo'}</strong>
+          <label class="inline-control"><span>Stereo width</span><input aria-label="Stereo width" type="range" min=".5" max="1.5" step=".01" bind:value={width} oninput={() => {eqEnabled=true;listenLive();}}><output>{effectiveWidth.toFixed(2)}</output></label>
+          {#if curatedPreset && strength!==100}<small>Effective width at {strength}% strength.</small>{/if}
+          {#if activePreset?.compression}
+            <label class="check"><input type="checkbox" bind:checked={guardrails}> Compression guardrails</label>
+            <small>Use Compare Preset to hear compression. Live Monitor plays EQ and width only.</small>
+          {/if}
         {/snippet}
         {#snippet legacyVoice()}
           <VoiceControls bind:voice={voiceControls} onEdit={() => {eqEnabled=true;listenLive();}}/>

@@ -1,0 +1,15 @@
+{
+  "meta": {
+    "title": "Clarity",
+    "description": "Cuts low-mid haze and brings vocals and detail forward without just turning the mix up."
+  },
+  "chain": {
+    "eq": [
+      {"type": "peaking", "freq_hz": 300, "gain_db": -1.8, "q": 0.85},
+      {"type": "peaking", "freq_hz": 3200, "gain_db": 1.6, "q": 0.85},
+      {"type": "highshelf", "freq_hz": 8500, "gain_db": 2.4, "q": 0.7}
+    ],
+    "dynamics": {"density": 0.16, "transient_focus": 0.5, "smoothness": 0.35},
+    "stereo": {"width": 1}
+  }
+}

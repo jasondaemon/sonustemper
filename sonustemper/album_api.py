@@ -169,9 +169,13 @@ def selected_tracks(album: Path, source: str, names: list[str]) -> list[Path]:
     return [path for path in available if path.name in names]
 
 
+ALBUM_VOICINGS = ("clean", "clarity", "punch", "warm", "wide")
+
+
 def presets() -> dict:
     entries = {}
     for kind, folder in [
+        ("album-v1", bundle_root() / "assets/presets/album-voicings"),
         ("builtin", bundle_root() / "assets/presets/voicings"),
         ("voicing", PRESETS_DIR / "voicings"),
         ("profile", PRESETS_DIR / "profiles"),
@@ -196,10 +200,20 @@ def resolved_settings(settings: Settings) -> dict:
     if settings.preset and preset is None:
         raise HTTPException(400, "Unknown mastering preset")
     chain = dict(preset["chain"]) if preset else {}
+    width = settings.stereo_width
     if settings.bands is not None:
         chain["eq"] = [band.model_dump() for band in settings.bands if band.enabled]
     if settings.eq_bypass:
         chain["eq"] = []
+    if settings.preset.startswith("album-v1/"):
+        # Preserve the original strength and width behavior for all older sessions.
+        width = width if width is not None else chain.get("stereo", {}).get("width", 1)
+        width = 1 + (width - 1) * settings.strength / 100
+        if settings.strength == 0:
+            chain["eq"] = []
+        if round(width, 3) == 1:
+            chain.pop("stereo", None)
+            width = None
     corrections = {"", "ai_deglass", "ai_vocal_smooth", "ai_bass_tight",
                    "ai_transient_soften", "ai_reverb_reduce"}
     tools = {key: value.model_dump() for key, value in settings.corrections.items()}
@@ -213,7 +227,7 @@ def resolved_settings(settings: Settings) -> dict:
         tools["ai_platform_safe"] = {"enabled": False}
     correction = _ai_tool_combo_chain(tools) if settings.cleanup_enabled else ""
     mastering = master_pack._voicing_filters_from_json(
-        {"chain": chain}, settings.strength, settings.stereo_width, True, settings.guardrails
+        {"chain": chain}, settings.strength, width, True, settings.guardrails
     )
     manual = [] if settings.eq_bypass else [
         master_pack._eq_filter_for_band(band.model_dump(), 1)
@@ -314,9 +328,19 @@ def browse(location: str, artist_folder: str = "", album_folder: str = "", statu
 
 @router.get("/api/albums/presets")
 def get_presets():
-    return [{"id": key, "title": data.get("meta", {}).get("title") or key,
-             "bands": data["chain"].get("eq", []), "meta": data.get("meta", {}),
-             "width": data["chain"].get("stereo", {}).get("width")} for key, data in presets().items()]
+    order = {f"album-v1/{name}": index for index, name in enumerate(ALBUM_VOICINGS)}
+    entries = sorted(presets().items(), key=lambda item: order.get(item[0], len(order)))
+    catalog = []
+    for key, data in entries:
+        chain = data["chain"]
+        meta, dynamics = data.get("meta", {}), chain.get("dynamics")
+        catalog.append({
+            "id": key, "title": meta.get("title") or key, "bands": chain.get("eq", []),
+            "meta": meta, "width": chain.get("stereo", {}).get("width"),
+            "compression": isinstance(dynamics, dict) and bool(dynamics.get("density")),
+            "group": "curated" if key in order else "legacy" if key.startswith("builtin/") else "user",
+        })
+    return catalog
 
 
 @router.get("/api/albums/audio")
@@ -757,6 +781,15 @@ def render_cleanup(settings: Settings):
 
 @router.post("/api/albums/eq-comparison")
 def eq_comparison(settings: Settings):
+    return tone_comparison(settings, bypass_tone=False)
+
+
+@router.post("/api/albums/preset-comparison")
+def preset_comparison(settings: Settings):
+    return tone_comparison(settings, bypass_tone=True)
+
+
+def tone_comparison(settings: Settings, *, bypass_tone: bool):
     if settings.source != "raw" or len(settings.tracks) != 1:
         raise HTTPException(400, "Choose one raw track to compare")
     album = resolve_album(settings.location, settings.artist_folder, settings.album_folder)
@@ -764,10 +797,12 @@ def eq_comparison(settings: Settings):
     effective = effective_track_settings(settings, settings.track_overrides.get(track.name, {}))
     if effective.cleanup_version != 2 or not effective.voicing_enabled:
         raise HTTPException(422, "Enable Tone & Stereo and use the repair-before-EQ chain first")
-    on = resolved_settings(effective.model_copy(update={"eq_bypass": False}))
-    off = resolved_settings(effective.model_copy(update={"eq_bypass": True}))
+    on = resolved_settings(effective if bypass_tone else effective.model_copy(update={"eq_bypass": False}))
+    off = ({"repair_chain": {**on["repair_chain"], "tone": ""}} if bypass_tone
+           else resolved_settings(effective.model_copy(update={"eq_bypass": True})))
     if on["repair_chain"]["tone"] == off["repair_chain"]["tone"]:
-        raise HTTPException(422, "Add an enabled EQ band before comparing")
+        raise HTTPException(422, "Add EQ, compression, or width before comparing" if bypass_tone
+                            else "Add an enabled EQ band before comparing")
     if not compare_slots.acquire(blocking=False):
         raise HTTPException(429, "Other comparisons are rendering. Try again in a moment.")
     root = PREVIEWS_DIR / "album-comparisons"
@@ -775,14 +810,14 @@ def eq_comparison(settings: Settings):
     try:
         root.mkdir(parents=True, exist_ok=True)
         prune_batch_auditions(root)
-        with tempfile.TemporaryDirectory(prefix=".eq-", dir=root) as temporary:
+        with tempfile.TemporaryDirectory(prefix=".tone-", dir=root) as temporary:
             folder = Path(temporary) / "preview"
             folder.mkdir()
-            levels = workflow.compare_tone(track, off, on, folder)
+            levels = workflow.compare_tone(track, off, on, folder, match_stereo=bypass_tone)
             folder.rename(root / token)
     except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
-        logger.warning("EQ comparison failed for %s: %s", track.name, exc)
-        raise HTTPException(422, "Could not render a level-matched EQ comparison for this song") from exc
+        logger.warning("Tone comparison failed for %s: %s", track.name, exc)
+        raise HTTPException(422, "Could not render a level-matched comparison for this song") from exc
     finally:
         compare_slots.release()
     return {**levels, **{side: f"/api/albums/repair-batch-audition/{token}/{side}" for side in ("before", "after")}}

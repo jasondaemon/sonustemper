@@ -523,13 +523,15 @@ def write_matched_pair(versions: list[tuple[Path, float, float]], folder: Path, 
     return level
 
 
-def compare_tone(track: Path, off: dict, on: dict, folder: Path) -> dict:
+def compare_tone(track: Path, off: dict, on: dict, folder: Path, *, match_stereo: bool = False) -> dict:
     cleaned = folder / "post-cleanup.wav"
     render_cleanup_audio(track, cleaned, on)
     versions = []
     for side, data in (("before", off), ("after", on)):
         rendered = folder / f"{side}-float.wav"
-        ffmpeg(cleaned, rendered, "-af", data["repair_chain"]["tone"] or "anull", "-c:a", "pcm_f32le")
+        # Width can produce stereo from a mono input. Measure both sides in the same layout.
+        ffmpeg(cleaned, rendered, "-af", data["repair_chain"]["tone"] or "anull",
+               *(["-ac", "2"] if match_stereo else []), "-c:a", "pcm_f32le")
         versions.append((rendered, *metrics(rendered)))
     cleaned.unlink()
     level = write_matched_pair(versions, folder, native_format=True)

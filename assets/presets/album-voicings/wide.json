@@ -1,0 +1,14 @@
+{
+  "meta": {
+    "title": "Wide",
+    "description": "Widens existing stereo detail without turning up the center. Check the result in Mono."
+  },
+  "chain": {
+    "eq": [
+      {"type": "peaking", "freq_hz": 270, "gain_db": -0.8, "q": 0.9},
+      {"type": "highshelf", "freq_hz": 10000, "gain_db": 0.9, "q": 0.7}
+    ],
+    "dynamics": {"density": 0.16, "transient_focus": 0.5, "smoothness": 0.35},
+    "stereo": {"width": 1.28}
+  }
+}

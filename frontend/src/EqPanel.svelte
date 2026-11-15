@@ -15,8 +15,9 @@
     onEdit();
     const rect = (event.currentTarget as SVGSVGElement).getBoundingClientRect();
     band.freq_hz = Math.round(20 * 1000 ** Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)));
-    if (hasGain(band.type)) {
-      band.gain_db = Math.round(Math.max(-12, Math.min(12, 15 - 30 * (event.clientY - rect.top) / rect.height)) * 10) / 10;
+    if (hasGain(band.type) && strength>0) {
+      const gain = (15 - 30 * (event.clientY - rect.top) / rect.height) * 100 / strength;
+      band.gain_db = Math.round(Math.max(-12, Math.min(12, gain)) * 10) / 10;
     }
   }
 </script>

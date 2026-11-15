@@ -1,0 +1,16 @@
+{
+  "meta": {
+    "title": "Warm",
+    "description": "Adds body and softens sharp upper mids and highs. No saturation."
+  },
+  "chain": {
+    "eq": [
+      {"type": "lowshelf", "freq_hz": 110, "gain_db": 1.8, "q": 0.7},
+      {"type": "peaking", "freq_hz": 350, "gain_db": 0.8, "q": 0.9},
+      {"type": "peaking", "freq_hz": 3600, "gain_db": -1.7, "q": 0.9},
+      {"type": "highshelf", "freq_hz": 8200, "gain_db": -2.6, "q": 0.7}
+    ],
+    "dynamics": {"density": 0.2, "transient_focus": 0.25, "smoothness": 0.65},
+    "stereo": {"width": 1}
+  }
+}

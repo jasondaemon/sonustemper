@@ -1,0 +1,12 @@
+{
+  "meta": {
+    "title": "Clean",
+    "description": "Neutral tone. Removes subsonic rumble without compression or widening."
+  },
+  "chain": {
+    "eq": [
+      {"type": "highpass", "freq_hz": 25, "q": 0.707}
+    ],
+    "stereo": {"width": 1}
+  }
+}
