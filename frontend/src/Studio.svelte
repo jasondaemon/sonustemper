@@ -1214,6 +1214,7 @@
   }
 
   let removeSeekListener: (() => void) | undefined;
+  let playbackIntent = 0;
 
   function restorePlayhead(url: string, seekTo?: number, play?: boolean) {
     removeSeekListener?.();
@@ -1233,12 +1234,24 @@
   }
 
   function setPlayback(mode:PlaybackMode) {
+    ++playbackIntent;
     if (mode==='cleanup' && !postReady) return;
     if (mode==='review' && !reviewURL) return;
     if (mode!=='review') reviewCue=undefined;
     if (mode!==playbackMode || noiseMode || compareActive) resetMonitor();
     noiseMode = '';compareActive=false;
     playbackMode=mode;
+  }
+
+  async function listenPostCleanup() {
+    if (postReady) {
+      setPlayback('cleanup');
+      return;
+    }
+    const audition=()=>playingCompare || noiseMode ? playbackURL : '';
+    const intent=++playbackIntent, version=selectionVersion, previous=audition();
+    await renderPostCleanup();
+    if (intent===playbackIntent && version===selectionVersion && previous===audition() && postReady) setPlayback('cleanup');
   }
 
   function onPlaybackError() {
@@ -1522,7 +1535,6 @@
   async function runAlbum(action:'review'|'publish'|'tags') {
     if (busy || !writable || !tracks.length) return;
     const tagsOnly=action==='tags', reviewing=action==='review', ready=currentReview;
-    if (action==='publish' && !ready) return;
     const request = copy({...settings, replace:!tagsOnly, metadata_only:tagsOnly});
     const jobKey = draftKey, signature=reviewKey;
     if (reviewing) albumReview=undefined;
@@ -1533,15 +1545,15 @@
     busy = true; results = []; exportError = ''; exportStatus = 'Submitting album…';
     try {
       if (tagsOnly && !(await api<{can_update_tags:boolean}>('preflight', request)).can_update_tags) {
-        throw new Error('Process the full album before updating its MP3 tags.');
+        throw new Error('Publish the full album before updating its MP3 tags.');
       }
-      const endpoint=reviewing ? 'reviews' : tagsOnly ? 'jobs' : 'reviews/'+ready?.id+'/publish';
+      const endpoint=reviewing ? 'reviews' : action==='publish' && ready ? 'reviews/'+ready.id+'/publish' : 'jobs';
       const {id} = await api<{id:string}>(endpoint, request);
       for (;;) {
         const job = await api<AlbumJob>('jobs/' + id);
         const trackProgress = job.track_number ? ` ${job.track_number} of ${request.tracks.length}` : '';
         if (draftKey === jobKey) exportStatus = job.stage + trackProgress + (job.track ? ' · ' + job.track : '');
-        if (job.status === 'failed' || job.status === 'expired') throw new Error(job.error || 'Album job did not finish. Try reviewing again.');
+        if (job.status === 'failed' || job.status === 'expired') throw new Error(job.error || 'Album job did not finish. Try again.');
         if (reviewing && job.status==='ready' && job.loudness && job.expires) {
           if (draftKey===jobKey) {
             if (reviewKey===signature) {
@@ -1717,29 +1729,34 @@
             {resetTruePeak} unavailable={metersUnavailable}/>
         </div>
         <div class="row transport-controls">
-          <button aria-pressed={compactPlayer} onclick={() => compactPlayer=!compactPlayer}>{compactPlayer ? "Expand player" : "Compact player"}</button>
           <div class="play-source" role="group" aria-label="Playback source">
-            <button aria-pressed={!playingCompare && !noiseMode && audibleMode==='original'} onclick={() => setPlayback('original')}>Original</button>
-            <button aria-pressed={!playingCompare && !noiseMode && audibleMode==='cleanup'} disabled={!postReady} title={postReady?'Cleanup only, with no live EQ':'Available once cleanup is prepared'} onclick={() => setPlayback('cleanup')}>Post Cleanup</button>
-            <button aria-pressed={!playingCompare && !noiseMode && audibleMode==='live'} disabled={source !== 'raw'} onclick={listenLive}>Live Monitor</button>
+            <button aria-pressed={!playingCompare && !noiseMode && audibleMode==='original'} title="Selected source WAV without additional processing" onclick={() => setPlayback('original')}>Original</button>
+            {#if source==='raw'}
+              <button aria-pressed={!playingCompare && !noiseMode && audibleMode==='cleanup'}
+                disabled={cleanupBusy || (!postReady && !canRenderCleanup)}
+                title={canRenderCleanup || postReady ? 'Cleanup and noise removal, before EQ and loudness' : 'Enable a repair or noise removal first'}
+                onclick={listenPostCleanup}>{cleanupBusy ? 'Preparing cleanup…' : 'Post Cleanup'}</button>
+              <button aria-pressed={!playingCompare && !noiseMode && audibleMode==='live'}
+                title="Live EQ and width, using Post Cleanup when ready. No preset compression or delivery gain."
+                onclick={listenLive}>Live Monitor</button>
+            {/if}
             {#if reviewURL}<button aria-pressed={!playingCompare && !noiseMode && audibleMode==='review'}
-              title="Listen to the prepared delivery WAV" onclick={()=>setPlayback('review')}>Reviewed WAV</button>{/if}
+              title="The prepared final WAV, including the album's delivery gain" onclick={()=>setPlayback('review')}>Reviewed WAV</button>{/if}
           </div>
-          {#if reviewRow?.source_lufs!=null && reviewRow.source_true_peak!=null}
+          {#if !playingCompare && !noiseMode && (audibleMode==='original' || audibleMode==='review') &&
+              reviewRow?.source_lufs!=null && reviewRow.source_true_peak!=null}
             <label class="check review-match" title="Level-match Original and Reviewed WAV for listening only">
               <input type="checkbox" bind:checked={levelMatchReview}> Match levels</label>
           {/if}
-          {#if source==='raw' && !toneCompareReady}
-            <button type="button" disabled={!canCompareTone || toneCompareBusy} onclick={renderToneComparison}
-              title={presetBase?'Compare the full Tone & Stereo stage at matched loudness':'Compare with only EQ switched off or on'}>{toneCompareBusy?'Preparing comparison…':'Compare '+compareToneLabel}</button>
-          {/if}
           {#if noiseMode}<small>{noiseMode==='solo'?'Solo noise':'Filtered track'} audition</small>{/if}
-          {#if cleanupBusy}<small role="status">Preparing Post Cleanup…</small>
-          {:else if !postReady && canRenderCleanup}
-            <button type="button" onclick={renderPostCleanup} title="Prepare a WAV with cleanup and noise removal, without EQ or loudness changes">{cleanupAudio[cleanupSong]?'Update Post Cleanup':'Prepare Post Cleanup'}</button>
-          {:else if !playingCompare && !noiseMode && audibleMode==='live'}<small>Live EQ on {postReady?'Post Cleanup':'Original'}</small>{/if}
-          <div class="stereo-check-slot"><StereoCheck correlation={monitorMetrics.correlation} mono={monitorMono}
-            toggle={()=>monitorMono=!monitorMono} unavailable={metersUnavailable}/></div>
+          {#if !playingCompare && !noiseMode && audibleMode==='live'}
+            <small>{eqEnabled ? 'Live EQ on' : 'EQ off ·'} {postReady?'Post Cleanup':'Original'}</small>
+          {/if}
+          <div class="player-tools">
+            <StereoCheck correlation={monitorMetrics.correlation} mono={monitorMono}
+              toggle={()=>monitorMono=!monitorMono} unavailable={metersUnavailable}/>
+            <button aria-pressed={compactPlayer} onclick={() => compactPlayer=!compactPlayer}>{compactPlayer ? 'Expand player' : 'Compact player'}</button>
+          </div>
         </div>
         {#if postError}<p class="error" role="alert">{postError}</p>{/if}
         {#if toneCompareError}<p class="error" role="alert">{toneCompareError}</p>{/if}
@@ -1990,6 +2007,14 @@
           <label class="check"><input type="checkbox" checked={shareTone} aria-describedby="tone-scope-note"
             onchange={(event)=>setToneScope(event.currentTarget.checked)}> Apply to full album</label>
           <small id="tone-scope-note">{shareTone ? 'All songs use this EQ and stereo setup. Uncheck to edit this song separately.' : 'Share this EQ and stereo setup across all songs. Cleanup stays per song.'}</small>
+          <div class="tone-audition">
+            {#if toneCompareReady}
+              <a href="#album-player">{compareToneLabel} A/B in main player ↑</a>
+            {:else}
+              <button type="button" disabled={!canCompareTone || toneCompareBusy} onclick={renderToneComparison}
+                title={presetBase?'Compare EQ, preset compression, and width at matched loudness':'Compare only EQ at matched loudness'}>{toneCompareBusy?'Preparing A/B…':'Compare '+compareToneLabel}</button>
+            {/if}
+          </div>
         </div>
         {#snippet presetControls()}
           <label>Tone preset<select bind:value={preset} onchange={loadPreset} disabled={source !== 'raw'}>
@@ -2296,7 +2321,7 @@
         </ul>
       </details>
       <details open><summary>Finalize album</summary>
-        <p>Review the full album before replacing delivery files. Raw recordings stay untouched.</p>
+        <p>Publish in one step, or review the full album first. Raw recordings stay untouched.</p>
         <div class="output-folders" aria-label="Output folders">
           {#if source === 'raw'}<span><code>mastered/</code> Processed WAV</span>{/if}
           <span><code>clean/</code> Clean WAV</span>
@@ -2306,11 +2331,11 @@
         <p>Final WAVs contain no source metadata. Saved lyrics go into the MP3 tags and a matching <code>.lrc</code> file.</p>
         {#if !writable}<p>Choose a writable storage location to process this album.</p>{/if}
         <div class="row">
-          <button class:primary={!currentReview} disabled={busy || !writable} onclick={() => runAlbum('review')}>{currentReview ? 'Review again' : 'Review album'}</button>
-          <button class:primary={Boolean(currentReview)} disabled={busy || !writable || !currentReview} onclick={() => runAlbum('publish')}>Publish reviewed album</button>
+          <button class="primary" disabled={busy || !writable} onclick={() => runAlbum('publish')}>{currentReview ? 'Publish reviewed album' : 'Publish album'}</button>
+          <button disabled={busy || !writable} onclick={() => runAlbum('review')}>{currentReview ? 'Review again' : 'Review first'}</button>
           <button title="Update MP3 tags, cover art and lyrics without re-encoding audio" disabled={busy || !writable} onclick={() => runAlbum('tags')}>Update MP3 tags only</button>
         </div>
-        {#if albumReview?.scope===draftKey && !currentReview && !busy}<p role="status">Settings changed. Review again before publishing.</p>
+        {#if albumReview?.scope===draftKey && !currentReview && !busy}<p role="status">Settings changed. Publish the current settings or review again.</p>
         {:else if exportStatus}<p role="status">{exportStatus}</p>{/if}
         {#if exportError}<p class="error" role="alert">{exportError}</p>{/if}
         {#if currentReview}
@@ -2457,6 +2482,8 @@
   .tone-message{display:block;margin:.3rem 0}
   .tone-scope{display:flex;flex-wrap:wrap;align-items:center;gap:.28rem .65rem;margin:.1rem 0 .65rem;padding:.45rem .6rem;border:1px solid var(--line);border-radius:.5rem;background:var(--surface)}
   .tone-scope label{margin:0;font-weight:650}
+  .tone-audition{margin-inline-start:auto;font-size:.8rem}
+  .tone-audition a{color:var(--accent)}
   .stereo-controls{display:grid;gap:.45rem 1rem}
   .stereo-heading{position:relative;display:flex;align-items:center;gap:.35rem;font-size:.82rem}
   .stereo-width .inline-control{margin:0;min-height:1.8rem;grid-template-columns:max-content minmax(60px,1fr) 2.4rem}
@@ -2469,7 +2496,7 @@
     .tone-guardrails{border-block-start:none;padding-block-start:0;border-inline-start:1px solid var(--line);padding-inline-start:1rem}
   }
   .transport-controls{align-items:center}
-  .stereo-check-slot{margin-inline-start:auto}
+  .player-tools{display:flex;align-items:center;flex-wrap:wrap;gap:.5rem;margin-inline-start:auto}
   .review-match{margin:0;white-space:nowrap}
   .album-review{border:1px solid var(--line);border-radius:.65rem;padding:.65rem;background:var(--surface)}
   .review-summary{display:flex;align-items:center;flex-wrap:wrap;gap:.5rem 1.4rem}

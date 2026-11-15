@@ -88,7 +88,8 @@ just the selected song without changing the tone already set on the others.
 Cleanup and noise selections stay per song. The loudness settings and export selection cover the
 album, with either shared gain or per-track normalization. **Tags and artwork**
 shows every song and offers 3000 x 3000 images from the album folder. Under
-**Finalize album**, **Review album** stages a full render without replacing
+**Finalize album**, **Publish album** renders and publishes in one step.
+**Review first** is optional and stages a full render without replacing
 delivery files. Play **Reviewed WAV** in the main player, optionally match it to
 **Original** for listening only, or click a song in the review table. Reviewed
 playback advances through the album. The review shows measured album loudness,
@@ -97,7 +98,8 @@ location of any peak that capped the gain.
 
 **Publish reviewed album** moves those same files to `mastered/` (when starting
 from raw), `clean/`, `normalized/` and `mp3s/`. A change to the source, album
-settings, cover, or lyrics requires a new review. Reviews require a writable
+settings, cover, or lyrics invalidates the review. Publish the current settings
+directly or prepare a fresh review. Reviews require a writable
 location for staging and are available for up to four hours. Raw recordings
 are untouched. **Update MP3 tags only** updates tags, cover art, and lyrics on
 previously published MP3s without re-encoding them.
@@ -134,10 +136,9 @@ before/after audition changes only that fix. **Apply all** adds uncovered
 findings at the current cut, leaves skipped findings, peak warnings, and existing fixes alone, and
 offers an undo. Under **Batch audition**, **Preview all** and **Compare applied suggestions** render a
 seekable, loudness-matched pair for the full song without writing to the album.
-**Apply all** also prepares a temporary WAV for **Post Cleanup** playback. Use
-**Prepare Post Cleanup** in the main player after tweaking fixes or adding one
-at a time. This
-version includes enabled cleanup and noise removal, but no creative EQ or album
+**Apply all** also prepares a temporary WAV for **Post Cleanup** playback.
+Select **Post Cleanup** in the main player to prepare or refresh it after edits.
+It includes enabled cleanup and noise removal, but no creative EQ or album
 loudness. **Live Monitor** adds live EQ and stereo adjustments to that WAV (or
 to **Original** when no current cleanup render is available).
 **Tone & Stereo** offers **Clean** (subsonic cut only), **Clarity** (less low-mid
@@ -159,7 +160,7 @@ Legacy server presets are no longer offered for new selections in Tone &
 Stereo. Sessions that already use one still render unchanged. The original
 voicings, including Glue, remain in the separate preset library.
 
-**Compare Preset** renders **Preset Off** and **Preset On** in the main player
+Use **Compare Preset** in **Tone & Stereo** to prepare **Preset Off** and **Preset On** in the main player
 at matched loudness. It switches EQ, preset compression, and width together,
 keeping cleanup identical. **Compare EQ** for custom EQ without a preset
 switches just the EQ. The headroom readout shows true peaks before the listening
