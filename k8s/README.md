@@ -140,7 +140,9 @@ Mono). **50% strength** is the reference sound for these five presets.
 The range above 50% pushes EQ, dynamics, and width further, with the width
 control still capped at 1.50. Low cuts stay at their selected frequency above
 0%; 0% bypasses the preset completely. Saved settings keep the same sound.
-To reuse your own tone, select **Custom**, name it, and choose **Save preset**.
+**Custom** starts with the seven-band EQ template. To keep the current
+mastering preset as a starting point, choose **Customize current preset**.
+To reuse your own tone, name it and choose **Save preset**.
 Select it from **Saved in this browser**, or use its **×** to delete it without
 changing albums where it was already applied. Names and the reusable preset
 list stay in browser storage. Applying one saves the actual processing settings

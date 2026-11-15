@@ -910,7 +910,10 @@
 
   function loadPreset() {
     preferredBrowserTone = '';
-    if (!preset) return;
+    if (preset === 'customize-current') {
+      preset = '';
+      return;
+    }
     const selected = presets.find(item => item.id === preset);
     presetBase = preset;
     eqEnabled = true;
@@ -1876,6 +1879,7 @@
         {#snippet presetControls()}
           <label>Tone preset<select bind:value={preset} onchange={loadPreset} disabled={source !== 'raw'}>
             <option value="">Custom</option>
+            {#if preset}<option value="customize-current">Customize current preset</option>{/if}
             <optgroup label="Mastering">
               {#each presets.filter(item=>item.group==='curated') as item}
                 <option value={item.id}>{item.title}</option>
