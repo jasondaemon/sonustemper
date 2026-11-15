@@ -1,13 +1,15 @@
 <script lang="ts">
   import {meterPosition, type MeterChannel} from './levels';
+  import type {MonitorMetrics} from './meterMath';
 
-  let {channels, reset}: {channels:MeterChannel[]; reset:() => void} = $props();
+  let {channels, reset, metrics, resetTruePeak, unavailable}:
+    {channels:MeterChannel[]; reset:() => void; metrics:MonitorMetrics; resetTruePeak:() => void; unavailable:boolean} = $props();
   const thresholds = [-60,-54,-48,-42,-36,-33,-30,-27,-24,-21,-18,-16,-14,-12,-10,-9,-8,-7,-6,-5,-4,-3,-2,-1,0];
   const ticks = [0,-6,-12,-24,-60];
   const y = (db:number) => 130 - meterPosition(db, thresholds) * 120;
 </script>
 
-<div class="meters" role="group" aria-label="Stereo output level in dBFS">
+<div class="meters" role="group" aria-label="Monitor levels">
   <div class="meter-face" aria-hidden="true">
   <svg viewBox="0 0 80 136" preserveAspectRatio="none">
     {#each ticks as tick}
@@ -33,6 +35,14 @@
   <button type="button" class:over={channels.some(item => item.clipped)} onclick={reset}
     aria-label={channels.some(item => item.clipped) ? `Reset clipping: ${channels.filter(item => item.clipped).map(item => item.label).join(' and ')} channel` : 'Reset peak hold'}
     title="Reset peak hold and clip lights">{channels.some(item => item.clipped) ? 'CLIP' : 'dBFS'}</button>
+  <div class="extended-readouts" aria-live="off" title={unavailable ? 'Extended metering is unavailable in this browser connection' : undefined}>
+    <div class="readout"><span>Short LUFS</span><strong aria-label="Short-term loudness"
+      title="Loudness over the last three seconds of playback">{metrics.loudness?.toFixed(1) ?? '—'}</strong></div>
+    <button type="button" class="readout" class:over={(metrics.truePeak ?? -1)>=0} onclick={resetTruePeak}
+      aria-label="Reset monitor true peak hold" title="Highest estimated monitor true peak; click to reset">
+      <span>dBTP hold</span><strong>{metrics.truePeak?.toFixed(1) ?? '—'}</strong>
+    </button>
+  </div>
 </div>
 
 <style>
@@ -53,4 +63,9 @@
   button{font:700 .65rem ui-monospace,monospace;letter-spacing:.04em;color:var(--muted);border:0;border-radius:.25rem;background:none;padding:.16rem;cursor:pointer}
   button:hover{background:var(--surface-hover);color:var(--text)}
   button.over{color:var(--danger);background:var(--danger-soft)}
+  .extended-readouts{border-top:1px solid var(--line);display:grid;gap:.06rem;padding-top:.22rem}
+  .readout{display:flex;justify-content:space-between;align-items:baseline;gap:.14rem;padding:.12rem 0;width:100%;white-space:nowrap;
+    font:.56rem ui-monospace,monospace;color:var(--muted);letter-spacing:0}
+  .readout strong{font-size:.65rem;color:var(--text);font-variant-numeric:tabular-nums}
+  .readout.over strong{color:var(--danger)}
 </style>

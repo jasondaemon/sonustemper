@@ -2,6 +2,7 @@
   import { onMount, tick, untrack } from 'svelte';
   import EqPanel from './EqPanel.svelte';
   import StereoMeter from './StereoMeter.svelte';
+  import StereoCheck from './StereoCheck.svelte';
   import RepairTimeline from './RepairTimeline.svelte';
   import CleanupQueue from './CleanupQueue.svelte';
   import ScopedSpectrogram from './ScopedSpectrogram.svelte';
@@ -9,6 +10,7 @@
   import {defaultNoise, savedNoise, type NoiseSelection, type NoiseSettings} from './noiseSelections';
   import {defaultFindingCut, findingKey, findingPlan, findingTitle, isNoiseFinding, maxRepairs, noiseForFinding, overlappingFix, rangeLabel, repairBand, repairTypes, reviewItems, timeLabel, type Analysis, type Finding, type Range, type Repair, type RepairKind, type ReviewItem} from './repairs';
   import {advanceMeter, emptyMeters} from './levels';
+  import {emptyMonitorMetrics} from './meterMath';
   import {monitor, activeBand, filterNode, spectrumPath, defaultBands, type Band} from './monitor';
   type Preset = {id: string; title: string; bands: Band[]; width?: number; meta: {tags?: string[]}};
   type LoudnessProfile = {name: string; origin: string; meta: {title: string; lufs: number | null; tp: number | null; category?: string; order?: number}};
@@ -25,7 +27,11 @@
   let strength = $state(100), width = $state(1), guardrails = $state(true);
   let waveform = $state<HTMLDivElement>();
   let waveError = $state(false);
-  type Result = {track: string; mp3: string; lufs: number; true_peak: number; mp3_true_peak: number; mp3_peak_warning: boolean};
+  type Result = {track: string; mp3: string; lufs: number; lra?:number|null; true_peak: number; mp3_true_peak: number; mp3_peak_warning: boolean};
+  type LoudnessReading = {lufs:number|null;lra:number|null};
+  type TrackLoudness = {source:LoudnessReading;final:LoudnessReading|null;final_status?:string};
+  let albumMeasurement = $state<{key:string;busy:boolean;rows:Record<string,TrackLoudness|string>}>();
+  let measureVersion=0;
   type AlbumJob = {status:string;stage:string;track?:string;track_number?:number;error?:string;results?:Result[]};
   type Folder = {name:string; playable:boolean; pending:number|null};
   type Cover = {name:string; size:number};
@@ -135,6 +141,8 @@
   let monitorMedia:HTMLAudioElement | undefined;
   let spectrum = $state(''), eqCurve = $state(''), scopePath = $state('');
   let meterChannels = $state(emptyMeters());
+  let monitorMetrics = $state(emptyMonitorMetrics());
+  let metersUnavailable = $state(false), monitorMono = $state(false);
   let outputClipped = $derived(meterChannels.some(channel => channel.clipped));
   let animation = 0;
   let selectionVersion = 0;
@@ -164,6 +172,7 @@
   let sessionSyncFailed = $state<Record<string, boolean>>({});
   const sessionSaves = new Map<string, {body:string; timer?:ReturnType<typeof setTimeout>; saving?:boolean}>();
   let draftKey = $derived('sonustemper:album:' + JSON.stringify([location, artist, album, source]));
+  let measurement = $derived(albumMeasurement?.key===draftKey ? albumMeasurement : undefined);
   let albumSettings = $derived({balance, lufs, peak, artist:artistTag, album_artist:albumArtist,
     album:albumTag, cover, year, sidecar, profile});
   function copy<T>(value:T):T {return JSON.parse(JSON.stringify(value));}
@@ -526,6 +535,7 @@
   }
 
   async function selectStage(preferredTrack?: string) {
+    measureVersion++;albumMeasurement=undefined;
     readyDraftKey=''; defaults=undefined; overrides={}; tagEdits={}; shareTone=false;
     balance='album'; profile='guiding-night'; selectProfile();
     year=new Date().getFullYear(); sidecar=false;
@@ -560,7 +570,7 @@
     noiseMode=''; sourceDuration=0; playhead=0; cursor=undefined; selection=undefined;
     dragStart=undefined;draggingNoise=false;
     specStart=0; specZoom=1; specWidth=1200;
-    playbackMode='original';meterChannels=emptyMeters();scopePath='';
+    playbackMode='original';resetMonitor();metersUnavailable=false;
     analysis=undefined; analyzeBusy=false; cleanupError=''; postError=''; toneCompareError=''; activeFinding=undefined; activeRepair=''; repairRange=undefined; loopRange=false;customRepairOpen=false;
     appliedMessage='';lastApplied=undefined;
     ignoredFindings=[];
@@ -989,9 +999,24 @@
     eqCurve = drawCurve(audio?.context ?? curveContext(),[...(cleanupVersion === 1 ? voiceBands : []), ...toneBands]);
   });
 
+  $effect(() => {engine?.setMono(monitorMono);});
+
+  function resetMonitor() {
+    meterChannels=emptyMeters();monitorMetrics=emptyMonitorMetrics();scopePath='';
+    engine?.resetMetrics();
+  }
+
+  function resetTruePeak() {
+    monitorMetrics={...monitorMetrics,truePeak:null};
+    engine?.resetMetrics(true);
+  }
+
   function startMonitoring() {
     if (!player) return;
-    if (monitorMedia !== player) {engine?.close(); engine=monitor(player,sourceRate);monitorMedia=player;}
+    if (monitorMedia !== player) {
+      engine?.close();metersUnavailable=false;monitorMedia=player;
+      engine=monitor(player,sourceRate,metrics=>monitorMetrics=metrics,()=>metersUnavailable=true);
+    }
     void engine?.context.resume();
     cancelAnimationFrame(animation);
     const audio = engine;
@@ -1281,6 +1306,24 @@
     } finally {noiseBusy=false;}
   }
 
+  async function measureAlbumLoudness() {
+    const key=draftKey, version=++measureVersion, albumKeys={...keys}, names=[...tracks];
+    albumMeasurement={key,busy:true,rows:{}};
+    const isCurrent=()=>draftKey===key && version===measureVersion && albumMeasurement?.key===key;
+    try {
+      for (const name of names) {
+        if (!isCurrent()) return;
+        const query=new URLSearchParams({...albumKeys,track:name});
+        let row:TrackLoudness|string;
+        try {row=await api<TrackLoudness>('track-loudness?'+query);}
+        catch (cause) {row=cause instanceof Error ? cause.message : String(cause);}
+        if (isCurrent() && albumMeasurement) albumMeasurement.rows[name]=row;
+      }
+    } finally {
+      if (isCurrent() && albumMeasurement) albumMeasurement.busy=false;
+    }
+  }
+
   async function runAlbum(tagsOnly = false) {
     if (busy || !writable || !tracks.length) return;
     const request = copy({...settings, replace:!tagsOnly, metadata_only:tagsOnly});
@@ -1299,6 +1342,7 @@
         if (job.status === 'complete') {
           if (draftKey === jobKey) {
             results = job.results || [];
+            if (!tagsOnly) {measureVersion++;albumMeasurement=undefined;}
             try { await refreshLibrary(); }
             catch { if (draftKey === jobKey) exportError = 'Files were saved, but the library could not refresh.'; }
             if (draftKey === jobKey) exportStatus = tagsOnly ? 'MP3 tags updated.' : 'Album processed. All outputs published.';
@@ -1430,11 +1474,12 @@
               {#key cleanupSong}
                 <audio controls preload="metadata" bind:this={player} onloadedmetadata={() => {if (playbackURL===audioURL && player) sourceDuration=player.duration;}}
                   ontimeupdate={updatePlayhead} onplay={startMonitoring} onended={()=>repeatComparisonPassage(true)}
-                  onemptied={() => {meterChannels=emptyMeters();scopePath='';}} onerror={onPlaybackError} src={playbackURL}></audio>
+                  onemptied={resetMonitor} onerror={onPlaybackError} src={playbackURL}></audio>
               {/key}
             {:else}<small role="status">Loading audio…</small>{/if}
           </div>
-          <StereoMeter channels={meterChannels} reset={() => meterChannels=emptyMeters()} />
+          <StereoMeter channels={meterChannels} reset={() => meterChannels=emptyMeters()} metrics={monitorMetrics}
+            {resetTruePeak} unavailable={metersUnavailable}/>
         </div>
         <div class="row transport-controls">
           <button aria-pressed={compactPlayer} onclick={() => compactPlayer=!compactPlayer}>{compactPlayer ? "Expand player" : "Compact player"}</button>
@@ -1452,6 +1497,8 @@
           {:else if !postReady && canRenderCleanup}
             <button type="button" onclick={renderPostCleanup} title="Prepare a WAV with cleanup and noise removal, without EQ or loudness changes">{cleanupAudio[cleanupSong]?'Update Post Cleanup':'Prepare Post Cleanup'}</button>
           {:else if !playingCompare && !noiseMode && audibleMode==='live'}<small>Live EQ on {postReady?'Post Cleanup':'Original'}</small>{/if}
+          <div class="stereo-check-slot"><StereoCheck correlation={monitorMetrics.correlation} mono={monitorMono}
+            toggle={()=>monitorMono=!monitorMono} unavailable={metersUnavailable}/></div>
         </div>
         {#if postError}<p class="error" role="alert">{postError}</p>{/if}
         {#if toneCompareError}<p class="error" role="alert">{toneCompareError}</p>{/if}
@@ -1857,6 +1904,39 @@
           <p>This profile requests a positive true peak. WAV export caps the ceiling at 0 dBTP.</p>
         {/if}
         <p>Static gain respects the WAV peak ceiling. The results report decoded MP3 peaks separately.</p>
+        <div class="loudness-readings">
+          <div class="fix-heading">
+            <h3>Full-song loudness</h3>
+            <button type="button" disabled={measurement?.busy || busy} onclick={measureAlbumLoudness}>
+              {measurement?.busy ? `Measuring… ${Object.keys(measurement.rows).length}/${tracks.length}` : 'Measure full songs'}
+            </button>
+          </div>
+          <small>Measures the source and any final WAV on disk. Unsaved or unrendered adjustments and playback loops don’t affect these readings.</small>
+          {#if measurement || results.some(result=>Number.isFinite(result.lufs))}
+            <div class="album-tags-scroll">
+              <table aria-label="Full-song loudness" class="loudness-table">
+                <thead><tr><th scope="col">Song</th><th scope="col">Source LUFS</th><th scope="col">Source LRA</th>
+                  <th scope="col">Final WAV LUFS</th><th scope="col">Final WAV LRA</th></tr></thead>
+                <tbody>
+                  {#each tracks as name,index (name)}
+                    {@const row=measurement?.rows[name]}
+                    {@const exported=results.find(item=>item.track===name && Number.isFinite(item.lufs))}
+                    {@const final=typeof row==='object' ? row.final : exported}
+                    <tr><th scope="row">{songTags(name,index).title || name}</th>
+                      {#if typeof row==='string'}<td colspan="4">{row}</td>
+                      {:else}
+                        <td>{row?.source.lufs?.toFixed(1) ?? '—'}</td><td>{row?.source.lra?.toFixed(1) ?? '—'}</td>
+                        {#if row?.final_status}<td colspan="2">{row.final_status}</td>
+                        {:else}<td>{final?.lufs?.toFixed(1) ?? '—'}</td><td>{final?.lra?.toFixed(1) ?? '—'}</td>{/if}
+                      {/if}
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div>
+            <small>LUFS is integrated loudness. LRA is loudness range, in LU.</small>
+          {/if}
+        </div>
       </details>
       <details><summary>Tags and artwork</summary>
         <div class="album-tag-fields"><label>Album<input bind:value={albumTag}></label><label>Album artist<input bind:value={albumArtist}></label><label>Artist<input bind:value={artistTag}></label><label>Year<input type="number" min="1" max="9999" bind:value={year}></label></div>
@@ -1924,7 +2004,7 @@
         {#if exportStatus}<p role="status">{exportStatus}</p>{/if}
         {#if exportError}<p class="error" role="alert">{exportError}</p>{/if}
         {#each results as item}
-          <div class="result"><strong>{item.track}</strong><span>{item.lufs} LUFS · WAV {item.true_peak} dBTP · MP3 {item.mp3_true_peak} dBTP{item.mp3_peak_warning ? ' · above ceiling' : ''}</span><small>{item.mp3}</small></div>
+          <div class="result"><strong>{item.track}</strong><span>{item.lufs} LUFS{item.lra!=null ? ` · ${item.lra} LU range` : ''} · WAV {item.true_peak} dBTP · MP3 {item.mp3_true_peak} dBTP{item.mp3_peak_warning ? ' · above ceiling' : ''}</span><small>{item.mp3}</small></div>
         {/each}
       </details>
     {/if}
@@ -2018,6 +2098,7 @@
   .tone-scope{display:flex;flex-wrap:wrap;align-items:center;gap:.28rem .65rem;margin:.1rem 0 .65rem;padding:.45rem .6rem;border:1px solid var(--line);border-radius:.5rem;background:var(--surface)}
   .tone-scope label{margin:0;font-weight:650}
   .transport-controls{align-items:center}
+  .stereo-check-slot{margin-inline-start:auto}
   .player-comparison{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.35rem;background:var(--accent-soft);color:var(--text);border:1px solid var(--line);border-radius:.45rem;padding:.42rem .6rem;font-size:.8rem}
   .player-comparison button{font-size:inherit;padding:.25rem .4rem}
   .eq-comparison{display:grid;gap:.3rem;margin:.35rem 0;padding:.48rem .6rem;border:1px solid var(--line);border-radius:.45rem;background:var(--surface)}
@@ -2025,7 +2106,7 @@
   .transport-controls button{font-size:.83rem;padding:.42rem .6rem}
   details{padding:.85rem 1rem;margin:.65rem 0}
   summary{cursor:pointer;font-weight:650;padding:.25rem 0} details[open] summary{margin-bottom:.65rem}
-  .player-panel{display:grid;grid-template-columns:minmax(0,1fr) clamp(3.8rem,8vw,5rem);gap:.55rem}
+  .player-panel{display:grid;grid-template-columns:minmax(0,1fr) 5.85rem;gap:.55rem}
   .player-audio{min-width:0}
   .wave-stack{position:relative;overflow:hidden;border-radius:.7rem;margin-bottom:.35rem}.scope{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
   .repair-overlay{position:absolute;inset-block:0;pointer-events:none;background:var(--accent-soft);opacity:.42;border-inline:1px solid var(--accent)}
@@ -2106,8 +2187,13 @@
   .prompt-toolbar{margin:.35rem 0 .7rem}
   @media(max-width:600px){.album-tag-fields{grid-template-columns:repeat(2,minmax(0,1fr))}.album-track-tags{min-width:23rem}}
   .transport.compact .wave-stack,.transport.compact .repair-timeline{display:none}
-  .transport.compact .player-panel{height:6rem;align-items:stretch}
-  .transport.compact .player-audio{align-self:end}
+  .transport.compact .player-panel{height:8rem;align-items:stretch}
+  .transport.compact .player-audio{align-self:center}
+  .loudness-readings{border-top:1px solid var(--line);margin-top:.65rem;padding-top:.55rem}
+  .loudness-readings h3{margin:.25rem 0;font-size:.9rem}
+  .loudness-table{width:100%;border-collapse:collapse;font-size:.82rem;margin:.5rem 0 .28rem}
+  .loudness-table th,.loudness-table td{padding:.4rem .5rem;border-bottom:1px solid var(--line);text-align:right;font-variant-numeric:tabular-nums}
+  .loudness-table th:first-child{text-align:left}
   .transport.compact h1{font-size:1.15rem;letter-spacing:0}
   .transport.compact p{margin:.2rem 0}
   .stage-toggle{width:auto;margin-left:.45rem;vertical-align:middle}

@@ -9,6 +9,7 @@ import sqlite3
 import subprocess
 import tempfile
 from itertools import groupby
+from functools import lru_cache
 from pathlib import Path
 from threading import Lock
 
@@ -136,6 +137,35 @@ def metrics(path: Path) -> tuple[float, float]:
     if loudness is None or peak is None or not all(map(math.isfinite, (loudness, peak))):
         raise ValueError(f"Could not measure loudness for {path.name}")
     return loudness, peak
+
+
+def _stamp(path: Path) -> tuple[int, int, int]:
+    stat = path.stat()
+    return stat.st_size, stat.st_mtime_ns, stat.st_ino
+
+
+@lru_cache(maxsize=512)
+def file_loudness(path: Path, stamp: tuple[int, int, int]) -> dict:
+    measured = measure_loudness(path)
+    if _stamp(path) != stamp:
+        raise ValueError("Audio changed during measurement")
+    if measured.get("I") is None:
+        raise ValueError("Loudness could not be measured")
+    return {"lufs": measured["I"] if measured.get("TP") is not None else None, "lra": measured.get("LRA")}
+
+
+def track_loudness(album: Path, track: Path) -> dict:
+    matches = [path for path in wavs(album, "normalized") if DELIVERY_SUFFIX.sub("", path.stem) == track.stem]
+    source = file_loudness(track, _stamp(track))
+    if len(matches) > 1:
+        return {"source": source, "final": None, "final_status": "Multiple final WAVs"}
+    if not matches:
+        return {"source": source, "final": None, "final_status": "No final WAV"}
+    final = matches[0]
+    try:
+        return {"source": source, "final": file_loudness(final, _stamp(final))}
+    except (OSError, RuntimeError, ValueError):
+        return {"source": source, "final": None, "final_status": "Final WAV unavailable"}
 
 
 def digest(path: Path) -> str:
@@ -510,14 +540,17 @@ def render_cleanup_audio(track: Path, target: Path, settings: dict) -> None:
     process_album_track(track, target, data)
 
 
-def normalize(clean: Path, output: Path, gain: float, ceiling: float) -> tuple[float, float]:
+def normalize(clean: Path, output: Path, gain: float, ceiling: float) -> tuple[float, float, float | None]:
     # Write a fresh PCM WAV, without source tags or generated ancillary metadata.
     ffmpeg(clean, output, "-af", f"volume={gain:.6f}dB", "-c:a", "pcm_s24le", "-bitexact",
            "-write_bext", "0", "-write_peak", "0")
-    lufs, peak = metrics(output)
+    measured = measure_loudness(output)
+    lufs, peak = measured.get("I"), measured.get("TP")
+    if lufs is None or peak is None or not all(map(math.isfinite, (lufs, peak))):
+        raise ValueError(f"Could not measure loudness for {output.name}")
     if peak > ceiling + 0.1:
         raise ValueError(f"{clean.name} exceeds the WAV true-peak ceiling")
-    return lufs, peak
+    return lufs, peak, measured.get("LRA")
 
 
 def encode_mp3(source: Path, output: Path) -> None:
@@ -725,7 +758,7 @@ def render_album(album: Path, tracks: list[Path], settings: dict, report=lambda 
                 ffmpeg(clean, work / "clean" / clean.name, "-af", f"volume={clean_gain:.6f}dB",
                        "-c:a", "pcm_s24le", "-bitexact")
             normalized = work / "normalized" / clean.name
-            lufs, peak = normalize(clean, normalized, gain, ceiling)
+            lufs, peak, lra = normalize(clean, normalized, gain, ceiling)
             stem = f"{clean.stem} (Integrated {lufs:.1f} LUFS, True Peak {peak:.1f} dB, Channel STEREO)"
             named = normalized.with_name(stem + ".wav")
             normalized.rename(named)
@@ -739,7 +772,7 @@ def render_album(album: Path, tracks: list[Path], settings: dict, report=lambda 
             if sidecar:
                 files.append(f"mp3s/{sidecar.name}")
             outputs.append({"track": clean.name, "wav": named.name, "mp3": mp3.name,
-                            "lufs": lufs, "true_peak": peak, "mp3_true_peak": mp3_peak,
+                            "lufs": lufs, "lra": lra, "true_peak": peak, "mp3_true_peak": mp3_peak,
                             "mp3_peak_warning": mp3_peak > ceiling,
                             "source": stage, "source_sha256": fingerprints[clean.name], "files": files,
                             "output_sha256": {path: digest(work / path) for path in files}})

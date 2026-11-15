@@ -30,6 +30,7 @@ router = APIRouter()
 worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="album-render")
 logger = logging.getLogger(__name__)
 compare_slots = BoundedSemaphore(2)
+loudness_slots = BoundedSemaphore(2)
 
 
 class Band(BaseModel):
@@ -328,6 +329,21 @@ def source_audio_info(location: str, artist_folder: str, album_folder: str, sour
     album = resolve_album(location, artist_folder, album_folder)
     info = _ai_tool_audio_info(selected_tracks(album, source, [track])[0])
     return {"sample_rate": info.get("sample_rate")}
+
+
+@router.get("/api/albums/track-loudness")
+def read_track_loudness(location: str, artist_folder: str, album_folder: str, source: str, track: str):
+    album = resolve_album(location, artist_folder, album_folder)
+    path = selected_tracks(album, source, [track])[0]
+    if not loudness_slots.acquire(blocking=False):
+        raise HTTPException(429, "Other songs are being measured. Try again in a moment.")
+    try:
+        return workflow.track_loudness(album, path)
+    except (OSError, RuntimeError, ValueError) as exc:
+        logger.warning("Loudness measurement failed for %s: %s", path.name, exc)
+        raise HTTPException(422, "Could not measure that WAV") from exc
+    finally:
+        loudness_slots.release()
 
 
 @router.get("/api/albums/spectrogram")

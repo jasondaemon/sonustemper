@@ -1,3 +1,8 @@
+/// <reference types="vite/client" />
+import meterURL from './meter.worklet.ts?worker&url';
+import type {MonitorMetrics} from './meterMath';
+import type {MeterMessage} from './meter.worklet';
+
 export type Band = {type: string; freq_hz: number; gain_db: number; q: number; enabled?: boolean};
 
 export function activeBand(band: Band, rate: number) {
@@ -32,7 +37,8 @@ export function filterNode(context: BaseAudioContext, band: Band) {
   return node;
 }
 
-export function monitor(media: HTMLAudioElement, sampleRate?:number) {
+export function monitor(media: HTMLAudioElement, sampleRate:number|undefined, report:(metrics:MonitorMetrics)=>void,
+                        unavailable:()=>void) {
   const context = openContext(sampleRate);
   const input = context.createMediaElementSource(media);
   const analyser = context.createAnalyser();
@@ -42,15 +48,52 @@ export function monitor(media: HTMLAudioElement, sampleRate?:number) {
   const stereo = context.createGain();
   stereo.channelCount = 2;
   stereo.channelCountMode = 'explicit';
+  const dry=context.createGain(), mono=context.createGain(), half=context.createGain();
+  const stereoSplit=context.createChannelSplitter(2), folded=context.createChannelMerger(2);
+  mono.gain.value=0;half.gain.value=.5;
+  stereo.connect(dry).connect(analyser);
+  stereo.connect(stereoSplit);
+  stereoSplit.connect(half,0);
+  stereoSplit.connect(half,1);
+  half.connect(folded,0,0);
+  half.connect(folded,0,1);
+  folded.connect(mono).connect(analyser);
   const splitter = context.createChannelSplitter(2);
-  analyser.connect(stereo);
-  stereo.connect(splitter);
+  analyser.connect(splitter);
   const channels = [context.createAnalyser(), context.createAnalyser()];
   const samples = new Float32Array(2048);
   for (const [index, channel] of channels.entries()) {
     channel.fftSize = samples.length;
     splitter.connect(channel, index);
   }
+  let meter:AudioWorkletNode|undefined, meterOutput:GainNode|undefined, meterEpoch=0, closed=false;
+  let meterActive=!media.paused && media.readyState>=3;
+  const send=(message:MeterMessage)=>meter?.port.postMessage(message);
+  const setActive=(active:boolean)=>{meterActive=active;send({active});};
+  const play=()=>setActive(true), stop=()=>setActive(false);
+  const stopEvents=['pause','waiting','ended','emptied'];
+  media.addEventListener('playing',play);
+  for (const event of stopEvents) media.addEventListener(event,stop);
+  void (async()=>{
+    try {
+      await context.audioWorklet.addModule(meterURL);
+      if (closed) return;
+      meter=new AudioWorkletNode(context,'studio-meter',{numberOfInputs:2,numberOfOutputs:1,
+        outputChannelCount:[1],channelCount:2,channelCountMode:'explicit'});
+      meter.port.onmessage=({data}:MessageEvent<{epoch:number;metrics:MonitorMetrics}>)=>{
+        if (!closed && data.epoch===meterEpoch) report(data.metrics);
+      };
+      stereo.connect(meter,0,0);
+      analyser.connect(meter,0,1);
+      meterOutput=context.createGain();
+      meterOutput.gain.value=0;
+      meter.connect(meterOutput).connect(context.destination);
+      send({epoch:meterEpoch});
+      send({active:meterActive});
+    } catch {
+      if (!closed) unavailable();
+    }
+  })();
   type Path = {entry:AudioNode; mix:GainNode; nodes:AudioNode[]; filters:(IIRFilterNode|BiquadFilterNode)[]; timer?:ReturnType<typeof setTimeout>};
   let path:Path|undefined;
   const paths = new Set<Path>();
@@ -63,6 +106,11 @@ export function monitor(media: HTMLAudioElement, sampleRate?:number) {
   }
   return {
     context, analyser,
+    setMono(enabled:boolean) {
+      dry.gain.setTargetAtTime(enabled?0:1,context.currentTime,.008);
+      mono.gain.setTargetAtTime(enabled?1:0,context.currentTime,.008);
+    },
+    resetMetrics(peakOnly=false) {send({epoch:++meterEpoch,peakOnly});},
     readPeaks(peaks: number[]) {
       for (const [index, channel] of channels.entries()) {
         channel.getFloatTimeDomainData(samples);
@@ -110,7 +158,7 @@ export function monitor(media: HTMLAudioElement, sampleRate?:number) {
         tail = merge;
       }
       tail.connect(mix);
-      mix.connect(analyser);
+      mix.connect(stereo);
       const previous = path;
       path = {entry,mix,nodes,filters};
       paths.add(path);
@@ -129,7 +177,20 @@ export function monitor(media: HTMLAudioElement, sampleRate?:number) {
       } else if (previous) disconnect(previous);
       input.connect(entry);
     },
-    close() { paths.forEach(disconnect); void context.close(); }
+    close() {
+      closed=true;
+      media.removeEventListener('playing',play);
+      for (const event of stopEvents) media.removeEventListener(event,stop);
+      if (meter) {
+        stereo.disconnect(meter);
+        analyser.disconnect(meter);
+        meter.disconnect();
+        meter.port.close();
+      }
+      meterOutput?.disconnect();
+      paths.forEach(disconnect);
+      void context.close();
+    }
   };
 }
 

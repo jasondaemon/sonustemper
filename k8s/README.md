@@ -137,6 +137,12 @@ this listening gain. Neither preview changes the album's loudness settings.
 Drag a range on the cleanup timeline to loop it in the comparison. Live Monitor
 uses EQ and width only; use **Compare EQ** to hear the FFmpeg tone chain with
 preset dynamics before album loudness normalization.
+The player meter also shows three-second short-term LUFS and an estimated
+monitor true-peak hold. Click the true-peak readout to reset it. **Mono**
+folds playback only; the correlation meter always uses the stereo signal
+before that fold. **Measure full songs** under **Album loudness** measures
+integrated LUFS and loudness range on the actual source and final WAV files.
+Playback, loops and unrendered processing changes do not affect that summary.
 New sessions
 run noise removal and repairs before **Tone & Stereo** (presets or custom EQ),
 then measure loudness for delivery. Older sessions retain their original order

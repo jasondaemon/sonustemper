@@ -9,7 +9,7 @@ import unittest
 from sonustemper.album_cleanup import analyze, combine_noise_chains, repair_filter
 from sonustemper.album_workflow import (
     compare_repair, compare_song_repairs, compare_tone, metrics, process_album_track, render_album,
-    render_cleanup_audio, repair_batches, wavs,
+    render_cleanup_audio, repair_batches, track_loudness, wavs,
 )
 from sonustemper.master_pack import _eq_filter_for_band
 
@@ -26,6 +26,35 @@ def amplitude(path, start, frequency):
 
 @unittest.skipUnless(shutil.which("ffmpeg"), "FFmpeg is required")
 class AlbumCleanupTests(unittest.TestCase):
+    def test_full_song_loudness_reads_input_and_final_and_remeasures_replaced_audio(self):
+        with tempfile.TemporaryDirectory() as directory:
+            album = Path(directory)
+            (album / "raw").mkdir()
+            (album / "normalized").mkdir()
+            track = album / "raw" / "Song.wav"
+            final = album / "normalized" / "Song (Integrated -40 LUFS, True Peak -20 dB, Channel STEREO).wav"
+            subprocess.run([
+                "ffmpeg", "-v", "error", "-f", "lavfi", "-i",
+                r"aevalsrc=0.08*sin(2*PI*1000*t)*if(lt(t\,8)\,1\,3):s=48000:d=16",
+                "-ac", "2", "-c:a", "pcm_s24le", str(track),
+            ], check=True)
+            self.assertIsNone(track_loudness(album, track)["final"])
+
+            def deliver(gain):
+                subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(track), "-af",
+                                f"volume={gain}dB", "-c:a", "pcm_s24le", str(final)], check=True)
+                return track_loudness(album, track)
+
+            original = track.read_bytes()
+            a, b = deliver(3), deliver(6)
+            self.assertGreater(a["source"]["lra"], 7)
+            self.assertAlmostEqual(a["final"]["lufs"]-a["source"]["lufs"], 3, delta=.15)
+            self.assertAlmostEqual(b["final"]["lufs"]-a["final"]["lufs"], 3, delta=.15)
+            self.assertAlmostEqual(b["final"]["lra"], a["source"]["lra"], delta=.15)
+            self.assertEqual(track.read_bytes(), original)
+            shutil.copyfile(final, album / "normalized" / "Song.wav")
+            self.assertEqual(track_loudness(album, track)["final_status"], "Multiple final WAVs")
+
     def test_eq_ab_matches_level_keeps_cleanup_and_renders_notch(self):
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)

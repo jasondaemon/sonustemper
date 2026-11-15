@@ -764,10 +764,12 @@ def generate_preset_from_reference(ref_path: Path, name_slug: str) -> Path:
 
 def measure_loudness(wav_path: Path) -> dict:
     r = run_ffmpeg([
-        FFMPEG_BIN, "-hide_banner", "-nostats", "-i", str(wav_path),
+        FFMPEG_BIN, "-nostdin", "-hide_banner", "-nostats", "-i", str(wav_path),
         "-filter_complex", "ebur128=peak=true", "-f", "null", "-"
     ], stage="ebur128")
     txt = (r.stderr or "") + "\n" + (r.stdout or "")
+    if r.returncode:
+        return {"error":"ebur128_failed","raw_tail":txt[-2500:]}
 
     flags = re.IGNORECASE
 
