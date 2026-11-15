@@ -2,6 +2,9 @@
   import { onMount } from 'svelte';
   import EqPanel from './EqPanel.svelte';
   import StereoMeter from './StereoMeter.svelte';
+  import RepairTimeline from './RepairTimeline.svelte';
+  import VoiceControls from './VoiceControls.svelte';
+  import {rangeLabel, repairBand, repairColors, repairTypes, timeLabel, type Analysis, type Finding, type Range, type Repair, type RepairKind} from './repairs';
   import {advanceMeter, emptyMeters} from './levels';
   import {monitor, filterNode, spectrumPath, defaultBands, type Band} from './monitor';
   type Preset = {id: string; title: string; bands: Band[]; width?: number; meta: {tags?: string[]}};
@@ -72,6 +75,14 @@
   let results = $state<Result[]>([]);
   let exportStatus = $state(''), exportError = $state('');
   let cleanupEnabled = $state(false), eqEnabled = $state(false), noiseEnabled = $state(false);
+  let cleanupVersion = $state<1|2>(2), repairs = $state<Repair[]>([]);
+  let repairRange = $state<Range>(), activeFinding = $state<Finding>(), activeRepair = $state('');
+  let manualKind = $state<RepairKind>('presence'), loopRange = $state(false);
+  let analysis = $state<Analysis>(), analyzeBusy = $state(false), cleanupError = $state('');
+  let compareBusy = $state(false), comparePlayer = $state<HTMLAudioElement>();
+  let compareResult = $state<{before:string;after:string;start:number;key:string}>();
+  let compareSide = $state<'before'|'after'>('after');
+  let compareOffset = 0, compareResume = false;
   let voiceControls = $state({
     deesser:{enabled:false,freq_hz:6500,amount_db:0},
     vocal_smooth:{enabled:false,freq_hz:4500,amount_db:0},
@@ -103,7 +114,6 @@
   let outputClipped = $derived(meterChannels.some(channel => channel.clipped));
   let animation = 0;
   let selectionVersion = 0;
-  let findings = $state<{summary:string;suggested_tool_id:string;suggested_value?:number;recommended_settings?:Record<string,number|boolean>}[]>([]);
   let writable = $derived(locations.find(item => item.name === location)?.writable);
   let tagEdits = $state<Record<string,{title:string;number:string}>>({});
   let keys = $derived({location, artist_folder: artist, album_folder: album, source});
@@ -112,7 +122,7 @@
   let processing = $derived({
     preset:presetBase, bands, voicing_enabled:eqEnabled, voice_controls:voiceControls,
     cleanup_enabled:cleanupEnabled, corrections, noise_enabled:noiseEnabled, noise,
-    strength, stereo_width:width, guardrails
+    strength, stereo_width:width, guardrails, cleanup_version:cleanupVersion, repairs
   });
   type Processing = typeof processing;
   type Draft = {defaults:Processing; overrides:Record<string,Processing>; tags:typeof tagEdits;
@@ -127,7 +137,7 @@
   function copy<T>(value:T):T {return JSON.parse(JSON.stringify(value));}
   const initialProcessing = {preset:'', bands:defaultBands(), voicing_enabled:false,
     voice_controls:{}, cleanup_enabled:false, corrections:{}, noise_enabled:false,
-    noise:defaultNoise, strength:100, stereo_width:1, guardrails:true} as Processing;
+    noise:defaultNoise, strength:100, stereo_width:1, guardrails:true, cleanup_version:2, repairs:[]} as Processing;
   let trackCustom = $derived(Boolean(track && inherited && JSON.stringify(processing) !== inherited));
   let effectiveOverrides = $derived.by(() => {
     const saved = {...overrides};
@@ -141,6 +151,9 @@
     tags:draft.tags, track_overrides:effectiveOverrides});
   let previewSettings = $derived({...settings,audition_track:track,audition_format:auditionFormat});
   let currentKey = $derived(JSON.stringify(previewSettings));
+  let compareKey = $derived(JSON.stringify({...keys,track,processing,activeRepair}));
+  let repairDuration = $derived(analysis?.duration ?? sourceDuration);
+  let selectedFix = $derived(repairs.find(item => item.id === activeRepair));
   let canAudition = $derived(Boolean(previewURL && previewKey === currentKey));
   let audioURL = $derived(track ? '/api/albums/audio?' + new URLSearchParams({...keys, track}) : '');
 
@@ -255,6 +268,8 @@
 
   function loadProcessing(value:Processing) {
     const draft = copy(value);
+    cleanupVersion = draft.cleanup_version ?? 1;
+    repairs = draft.repairs ?? [];
     presetBase = draft.preset;
     bands = draft.bands;
     const presetBands = presets.find(item=>item.id===draft.preset)?.bands;
@@ -284,13 +299,25 @@
 
   function applyToAlbum() {
     const otherEdits = tracks.some(item => item !== track && overrides[item]);
-    if (otherEdits && !confirm('Replace the other tracks’ custom processing with these settings?')) return;
+    if (otherEdits && !confirm('Replace other songs’ whole-song processing? Their selected ranges will stay in place.')) return;
     const current = copy(processing);
     const trackOnlyNoise = current.noise_enabled && current.noise.apply_scope === 'selection';
-    defaults = trackOnlyNoise ? {...current, noise_enabled:false, noise:{...defaultNoise}} : current;
-    overrides = trackOnlyNoise ? {[track]:current} : {};
+    const global = {...current, repairs:current.repairs.filter(fix => fix.end === null)};
+    defaults = trackOnlyNoise ? {...global, noise_enabled:false, noise:{...defaultNoise}} : global;
+    const next:Record<string,Processing> = {};
+    for (const name of tracks) {
+      const previous = name === track ? current : overrides[name];
+      const ranges = previous?.repairs?.filter(fix => fix.end !== null) ?? [];
+      const localNoise = previous?.noise_enabled && previous.noise.apply_scope === 'selection';
+      if (ranges.length || localNoise) next[name] = {...defaults,
+        ...(localNoise ? {noise_enabled:true,noise:previous.noise} : {}),
+        repairs:[...defaults.repairs.filter(fix => !ranges.some(range => range.kind === fix.kind)), ...ranges],
+        cleanup_version:ranges.length ? 2 : defaults.cleanup_version,
+        cleanup_enabled:defaults.cleanup_enabled || ranges.some(fix => fix.enabled)};
+    }
+    overrides = next;
     loadTrackProcessing();
-    status = trackOnlyNoise ? 'Applied to album. The selected noise range stays on this track.' : 'Processing applied to all tracks';
+    status = 'Whole-song settings applied. Selected ranges stay with their own songs.';
   }
 
   function loadTrackProcessing() {
@@ -402,8 +429,122 @@
     ++selectionVersion;
     removeSeekListener?.();
     noiseMode=''; sourceDuration=0; playhead=0; cursor=undefined; selection=undefined;
-    audition = false; original = false; meterChannels = emptyMeters(); scopePath = ''; findings = [];
+    audition = false; original = false; meterChannels = emptyMeters(); scopePath = '';
+    analysis=undefined; analyzeBusy=false; cleanupError=''; activeFinding=undefined; activeRepair=''; repairRange=undefined; loopRange=false;
+    clearCompare();
     loadTrackProcessing();
+  }
+
+  async function analyzeSong() {
+    if (analyzeBusy) return;
+    const version=selectionVersion;
+    analyzeBusy=true; cleanupError='';
+    try {
+      const result=await api<Analysis>('analyze?' + new URLSearchParams({...keys,track}));
+      if (version === selectionVersion) {analysis=result;activeFinding=undefined;}
+    } catch (cause) {
+      if (version === selectionVersion) cleanupError=String(cause instanceof Error ? cause.message : cause);
+    } finally {
+      if (version === selectionVersion) analyzeBusy=false;
+    }
+  }
+
+  function seekTo(seconds:number) {
+    if (player && Number.isFinite(player.duration)) player.currentTime=Math.min(seconds,player.duration);
+  }
+
+  function chooseFinding(item:Finding) {
+    activeFinding=item; repairRange={start:item.start,end:item.end};
+    if (item.kind !== 'peak') manualKind=item.kind;
+    seekTo(Math.max(0,item.start-.25));
+    cleanupPanel?.setAttribute('open','');
+  }
+
+  function chooseRepair(id:string) {
+    activeRepair=id;
+    const fix=repairs.find(item => item.id===id);
+    if (fix?.end != null) {
+      setRepairRange({start:fix.start,end:fix.end});
+      seekTo(Math.max(0,fix.start-.25));
+    }
+    cleanupPanel?.setAttribute('open','');
+  }
+
+  let cleanupPanel = $state<HTMLDetailsElement>();
+
+  function upgradeCleanup() {
+    if (cleanupVersion === 2) return true;
+    if (!confirm('Use repair before EQ for this track? Noise moves before EQ, and enabled voice controls move to Cleanup.')) return false;
+    if (!eqEnabled) {
+      for (const control of Object.values(voiceControls)) control.enabled=false;
+    }
+    cleanupEnabled ||= Object.values(voiceControls).some(control => control.enabled);
+    cleanupVersion=2;
+    return true;
+  }
+
+  function setRepairRange(range:Range) {
+    activeFinding=undefined;
+    repairRange=range;
+  }
+
+  function setFixScope(kind:RepairKind, regional:boolean, id='') {
+    cleanupError='';
+    if (!id && repairs.length >= 24) {cleanupError='A track can have up to 24 fixes.';return;}
+    const range=regional ? repairRange : undefined;
+    if (regional && (!range || range.end-range.start < .05 || range.end > repairDuration + .05)) {
+      cleanupError='Choose a range of at least 0.05 seconds inside the song.';return;
+    }
+    const start=range?.start ?? 0, end=range?.end ?? null;
+    const overlap=repairs.find(fix => fix.id!==id && fix.kind===kind && start < (fix.end ?? Infinity) && fix.start < (end ?? Infinity));
+    if (overlap) {
+      activeRepair=overlap.id;
+      cleanupError='That type of fix already covers part of this range. Edit or remove the existing fix first.';
+      return;
+    }
+    if (!upgradeCleanup()) return;
+    if (id) repairs=repairs.map(fix=>fix.id===id ? {...fix,start,end} : fix);
+    else {
+      id=Array.from(crypto.getRandomValues(new Uint8Array(12)), byte=>byte.toString(16).padStart(2,'0')).join('');
+      repairs=[...repairs,{id,kind,enabled:true,amount:2,frequency:repairTypes[kind].frequency,start,end}];
+    }
+    activeRepair=id; cleanupEnabled=true;
+  }
+
+  function clearCompare() {
+    if (compareResult) {
+      URL.revokeObjectURL(compareResult.before);
+      URL.revokeObjectURL(compareResult.after);
+      compareResult=undefined;
+    }
+  }
+
+  async function renderComparison() {
+    if (compareBusy || !selectedFix) return;
+    const key=compareKey;
+    compareBusy=true;cleanupError='';
+    try {
+      const data=await api<{before:string;after:string;start:number}>('repair-audition', {
+        ...keys,...processing,tracks:[track],audition_track:track,repair_id:selectedFix.id,preview_start:playhead,
+      });
+      if (key !== compareKey) return;
+      const url=(value:string) => URL.createObjectURL(new Blob([Uint8Array.from(atob(value), char=>char.charCodeAt(0))], {type:'audio/wav'}));
+      clearCompare();compareSide='after';compareOffset=0;compareResume=false;
+      compareResult={before:url(data.before),after:url(data.after),start:data.start,key};
+    } catch (cause) {
+      if (key===compareKey) cleanupError=String(cause instanceof Error ? cause.message : cause);
+    } finally {compareBusy=false;}
+  }
+
+  function switchComparison(side:'before'|'after') {
+    if (compareSide===side || !comparePlayer) return;
+    compareOffset=comparePlayer.currentTime; compareResume=!comparePlayer.paused; compareSide=side;
+  }
+
+  function updatePlayhead() {
+    if (!player) return;
+    if (loopRange && repairRange && repairRange.end > repairRange.start && player.currentTime >= repairRange.end) player.currentTime=repairRange.start;
+    playhead=player.currentTime;
   }
 
   async function openPrompt(name: string, kind: PromptKind) {
@@ -531,12 +672,36 @@
   });
   let voiceBands = $derived(Object.entries(voiceControls).filter(([,control]) => control.enabled)
     .map(([name,control]) => band('peaking', control.freq_hz, control.amount_db, name==='deesser'?2:name==='deharsh'?1.5:1.2)));
+  let toneBands = $derived(bands.map(item=>({...item,gain_db:item.gain_db*strength/100})));
+  let wholeRepairBands = $derived(cleanupEnabled && cleanupVersion === 2 ? repairs.filter(fix => fix.end === null).map(repairBand) : []);
+  let repairCurves = $derived(repairs.map((fix,index) => ({id:fix.id, tone:repairColors[index%repairColors.length],
+    path:drawCurve(offlineCurveContext ??= new OfflineAudioContext(1,1,48000), [{...repairBand(fix),enabled:true}]),
+    enabled:cleanupEnabled && fix.enabled})));
+  let activeRepairIds = $derived(cleanupEnabled ? repairs.filter(fix => fix.enabled && (fix.end === null || (playhead >= fix.start && playhead < fix.end))).map(fix => fix.id).join(',') : '');
+  let boostAtFix = $derived(selectedFix && eqEnabled ? gainAt(toneBands, selectedFix.frequency) : 0);
+  let combinedCurve = $derived(activeRepairIds && eqEnabled ? drawCurve(offlineCurveContext ??= new OfflineAudioContext(1,1,48000), [
+    ...toneBands, ...cleanupBands, ...voiceBands, ...repairs.filter(fix=>activeRepairIds.split(',').includes(fix.id)).map(repairBand),
+  ]) : '');
   let liveBands = $derived(source==='raw' && !original && !audition && !noiseMode ? [
-    ...cleanupBands,
-    ...(eqEnabled ? [...voiceBands,...bands.map(item=>({...item,gain_db:item.gain_db*strength/100}))] : []),
+    ...cleanupBands,...wholeRepairBands,
+    ...(cleanupVersion === 2 ? (cleanupEnabled ? voiceBands : []) : (eqEnabled ? voiceBands : [])),
+    ...(eqEnabled ? toneBands : []),
   ] : []);
 
   let offlineCurveContext: OfflineAudioContext | undefined;
+
+  function gainAt(filters:Band[], frequency:number) {
+    const context = offlineCurveContext ??= new OfflineAudioContext(1,1,48000);
+    const frequencyArray = new Float32Array([frequency]);
+    const magnitude = new Float32Array(1), phase = new Float32Array(1);
+    let gain = 0;
+    for (const item of filters) {
+      if (item.enabled === false || !Number.isFinite(item.freq_hz) || !Number.isFinite(item.gain_db) || !Number.isFinite(item.q)) continue;
+      filterNode(context,item).getFrequencyResponse(frequencyArray,magnitude,phase);
+      gain += 20*Math.log10(Math.max(.00001,magnitude[0]));
+    }
+    return gain;
+  }
 
   function drawCurve(context:BaseAudioContext, filters:Band[]) {
     const frequencies = Float32Array.from({length:160}, (_,i)=>Math.min(context.sampleRate/2-.01,20*1000**(i/159)));
@@ -557,9 +722,7 @@
     audio?.update(valid,widthValue);
     const curveContext = audio?.context ?? (offlineCurveContext ??= new OfflineAudioContext(1, 1, 48000));
     cleanupCurve = drawCurve(curveContext,cleanupBands);
-    eqCurve = drawCurve(curveContext,[
-      ...voiceBands,...bands.map(item=>({...item,gain_db:item.gain_db*strength/100}))
-    ]);
+    eqCurve = drawCurve(curveContext,[...(cleanupVersion === 1 ? voiceBands : []), ...toneBands]);
   });
 
   function startMonitoring() {
@@ -742,7 +905,7 @@
         }),
       ]);
     });
-    return () => { removeSeekListener?.(); if (previewURL) URL.revokeObjectURL(previewURL); if (noiseURL) URL.revokeObjectURL(noiseURL); cancelAnimationFrame(animation); engine?.close(); };
+    return () => { removeSeekListener?.(); clearCompare(); if (previewURL) URL.revokeObjectURL(previewURL); if (noiseURL) URL.revokeObjectURL(noiseURL); cancelAnimationFrame(animation); engine?.close(); };
   });
 </script>
 
@@ -823,10 +986,18 @@
                 <path class="scope-wave" d={scopePath}/>
                 <path class="clip-lines" d="M0 2H600 M0 98H600"/>
               </svg>
+              {#if repairRange && repairDuration > 0 && source === 'raw'}
+                <div class="repair-overlay" aria-hidden="true" style:left={`${Math.min(100,repairRange.start/repairDuration*100)}%`}
+                  style:width={`${Math.max(0,Math.min(100,(repairRange.end-repairRange.start)/repairDuration*100))}%`}></div>
+              {/if}
             </div>
+            {#if source === 'raw'}
+              <div class="repair-timeline"><RepairTimeline {repairs} findings={analysis?.findings ?? []} duration={repairDuration}
+                range={repairRange} selected={activeRepair} enabled={cleanupEnabled} selectFinding={chooseFinding} selectFix={chooseRepair} setRange={setRepairRange}/></div>
+            {/if}
             {#if waveError}<small>Waveform unavailable. Playback controls are available below.</small>{/if}
             <audio controls preload="metadata" bind:this={player} onloadedmetadata={() => {if (!audition && !noiseMode && player) sourceDuration=player.duration;}}
-              ontimeupdate={() => {playhead=player?.currentTime ?? 0;}} onplay={startMonitoring} onemptied={() => {meterChannels=emptyMeters();scopePath='';}} src={playbackURL}></audio>
+              ontimeupdate={updatePlayhead} onplay={startMonitoring} onemptied={() => {meterChannels=emptyMeters();scopePath='';}} src={playbackURL}></audio>
           </div>
           <StereoMeter channels={meterChannels} reset={() => meterChannels=emptyMeters()} />
         </div>
@@ -853,29 +1024,106 @@
         <button onclick={() => action(saveSession)}>Save album session</button>
       </div>
       {#if source === 'raw'}
-      <details><summary>AI cleanup <input class="stage-toggle" type="checkbox" aria-label="Enable AI cleanup" bind:checked={cleanupEnabled} onclick={(event)=>event.stopPropagation()} onchange={() => {if (cleanupEnabled) listenLive();}}><span class="stage-status">{cleanupEnabled ? 'Enabled' : 'Off'}</span></summary>
-        <div class="cleanup-layout"><div><p>Track spectrum and effect curve</p>
-        <svg class="effect" viewBox="0 0 600 150" preserveAspectRatio="none" aria-label="Track spectrum and cleanup effect curve" role="img"><path class="grid" d="M0 75H600"/><path class="spectrum" d={spectrum}/><path class="curve" d={cleanupCurve || 'M0 75H600'}/></svg>
-        <div class="frequency-scale"><span>20 Hz</span><span>200 Hz</span><span>2 kHz</span><span>20 kHz</span></div>
-        <small>Live monitor shows tonal adjustments. Hear export includes denoising, dynamics, reverb gating, and side reduction.</small></div><div>
-        <button disabled={source !== 'raw'} onclick={() => action(async () => {
-          const version = selectionVersion;
-          const result = await api<{findings:typeof findings}>('analyze?' + new URLSearchParams({...keys, track}));
-          if (version === selectionVersion) findings = result.findings;
-        })}>Analyze track</button>
-        {#each findings as finding}
-          <p>{finding.summary}
-          {#if finding.suggested_tool_id === 'ai_platform_safe'}
-            <button onclick={() => {lufs=finding.suggested_value ?? -16;profile='manual';}}>Use suggested loudness target</button>
-          {:else if corrections[finding.suggested_tool_id]}
-            <button onclick={() => {cleanupEnabled=true; listenLive(); corrections[finding.suggested_tool_id] = {enabled:true, value:finding.suggested_value ?? corrections[finding.suggested_tool_id].value, options:finding.recommended_settings ?? corrections[finding.suggested_tool_id].options};}}>Apply suggestion</button>
-          {/if}</p>
-        {/each}
+      <details bind:this={cleanupPanel}><summary>Cleanup &amp; repair <input class="stage-toggle" type="checkbox" aria-label="Enable cleanup" bind:checked={cleanupEnabled} onclick={(event)=>event.stopPropagation()} onchange={() => {if (cleanupEnabled) listenLive();}}><span class="stage-status">{cleanupEnabled ? 'Enabled' : 'Off'}</span></summary>
+        <div class="repair-header">
+          <div><h3>Find problems before shaping the tone</h3><small>Analysis covers the whole song. Findings are suggestions and never change the audio on their own.</small></div>
+          <button type="button" class="primary" disabled={analyzeBusy} onclick={analyzeSong}>{analyzeBusy ? 'Analyzing…' : 'Analyze full song'}</button>
+        </div>
+        {#if analyzeBusy}<p role="status">Scanning from start to finish. You can keep adjusting the song.</p>
+        {:else if analysis}<p role="status">Analyzed {timeLabel(analysis.duration)} · {analysis.findings.length ? `${analysis.findings.length} findings` : 'No findings at these thresholds'}</p>{/if}
+        {#if analysis?.findings.length}
+          <label>Findings<select aria-label="Full-song findings" onchange={(event) => {
+            const item=analysis?.findings[Number(event.currentTarget.value)];
+            if (event.currentTarget.value && item) chooseFinding(item);
+          }} value={activeFinding ? analysis.findings.indexOf(activeFinding) : ''}>
+            <option value="">Choose a finding</option>
+            {#each analysis.findings as finding, index}
+              <option value={index}>{rangeLabel(finding)} · {finding.kind === 'peak' ? 'Near full scale' : repairTypes[finding.kind].title}</option>
+            {/each}
+          </select></label>
+        {/if}
+        {#if activeFinding}
+          <p class="repair-finding">{activeFinding.kind === 'peak'
+            ? `Sample peak: ${activeFinding.evidence_db} dBFS. Near full scale is not proof of clipping; listen to the passage.`
+            : `Measured band level: ${activeFinding.evidence_db} dB relative to the full signal. Listen before deciding whether to cut it.`}</p>
+        {/if}
+        <div class="row repair-range-controls">
+          <label>Range start (s)<input aria-label="Repair range start" type="number" min="0" max={repairDuration} step=".01" value={repairRange?.start ?? 0}
+            oninput={(event) => setRepairRange({start:Math.max(0,Number(event.currentTarget.value)),end:repairRange?.end ?? Math.min(repairDuration,5)})}></label>
+          <label>Range end (s)<input aria-label="Repair range end" type="number" min="0" max={repairDuration} step=".01" value={repairRange?.end ?? ''}
+            oninput={(event) => setRepairRange({start:repairRange?.start ?? 0,end:Math.min(repairDuration,Math.max(0,Number(event.currentTarget.value)))})}></label>
+          <button type="button" aria-pressed={loopRange} disabled={!repairRange || repairRange.end<=repairRange.start} onclick={() => {
+            loopRange=!loopRange;if (loopRange && repairRange) seekTo(repairRange.start);
+          }}>Loop range</button>
+          <button type="button" disabled={!repairRange} onclick={() => {repairRange=undefined;activeFinding=undefined;loopRange=false;}}>Clear range</button>
+        </div>
+        <div class="row repair-range-controls">
+          <label>Correction<select aria-label="Correction type" bind:value={manualKind}>{#each Object.entries(repairTypes) as [kind, config]}<option value={kind}>{config.title}</option>{/each}</select></label>
+          <button type="button" disabled={!repairRange || repairRange.end-repairRange.start < .05} onclick={() => setFixScope(manualKind,true)}>Add to range</button>
+          <button type="button" onclick={() => setFixScope(manualKind,false)}>Add to whole song</button>
+        </div>
+        {#if cleanupError}<p class="error" role="alert">{cleanupError}</p>{/if}
+        {#if cleanupVersion === 1}<p>Legacy chain retained for this saved song. <button type="button" onclick={upgradeCleanup}>Use repair before EQ</button></p>{/if}
+        <div class="cleanup-layout">
+          <div><h3>Correction curves</h3>
+            <svg class="effect repair-chart" viewBox="0 0 600 150" preserveAspectRatio="none" aria-label="Individual frequency response of each repair" role="img">
+              <path class="grid" d="M0 25H600 M0 75H600 M0 125H600"/>
+              <path class="spectrum" d={spectrum}/>
+              <path class="legacy-curve" d={cleanupCurve || 'M0 75H600'}/>
+              {#each repairCurves as curve (curve.id)}
+                <path class="repair-curve" class:selected={activeRepair===curve.id} class:off={!curve.enabled} stroke={curve.tone} d={curve.path}/>
+              {/each}
+            </svg>
+            <div class="frequency-scale"><span>20 Hz</span><span>200 Hz</span><span>2 kHz</span><span>20 kHz</span></div>
+            <small>The numbered waveform lines show where each fix runs and move with its amount. These curves show its estimated frequency response, not a new waveform.</small>
+          </div>
+          <div class="repair-list">
+            <h3>Approved fixes</h3>
+            {#each repairs as fix, index (fix.id)}
+              <article class:active-fix={fix.id===activeRepair} style:--fix={repairColors[index%repairColors.length]}>
+                <div class="fix-heading">
+                  <label class="check"><input type="checkbox" aria-label={`Enable fix ${index+1}`} bind:checked={fix.enabled} onchange={() => {if (fix.enabled) cleanupEnabled=true;}}> <strong>{index+1}. {repairTypes[fix.kind].title}</strong></label>
+                  <button type="button" aria-pressed={activeRepair===fix.id} onclick={() => chooseRepair(fix.id)}>{rangeLabel(fix)}</button>
+                </div>
+                <label class="inline-control"><span>Cut</span><input aria-label={`Fix ${index+1} amount`} type="range" min="0" max="12" step=".1" bind:value={fix.amount} oninput={() => activeRepair=fix.id}><output>{fix.amount} dB</output></label>
+                <label class="inline-control"><span>Frequency</span><input aria-label={`Fix ${index+1} frequency`} type="range" min={fix.kind==='rumble'?20:fix.kind==='presence'?2000:6500} max={fix.kind==='rumble'?180:fix.kind==='presence'?6500:16000} step="5" bind:value={fix.frequency} oninput={() => activeRepair=fix.id}><output>{fix.frequency} Hz</output></label>
+                <div class="fix-actions">
+                  {#if activeRepair===fix.id}
+                    <button type="button" disabled={!repairRange || repairRange.end-repairRange.start < .05 || (fix.start===repairRange.start && fix.end===repairRange.end)} onclick={() => setFixScope(fix.kind,true,fix.id)}>Use selected range</button>
+                    {#if fix.end!==null}<button type="button" onclick={() => setFixScope(fix.kind,false,fix.id)}>Use whole song</button>{/if}
+                  {/if}
+                  <button type="button" onclick={() => {repairs=repairs.filter(item=>item.id!==fix.id);if (activeRepair===fix.id) {activeRepair='';clearCompare();}}}>Remove fix</button>
+                </div>
+              </article>
+            {:else}<p>No fixes applied. Choose a finding or add a manual correction.</p>{/each}
+          </div>
+        </div>
+        {#if selectedFix}
+          <div class="repair-compare">
+            {#if cleanupEnabled && selectedFix.enabled && selectedFix.amount && boostAtFix > .5}
+              <small class="repair-overlap">Tone EQ adds about {boostAtFix.toFixed(1)} dB at {selectedFix.frequency} Hz, where this fix cuts. Compare before and after to decide whether to keep both.</small>
+            {/if}
+            <button type="button" disabled={compareBusy || !cleanupEnabled || !selectedFix.enabled || !selectedFix.amount}
+              onclick={renderComparison}>{compareBusy ? 'Rendering comparison…' : 'Render before / after for selected fix'}</button>
+            <small>Both sides use your current EQ and other fixes at matched loudness. Only the selected fix changes.</small>
+            {#if compareResult?.key === compareKey}
+              <div class="row"><button type="button" aria-pressed={compareSide==='before'} onclick={() => switchComparison('before')}>Before</button>
+              <button type="button" aria-pressed={compareSide==='after'} onclick={() => switchComparison('after')}>After</button>
+              <small>Excerpt starts at {timeLabel(compareResult.start)}</small></div>
+              <audio controls loop bind:this={comparePlayer} src={compareResult[compareSide]} onplay={() => player?.pause()}
+                onloadedmetadata={(event) => {event.currentTarget.currentTime=compareOffset;if (compareResume) void event.currentTarget.play().catch(()=>{});}}></audio>
+            {/if}
+          </div>
+        {/if}
+        <details class="repair-manual"><summary>Manual cleanup tools</summary>
+        {#if cleanupVersion === 2}<VoiceControls bind:voice={voiceControls} onEdit={() => {cleanupEnabled=true;listenLive();}}/>{/if}
+        <p>Live monitor approximates whole-song tonal changes. Use the comparison for range fixes or Hear export for the full chain.</p>
         <div class="treatments">
           {#each treatments as tool}
             <div class="treatment">
               <label class="check"><input type="checkbox" bind:checked={corrections[tool.id].enabled} onchange={() => {cleanupEnabled=true;listenLive();}} disabled={source !== 'raw'}> {tool.title}</label>
               {#if tool.id === 'ai_reverb_reduce'}
+                <small>Perceptual shaping, not reverb detection.</small>
                 {#each reverbControls as option}
                   {@const config = corrections[tool.id].options!}
                   <div class="treatment-option">
@@ -893,9 +1141,10 @@
             </div>
           {/each}
         </div>
-        </div></div>
+        </details>
+        {@render noisePanel()}
       </details>
-      <details open><summary>Realtime EQ and stereo <input class="stage-toggle" type="checkbox" aria-label="Enable Realtime EQ and stereo" bind:checked={eqEnabled} onclick={(event)=>event.stopPropagation()} onchange={() => {if (eqEnabled) listenLive();}}><span class="stage-status">{eqEnabled ? 'Enabled' : 'Off'}</span></summary>
+      <details open><summary>Tone &amp; Stereo <input class="stage-toggle" type="checkbox" aria-label="Enable Realtime EQ and stereo" bind:checked={eqEnabled} onclick={(event)=>event.stopPropagation()} onchange={() => {if (eqEnabled) listenLive();}}><span class="stage-status">{eqEnabled ? 'Enabled' : 'Off'}</span></summary>
         {#snippet presetControls()}
           <label>EQ Preset<select bind:value={preset} onchange={loadPreset} disabled={source !== 'raw'}>
             <option value="">Custom</option>
@@ -911,9 +1160,15 @@
           <label class="check"><input type="checkbox" bind:checked={guardrails}> Compression guardrails</label>
           {#if presetBase}<small>Preset compression is heard in the export audition.</small>{/if}
         {/snippet}
-        <EqPanel bind:bands bind:voice={voiceControls} {presetControls} {stereoControls} onEdit={markCustom} onVoiceEdit={() => {eqEnabled=true;listenLive();}} {spectrum} curve={eqCurve || 'M0 75H600'} />
+        {#snippet legacyVoice()}
+          <VoiceControls bind:voice={voiceControls} onEdit={() => {eqEnabled=true;listenLive();}}/>
+        {/snippet}
+        <EqPanel bind:bands {presetControls} {stereoControls} onEdit={markCustom} {spectrum} curve={eqCurve || 'M0 75H600'}
+          combined={combinedCurve} legacyVoice={cleanupVersion===1 ? legacyVoice : undefined}/>
       </details>
-      <details><summary>Noise removal <input class="stage-toggle" type="checkbox" aria-label="Enable Noise removal" bind:checked={noiseEnabled} onclick={(event)=>event.stopPropagation()}><span class="stage-status">{noiseEnabled ? 'Enabled' : 'Off'}</span></summary>
+      {#snippet noisePanel()}
+      <details class="repair-manual"><summary>Noise removal <input class="stage-toggle" type="checkbox" aria-label="Enable Noise removal" bind:checked={noiseEnabled} onclick={(event)=>event.stopPropagation()}><span class="stage-status">{noiseEnabled ? 'Enabled' : 'Off'}</span></summary>
+        <p>{cleanupVersion===2 ? 'Noise removal runs before repairs and Tone & Stereo.' : 'Legacy session: noise removal runs after the EQ chain.'}</p>
         <div class="noise-grid">
           <div>
             <div class="spectrogram-heading"><strong>Track spectrogram</strong><output>{cursor && sourceDuration ? `${(cursor.x*sourceDuration).toFixed(2)} s · ${frequencyAt(cursor.y)} Hz` : 'Time · Frequency'}</output></div>
@@ -950,6 +1205,7 @@
           </div>
         </div>
       </details>
+      {/snippet}
       {/if}
       <details><summary>Album loudness</summary>
         <div class="row">
@@ -1135,11 +1391,25 @@
   .player-panel{display:grid;grid-template-columns:minmax(0,1fr) clamp(3.8rem,8vw,5rem);gap:.55rem}
   .player-audio{min-width:0}
   .wave-stack{position:relative;overflow:hidden;border-radius:.7rem;margin-bottom:.35rem}.scope{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
-  .scope-wave,.curve{stroke:var(--chart-line);fill:none;stroke-width:1.5}.spectrum{stroke:var(--chart-spectrum);fill:none}.grid{stroke:var(--chart-grid)}
+  .repair-overlay{position:absolute;inset-block:0;pointer-events:none;background:var(--accent-soft);opacity:.42;border-inline:1px solid var(--accent)}
+  .scope-wave{stroke:var(--chart-line);fill:none;stroke-width:1.5}.spectrum{stroke:var(--chart-spectrum);fill:none}.grid{stroke:var(--chart-grid)}
   .clip-lines{fill:none;stroke:var(--danger);stroke-width:1;opacity:.25;vector-effect:non-scaling-stroke}
   .scope.clipped .clip-lines{stroke:#ee4e59;stroke-width:2;opacity:1}
   .cleanup-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:1rem}
-  .cleanup-layout .effect{height:240px}
+  .cleanup-layout .effect{height:190px}
+  .repair-header,.fix-heading{display:flex;justify-content:space-between;align-items:center;gap:.45rem;flex-wrap:wrap}
+  .repair-header h3,.cleanup-layout h3{margin:.35rem 0;font-size:.9rem}
+  .repair-range-controls button,.repair-compare button,.repair-list button{font-size:.81rem;padding:.35rem .52rem}
+  .repair-finding{background:var(--warning-soft);color:var(--text);padding:.48rem .6rem;border-radius:.35rem}
+  .repair-curve,.legacy-curve{fill:none;stroke-width:1.5;vector-effect:non-scaling-stroke}
+  .repair-curve.selected{stroke-width:2.5}.repair-curve.off,.legacy-curve{opacity:.38}.legacy-curve{stroke:var(--muted);stroke-dasharray:3 4}
+  :global(html[data-theme=dark]) .repair-curve{filter:brightness(1.5)}
+  .repair-list article{padding:.52rem .65rem;margin-bottom:.45rem;border:1px solid var(--line);border-left:3px solid var(--fix);border-radius:.45rem}
+  .repair-list article.active-fix{background:var(--surface)}
+  .fix-actions{display:flex;flex-wrap:wrap;gap:.3rem}
+  .repair-compare{display:grid;justify-items:start;gap:.35rem;margin:.7rem 0}
+  .repair-overlap{background:var(--warning-soft);padding:.4rem .5rem;border-radius:.3rem;color:var(--warning)}
+  .repair-manual{border:1px solid var(--line);box-shadow:none}
   @media(max-width:899px){.cleanup-layout{grid-template-columns:1fr}}
   .effect{width:100%;height:150px;background:var(--chart);border-radius:.7rem}
   .noise-grid{display:grid;grid-template-columns:minmax(0,2fr) minmax(230px,1fr);gap:1rem}
@@ -1172,7 +1442,7 @@
   .prompt-dialog .prompt-secondary{background:var(--surface);color:var(--text);border:1px solid var(--line)}
   .prompt-toolbar{margin:.35rem 0 .7rem}
   @media(max-width:600px){.album-tag-fields{grid-template-columns:repeat(2,minmax(0,1fr))}.album-track-tags{min-width:23rem}}
-  .transport.compact .wave-stack{display:none}
+  .transport.compact .wave-stack,.transport.compact .repair-timeline{display:none}
   .transport.compact .player-panel{height:6rem;align-items:stretch}
   .transport.compact .player-audio{align-self:end}
   .transport.compact h1{font-size:1.15rem;letter-spacing:0}

@@ -350,6 +350,72 @@ def process_track(source: Path, target: Path, filters: str, noise) -> None:
         intermediate.unlink(missing_ok=True)
 
 
+def apply_repair_chain(source: Path, target: Path, plan: dict, skip_fix: str = "") -> None:
+    graph = [f"[0:a:0]{plan['global'] or 'anull'}[repair0]"]
+    current = "repair0"
+    for index, fix in enumerate(plan["fixes"], 1):
+        if fix["id"] == skip_fix:
+            continue
+        following = f"repair{index}"
+        if fix["end"] is None:
+            graph.append(f"[{current}]{fix['filter']}[{following}]")
+        else:
+            start, end = fix["start"], fix["end"]
+            fade = min(.045, (end - start) / 2)
+            # Keep both IIR paths running and blend without changing the song's timing.
+            wet = f"clip(min((t-{start:.9f})/{fade:.9f},({end:.9f}-t)/{fade:.9f}),0,1)"
+            graph.extend([
+                f"[{current}]asetnsamples=n=128:p=0,asplit[dry{index}][wet{index}]",
+                f"[dry{index}]volume='1-{wet}':eval=frame[d{index}]",
+                f"[wet{index}]{fix['filter']},volume='{wet}':eval=frame[w{index}]",
+                f"[d{index}][w{index}]amix=inputs=2:duration=first:normalize=0[{following}]",
+            ])
+        current = following
+    graph.append(f"[{current}]{plan['tone'] or 'anull'}[out]")
+    command = [resolve_tool("ffmpeg"), "-nostdin", "-v", "error", "-y", "-i", str(source),
+               "-filter_complex", ";".join(graph), "-map", "[out]", "-map_metadata", "-1",
+               "-map_chapters", "-1", "-c:a", "pcm_f32le", str(target)]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=900)
+    if result.returncode:
+        raise RuntimeError(result.stderr.strip()[-800:] or "Could not render album corrections")
+
+
+def process_album_track(source: Path, target: Path, settings: dict, *, skip_fix: str = "", noise_override=None) -> None:
+    filters = settings.get("track_filters", {}).get(source.name, settings.get("filters")) or "anull"
+    noise = noise_override if noise_override is not None else settings.get("track_noise", {}).get(source.name, settings.get("noise_chain"))
+    plan = settings.get("track_repairs", {}).get(source.name, settings.get("repair_chain"))
+    if plan is None:
+        process_track(source, target, filters, noise)
+    elif noise:
+        cleaned = target.with_name(target.stem + ".pre-repair.wav")
+        try:
+            process_track(source, cleaned, "", noise)
+            apply_repair_chain(cleaned, target, plan, skip_fix)
+        finally:
+            cleaned.unlink(missing_ok=True)
+    else:
+        apply_repair_chain(source, target, plan, skip_fix)
+
+
+def compare_repair(track: Path, settings: dict, repair_id: str, start: float, length: float) -> tuple[bytes, bytes]:
+    with tempfile.TemporaryDirectory(prefix="album-compare-") as folder:
+        work = Path(folder)
+        # Include the whole track in both renders so filter state and regional timing match export.
+        versions = []
+        for name, skip in (("before", repair_id), ("after", "")):
+            rendered, excerpt = work / "track.wav", work / f"{name}.wav"
+            process_album_track(track, rendered, settings, skip_fix=skip)
+            ffmpeg(rendered, excerpt, "-ss", str(start), "-t", str(length), "-ac", "2", "-ar", "48000", "-c:a", "pcm_f32le")
+            versions.append((excerpt, *metrics(excerpt)))
+        level = min(*(lufs for _, lufs, _ in versions), *(lufs - peak - 2 for _, lufs, peak in versions))
+        output = []
+        for path, lufs, _ in versions:
+            target = work / "audition.wav"
+            ffmpeg(path, target, "-af", f"volume={level - lufs:.6f}dB", "-c:a", "pcm_s16le", "-bitexact")
+            output.append(target.read_bytes())
+        return output[0], output[1]
+
+
 def normalize(clean: Path, output: Path, gain: float, ceiling: float) -> tuple[float, float]:
     # Write a fresh PCM WAV, without source tags or generated ancillary metadata.
     ffmpeg(clean, output, "-af", f"volume={gain:.6f}dB", "-c:a", "pcm_s24le", "-bitexact",
@@ -517,9 +583,7 @@ def render_album(album: Path, tracks: list[Path], settings: dict, report=lambda 
             mastered = track
             if stage == "raw":
                 mastered = work / "mastered" / track.name
-                filters = settings.get("track_filters", {}).get(track.name, settings.get("filters")) or "anull"
-                noise = settings.get("track_noise", {}).get(track.name, settings.get("noise_chain"))
-                process_track(track, mastered, filters, noise)
+                process_album_track(track, mastered, settings)
             clean = work / "clean" / track.name
             if stage == "raw":
                 floating = work / "delivery" / track.name

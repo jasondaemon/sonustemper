@@ -98,6 +98,15 @@ before album loudness normalization. The final 24-bit WAV is written to a fresh
 container without source tags or ancillary chunks (including Suno metadata).
 The MP3 is encoded from that WAV and receives only the delivery metadata.
 
+**Cleanup & repair** analyzes a full track and marks measured frequency and
+sample-peak hints beneath its waveform. Hints do not apply processing. Approved
+whole-song or time-range fixes have separate timeline lines and response curves.
+The matched before/after audition changes only the selected fix. New sessions
+run noise removal and repairs before **Tone & Stereo** (presets or custom EQ),
+then measure loudness for delivery. Older sessions retain their original order
+until explicitly upgraded. Applying settings to the album leaves each song's
+time-range fixes on that song.
+
 **Prompts and Lyrics** reads and saves song files on the share. The two prompt
 editors share `styles/<song>.md`: style text comes first, followed by an optional
 `## Negative Prompt` section. Original lyric prompts stay in `lyric-prompts/`

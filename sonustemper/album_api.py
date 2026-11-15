@@ -2,12 +2,14 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from typing import Literal
+import base64
 import json
 import logging
 import os
 from pathlib import Path
 import shutil
 import tempfile
+import subprocess
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
@@ -16,6 +18,7 @@ from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
 from sonustemper import album_workflow as workflow
+from sonustemper import album_cleanup as cleanup
 from sonustemper import master_pack
 from sonustemper.storage import LIBRARY_DB, PREVIEWS_DIR, PRESETS_DIR
 from sonustemper.tools import bundle_root
@@ -46,6 +49,16 @@ class Correction(BaseModel):
     options: dict[str, float | bool] = Field(default_factory=dict)
 
 
+class Repair(BaseModel):
+    id: str = Field(min_length=1, max_length=64)
+    kind: Literal["rumble", "presence", "highs"]
+    enabled: bool = True
+    frequency: float = Field(ge=20, le=18000)
+    amount: float = Field(ge=0, le=12)
+    start: float = Field(default=0, ge=0, le=36000)
+    end: float | None = Field(default=None, gt=0, le=36000)
+
+
 class Settings(AlbumInput):
     tracks: list[str] = Field(min_length=1, max_length=100)
     preset: str = ""
@@ -60,6 +73,8 @@ class Settings(AlbumInput):
     voice_controls: dict = Field(default_factory=dict)
     corrections: dict[str, Correction] = Field(default_factory=dict)
     cleanup_enabled: bool = True
+    cleanup_version: Literal[1, 2] = 1
+    repairs: list[Repair] = Field(default_factory=list, max_length=24)
     strength: int = Field(default=100, ge=0, le=100)
     stereo_width: float | None = Field(default=None, ge=0.5, le=1.5)
     guardrails: bool = True
@@ -160,6 +175,8 @@ def resolved_settings(settings: Settings) -> dict:
         tools[settings.correction] = {"enabled": True, "value": settings.correction_value}
     if not tools.keys() <= corrections - {""}:
         raise HTTPException(400, "Unknown correction")
+    if settings.cleanup_version == 2 and "ai_deglass" in tools:
+        tools["ai_deglass"]["options"]["afftdn_strength"] = 0
     correction = _ai_tool_combo_chain(tools) if settings.cleanup_enabled else ""
     mastering = master_pack._voicing_filters_from_json(
         {"chain": chain}, settings.strength, settings.stereo_width, True, settings.guardrails
@@ -170,10 +187,22 @@ def resolved_settings(settings: Settings) -> dict:
     ]
     data["noise_chain"] = (_noise_filter_chain({**settings.noise, "mode": "remove"})
                            if settings.noise_enabled and settings.noise else None)
-    data["filters"] = ",".join(filter(None, (
-        correction, *(_eq_voice_filters(settings.voice_controls) if settings.voicing_enabled else []),
-        mastering if settings.voicing_enabled else "", *manual,
-    )))
+    voice = _eq_voice_filters(settings.voice_controls)
+    tone = [mastering if settings.voicing_enabled else "", *manual]
+    if settings.cleanup_version == 2:
+        repairs = settings.repairs if settings.cleanup_enabled else []
+        if len({fix.id for fix in repairs}) != len(repairs) or any(
+                (fix.start != 0 if fix.end is None else fix.end - fix.start < .05) for fix in repairs):
+            raise HTTPException(422, "Repairs need distinct IDs and ranges of at least 0.05 seconds")
+        data["repair_chain"] = {
+            "global": ",".join(filter(None, [correction, *(voice if settings.cleanup_enabled else [])])),
+            "fixes": [{**fix.model_dump(), "filter": cleanup.repair_filter(fix.model_dump())}
+                      for fix in repairs if fix.enabled and fix.amount > 0],
+            "tone": ",".join(filter(None, tone)),
+        }
+    else:
+        data["repair_chain"] = None
+    data["filters"] = ",".join(filter(None, [correction, *(voice if settings.voicing_enabled else []), *tone]))
     return data
 
 
@@ -278,10 +307,19 @@ def artwork(location: str, artist_folder: str, album_folder: str, name: str, thu
 
 @router.get("/api/albums/analyze")
 def analyze(location: str, artist_folder: str, album_folder: str, source: str, track: str):
-    from sonustemper.server import _ai_tool_detect_target
+    from sonustemper.server import _ai_tool_audio_info
 
     album = resolve_album(location, artist_folder, album_folder)
-    return _ai_tool_detect_target(selected_tracks(album, source, [track])[0])
+    path = selected_tracks(album, source, [track])[0]
+    info = _ai_tool_audio_info(path)
+    rate, duration = info.get("sample_rate"), info.get("duration_s")
+    if not rate or not duration:
+        raise HTTPException(422, "Could not read the song's sample rate and duration")
+    try:
+        return cleanup.analyze(path, int(rate), float(duration))
+    except (ValueError, OSError, subprocess.SubprocessError) as exc:
+        logger.warning("Album analysis failed for %s: %s", path.name, exc)
+        raise HTTPException(422, "Full-song analysis could not finish. Check the source WAV and try again.") from exc
 
 
 @router.get("/api/albums/text")
@@ -329,6 +367,7 @@ def save_track_text(body: TrackText):
 PROCESSING_FIELDS = {
     "preset", "bands", "eq_bypass", "manual_bands", "noise", "voicing_enabled",
     "voice_controls", "corrections", "strength", "stereo_width", "guardrails", "cleanup_enabled", "noise_enabled",
+    "cleanup_version", "repairs",
 }
 
 
@@ -336,6 +375,7 @@ def resolve_render(settings: Settings) -> dict:
     data = resolved_settings(settings)
     data["track_filters"] = {}
     data["track_noise"] = {}
+    data["track_repairs"] = {}
     for name, override in settings.track_overrides.items():
         if name not in settings.tracks:
             continue
@@ -348,6 +388,7 @@ def resolve_render(settings: Settings) -> dict:
         resolved = resolved_settings(effective)
         data["track_filters"][name] = resolved["filters"]
         data["track_noise"][name] = resolved["noise_chain"]
+        data["track_repairs"][name] = resolved["repair_chain"]
     return data
 
 
@@ -390,11 +431,48 @@ def noise_audition(settings: Settings, mode: Literal["remove", "solo"] = "remove
     directory = tempfile.TemporaryDirectory(prefix="album-noise-", dir=PREVIEWS_DIR)
     try:
         output = Path(directory.name) / "audition.wav"
-        workflow.process_track(track, output, data["track_filters"].get(track.name, data["filters"]), chain)
+        if mode == "solo" and settings.cleanup_version == 2:
+            workflow.process_track(track, output, "", chain)
+        else:
+            workflow.process_album_track(track, output, data, noise_override=chain)
         return FileResponse(output, media_type="audio/wav", background=BackgroundTask(directory.cleanup))
     except Exception as exc:
         directory.cleanup()
         raise HTTPException(422, str(exc)) from exc
+
+
+class RepairAudition(Settings):
+    repair_id: str = Field(min_length=1, max_length=64)
+
+
+@router.post("/api/albums/repair-audition")
+def repair_audition(settings: RepairAudition):
+    from sonustemper.server import _ai_tool_audio_info
+
+    if settings.source != "raw" or settings.audition_track not in settings.tracks:
+        raise HTTPException(400, "Choose a raw track to audition")
+    album = resolve_album(settings.location, settings.artist_folder, settings.album_folder)
+    track = selected_tracks(album, settings.source, [settings.audition_track])[0]
+    data = resolve_render(settings)
+    plan = data["track_repairs"].get(track.name, data["repair_chain"])
+    fix = next((item for item in (plan or {}).get("fixes", []) if item["id"] == settings.repair_id), None)
+    if not fix:
+        raise HTTPException(422, "Enable this correction before auditioning it")
+    info = _ai_tool_audio_info(track)
+    duration = float(info.get("duration_s") or 0)
+    if duration <= fix["start"]:
+        raise HTTPException(422, "The correction starts beyond the end of the track")
+    cursor = settings.preview_start
+    if fix["end"] is not None and not fix["start"] <= cursor < fix["end"]:
+        cursor = fix["start"]
+    start = max(0, min(duration, cursor) - 1)
+    length = min(9, duration - start)
+    try:
+        before, after = workflow.compare_repair(track, data, settings.repair_id, start, length)
+    except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
+        logger.warning("Repair audition failed for %s: %s", track.name, exc)
+        raise HTTPException(422, "Could not render that passage for comparison") from exc
+    return {"before": base64.b64encode(before).decode(), "after": base64.b64encode(after).decode(), "start": start}
 
 
 @router.post("/api/albums/preview")

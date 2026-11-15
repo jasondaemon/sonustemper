@@ -1,8 +1,8 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { defaultBands, type Band } from './monitor';
-  let {bands = $bindable(), spectrum, curve, presetControls, stereoControls, onEdit, onVoiceEdit, voice = $bindable()}:
-    {bands:Band[]; spectrum:string; curve:string; presetControls:Snippet; stereoControls:Snippet; onEdit:(reset?:boolean)=>void; onVoiceEdit:()=>void; voice:Record<string,{enabled:boolean;freq_hz:number;amount_db:number}>} = $props();
+  let {bands = $bindable(), spectrum, curve, combined='', presetControls, stereoControls, onEdit, legacyVoice}:
+    {bands:Band[]; spectrum:string; curve:string; combined?:string; presetControls:Snippet; stereoControls:Snippet; onEdit:(reset?:boolean)=>void; legacyVoice?:Snippet} = $props();
   let selected = $state<number | null>(null);
   let dragging = $state(false);
   let band = $derived(selected === null ? undefined : bands[selected]);
@@ -26,6 +26,7 @@
       onpointermove={drag} onpointerup={() => dragging=false} onpointercancel={() => dragging=false}>
       <path class="grid" d="M0 15H600 M0 45H600 M0 75H600 M0 105H600 M0 135H600 M0 0V150 M200 0V150 M400 0V150 M600 0V150"/>
       <path class="spectrum" d={spectrum}/><path class="curve" d={curve}/>
+      {#if combined}<path class="combined" d={combined}/>{/if}
       {#each bands as item, index}
         <circle aria-hidden="true" cx={x(item.freq_hz)} cy={y(item.gain_db)} r={selected===index ? 7 : 4}
           class:off={item.enabled === false}
@@ -33,6 +34,7 @@
       {/each}
     </svg>
     <div class="scale"><span>20 Hz</span><span>200 Hz</span><span>2 kHz</span><span>20 kHz</span></div>
+    {#if combined}<small>Solid: EQ. Dashed: EQ plus active tonal repairs at the playhead.</small>{/if}
   </div>
   <div class="controls">
     <div>
@@ -80,26 +82,14 @@
   </div>
 </div>
 <div class="lower-controls">
-<section class="voice">
-  <strong>Voice controls · Pre-EQ</strong>
-  {#each Object.entries(voice) as [name, control]}
-    {@const title = name === 'deesser' ? 'De-esser' : name === 'deharsh' ? 'De-harsh' : 'Vocal Smooth'}
-    <div class="voice-row">
-      <label><input type="checkbox" bind:checked={control.enabled} onchange={onVoiceEdit}> {title}</label>
-      {#if name !== 'vocal_smooth'}<input aria-label={title+' frequency (Hz)'} type="number" min={name==='deesser'?3000:1500} max={name==='deesser'?10000:6000} bind:value={control.freq_hz} oninput={onVoiceEdit}>{/if}
-      <div class="voice-amount">
-        <input aria-label={title+' amount (dB)'} type="range" min={name==='deesser'?-12:-6} max="0" step=".5" bind:value={control.amount_db} oninput={onVoiceEdit}>
-        <output>{control.amount_db} dB</output>
-      </div>
-    </div>
-  {/each}
-</section>
+{#if legacyVoice}<div class="legacy-voice">{@render legacyVoice()}</div>{/if}
 <section class="stereo">{@render stereoControls()}</section>
 </div>
 <style>
   .editor{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:1rem}
   svg{display:block;width:100%;height:360px;touch-action:none;background:var(--chart);border:1px solid var(--chart-grid);border-radius:.7rem}
   path{fill:none}.grid{stroke:var(--chart-grid)}.spectrum{stroke:var(--chart-spectrum)}.curve{stroke:var(--chart-line);stroke-width:2}
+  .combined{stroke:var(--text);stroke-width:1.5;stroke-dasharray:5 4;opacity:.75}
   circle{fill:var(--chart-handle);stroke:var(--chart-line);cursor:grab}.off{opacity:.45}
   .scale{display:flex;justify-content:space-between;color:var(--muted);font-size:.75rem;margin:.4rem 0}
   .controls{display:grid;grid-template-columns:minmax(9rem,2fr) minmax(0,3fr);align-items:start;gap:.9rem}
@@ -114,22 +104,16 @@
   .band-actions{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.3rem;font-size:.8rem}
   button:disabled{opacity:.42;cursor:default}
   .lower-controls{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem;margin-top:1rem}
-  .voice{grid-column:span 2;display:grid;grid-template-columns:subgrid;align-content:start}
-  .voice strong{grid-column:1/-1}
-  .voice-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:.35rem;font-size:.85rem}
-  .voice label{display:flex;align-items:center}
-  .voice-amount{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) 3.4rem;align-items:center;gap:.45rem}
-  .voice-amount output{text-align:right;font-variant-numeric:tabular-nums}
-  .voice input[type=range]{width:100%;min-width:3rem}
-  .stereo,.voice{background:var(--surface);border:1px solid var(--line);border-radius:.7rem;padding:.75rem}
+  .lower-controls:not(:has(.legacy-voice)){grid-template-columns:minmax(0,1fr)}
+  .legacy-voice{grid-column:span 2}
+  .stereo{background:var(--surface);border:1px solid var(--line);border-radius:.7rem;padding:.75rem}
   .band{display:flex;gap:.5rem;align-items:center;margin:.35rem 0}
   .band button{display:flex;justify-content:space-between;gap:.35rem;flex:1;text-align:left;font-size:.8rem}
   .band button span:last-child{white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--muted)}
-  .voice input[type=number]{width:5rem;justify-self:end}
   input,select,button{font:inherit;color:inherit;background:var(--surface);border:1px solid var(--line);border-radius:.5rem;padding:.35rem}
   button:not(:disabled):hover{background:var(--surface-hover)}
   .active{border-color:var(--accent);background:var(--accent-soft)}
   @media(max-width:1150px){.editor{grid-template-columns:1fr}}
-  @media(max-width:900px){.lower-controls{grid-template-columns:1fr}.voice{grid-column:auto;grid-template-columns:1fr}}
+  @media(max-width:900px){.lower-controls{grid-template-columns:1fr}.legacy-voice{grid-column:auto}}
   @media(max-width:500px){.controls{grid-template-columns:1fr}}
 </style>
