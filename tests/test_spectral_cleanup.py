@@ -120,11 +120,11 @@ class SpectralWorkflowTests(unittest.TestCase):
             self.assertLess(np.linalg.norm(after[8*RATE:round(8.5*RATE)]),
                             np.linalg.norm(before[8*RATE:round(8.5*RATE)]) * .4)
             result, = render_album(album, [track], settings)
-            for path in (album / "normalized").glob("*.wav"):
+            for path in (album / "03 - normalized").glob("*.wav"):
                 final = read_audio(path)
                 self.assertLess(np.linalg.norm(final[8*RATE:round(8.5*RATE)]) / np.linalg.norm(final[:RATE//2]), .04)
-            self.assertTrue((album / "normalized" / result["wav"]).is_file())
-            mp3, = (album / "mp3s").glob("*.mp3")
+            self.assertTrue((album / "03 - normalized" / result["wav"]).is_file())
+            mp3, = (album / "04 - mp3s").glob("*.mp3")
             final_mp3 = read_audio(mp3)
             self.assertLess(np.linalg.norm(final_mp3[8*RATE:round(8.5*RATE)]) / np.linalg.norm(final_mp3[:RATE//2]), .04)
             self.assertEqual(track.read_bytes(), original)

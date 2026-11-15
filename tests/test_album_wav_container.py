@@ -29,8 +29,7 @@ class AlbumWavContainerTests(unittest.TestCase):
     def test_final_wav_does_not_inherit_source_metadata_chunks(self):
         with tempfile.TemporaryDirectory() as directory:
             album = Path(directory)
-            (album / "raw").mkdir()
-            source = album / "raw" / "Song.wav"
+            source = album / "Song.wav"
             subprocess.run([
                 "ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi", "-i", "sine=d=1:r=48000",
                 "-ac", "2", "-c:a", "pcm_s24le", "-metadata", "comment=Suno fixture",
@@ -46,7 +45,8 @@ class AlbumWavContainerTests(unittest.TestCase):
                 "source": "raw", "filters": "volume=-3dB", "balance": "album",
                 "lufs": -19, "peak": -1.5, "year": 2026,
             })
-            final = (album / "normalized" / result["wav"]).read_bytes()
+            final = (album / "03 - normalized" / result["wav"]).read_bytes()
             self.assertEqual(riff_chunks(final), [b"fmt ", b"data"])
             self.assertEqual(result["lufs"], -19)
-            self.assertEqual(source.read_bytes(), raw)
+            self.assertFalse(source.exists())
+            self.assertEqual((album / "00 - raw" / source.name).read_bytes(), raw)

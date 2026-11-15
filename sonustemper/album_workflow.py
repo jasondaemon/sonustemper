@@ -17,25 +17,16 @@ from time import time
 
 from mutagen.id3 import APIC, ID3, TALB, TIT2, TPE1, TPE2, TRCK, TYER, USLT
 
+from sonustemper.album_layout import apply_layout, child, flat_moves, flat_raw, stage_dir, visible_files
 from sonustemper.master_pack import measure_loudness
 from sonustemper.tools import resolve_tool
 
 
-def child(parent: Path, name: str) -> Path:
-    if not name or name in {".", ".."} or "/" in name or "\\" in name:
-        raise ValueError("Invalid path component")
-    path = parent / name
-    if path.is_symlink():
-        raise ValueError("Symbolic links are unavailable in production albums")
-    return path
-
-
 def audio_files(album: Path, stage: str, suffix: str) -> list[Path]:
-    folder = child(album, stage)
-    if not folder.is_dir():
-        return []
-    return sorted(p for p in folder.iterdir() if p.is_file() and not p.is_symlink()
-                  and not p.name.startswith((".", "#", "@")) and p.suffix.lower() == suffix)
+    folder = stage_dir(album, stage)
+    if stage == "raw" and suffix == ".wav" and not folder.exists():
+        return flat_raw(album)
+    return visible_files(folder, suffix)
 
 
 def wavs(album: Path, stage: str) -> list[Path]:
@@ -339,7 +330,7 @@ def publication_path(album: Path, relative: str) -> Path:
     stage, name = relative.split("/", 1)
     if stage not in {"mastered", "clean", "normalized", "mp3s"} and not (stage == "lyrics" and name.endswith(".lrc")):
         raise ValueError("Invalid output stage")
-    return child(child(album, stage), name)
+    return child(stage_dir(album, stage), name)
 
 
 def rollback_publication(album: Path, work: Path, entries: list[dict]) -> None:
@@ -749,7 +740,7 @@ def confirm_review(album: Path, tracks: list[Path], settings: dict, work: Path, 
                 raise ValueError("A reviewed file changed. Review the album again.")
     stages = {relative.split("/", 1)[0] for row in outputs for relative in row["files"]}
     for stage in stages:
-        child(album, stage).mkdir(exist_ok=True)
+        stage_dir(album, stage).mkdir(exist_ok=True)
     progress.step("Publishing delivery files")
     publish_deliveries(album, tracks, work, outputs, stages, True, progress.finish, previous)
 
@@ -782,13 +773,16 @@ def render_album(album: Path, tracks: list[Path], settings: dict, report=lambda 
     stage = settings["source"]
     if not audition:
         require_full_album(album, stage, tracks)
+        if stage == "raw" and not tags_only and tracks[0].parent == album:
+            apply_layout(album, flat_moves(album))
+            tracks = wavs(album, stage)
     cover = None if audition else delivery_cover(album, settings.get("cover", ""))
     output_stages = ["clean", "normalized", "mp3s"]
     if stage == "raw":
         output_stages.insert(0, "mastered")
     if audition is None and not review:
         for directory in output_stages:
-            child(album, directory).mkdir(exist_ok=True)
+            stage_dir(album, directory).mkdir(exist_ok=True)
     full_track_list = wavs(album, stage)
     track_order = {track.stem: index for index, track in enumerate(full_track_list, 1)}
     fingerprints = {track.name: digest(track) for track in tracks}

@@ -50,12 +50,14 @@
   type TrackText = Record<TextKind | 'draft', string>;
   type AlbumFiles = Partial<Record<'raw'|'mastered'|'clean'|'normalized'|'mp3s', string[]>> & {
     processed?:Record<string,boolean>; covers?:Cover[]; text_status?:Record<string,Partial<Record<TextKind,boolean>>>;
+    stage_folders?:Record<'raw'|'mastered'|'clean'|'normalized'|'mp3s', string>; layout_pending?:boolean;
   };
   const promptButtons = [{kind:'style', label:'Style Prompt'}, {kind:'negative', label:'Negative Prompt'},
     {kind:'prompt', label:'Lyric Prompt'}] as const;
   type LibraryPosition = {location:string; artist:string; album:string; source:string; track:string};
   const positionKey = 'sonustemper:album-library-position';
   let locations = $state<{name:string;available:boolean;writable:boolean}[]>([]);
+  let organizing = $state(false);
   let presets = $state<Preset[]>([]);
   let artists = $state<Folder[]>([]), albums = $state<Folder[]>([]);
   let library = $state<AlbumFiles>({});
@@ -586,6 +588,22 @@
       }
     }
     status = 'Library refreshed from storage';
+  }
+
+  async function organizeAlbum() {
+    if (busy || organizing || !writable || !library.layout_pending) return;
+    if (!confirm('Number the audio-stage folders and move any loose raw WAVs into 00 - raw? No files will be overwritten.')) return;
+    const key=draftKey;
+    organizing=true;
+    try {
+      await action(async ()=>{
+        await api('organize',{...keys,dry_run:false});
+        if (key===draftKey) {
+          await refreshLibrary();
+          status='Album folders organized.';
+        }
+      });
+    } finally {organizing=false;}
   }
 
   async function selectStage(preferredTrack?: string) {
@@ -1690,6 +1708,11 @@
     {#if album}
       <section class="library-section" aria-label="Songs">
         <h3>Songs</h3>
+        {#if library.layout_pending && writable}
+          <button class="organize-album" type="button" disabled={organizing || busy} onclick={organizeAlbum}>
+            {organizing ? 'Organizing…' : 'Organize album folders'}
+          </button>
+        {/if}
         {#if library.raw?.length && library.mastered?.length}
           <div class="source-picker" role="group" aria-label="Start from">
             <button aria-pressed={source === 'raw'} onclick={() => {if (source !== 'raw') {source = 'raw'; void action(selectStage);}}}>Raw WAVs</button>
@@ -2358,10 +2381,10 @@
       <details open><summary>Finalize album</summary>
         <p>Publish in one step, or review the full album first. Raw recordings stay untouched.</p>
         <div class="output-folders" aria-label="Output folders">
-          {#if source === 'raw'}<span><code>mastered/</code> Processed WAV</span>{/if}
-          <span><code>clean/</code> Clean WAV</span>
-          <span><code>normalized/</code> Final WAV</span>
-          <span><code>mp3s/</code> Final MP3</span>
+          {#if source === 'raw'}<span><code>{library.stage_folders?.mastered ?? '01 - mastered'}/</code> Processed WAV</span>{/if}
+          <span><code>{library.stage_folders?.clean ?? '02 - clean'}/</code> Clean WAV</span>
+          <span><code>{library.stage_folders?.normalized ?? '03 - normalized'}/</code> Final WAV</span>
+          <span><code>{library.stage_folders?.mp3s ?? '04 - mp3s'}/</code> Final MP3</span>
         </div>
         <p>Final WAVs contain no source metadata. Saved lyrics go into the MP3 tags and a matching <code>.lrc</code> file.</p>
         {#if !writable}<p>Choose a writable storage location to process this album.</p>{/if}
@@ -2484,6 +2507,7 @@
   .library-list .pending,.library-list .delivered{padding:.08rem .35rem;border-radius:.45rem}
   .library-list .pending{color:var(--warning);background:var(--warning-soft)}.library-list .delivered{color:var(--good);background:var(--good-soft)}
   .source-picker{display:flex;gap:.3rem;margin-bottom:.4rem}
+  .organize-album{margin-bottom:.4rem;font-size:.75rem}
   .source-picker button{font-size:.72rem;padding:.3rem .45rem}
   .waveform{min-height:240px;background:var(--chart);border-radius:.7rem;margin-bottom:.35rem}
   .manual-tools{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:.55rem;max-width:66rem}

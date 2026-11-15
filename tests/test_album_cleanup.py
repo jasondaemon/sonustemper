@@ -201,7 +201,7 @@ class AlbumCleanupTests(unittest.TestCase):
             cleanup = album / "cleanup-playback.wav"
             render_cleanup_audio(track, cleanup, settings)
             result, = render_album(album, wavs(album, "raw"), settings)
-            final = album / "normalized" / result["wav"]
+            final = album / "03 - normalized" / result["wav"]
 
             def ratio(path, position):
                 return amplitude(path, position, 3500) / amplitude(path, position, 400)

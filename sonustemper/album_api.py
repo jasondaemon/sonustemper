@@ -1,6 +1,7 @@
 """HTTP boundary for the album workspace."""
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
+from functools import wraps
 from typing import Literal
 import base64
 import json
@@ -10,7 +11,7 @@ from pathlib import Path
 import shutil
 import tempfile
 import subprocess
-from threading import BoundedSemaphore
+from threading import BoundedSemaphore, Lock
 from time import time
 from uuid import UUID, uuid4
 
@@ -21,6 +22,7 @@ from starlette.background import BackgroundTask
 
 from sonustemper import album_workflow as workflow
 from sonustemper import album_cleanup as cleanup
+from sonustemper import album_layout as layout
 from sonustemper import master_pack
 from sonustemper import spectral_cleanup
 from sonustemper.storage import LIBRARY_DB, PREVIEWS_DIR, PRESETS_DIR
@@ -31,6 +33,15 @@ worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="album-render")
 logger = logging.getLogger(__name__)
 compare_slots = BoundedSemaphore(2)
 loudness_slots = BoundedSemaphore(2)
+album_mutations = Lock()
+
+
+def serialize_album_mutations(handler):
+    @wraps(handler)
+    def run(*args, **kwargs):
+        with album_mutations:
+            return handler(*args, **kwargs)
+    return run
 
 
 class Band(BaseModel):
@@ -317,14 +328,77 @@ def browse(location: str, artist_folder: str = "", album_folder: str = "", statu
     album = resolve_album(location, artist_folder, album_folder)
     try:
         stages = workflow.album_stages(album)
+        layout_moves = layout.layout_plan(album)
+        stage_folders = {stage: layout.stage_dir(album, stage).name for stage in layout.AUDIO_FOLDERS}
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     tracks = list(dict.fromkeys(stages["raw"] + stages["mastered"]))
     delivery = workflow.track_delivery(stages)
     return {**stages, "delivery": delivery,
             "processed": {name: workflow.delivery_complete(missing) for name, missing in delivery.items()},
+            "stage_folders": stage_folders, "layout_pending": bool(layout_moves),
             "covers": workflow.cover_options(album),
             "text_status": workflow.track_text_status(album, tracks)}
+
+
+class OrganizeAlbum(AlbumInput):
+    dry_run: bool = True
+
+
+class OrganizeLocation(BaseModel):
+    location: str
+    dry_run: bool = True
+
+
+def require_idle_layout(location: str) -> None:
+    require_writable(location)
+    if any(state["status"] in {"queued", "running"} or state.get("publication")
+           for _, state in workflow.job_states(LIBRARY_DB, ("queued", "running", "failed"))):
+        raise HTTPException(409, "Wait for album jobs or export recovery before organizing folders.")
+
+
+@router.post("/api/albums/organize")
+@serialize_album_mutations
+def organize_album(body: OrganizeAlbum):
+    album = resolve_album(body.location, body.artist_folder, body.album_folder)
+    if not body.dry_run:
+        require_idle_layout(body.location)
+    try:
+        moves = layout.layout_plan(album)
+        if not body.dry_run:
+            layout.apply_layout(album, moves)
+    except (OSError, ValueError, RuntimeError) as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"dry_run": body.dry_run, "moves": moves}
+
+
+@router.post("/api/albums/organize-location")
+@serialize_album_mutations
+def organize_location(body: OrganizeLocation):
+    root = location_root(body.location)
+    if not body.dry_run:
+        require_idle_layout(body.location)
+    planned = []
+    errors = []
+    for artist in folders(root):
+        for title in folders(root / artist):
+            album = root / artist / title
+            try:
+                moves = layout.layout_plan(album)
+                if moves:
+                    planned.append((album, {"artist_folder": artist, "album_folder": title, "moves": moves}))
+            except (OSError, ValueError) as exc:
+                errors.append({"artist_folder": artist, "album_folder": title, "error": str(exc)})
+    results = []
+    for album, row in planned:
+        try:
+            if not body.dry_run and not errors:
+                layout.apply_layout(album, row["moves"])
+                row["applied"] = True
+            results.append(row)
+        except (OSError, ValueError, RuntimeError) as exc:
+            errors.append({**row, "error": str(exc)})
+    return {"location": body.location, "dry_run": body.dry_run, "albums": results, "errors": errors}
 
 
 @router.get("/api/albums/presets")
@@ -930,6 +1004,7 @@ def preflight(settings: Settings):
 
 
 @router.post("/api/albums/jobs", status_code=202)
+@serialize_album_mutations
 def start_job(settings: Settings):
     album, tracks, key = album_job_inputs(settings)
     try:
@@ -983,6 +1058,7 @@ def execute_review(job: str, album: Path, tracks: list[Path], data: dict, key: s
 
 
 @router.post("/api/albums/reviews", status_code=202)
+@serialize_album_mutations
 def start_review(settings: Settings):
     if settings.metadata_only:
         raise HTTPException(400, "Use Update MP3 tags only for tag changes")
@@ -1039,6 +1115,7 @@ def execute_review_publish(job: str, album: Path, tracks: list[Path], state: dic
 
 
 @router.post("/api/albums/reviews/{job}/publish", status_code=202)
+@serialize_album_mutations
 def publish_review(job: str, settings: Settings):
     state = ready_review(job)
     album, tracks, key = album_job_inputs(settings)

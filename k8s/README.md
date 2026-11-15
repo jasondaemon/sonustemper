@@ -70,9 +70,25 @@ Set `SONUSTEMPER_ALBUM_LOCATIONS` to a JSON object mapping names to mounted
 directories, for example `{"Music Production":"/music-production"}`. In Compose,
 set it in `.env` and add a bind mount with a Compose override. In Kubernetes,
 set it on the app container and add the corresponding volume mount. Each root
-contains artist folders, album folders, and `raw/` or `mastered/` WAVs. The album
-browser reads those directories directly. Refresh after adding or removing files
-on the share.
+contains artist folders, then album folders. The numbered audio folders are
+`00 - raw`, `01 - mastered`, `02 - clean`, `03 - normalized`, and `04 - mp3s`.
+Legacy names still work; new output folders use the numbered names.
+The album browser reads the share directly. Refresh after adding or removing files.
+
+**Organize album folders** renames the selected album's legacy stages in place.
+If there is no raw or mastered folder, WAVs directly in an album folder appear
+as raw on browse; organizing the album or starting a review or direct publish
+moves them to `00 - raw`. Browsing alone does not move any files. Artwork, stems,
+prompts, and lyrics stay where they are. Conflicting stage directories are
+never merged or overwritten.
+
+For bulk migration, POST `{"location":"name","dry_run":true}` to
+`/api/albums/organize-location`. Check `albums` and `errors` before sending
+`dry_run:false`. Keep the response with the applied move lists as a rollback
+receipt. If needed, with the library idle and before adding more files, pass an
+album path and its applied `moves` to
+`sonustemper.album_layout.rollback_layout(Path(album_path), moves)`.
+It reverses moves in order and refuses to overwrite an occupied destination.
 
 Set `SONUSTEMPER_READ_ONLY_ALBUM_LOCATIONS` to a JSON array of names to disable
 exports and lyric edits there. Mount the source share read-only in dev and use a
@@ -96,8 +112,9 @@ playback advances through the album. The review shows measured album loudness,
 per-song gain, final WAV and decoded MP3 true peaks, and the approximate
 location of any peak that capped the gain.
 
-**Publish reviewed album** moves those same files to `mastered/` (when starting
-from raw), `clean/`, `normalized/` and `mp3s/`. A change to the source, album
+**Publish reviewed album** moves those same files to `01 - mastered/` (when
+starting from raw), `02 - clean/`, `03 - normalized/` and `04 - mp3s/` or
+their existing legacy equivalents. A change to the source, album
 settings, cover, or lyrics invalidates the review. Publish the current settings
 directly or prepare a fresh review. Reviews require a writable
 location for staging and are available for up to four hours. Raw recordings
@@ -111,7 +128,7 @@ In the song list, a green check means a final WAV and its matching MP3
 are present. A dim check means the pair is incomplete. Intermediate clean
 WAVs are not required for this status.
 
-Starting from `raw/` bakes enabled cleanup, EQ, and noise removal into the audio
+Starting from `00 - raw/` bakes enabled cleanup, EQ, and noise removal into the audio
 before album loudness normalization. The final 24-bit WAV is written to a fresh
 container without source tags or ancillary chunks (including Suno metadata).
 The MP3 is encoded from that WAV and receives only the delivery metadata.

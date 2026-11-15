@@ -46,7 +46,7 @@ class AlbumReviewTests(unittest.TestCase):
             work = album / state["work"]
             self.assertEqual(state["status"], "ready")
             check_steps()
-            self.assertFalse((album / "normalized").exists())
+            self.assertFalse((album / "03 - normalized").exists())
             self.assertEqual(outputs[0]["gain_db"], outputs[1]["gain_db"])
             self.assertLess(state["loudness"]["achieved_lufs"], -20)
             limit, = state["loudness"]["limits"]
@@ -72,7 +72,7 @@ class AlbumReviewTests(unittest.TestCase):
                 approve()
             workflow.write_track_text(album, tracks[0].stem, "lyrics", lyric)
             old_companion.unlink()
-            self.assertFalse((album / "normalized").exists())
+            self.assertFalse((album / "03 - normalized").exists())
             with tracks[0].open("ab") as handle:
                 handle.write(b"changed")
             with self.assertRaisesRegex(ValueError, "Steady.wav changed"):
@@ -82,7 +82,7 @@ class AlbumReviewTests(unittest.TestCase):
 
             reviewed = {relative: workflow.digest(work / relative)
                         for row in outputs for relative in row["files"]}
-            foreign = album / "mp3s" / first.with_suffix(".lrc").name
+            foreign = album / "04 - mp3s" / first.with_suffix(".lrc").name
             foreign.parent.mkdir()
             foreign.write_text("[00:01.00]Hold on\n")
             with self.assertRaisesRegex(FileExistsError, "unmanaged lyrics"):
@@ -94,7 +94,8 @@ class AlbumReviewTests(unittest.TestCase):
             self.assertEqual(state["status"], "complete")
             check_steps()
             self.assertEqual(old_companion.read_text(), lyric + "\n")
-            self.assertEqual(reviewed, {relative: workflow.digest(album / relative) for relative in reviewed})
+            self.assertEqual(reviewed, {relative: workflow.digest(workflow.publication_path(album, relative))
+                                        for relative in reviewed})
             self.assertEqual(original, {track: workflow.digest(track) for track in tracks})
 
             workflow.write_track_text(album, tracks[0].stem, "lyrics", "")
@@ -106,7 +107,7 @@ class AlbumReviewTests(unittest.TestCase):
                                   previous={row["track"]: row for row in outputs})
             check_steps()
             self.assertFalse(foreign.exists())
-            self.assertEqual((album / "mp3s" / second.with_suffix(".lrc").name).read_text(), "New reviewed lyrics\n")
+            self.assertEqual((album / "04 - mp3s" / second.with_suffix(".lrc").name).read_text(), "New reviewed lyrics\n")
             self.assertEqual(new_companion.read_text(), "New reviewed lyrics\n")
 
     def test_ready_review_can_only_be_claimed_once(self):
