@@ -425,13 +425,34 @@ def compare_repair(track: Path, settings: dict, repair_id: str, start: float, le
             process_album_track(track, rendered, settings, skip_fix=skip)
             ffmpeg(rendered, excerpt, "-ss", str(start), "-t", str(length), "-ac", "2", "-ar", "48000", "-c:a", "pcm_f32le")
             versions.append((excerpt, *metrics(excerpt)))
-        level = min(*(lufs for _, lufs, _ in versions), *(lufs - peak - 2 for _, lufs, peak in versions))
+        level = comparison_level(versions)
         output = []
         for path, lufs, _ in versions:
             target = work / "audition.wav"
             ffmpeg(path, target, "-af", f"volume={level - lufs:.6f}dB", "-c:a", "pcm_s16le", "-bitexact")
             output.append(target.read_bytes())
         return output[0], output[1]
+
+
+def comparison_level(versions: list[tuple[Path, float, float]]) -> float:
+    return min(min(lufs, lufs - peak - 2) for _, lufs, peak in versions)
+
+
+def compare_song_repairs(track: Path, settings: dict, bypass: set[str], folder: Path) -> None:
+    plan = settings.get("track_repairs", {}).get(track.name, settings.get("repair_chain"))
+    before = {**settings, "track_repairs": {track.name: {
+        **plan, "fixes": [fix for fix in plan["fixes"] if fix["id"] not in bypass],
+    }}}
+    versions = []
+    for name, render_settings in (("before", before), ("after", settings)):
+        rendered = folder / f"{name}.wav"
+        process_album_track(track, rendered, render_settings)
+        versions.append((rendered, *metrics(rendered)))
+    level = comparison_level(versions)
+    for name, (path, lufs, _) in zip(("before", "after"), versions):
+        ffmpeg(path, folder / f"{name}.mp3", "-af", f"volume={level - lufs:.6f}dB",
+               "-ac", "2", "-ar", "48000", "-c:a", "libmp3lame", "-b:a", "320k")
+        path.unlink()
 
 
 def normalize(clean: Path, output: Path, gain: float, ceiling: float) -> tuple[float, float]:

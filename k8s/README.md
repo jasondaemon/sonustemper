@@ -104,7 +104,9 @@ whole-song or time-range fixes have separate timeline lines and response curves.
 Preview a finding at the suggested cut before approving it; the matched
 before/after audition changes only that fix. **Apply all** adds uncovered
 findings at the current cut, leaves skipped findings, peak warnings, and existing fixes alone, and
-offers an undo. New sessions
+offers an undo. **Preview all** and **Compare applied suggestions** render a
+seekable, loudness-matched pair for the full song without writing to the album.
+New sessions
 run noise removal and repairs before **Tone & Stereo** (presets or custom EQ),
 then measure loudness for delivery. Older sessions retain their original order
 until explicitly upgraded. Applying settings to the album leaves each song's

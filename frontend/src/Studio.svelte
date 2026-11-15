@@ -86,7 +86,9 @@
   let ignoredFindings = $state<string[]>([]);
   let lastApplied = $state<{ids:string[];wasEnabled:boolean;manual:string}>();
   let compareBusy = $state(false), comparePlayer = $state<HTMLAudioElement>();
-  let compareResult = $state<{before:string;after:string;start:number;key:string}>();
+  type BatchMode = 'pending'|'applied';
+  let compareResult = $state<{before:string;after:string;start:number;key:string;batch?:BatchMode;count?:number}>();
+  let batchBusy = $state<BatchMode>();
   let compareSide = $state<'before'|'after'>('after');
   let compareOffset = 0, compareResume = false;
   let voiceControls = $state({
@@ -172,10 +174,19 @@
   let comparisonFix = $derived(activeFinding ? proposedFix ?? findingCoverage : selectedFix);
   let canCompare = $derived(Boolean(proposedFix || (comparisonFix?.enabled && comparisonFix.amount>0 && cleanupEnabled)));
   let compareKey = $derived(JSON.stringify({...keys,track,processing,context:activeFinding ?? activeRepair,proposal:proposedFix}));
+  let appliedSuggestionIds = $derived(cleanupEnabled ? repairs.filter(fix=>fix.id.startsWith('finding-') && fix.enabled && fix.amount>0).map(fix=>fix.id) : []);
+  let pendingBatchKey = $derived(JSON.stringify(['pending',keys,track,processing,bulkPlan.proposed]));
+  let appliedBatchKey = $derived(JSON.stringify(['applied',keys,track,processing]));
+  let batchVisible = $derived(Boolean(compareResult?.batch && compareResult.key===(compareResult.batch==='pending' ? pendingBatchKey : appliedBatchKey)));
   let canAudition = $derived(Boolean(previewURL && previewKey === currentKey));
   let audioURL = $derived(track ? '/api/albums/audio?' + new URLSearchParams({...keys, track}) : '');
 
   let playbackURL = $derived(noiseMode ? noiseURL : audition ? previewURL : audioURL);
+
+  $effect(() => {
+    const media=comparePlayer;
+    return () => media?.pause();
+  });
 
   $effect(() => {
     if (track && readyDraftKey === draftKey) {
@@ -591,14 +602,17 @@
 
   function clearCompare() {
     if (compareResult) {
-      URL.revokeObjectURL(compareResult.before);
-      URL.revokeObjectURL(compareResult.after);
+      comparePlayer?.pause();
+      if (!compareResult.batch) {
+        URL.revokeObjectURL(compareResult.before);
+        URL.revokeObjectURL(compareResult.after);
+      }
       compareResult=undefined;
     }
   }
 
   async function renderComparison() {
-    if (compareBusy || !comparisonFix || !canCompare) return;
+    if (compareBusy || batchBusy || !comparisonFix || !canCompare) return;
     const key=compareKey;
     const candidate=proposedFix;
     compareBusy=true;cleanupError='';
@@ -615,6 +629,26 @@
     } catch (cause) {
       if (key===compareKey) cleanupError=String(cause instanceof Error ? cause.message : cause);
     } finally {compareBusy=false;}
+  }
+
+  async function renderBatchComparison(mode:BatchMode) {
+    if (compareBusy || batchBusy || (mode==='pending' ? !bulkPlan.proposed.length : !appliedSuggestionIds.length)) return;
+    const key=mode==='pending' ? pendingBatchKey : appliedBatchKey;
+    batchBusy=mode;cleanupError='';
+    try {
+      const data=await api<{before:string;after:string;count:number}>('repair-batch-audition', {
+        ...keys,...processing, tracks:[track], audition_track:track,
+        ...(mode==='pending' ? {cleanup_version:2,cleanup_enabled:true,
+          ...(cleanupVersion===1 && !eqEnabled ? {voice_controls:{}} : {}),
+          candidate_repairs:[...bulkPlan.proposed].sort((a,b)=>a.kind.localeCompare(b.kind) || a.start-b.start)}
+          : {bypass_repair_ids:appliedSuggestionIds}),
+      });
+      if (key !== (mode==='pending' ? pendingBatchKey : appliedBatchKey)) return;
+      clearCompare();compareSide='after';compareOffset=playhead;compareResume=false;
+      compareResult={...data,batch:mode,start:0,key};
+    } catch (cause) {
+      if (key===(mode==='pending' ? pendingBatchKey : appliedBatchKey)) cleanupError=String(cause instanceof Error ? cause.message : cause);
+    } finally {batchBusy=undefined;}
   }
 
   function switchComparison(side:'before'|'after') {
@@ -1174,12 +1208,21 @@
         {#if analysis?.findings.some(item=>item.kind!=='peak') || lastApplied}
           <div class="finding-actions">
             <label><span>Suggested cut</span><input type="range" aria-label="Suggested cut" min=".5" max="6" step=".5" bind:value={findingCut}><output>{findingCut} dB</output></label>
+            <button type="button" disabled={!bulkPlan.proposed.length || compareBusy || Boolean(batchBusy)} onclick={()=>renderBatchComparison('pending')}>{batchBusy==='pending'?'Rendering full song…':`Preview all (${bulkPlan.proposed.length})`}</button>
             <button type="button" disabled={!bulkPlan.proposed.length} onclick={()=>applyFindings(true)} title="Add all uncovered findings in this song at the current cut">Apply all ({bulkPlan.proposed.length})</button>
             {#if lastApplied}<button type="button" onclick={undoFindings}>Undo last apply</button>{/if}
-            <small>Start around 1–2 dB. This sets the cut for new suggestions only. Existing fixes and EQ stay as they are.</small>
+            <small>Start around 1–2 dB. Preview all renders the song without applying anything. Apply all only changes the settings.</small>
           </div>
         {/if}
         {#if appliedMessage}<p class="applied-message" role="status">{appliedMessage}</p>{/if}
+        {#if appliedSuggestionIds.length || batchVisible}
+          <div class="batch-compare">
+            {#if appliedSuggestionIds.length}
+              <button type="button" disabled={compareBusy || Boolean(batchBusy)} onclick={()=>renderBatchComparison('applied')}>{batchBusy==='applied'?'Rendering full song…':`Compare applied suggestions (${appliedSuggestionIds.length})`}</button>
+            {/if}
+            {@render comparisonPlayer(true)}
+          </div>
+        {/if}
         <div class="findings-workbench" class:with-findings={Boolean(analysis?.findings.length)}>
         {#if analysis?.findings.length}<FindingsBrowser findings={analysis.findings} active={activeFinding} select={chooseFinding}
           covered={(item)=>Boolean(overlappingFix(item,repairs))} ignored={(item)=>ignoredFindings.includes(findingKey(item))}/>{/if}
@@ -1200,7 +1243,7 @@
                 <small>Try a {findingCut} dB cut at {proposedFix.frequency} Hz on this passage. Preview does not save it.</small>
               {/if}
               {#if canCompare}
-                <button type="button" class:primary={Boolean(proposedFix && compareResult?.key!==compareKey)} disabled={compareBusy} onclick={renderComparison}>{compareBusy?'Rendering…':findingCoverage?'Compare covering fix':'Preview before / after'}</button>
+                <button type="button" class:primary={Boolean(proposedFix && compareResult?.key!==compareKey)} disabled={compareBusy || Boolean(batchBusy)} onclick={renderComparison}>{compareBusy?'Rendering…':findingCoverage?'Compare covering fix':'Preview before / after'}</button>
               {/if}
               {#if proposedFix && !findingIgnored}
                 <button type="button" class:primary={compareResult?.key===compareKey} disabled={repairs.length>=maxRepairs} onclick={()=>applyFindings()}>Apply finding</button>
@@ -1275,7 +1318,7 @@
             {#if cleanupEnabled && selectedFix.enabled && selectedFix.amount && boostAtFix > .5}
               <small class="repair-overlap">Tone EQ adds about {boostAtFix.toFixed(1)} dB at {selectedFix.frequency} Hz, where this fix cuts. Compare before and after to decide whether to keep both.</small>
             {/if}
-            <button type="button" disabled={compareBusy || !cleanupEnabled || !selectedFix.enabled || !selectedFix.amount}
+            <button type="button" disabled={compareBusy || batchBusy || !cleanupEnabled || !selectedFix.enabled || !selectedFix.amount}
               onclick={renderComparison}>{compareBusy ? 'Rendering comparison…' : 'Render before / after for selected fix'}</button>
             {@render comparisonPlayer()}
           </div>
@@ -1312,15 +1355,19 @@
         </details>
         {@render noisePanel()}
       </details>
-      {#snippet comparisonPlayer()}
-        {#if compareResult?.key === compareKey}
+      {#snippet comparisonPlayer(batch = false)}
+        {#if compareResult && (batch ? batchVisible : compareResult.key===compareKey)}
           <div class="comparison-excerpt">
+            {#if batch}<strong>Full-song comparison · {compareResult.count} {compareResult.batch==='pending' ? 'proposed' : 'applied'} {compareResult.count===1 ? 'fix' : 'fixes'}</strong>{/if}
             <div class="compare-switch"><button type="button" aria-pressed={compareSide==='before'} onclick={() => switchComparison('before')}>Before</button>
               <button type="button" aria-pressed={compareSide==='after'} onclick={() => switchComparison('after')}>After</button>
-              <small>From {timeLabel(compareResult.start)} · loudness matched</small></div>
-            <audio controls loop bind:this={comparePlayer} src={compareResult[compareSide]} onplay={() => player?.pause()}
+              <small>{batch ? 'Loudness matched' : `From ${timeLabel(compareResult.start)} · loudness matched`}</small>
+              {#if batch && activeFinding}<button type="button" onclick={()=>{if (comparePlayer && activeFinding) comparePlayer.currentTime=Math.max(0,activeFinding.start-.25);}}>Jump to finding</button>{/if}
+            </div>
+            <audio controls loop={!batch} bind:this={comparePlayer} src={compareResult[compareSide]} onplay={() => player?.pause()}
+              onerror={()=>{if(batch && batchVisible) cleanupError='Could not load that comparison. Render it again.';}}
               onloadedmetadata={(event) => {event.currentTarget.currentTime=compareOffset;if (compareResume) void event.currentTarget.play().catch(()=>{});}}></audio>
-            <small>Only this fix changes; your other settings stay the same in both clips.</small>
+            <small>{batch ? 'Only this set of suggestions changes. Scrub or switch sides at the same point in the song.' : 'Only this fix changes; your other settings stay the same in both clips.'}</small>
           </div>
         {/if}
       {/snippet}
@@ -1666,6 +1713,9 @@
   .fix-actions{display:flex;flex-wrap:wrap;gap:.3rem}
   .repair-compare{display:grid;justify-items:start;gap:.35rem;margin:.7rem 0}
   .comparison-excerpt{display:grid;gap:.24rem;width:100%;max-width:32rem}
+  .batch-compare{display:grid;justify-items:start;gap:.38rem;margin:.5rem 0 .7rem}
+  .batch-compare .comparison-excerpt{max-width:45rem;background:var(--surface);border:1px solid var(--line);border-radius:.55rem;padding:.52rem .62rem}
+  .batch-compare strong{font-size:.84rem}
   .compare-switch{display:flex;align-items:center;gap:.3rem;flex-wrap:wrap}
   .repair-overlap{background:var(--warning-soft);padding:.4rem .5rem;border-radius:.3rem;color:var(--warning)}
   .repair-manual{border:1px solid var(--line);box-shadow:none}

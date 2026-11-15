@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 from sonustemper.album_cleanup import analyze, combine_noise_chains, repair_filter
-from sonustemper.album_workflow import compare_repair, process_album_track, render_album, repair_batches, wavs
+from sonustemper.album_workflow import compare_repair, compare_song_repairs, metrics, process_album_track, render_album, repair_batches, wavs
 
 
 def amplitude(path, start, frequency):
@@ -22,6 +22,35 @@ def amplitude(path, start, frequency):
 
 @unittest.skipUnless(shutil.which("ffmpeg"), "FFmpeg is required")
 class AlbumCleanupTests(unittest.TestCase):
+    def test_full_song_before_after_comparison_bypasses_only_requested_fixes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            track = folder / "song.wav"
+            subprocess.run([
+                "ffmpeg", "-v", "error", "-f", "lavfi", "-i",
+                "aevalsrc=0.13*sin(2*PI*400*t)+0.13*sin(2*PI*3500*t):s=48000:d=7",
+                "-c:a", "pcm_s24le", str(track),
+            ], check=True)
+            original = track.read_bytes()
+            fixes = [
+                {"id": "manual", "start": 0, "end": None, "filter": "equalizer=f=3500:t=q:w=2:g=3"},
+                {"id": "early", "start": 1, "end": 3, "filter": "equalizer=f=3500:t=q:w=2:g=-8"},
+                {"id": "late", "start": 4, "end": 6, "filter": "equalizer=f=400:t=q:w=2:g=-8"},
+            ]
+            settings = {"repair_chain": {"global": "", "tone": "", "fixes": fixes}}
+            compare_song_repairs(track, settings, {"early", "late"}, folder)
+            before, after = folder / "before.mp3", folder / "after.mp3"
+
+            def ratio(path, position):
+                return amplitude(path, position, 3500) / amplitude(path, position, 400)
+
+            self.assertAlmostEqual(ratio(before, .25), ratio(after, .25), places=2)
+            self.assertGreater(ratio(before, .25), ratio(track, .25) * 1.25)
+            self.assertLess(ratio(after, 1.5), ratio(before, 1.5) * .5)
+            self.assertGreater(ratio(after, 4.5), ratio(before, 4.5) * 2)
+            self.assertLessEqual(abs(metrics(before)[0] - metrics(after)[0]), .2)
+            self.assertEqual(track.read_bytes(), original)
+
     def test_batch_reuses_identical_filters_and_can_skip_one_fix(self):
         fixes = [{"id":str(index), "start":index * 2, "end":index * 2 + 1, "filter":"volume=-6dB"}
                  for index in range(35)]

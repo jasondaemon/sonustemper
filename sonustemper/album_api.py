@@ -10,7 +10,9 @@ from pathlib import Path
 import shutil
 import tempfile
 import subprocess
-from uuid import uuid4
+from threading import BoundedSemaphore
+from time import time
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
@@ -26,6 +28,7 @@ from sonustemper.tools import bundle_root
 router = APIRouter()
 worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="album-render")
 logger = logging.getLogger(__name__)
+compare_slots = BoundedSemaphore(2)
 
 
 class Band(BaseModel):
@@ -535,6 +538,80 @@ def repair_audition(settings: RepairAudition):
         logger.warning("Repair audition failed for %s: %s", track.name, exc)
         raise HTTPException(422, "Could not render that passage for comparison") from exc
     return {"before": base64.b64encode(before).decode(), "after": base64.b64encode(after).decode(), "start": start}
+
+
+BATCH_PREVIEW_AGE = 2 * 60 * 60
+
+
+class BatchAudition(Settings):
+    candidate_repairs: list[Repair] = Field(default_factory=list, max_length=128)
+    bypass_repair_ids: list[str] = Field(default_factory=list, max_length=128)
+
+
+def prune_batch_auditions(root: Path) -> None:
+    entries = []
+    for path in root.iterdir():
+        try:
+            if path.name != UUID(path.name).hex or path.is_symlink() or not path.is_dir():
+                continue
+            entries.append((path.stat().st_mtime, path))
+        except (OSError, ValueError):
+            continue
+    for index, (modified, path) in enumerate(sorted(entries, reverse=True)):
+        if index >= 15 or time() - modified > BATCH_PREVIEW_AGE:
+            shutil.rmtree(path, ignore_errors=True)
+
+
+@router.post("/api/albums/repair-batch-audition")
+def repair_batch_audition(settings: BatchAudition):
+    if settings.source != "raw" or settings.audition_track not in settings.tracks:
+        raise HTTPException(400, "Choose a raw track to audition")
+    if bool(settings.candidate_repairs) == bool(settings.bypass_repair_ids):
+        raise HTTPException(422, "Choose proposed or already applied repairs to compare")
+    album = resolve_album(settings.location, settings.artist_folder, settings.album_folder)
+    track = selected_tracks(album, settings.source, [settings.audition_track])[0]
+    effective = effective_track_settings(settings, settings.track_overrides.get(track.name, {}))
+    bypass = set(settings.bypass_repair_ids)
+    if settings.candidate_repairs:
+        if any(not fix.enabled or fix.amount <= 0 or fix.end is None for fix in settings.candidate_repairs):
+            raise HTTPException(422, "Invalid suggested repair")
+        try:
+            effective = Settings.model_validate({**effective.model_dump(), "repairs": [*effective.repairs, *settings.candidate_repairs]})
+        except ValueError as exc:
+            raise HTTPException(422, "Invalid suggested repairs") from exc
+        bypass = {fix.id for fix in settings.candidate_repairs}
+    data = resolved_settings(effective)
+    plan = data["repair_chain"]
+    if not plan or not bypass <= {fix["id"] for fix in plan["fixes"]}:
+        raise HTTPException(422, "Enable the repairs before comparing the batch")
+    if not compare_slots.acquire(blocking=False):
+        raise HTTPException(429, "Other comparisons are rendering. Try again in a moment.")
+    root = PREVIEWS_DIR / "album-comparisons"
+    token = uuid4().hex
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        prune_batch_auditions(root)
+        with tempfile.TemporaryDirectory(prefix=".batch-", dir=root) as temporary:
+            pair = Path(temporary) / "preview"
+            pair.mkdir()
+            workflow.compare_song_repairs(track, data, bypass, pair)
+            pair.rename(root / token)
+    except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
+        logger.warning("Batch repair audition failed for %s: %s", track.name, exc)
+        raise HTTPException(422, "Could not render a full-song comparison") from exc
+    finally:
+        compare_slots.release()
+    return {"before": f"/api/albums/repair-batch-audition/{token}/before",
+            "after": f"/api/albums/repair-batch-audition/{token}/after", "count": len(bypass)}
+
+
+@router.get("/api/albums/repair-batch-audition/{token}/{side}")
+def get_repair_batch_audition(token: UUID, side: Literal["before", "after"]):
+    folder = PREVIEWS_DIR / "album-comparisons" / token.hex
+    path = folder / f"{side}.mp3"
+    if not path.is_file() or time() - folder.stat().st_mtime > BATCH_PREVIEW_AGE:
+        raise HTTPException(404, "Comparison expired. Render it again.")
+    return FileResponse(path, media_type="audio/mpeg", headers={"Cache-Control": "private, no-store"})
 
 
 @router.post("/api/albums/preview")
