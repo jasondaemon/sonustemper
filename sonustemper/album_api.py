@@ -325,11 +325,21 @@ def source_audio(location: str, artist_folder: str, album_folder: str, source: s
 def spectrogram(location: str, artist_folder: str, album_folder: str, source: str, track: str,
                 scale: Literal["log", "lin"] = "log", range_db: int = 120,
                 width: int = 1200,
-                overview: bool = False):
+                overview: bool = False,
+                start_sec: float | None = Query(default=None, ge=0, le=36000),
+                end_sec: float | None = Query(default=None, gt=0, le=36000),
+                low_hz: int = Query(default=0, ge=0, le=24000),
+                high_hz: int = Query(default=24000, ge=0, le=24000)):
     from sonustemper.server import _spectrogram_for_path
 
     album = resolve_album(location, artist_folder, album_folder)
     path = selected_tracks(album, source, [track])[0]
+    if start_sec is not None or end_sec is not None:
+        if (start_sec is None or end_sec is None or end_sec - start_sec < .009 or
+                high_hz - low_hz < 100 or overview):
+            raise HTTPException(400, "Choose a valid passage and frequency range")
+        return _spectrogram_for_path(path, 720, 192, "lin", range_db, "combined", album_axis=True,
+                                     passage=(start_sec, end_sec), frequency_range=(low_hz, high_hz))
     if width not in {1200, 2400, 4800, 8192}:
         raise HTTPException(400, "Unsupported spectrogram width")
     return _spectrogram_for_path(path, 960 if overview else width, 128 if overview else 384,

@@ -4,6 +4,7 @@
   import StereoMeter from './StereoMeter.svelte';
   import RepairTimeline from './RepairTimeline.svelte';
   import CleanupQueue from './CleanupQueue.svelte';
+  import ScopedSpectrogram from './ScopedSpectrogram.svelte';
   import VoiceControls from './VoiceControls.svelte';
   import {defaultNoise, savedNoise, type NoiseSelection, type NoiseSettings} from './noiseSelections';
   import {defaultFindingCut, findingKey, findingPlan, findingTitle, isNoiseFinding, maxRepairs, noiseForFinding, overlappingFix, rangeLabel, repairBand, repairTypes, reviewItems, timeLabel, type Analysis, type Finding, type Range, type Repair, type RepairKind, type ReviewItem} from './repairs';
@@ -90,10 +91,11 @@
   let lastApplied = $state<{ids:string[];wasEnabled:boolean;manual:string}>();
   let compareBusy = $state(false), compareActive = $state(false), customRepairOpen = $state(false);
   type BatchMode = 'pending'|'applied';
-  let compareResult = $state<{before:string;after:string;removed?:string;start?:number;key:string;label:string;batch?:BatchMode;count?:number}>();
+  let compareResult = $state<{before:string;after:string;removed?:string;start?:number;range?:Range;key:string;label:string;batch?:BatchMode;count?:number}>();
   let batchBusy = $state<BatchMode>();
   type ComparisonSide = 'before'|'after'|'removed';
   let compareSide = $state<ComparisonSide>('after');
+  let loopNoise = $state(false);
   let voiceControls = $state({
     deesser:{enabled:false,freq_hz:6500,amount_db:0},
     vocal_smooth:{enabled:false,freq_hz:4500,amount_db:0},
@@ -101,7 +103,7 @@
   });
   let noise = $state<NoiseSettings>({...defaultNoise}), noiseSelections = $state<NoiseSelection[]>([]);
   let noiseEditorOpen = $state(false), editingNoise = $state(''), noiseError = $state('');
-  let noisePanelElement = $state<HTMLDetailsElement>(), noiseDraftId = $state('');
+  let rowNoiseDraft = $state<NoiseSelection>();
   let findingSimilar = $state(false), noiseMatchMessage = $state('');
   let hasNoise = $derived(noiseEnabled && noiseSelections.some(item=>item.enabled));
   let noisePresets = $state<{id:string;origin:string;meta:{title:string};noise:Partial<typeof defaultNoise>}[]>([]);
@@ -210,10 +212,11 @@
   let appliedBatchKey = $derived(JSON.stringify(['applied',keys,track,processing]));
   let batchVisible = $derived(Boolean(compareResult?.batch && compareResult.key===(compareResult.batch==='pending' ? pendingBatchKey : appliedBatchKey)));
   let rowCompareReady = $derived(Boolean(compareResult && !compareResult.batch && compareResult.key===compareKey));
-  let editorNoiseCandidate = $derived(noiseEditorOpen ? {...noise,id:editingNoise || noiseDraftId || 'unsaved-selection',enabled:true} : undefined);
+  let editorNoiseCandidate = $derived(noiseEditorOpen ? {...noise,id:editingNoise || 'unsaved-selection',enabled:true} : undefined);
   let rowNoiseKey = $derived(activeNoiseRow ? noiseComparisonKey(noiseForRow(activeNoiseRow)) : '');
   let editorNoiseKey = $derived(noiseComparisonKey(editorNoiseCandidate));
   let playingCompare = $derived(compareActive && (batchVisible || rowCompareReady || noiseComparisonReady(rowNoiseKey) || noiseComparisonReady(editorNoiseKey)));
+  let noiseLoopRange = $derived(playingCompare && loopNoise ? compareResult?.range : undefined);
   let audioURL = $derived(track ? '/api/albums/audio?' + new URLSearchParams({...keys, track}) : '');
 
   let playbackURL = $derived(playingCompare && compareResult ? compareResult[compareSide] ?? audioURL
@@ -396,7 +399,7 @@
     cleanupEnabled = draft.cleanup_enabled ?? Object.keys(draft.corrections ?? {}).length > 0;
     noiseEnabled = draft.noise_enabled ?? Boolean(draft.noise);
     noiseSelections = savedNoise(draft);
-    noise = {...defaultNoise}; noiseEditorOpen=false; editingNoise=''; noiseDraftId=''; noiseError='';noiseMatchMessage='';findingSimilar=false;
+    noise = {...defaultNoise}; noiseEditorOpen=false; editingNoise=''; rowNoiseDraft=undefined; noiseError='';noiseMatchMessage='';findingSimilar=false;
     strength = draft.strength ?? 100; guardrails = draft.guardrails ?? true;
     width = draft.stereo_width ?? activePreset?.width ?? 1;
   }
@@ -578,15 +581,19 @@
   function selectReviewItem(row:ReviewItem, fromTimeline=false) {
     if (compareResult?.removed) compareActive=false;
     if (!fromTimeline && activeRow===row.id) {
-      activeFinding=undefined;activeRepair='';loopRange=false;repairRange=undefined;
+      activeFinding=undefined;activeRepair='';rowNoiseDraft=undefined;loopRange=false;repairRange=undefined;
       return;
     }
     activeRepair=row.fix?.id ?? row.noise?.id ?? '';
     activeFinding=row.fix || row.noise ? undefined : row.findings[0];
     repairRange=row.end===null ? undefined : {start:row.start,end:row.end};
     loopRange=false;cleanupError='';rowCut=undefined;
-    if (isNoiseFinding(row.kind)) focusNoiseRow(row);
-    else if (row.kind!=='peak') manualKind=row.kind;
+    if (isNoiseFinding(row.kind)) {
+      if (rowNoiseDraft?.id!==row.id) rowNoiseDraft=initialRowNoise(row);
+    } else {
+      rowNoiseDraft=undefined;
+      if (row.kind!=='peak') manualKind=row.kind;
+    }
     if (row.end!==null) seekTo(Math.max(0,row.start-.25));
     cleanupPanel?.setAttribute('open','');
     if (fromTimeline) void tick().then(()=>document.getElementById(`cleanup-row-${row.id}`)?.scrollIntoView({block:'nearest'}));
@@ -689,7 +696,7 @@
   }
 
   function clearCompare() {
-    compareActive=false;compareResult=undefined;
+    compareActive=false;compareResult=undefined;loopNoise=false;
   }
 
   async function renderComparison() {
@@ -736,13 +743,30 @@
     const url=compareResult?.[side];
     if (!player || !url || (!batchVisible && !rowCompareReady && !noiseComparisonReady(rowNoiseKey) && !noiseComparisonReady(editorNoiseKey))) return;
     if (playingCompare && compareSide===side) {void player.play().catch(()=>{});return;}
-    restorePlayhead(url,playingCompare ? undefined : compareResult?.start,true);
+    const range=loopNoise ? compareResult?.range : undefined;
+    const inRange=!range || (player.currentTime>=range.start && player.currentTime<range.end);
+    restorePlayhead(url,playingCompare && inRange ? undefined : range?.start ?? compareResult?.start,true);
     noiseMode='';compareSide=side;compareActive=true;
+  }
+
+  function toggleNoiseLoop() {
+    if (!compareResult?.range) return;
+    loopNoise=!loopNoise;
+    if (noiseLoopRange) seekTo(noiseLoopRange.start);
+  }
+
+  function repeatNoisePassage(ended=false) {
+    const media=player, range=noiseLoopRange;
+    if (!media || !range || media.seeking || media.readyState<1) return;
+    if (!ended && (media.paused || (media.currentTime>=range.start && media.currentTime<range.end))) return;
+    media.currentTime=range.start;
+    if (ended) void media.play().catch(()=>{});
   }
 
   function updatePlayhead() {
     if (!player) return;
-    if (loopRange && repairRange && repairRange.end > repairRange.start && player.currentTime >= repairRange.end) player.currentTime=repairRange.start;
+    repeatNoisePassage();
+    if (!(playingCompare && compareResult?.removed) && loopRange && repairRange && repairRange.end > repairRange.start && player.currentTime >= repairRange.end) player.currentTime=repairRange.start;
     playhead=player.currentTime;
   }
 
@@ -935,6 +959,7 @@
       previous = now;
       const playing = player && !player.paused && !player.ended;
       if (playing) {
+        repeatNoisePassage();
         audio.readPeaks(peaks);
         audio.analyser.getFloatFrequencyData(bins);
         audio.analyser.getFloatTimeDomainData(samples);
@@ -981,7 +1006,7 @@
       if (element.currentSrc !== new URL(url, document.baseURI).href) return;
       element.removeEventListener('loadedmetadata', restore);
       removeSeekListener = undefined;
-      element.currentTime = Math.min(position, Math.max(0, element.duration - .05));
+      element.currentTime = Math.min(position, Math.max(0, element.duration - .001));
       if (wasPlaying) void element.play().catch(() => { status='Audio ready. Press play to listen.'; });
     }
     element.addEventListener('loadedmetadata', restore);
@@ -1042,7 +1067,7 @@
 
   function editNoise(item?:NoiseSelection) {
     noise=item ? {...item} : {...defaultNoise};
-    editingNoise=item?.id ?? '';noiseDraftId='';noiseError='';noiseMatchMessage='';noiseEditorOpen=true;
+    editingNoise=item?.id ?? '';noiseError='';noiseMatchMessage='';noiseEditorOpen=true;
     if (item?.apply_scope==='selection') {
       centerSpectrum((item.t0_sec+item.t1_sec)/2);
       seekTo(item.t0_sec);
@@ -1050,27 +1075,46 @@
   }
 
   function noiseForRow(row:ReviewItem) {
-    if (noiseDraftId===row.id && editorNoiseCandidate) return editorNoiseCandidate;
+    return rowNoiseDraft?.id===row.id ? rowNoiseDraft : initialRowNoise(row);
+  }
+
+  function initialRowNoise(row:ReviewItem) {
     return row.noise ? {...row.noise,enabled:true} : row.findings[0] && noiseForFinding(row.findings[0]);
   }
 
-  function focusNoiseRow(row:ReviewItem, jump=false) {
-    const item=noiseForRow(row);
-    if (!item) return;
-    if (noiseDraftId!==row.id) {
-      editNoise(row.noise);
-      noise={...item};noiseDraftId=row.id;
+  function scopedBounds(row:ReviewItem) {
+    if (row.end===null || row.end<=row.start) return;
+    const padding=Math.min(.35,Math.max(.08,(row.end-row.start)*.2));
+    const start=Math.max(0,row.start-padding), end=Math.min(repairDuration,row.end+padding,36000);
+    if (end-start<.01) return;
+    let low=0, high=row.kind==='rumble'?350 : row.kind==='presence'?10000 : 24000;
+    const item=row.kind==='narrow_tone' && initialRowNoise(row);
+    if (item) {
+      const mid=(item.f_low+item.f_high)/2;
+      const margin=Math.max(160,(item.f_high-item.f_low)*3,mid*.14);
+      low=Math.max(0,Math.floor((item.f_low-margin)/50)*50);
+      high=Math.min(24000,Math.ceil((item.f_high+margin)/50)*50);
     }
-    if (noise.apply_scope==='selection') {
-      specZoom=Math.min(48,Math.max(1,Math.floor(repairDuration/Math.max(3,(noise.t1_sec-noise.t0_sec)*1.8))));
-      centerSpectrum((noise.t0_sec+noise.t1_sec)/2);
-      loadSpectrumDetail();
-    }
-    if (noisePanelElement) noisePanelElement.open=true;
-    if (jump) void tick().then(()=>noisePanelElement?.scrollIntoView({block:'start'}));
+    return {start,end,low,high};
   }
 
-  function closeNoiseEditor() {noiseEditorOpen=false;editingNoise='';noiseDraftId='';noiseError='';}
+  function scopedSpectrumURL(bounds:NonNullable<ReturnType<typeof scopedBounds>>) {
+    return '/api/albums/spectrogram?'+new URLSearchParams({...keys,track,scale:'lin',
+      start_sec:bounds.start.toFixed(3),end_sec:bounds.end.toFixed(3),low_hz:String(bounds.low),high_hz:String(bounds.high)});
+  }
+
+  function updateRowNoise(item:NoiseSelection, change:Partial<NoiseSettings>) {
+    rowNoiseDraft={...item,...change};
+    cleanupError='';
+  }
+
+  function changedRowNoise(row:ReviewItem, item:NoiseSelection) {
+    const initial=initialRowNoise(row);
+    return initial && (initial.t0_sec!==item.t0_sec || initial.t1_sec!==item.t1_sec ||
+      initial.f_low!==item.f_low || initial.f_high!==item.f_high || initial.band_depth_db!==item.band_depth_db);
+  }
+
+  function closeNoiseEditor() {noiseEditorOpen=false;editingNoise='';noiseError='';}
 
   function validNoise(item:NoiseSettings) {
     return [item.f_low,item.f_high,item.band_depth_db,item.afftdn_strength,item.hp_hz,item.lp_hz].every(Number.isFinite)
@@ -1090,10 +1134,9 @@
     if (editingNoise) {
       noiseSelections=noiseSelections.map(item=>item.id===editingNoise ? {...noise,id:item.id,enabled:item.enabled} : item);
     } else {
-      const id=noiseDraftId || Array.from(crypto.getRandomValues(new Uint8Array(12)),byte=>byte.toString(16).padStart(2,'0')).join('');
+      const id=Array.from(crypto.getRandomValues(new Uint8Array(12)),byte=>byte.toString(16).padStart(2,'0')).join('');
       noiseSelections=[...noiseSelections,{...noise,id,enabled:true}];
       noiseEnabled=true;
-      if (noiseDraftId && activeRow===noiseDraftId) {activeRepair=id;activeFinding=undefined;}
     }
     stopNoisePreview();closeNoiseEditor();
   }
@@ -1105,9 +1148,16 @@
     stopNoisePreview();
   }
 
-  function applyNoiseSuggestion(row:ReviewItem) {
-    focusNoiseRow(row);
-    if (noiseDraftId===row.id) saveNoise();
+  function applyNoiseSuggestion(row:ReviewItem, item:NoiseSelection) {
+    if (!validNoise(item)) return;
+    if (row.noise) {
+      noiseSelections=noiseSelections.map(saved=>saved.id===row.id ? {...item,enabled:saved.enabled} : saved);
+    } else if (noiseSelections.length<24) {
+      noiseSelections=[...noiseSelections,item];noiseEnabled=true;
+      activeRepair=row.id;activeFinding=undefined;
+    }
+    rowNoiseDraft=undefined;
+    stopNoisePreview();
   }
 
   function noiseComparisonKey(candidate?:NoiseSelection) {
@@ -1128,6 +1178,7 @@
       if (version!==selectionVersion || (key!==rowNoiseKey && key!==editorNoiseKey)) return;
       clearCompare();compareSide='after';
       compareResult={...result,key,label:candidate.label ? findingTitle(candidate.label) : 'Noise selection',
+        ...(candidate.apply_scope==='selection' ? {range:{start:candidate.t0_sec,end:candidate.t1_sec}} : {}),
         start:candidate.apply_scope==='global' ? playhead : Math.max(0,candidate.t0_sec-.2)};
     } catch (cause) {
       if (version===selectionVersion) cleanupError=noiseError=String(cause instanceof Error ? cause.message : cause);
@@ -1318,7 +1369,7 @@
             {/if}
             {#if waveError}<small>Waveform unavailable. Playback controls are available below.</small>{/if}
             <audio controls preload="metadata" bind:this={player} onloadedmetadata={() => {if (playbackURL===audioURL && player) sourceDuration=player.duration;}}
-              ontimeupdate={updatePlayhead} onplay={startMonitoring} onemptied={() => {meterChannels=emptyMeters();scopePath='';}}
+              ontimeupdate={updatePlayhead} onplay={startMonitoring} onended={()=>repeatNoisePassage(true)} onemptied={() => {meterChannels=emptyMeters();scopePath='';}}
               onerror={()=>{if (playingCompare) {compareActive=false;cleanupError='Could not load the comparison. Render it again.';}}} src={playbackURL}></audio>
           </div>
           <StereoMeter channels={meterChannels} reset={() => meterChannels=emptyMeters()} />
@@ -1338,7 +1389,7 @@
         </div>
         {#if postError}<p class="error" role="alert">{postError}</p>{/if}
         {#if playingCompare && compareResult}
-          <div class="player-comparison" role="status"><span><strong>{compareSide==='before'?'Before':compareSide==='removed'?'Removed':'After'}</strong> · {compareResult.label}</span>
+          <div class="player-comparison" role="status"><span><strong>{compareSide==='before'?'Before':compareSide==='removed'?'Removed':'After'}</strong> · {compareResult.label}{noiseLoopRange?' · Looping selection':''}</span>
             <button type="button" onclick={()=>compareActive=false}>Exit comparison</button></div>
         {/if}
       {/if}
@@ -1441,10 +1492,20 @@
           <button type="button" aria-pressed={playingCompare && compareSide==='after'} onclick={()=>switchComparison('after')}>After</button>
           {#if spectral}
             <button type="button" aria-pressed={playingCompare && compareSide==='removed'} onclick={()=>switchComparison('removed')}>Removed</button>
+            {#if compareResult?.range}<button type="button" aria-pressed={loopNoise} onclick={toggleNoiseLoop}>Loop selection</button>{/if}
             <small>Same playback gain</small>
           {:else}<small>Loudness matched</small>{/if}
           <a href="#album-player">Main player ↑</a>
         </div>
+      {/snippet}
+      {#snippet scopedPlot(row:ReviewItem,item?:NoiseSelection)}
+        {@const bounds=scopedBounds(row)}
+        {#if bounds}
+          <ScopedSpectrogram url={scopedSpectrumURL(bounds)} {bounds}
+            box={item && validNoise(item) ? {start:item.t0_sec,end:item.t1_sec,low:item.f_low,high:item.f_high}
+              : {start:row.start,end:row.end ?? bounds.end,low:bounds.low,high:bounds.high}}
+            resize={item ? (box)=>updateRowNoise(item,{t0_sec:box.start,t1_sec:box.end,f_low:box.low,f_high:box.high}) : undefined}/>
+        {/if}
       {/snippet}
       {#snippet reviewEditor(row:ReviewItem)}
         {@const fix=row.fix}
@@ -1454,24 +1515,40 @@
           {#if item}
           <div class="repair-row-content">
             <div class="repair-row-settings">
-              <strong>{item.f_low}–{item.f_high} Hz · {item.band_depth_db} dB max reduction</strong>
               {#if finding}
                 <small>{row.kind==='quiet_fuzz' ? `Steady broadband energy at about ${finding.evidence_db} dBFS. Check that this isn’t a wanted tail.`
                   : `Persistent narrow line about ${finding.evidence_db} dB above neighboring frequencies. Check that it isn’t a musical note.`}</small>
               {/if}
+              <label class="inline-control"><span>Reduction</span><input type="range" aria-label="Finding noise reduction"
+                min="0" max="30" value={item.band_depth_db} oninput={(event)=>updateRowNoise(item,{band_depth_db:event.currentTarget.valueAsNumber})}><output>{item.band_depth_db} dB</output></label>
+              <div class="scoped-fields">
+                {#if item.apply_scope==='selection'}
+                  <label>Start (s)<input type="number" min="0" max={repairDuration} step=".001" value={item.t0_sec}
+                    oninput={(event)=>updateRowNoise(item,{t0_sec:event.currentTarget.valueAsNumber})}></label>
+                  <label>End (s)<input type="number" min="0" max={repairDuration} step=".001" value={item.t1_sec}
+                    oninput={(event)=>updateRowNoise(item,{t1_sec:event.currentTarget.valueAsNumber})}></label>
+                {/if}
+                <label>Low (Hz)<input type="number" min="20" max="20000" value={item.f_low}
+                  oninput={(event)=>updateRowNoise(item,{f_low:event.currentTarget.valueAsNumber})}></label>
+                <label>High (Hz)<input type="number" min="20" max="20000" value={item.f_high}
+                  oninput={(event)=>updateRowNoise(item,{f_high:event.currentTarget.valueAsNumber})}></label>
+              </div>
               <div class="repair-row-actions">
-                <button type="button" onclick={()=>focusNoiseRow(row,true)}>Edit spectrogram box</button>
-                {#if row.noise}<button type="button" onclick={()=>removeNoise(row.id)}>Remove fix</button>
+                {#if row.noise}
+                  <label class="check"><input type="checkbox" bind:checked={row.noise.enabled} onchange={()=>{if (row.noise?.enabled) noiseEnabled=true;}}> Enabled</label>
+                  {#if changedRowNoise(row,item)}<button type="button" class="primary" disabled={!validNoise(item)}
+                    onclick={()=>applyNoiseSuggestion(row,item)}>Save changes</button>{/if}
+                  <button type="button" onclick={()=>removeNoise(row.id)}>Remove fix</button>
                 {:else}
                   {#if !findingIgnored}
-                    <button type="button" class="primary" disabled={!validNoise(item) || noiseSelections.length>=24} onclick={()=>applyNoiseSuggestion(row)}>Apply selection</button>
+                    <button type="button" class="primary" disabled={!validNoise(item) || noiseSelections.length>=24} onclick={()=>applyNoiseSuggestion(row,item)}>Apply selection</button>
                   {/if}
                   <button type="button" onclick={toggleIgnoredFinding}>{findingIgnored?'Restore suggestion':'Skip finding'}</button>
                 {/if}
               </div>
             </div>
             <div class="repair-row-audition">
-              <small>Compare this one edit. Removed plays the actual audio taken out.</small>
+              {@render scopedPlot(row,item)}
               <div class="repair-row-actions">
                 {#if noiseComparisonReady(rowNoiseKey)}{@render comparisonButtons(false,true)}
                 {:else}<button type="button" disabled={compareBusy || Boolean(batchBusy) || !validNoise(item)}
@@ -1481,7 +1558,10 @@
           </div>
           {/if}
         {:else if row.kind==='peak' && finding}
-          <div class="row repair-row-actions"><small>{finding.evidence_db} dBFS. Near full scale isn’t proof of clipping.</small><button type="button" onclick={hearFinding}>Listen to original</button></div>
+          <div class="repair-row-content">
+            <div class="repair-row-actions"><small>{finding.evidence_db} dBFS. Near full scale isn’t proof of clipping.</small><button type="button" onclick={hearFinding}>Listen to original</button></div>
+            <div class="repair-row-audition">{@render scopedPlot(row)}</div>
+          </div>
         {:else}
           <div class="repair-row-content">
             <div class="repair-row-settings">
@@ -1518,14 +1598,15 @@
                   <button type="button" onclick={toggleIgnoredFinding}>{findingIgnored?'Include in Apply all':'Skip finding'}</button>
                 {/if}
               </div>
-            </div>
-            <div class="repair-row-audition">
               {#if selectedCurve}
                 <div class="row-curve"><svg viewBox="0 0 600 150" preserveAspectRatio="none" aria-label="Response of this repair" role="img">
                   <path class="grid" d="M0 75H600 M200 0V150 M400 0V150"/>
                   <path class="repair-curve" class:proposed={!fix} d={selectedCurve}/>
                 </svg><small><span>20 Hz</span><span>200 Hz</span><span>2 kHz</span><span>20 kHz</span></small></div>
               {/if}
+            </div>
+            <div class="repair-row-audition">
+              {@render scopedPlot(row)}
               <div class="repair-row-actions">
                 {#if rowCompareReady}{@render comparisonButtons()}
                 {:else}<button type="button" disabled={!canCompare || compareBusy || Boolean(batchBusy)} onclick={renderComparison}>{compareBusy?'Preparing…':'Preview before / after'}</button>{/if}
@@ -1563,8 +1644,8 @@
           combined={combinedCurve} legacyVoice={cleanupVersion===1 ? legacyVoice : undefined}/>
       </details>
       {#snippet noisePanel()}
-      <details class="repair-manual noise-panel" bind:this={noisePanelElement}><summary>Noise removal <input class="stage-toggle" type="checkbox" aria-label="Enable Noise removal" bind:checked={noiseEnabled} onclick={(event)=>event.stopPropagation()} onchange={stopNoisePreview}><span class="stage-status">{hasNoise ? `${noiseSelections.filter(item=>item.enabled).length} active` : 'Off'}</span></summary>
-        <p>{cleanupVersion===2 ? 'Noise removal runs before repairs and Tone & Stereo.' : 'Legacy session: noise removal runs after the EQ chain.'} Drag a box or open a suggestion from the cleanup list.</p>
+      <details class="repair-manual noise-panel"><summary>Noise removal <input class="stage-toggle" type="checkbox" aria-label="Enable Noise removal" bind:checked={noiseEnabled} onclick={(event)=>event.stopPropagation()} onchange={stopNoisePreview}><span class="stage-status">{hasNoise ? `${noiseSelections.filter(item=>item.enabled).length} active` : 'Off'}</span></summary>
+        <p>{cleanupVersion===2 ? 'Noise removal runs before repairs and Tone & Stereo.' : 'Legacy session: noise removal runs after the EQ chain.'} Drag a box for a manual edit. Suggested fixes are edited in the review list.</p>
         <div class="spectrogram-toolbar">
           <div class="switch-pair" role="group" aria-label="Frequency scale">
             <button type="button" aria-pressed={specScale==='log'} onclick={()=>specScale='log'}>Log</button>
@@ -1589,14 +1670,6 @@
                 {/each}
               </div>
               {#if sourceDuration>0}
-                {#each reviewQueue.filter(row=>isNoiseFinding(row.kind) && !row.noise && row.id!==noiseDraftId && !ignoredFindings.includes(findingKey(row.findings[0]))) as row (row.id)}
-                  {@const suggestion=noiseForFinding(row.findings[0])}
-                  {#if suggestion}
-                    {@const box=asNoiseBox(suggestion)}
-                    <div class="suggested-noise-box" style:left={box.x*100+'%'} style:top={box.y*100+'%'}
-                      style:width={(box.endX-box.x)*100+'%'} style:height={(box.endY-box.y)*100+'%'} aria-hidden="true"></div>
-                  {/if}
-                {/each}
                 {#each noiseSelections as item,index (item.id)}
                   {@const box=asNoiseBox(item)}
                   <div class="saved-noise-box" class:bypassed={!noiseEnabled||!item.enabled} class:focused={editingNoise===item.id}
@@ -1621,8 +1694,8 @@
         {#if noiseError}<p class="error" role="alert">{noiseError}</p>{/if}
         <div class="noise-workbench">
           <div class="noise-list">
-            <div class="fix-heading"><h3>Noise selections <small>{noiseSelections.length}</small></h3><button type="button" onclick={()=>editNoise()}>New selection</button></div>
-            {#each noiseSelections as item,index (item.id)}
+            <div class="fix-heading"><h3>Manual selections <small>{noiseSelections.filter(item=>!item.label).length}</small></h3><button type="button" onclick={()=>editNoise()}>New selection</button></div>
+            {#each noiseSelections.filter(item=>!item.label) as item,index (item.id)}
               <div class="noise-item">
                 <input type="checkbox" aria-label={`Enable noise selection ${index+1}`} bind:checked={item.enabled} onchange={stopNoisePreview}>
                 <button type="button" aria-pressed={editingNoise===item.id} onclick={()=>editNoise(item)}>
@@ -1637,7 +1710,7 @@
           </div>
           {#if noiseEditorOpen}
           <div class="noise-editor">
-            <h3>{editingNoise ? 'Edit selection' : noiseDraftId ? 'Suggested selection' : 'New selection'}</h3>
+            <h3>{editingNoise ? 'Edit selection' : 'New selection'}</h3>
             <div class="switch-pair" role="group" aria-label="Noise selection scope">
               <button type="button" aria-pressed={noise.apply_scope==='selection'} onclick={()=>noise.apply_scope='selection'}>Time range</button>
               <button type="button" disabled={noise.method==='profile'} aria-pressed={noise.apply_scope==='global'} onclick={()=>noise.apply_scope='global'}>Whole song</button>
@@ -1894,6 +1967,9 @@
   .repair-row-settings{min-width:0}.repair-row-settings small{display:block;margin:.25rem 0}
   .repair-row-audition{min-width:0;border-inline-start:1px solid var(--line);padding-inline-start:1rem}
   .repair-row-settings .inline-control{grid-template-columns:5rem minmax(0,1fr) 4rem;margin:.18rem 0}
+  .scoped-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 .55rem;margin:.2rem 0}
+  .scoped-fields label{min-width:0;margin:.16rem 0}
+  .scoped-fields input{width:100%}
   .repair-toggle{margin:.2rem 0}
   .repair-row-actions,.compare-switch{display:flex;align-items:center;flex-wrap:wrap;gap:.3rem}
   .repair-row-actions{margin:.4rem 0 0}
@@ -1901,7 +1977,8 @@
   .custom-repair > .compare-switch,.custom-repair > small{margin-top:.35rem}
   .custom-repair > small{display:block}
   .compare-switch strong{font-size:.78rem}
-  .row-curve svg{display:block;width:100%;height:clamp(60px,7vw,90px);background:var(--chart);border:1px solid var(--line);border-radius:.35rem}
+  .row-curve{margin-top:.55rem}
+  .row-curve svg{display:block;width:100%;height:clamp(50px,6vw,70px);background:var(--chart);border:1px solid var(--line);border-radius:.35rem}
   .row-curve small{display:flex;justify-content:space-between;font-size:.65rem}
   .repair-curve{fill:none;stroke:var(--chart-line);stroke-width:1.8;vector-effect:non-scaling-stroke}
   .repair-curve.proposed{stroke:var(--warning);stroke-dasharray:5 4}
@@ -1975,7 +2052,6 @@
   .overview-labels{display:flex;justify-content:space-between;gap:.5rem;margin-top:.25rem}
   .spectrogram-playhead{position:absolute;inset-block:0;width:1px;background:#edf2d9;pointer-events:none}
   .marquee{position:absolute;border:1px solid #ffb36b;background:#ffad4933;pointer-events:none}
-  .suggested-noise-box{position:absolute;pointer-events:none;min-height:2px;border:1px dashed #ffb36b;background:#ffad4926}
   .saved-noise-box{position:absolute;pointer-events:none;min-height:2px;border:1px solid #86e9ed;background:#86e9ed26}
   .saved-noise-box span{position:absolute;top:0;left:0;line-height:1;padding:.1rem .16rem;background:#15292a;color:#d9ffff;font-size:.65rem}
   .saved-noise-box.focused{outline:1px solid #fff}

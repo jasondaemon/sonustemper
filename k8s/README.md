@@ -108,15 +108,17 @@ cut, inspect its response curve, or switch that repair's Before/After preview
 in the main player without adding another transport. The full-song scan can
 also flag steady fuzz in quiet gaps and persistent narrow tones. These
 spectrogram suggestions need individual review and are not included in
-**Apply all EQ**. Check whether the sound is part of the song before applying.
-Open a suggestion or drag a box in **Noise removal** for time- and
-frequency-limited edits. New boxes use spectral attenuation. **Sample noise
+**Apply all EQ**. Open a time-scoped row for a linear spectrogram of that
+passage. Refine a spectral finding's box and reduction directly in its
+row; use the full **Noise removal** panel to create manual selections.
+New boxes use spectral attenuation. **Sample noise
 in this box** uses a measured profile from the selection; **Find similar
 fuzz** scans the full song for other quiet passages with a matching profile.
 Existing saved EQ-style band cuts keep their original behavior.
 **Before**, **After**, and **Removed** compare just that selection at the same
 gain through the main player. **Removed** plays the difference between
 the two renders so you can check for wanted audio in the removed signal.
+**Loop selection** repeats the same span while switching between the three.
 Preview a finding at the suggested cut before approving it; the matched
 before/after audition changes only that fix. **Apply all** adds uncovered
 findings at the current cut, leaves skipped findings, peak warnings, and existing fixes alone, and

@@ -4778,7 +4778,8 @@ def analyze_spectrogram(
 
 
 def _spectrogram_for_path(target: Path, w: int, h: int, mode: str, drange: int, stereo: str,
-                          *, album_axis: bool = False):
+                          *, album_axis: bool = False, passage: tuple[float, float] | None = None,
+                          frequency_range: tuple[int, int] | None = None):
     width = max(320, min(8192, int(w)))
     height = max(128, min(1024, int(h)))
     drange = max(40, min(160, int(drange)))
@@ -4789,7 +4790,14 @@ def _spectrogram_for_path(target: Path, w: int, h: int, mode: str, drange: int, 
     stat = target.stat()
     axis = "aresample=48000," if album_axis else ""
     bounds = (":fscale=log:start=20:stop=20000" if scale == "log" else ":fscale=lin") if album_axis else ""
+    if frequency_range and frequency_range != (0, 24000):
+        bounds += f":start={frequency_range[0]}:stop={frequency_range[1]}"
     key_raw = f"{target.resolve()}::{stat.st_mtime_ns}::{stat.st_size}::{width}::{height}::{scale}::{drange}::{stereo_mode}{bounds}"
+    clip = []
+    if passage:
+        start, end = passage
+        clip = ["-ss", f"{start:.3f}", "-t", f"{end-start:.3f}"]
+        key_raw += "::" + ":".join(clip)
     key = hashlib.sha256(key_raw.encode("utf-8")).hexdigest()
     out_path = cache_dir / f"{key}.png"
     if not out_path.exists():
@@ -4799,7 +4807,7 @@ def _spectrogram_for_path(target: Path, w: int, h: int, mode: str, drange: int, 
         )
         with tempfile.TemporaryDirectory(prefix="spectrogram-", dir=cache_dir) as folder:
             rendered = Path(folder) / "image.png"
-            cmd = [FFMPEG_BIN, "-y", "-hide_banner", "-loglevel", "error", "-i", str(target),
+            cmd = [FFMPEG_BIN, "-y", "-hide_banner", "-loglevel", "error", *clip, "-i", str(target),
                    "-lavfi", filt, "-frames:v", "1", str(rendered)]
             proc = run_cmd(cmd)
             if proc.returncode != 0 or not rendered.is_file():
