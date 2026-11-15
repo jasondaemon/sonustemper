@@ -1,6 +1,7 @@
 import {monitorMath} from './meterMath';
 import type {MonitorMetrics} from './meterMath';
 import type {ClipSpan} from './clipTimeline';
+import {peakProtection} from './peakProtection';
 
 declare const sampleRate:number;
 declare const currentFrame:number;
@@ -11,6 +12,7 @@ declare class AudioWorkletProcessor {
 
 export type MeterMessage = {active:boolean}|{epoch:number;peakOnly?:boolean};
 export type MeterReading = {epoch:number;metrics:MonitorMetrics;clips:ClipSpan[]};
+export type ProtectionMessage = {enabled:boolean}|{reset:true};
 
 class StudioMeter extends AudioWorkletProcessor {
   private meter=monitorMath(sampleRate);
@@ -52,3 +54,27 @@ class StudioMeter extends AudioWorkletProcessor {
 }
 
 registerProcessor('studio-meter',StudioMeter);
+
+class StudioPeakProtection extends AudioWorkletProcessor {
+  private limiter=peakProtection(sampleRate);
+  private enabled=false;
+  constructor() {
+    super();
+    this.port.onmessage=({data}:MessageEvent<ProtectionMessage>)=>{
+      if ('reset' in data) this.limiter.reset();
+      else if (this.enabled!==data.enabled) {
+        this.enabled=data.enabled;
+        this.limiter.reset();
+      }
+    };
+  }
+  process([input]:Float32Array[][],[output]:Float32Array[][]) {
+    if (!input?.length || !output?.length) return true;
+    const [left,right=left]=input, [outL,outR]=output;
+    if (this.enabled) this.limiter.process(left,right,outL,outR);
+    else {outL.set(left);outR.set(right);}
+    return true;
+  }
+}
+
+registerProcessor('studio-peak-protection',StudioPeakProtection);

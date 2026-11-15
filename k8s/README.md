@@ -136,9 +136,11 @@ to **Original** when no current cleanup render is available).
 **Tone & Stereo** offers **Clean** (subsonic cut only), **Clarity** (less low-mid
 haze, more vocal presence), **Punch** (bass weight and preserved attacks),
 **Warm** (more body, softer highs), and **Wide** (more side level; check in
-Mono). Strength scales EQ gains, preset compression, and stereo width back
-toward neutral. Low cuts stay at their selected frequency above 0%; 0% bypasses
-the new preset completely. User presets stay in the menu. Previously selected
+Mono). **50% strength** is the reference sound for these five presets.
+The range above 50% pushes EQ, dynamics, and width further, with the width
+control still capped at 1.50. Low cuts stay at their selected frequency above
+0%; 0% bypasses the preset completely. Saved settings keep the same sound.
+User presets stay in the menu. Previously selected
 built-ins are labeled Legacy and still render with their original settings.
 The original voicings, including Glue, remain in the separate preset library.
 
@@ -150,6 +152,11 @@ gain. Neither comparison writes album audio or changes album loudness settings.
 Drag a range on the cleanup timeline to loop it in the comparison. Live Monitor
 uses EQ and width only; use **Compare Preset** to hear preset compression
 before album loudness normalization.
+**Protect against clipping** is an optional, stereo-linked peak limiter for
+Live Monitor, enabled by default. It keeps live samples below -1.5 dBFS when
+EQ or width boosts would cause overload. It does not change Original, Post
+Cleanup, comparisons, or files. Final WAVs still follow the album true-peak
+ceiling; decoded MP3 peaks are reported separately.
 The player meter also shows three-second short-term LUFS and an estimated
 monitor true-peak hold. Click the true-peak readout to reset it. **Mono**
 folds playback only; the correlation meter always uses the stereo signal

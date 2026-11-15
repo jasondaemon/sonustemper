@@ -57,7 +57,8 @@
   let preset = $state(''), presetBase = $state(''), bands = $state<Band[]>(defaultBands());
   let activePreset = $derived(presets.find(item => item.id === presetBase));
   let curatedPreset = $derived(activePreset?.group==='curated');
-  let effectiveWidth = $derived(curatedPreset ? 1+(width-1)*strength/100 : width);
+  let displayedStrength = $derived(curatedPreset ? strength/2 : strength);
+  let effectiveWidth = $derived(curatedPreset ? Math.min(1.5,Math.max(.5,1+(width-1)*strength/100)) : width);
   const reverbControls = [
     {toggle:'enable_side_reduction', key:'side_reduction_pct', title:'Side reduction', min:0,max:40,step:1,unit:'%'},
     {toggle:'enable_mid_suppress',key:'mid_suppress_db',title:'Mid suppression',min:-6,max:0,step:.1,unit:'dB'},
@@ -148,6 +149,8 @@
   let clipSpans = $state<ClipSpan[]>([]), mediaDuration = $state(0);
   let monitorMetrics = $state(emptyMonitorMetrics());
   let metersUnavailable = $state(false), monitorMono = $state(false);
+  const peakProtectionKey = 'sonustemper:protect-peaks';
+  let protectPeaks = $state(true), peakProtectionUnavailable = $state(false);
   let animation = 0;
   let selectionVersion = 0;
   let writable = $derived(locations.find(item => item.name === location)?.writable);
@@ -974,7 +977,8 @@
   let combinedCurve = $derived(activeRepairIds && eqEnabled ? drawCurve(curveContext(), [
     ...toneBands, ...cleanupBands, ...voiceBands, ...repairs.filter(fix=>activeRepairIds.split(',').includes(fix.id)).map(repairBand),
   ]) : '');
-  let liveEQ = $derived(source==='raw' && audibleMode==='live' && !noiseMode && !playingCompare && eqEnabled);
+  let liveAudition = $derived(source==='raw' && audibleMode==='live' && !noiseMode && !playingCompare);
+  let liveEQ = $derived(liveAudition && eqEnabled);
   let liveBands = $derived(liveEQ ? [...(cleanupVersion===1 ? voiceBands : []),...toneBands] : []);
 
 
@@ -1013,6 +1017,13 @@
   });
 
   $effect(() => {engine?.setMono(monitorMono);});
+  $effect(() => {engine?.setProtection(liveAudition && protectPeaks);});
+
+  function togglePeakProtection(enabled:boolean) {
+    protectPeaks=enabled;
+    try {localStorage.setItem(peakProtectionKey,enabled ? 'on' : 'off');}
+    catch { /* Browser storage can be disabled. */ }
+  }
 
   function resetClips() {
     meterChannels=emptyMeters();clipSpans=[];
@@ -1038,8 +1049,9 @@
   function startMonitoring() {
     if (!player) return;
     if (monitorMedia !== player) {
-      engine?.close();metersUnavailable=false;monitorMedia=player;
-      engine=monitor(player,sourceRate,metrics=>monitorMetrics=metrics,()=>metersUnavailable=true,recordClips);
+      engine?.close();metersUnavailable=false;peakProtectionUnavailable=false;monitorMedia=player;
+      engine=monitor(player,sourceRate,metrics=>monitorMetrics=metrics,()=>metersUnavailable=true,recordClips,
+        ()=>peakProtectionUnavailable=true);
     }
     void engine?.context.resume();
     cancelAnimationFrame(animation);
@@ -1388,6 +1400,8 @@
   }
 
   onMount(() => {
+    try {protectPeaks=localStorage.getItem(peakProtectionKey)!=='off';}
+    catch { /* Browser storage can be disabled. */ }
     void action(async () => {
       [locations, presets] = await Promise.all([api<typeof locations>('locations'), api<Preset[]>('presets')]);
       let position: LibraryPosition | null = null;
@@ -1816,12 +1830,19 @@
           </select></label>
           {#if activePreset && !preset}<small>Custom EQ based on {activePreset.title}.</small>
           {:else if activePreset?.meta.description}<small>{activePreset.meta.description}</small>{/if}
-          {#if preset || curatedPreset}<label class="inline-control"><span>Strength</span><input aria-label="Preset strength" type="range" min="0" max="100" bind:value={strength} oninput={() => {eqEnabled=true;listenLive();}}><output>{strength}%</output></label>{/if}
+          {#if preset || curatedPreset}
+            <label class="inline-control"><span>Strength</span><input aria-label="Preset strength" type="range" min="0" max="100" step={curatedPreset ? .5 : 1}
+              value={displayedStrength} oninput={(event) => {strength=+event.currentTarget.value*(curatedPreset ? 2 : 1);eqEnabled=true;listenLive();}}><output>{displayedStrength}%</output></label>
+            {#if curatedPreset}<small>50% is the preset’s reference setting.</small>{/if}
+          {/if}
         {/snippet}
         {#snippet stereoControls()}
           <strong>{activePreset?.compression ? 'Stereo and dynamics' : 'Stereo'}</strong>
           <label class="inline-control"><span>Stereo width</span><input aria-label="Stereo width" type="range" min=".5" max="1.5" step=".01" bind:value={width} oninput={() => {eqEnabled=true;listenLive();}}><output>{effectiveWidth.toFixed(2)}</output></label>
-          {#if curatedPreset && strength!==100}<small>Effective width at {strength}% strength.</small>{/if}
+          {#if curatedPreset && strength!==100}<small>Effective width at {displayedStrength}% strength.</small>{/if}
+          <label class="check"><input type="checkbox" checked={protectPeaks} disabled={peakProtectionUnavailable}
+            onchange={(event)=>togglePeakProtection(event.currentTarget.checked)}> Protect against clipping</label>
+          <small>{peakProtectionUnavailable ? 'Live peak protection is unavailable in this browser.' : 'Live Monitor only. WAV export always follows the album peak ceiling.'}</small>
           {#if activePreset?.compression}
             <label class="check"><input type="checkbox" bind:checked={guardrails}> Compression guardrails</label>
             <small>Use Compare Preset to hear compression. Live Monitor plays EQ and width only.</small>

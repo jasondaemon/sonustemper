@@ -543,7 +543,8 @@ def _compressor_from_dynamics(dynamics: dict, strength: float, guardrails: bool)
     base_ratio = 1.0 + density * 3.0
     base_threshold_db = -18.0 - density * 12.0
     ratio = 1.0 + (base_ratio - 1.0) * strength
-    threshold_db = base_threshold_db * strength
+    # Above the original preset intensity, lower the threshold gradually instead of doubling it.
+    threshold_db = base_threshold_db * min(strength, 1.0) - 3.0 * max(0.0, strength - 1.0)
     attack = 5.0 + (35.0 - 5.0) * transient
     release = 80.0 + (350.0 - 80.0) * smooth
     if guardrails:
@@ -552,8 +553,8 @@ def _compressor_from_dynamics(dynamics: dict, strength: float, guardrails: bool)
     return f"acompressor=threshold={db_to_lin(threshold_db)}:ratio={ratio:.3f}:attack={attack:.1f}:release={release:.1f}"
 
 def _voicing_filters_from_json(preset: dict, strength_pct: int, width: float | None,
-                               do_stereo: bool, guardrails: bool) -> str:
-    strength = clamp(strength_pct, 0, 100) / 100.0
+                               do_stereo: bool, guardrails: bool, *, max_strength_pct: int = 100) -> str:
+    strength = clamp(strength_pct, 0, max_strength_pct) / 100.0
     chain = preset.get("chain") if isinstance(preset, dict) else {}
     eq_bands = chain.get("eq", []) if isinstance(chain, dict) else []
     dynamics = chain.get("dynamics") if isinstance(chain, dict) else {}

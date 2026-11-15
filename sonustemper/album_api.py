@@ -107,7 +107,7 @@ class Settings(AlbumInput):
     cleanup_enabled: bool = True
     cleanup_version: Literal[1, 2] = 1
     repairs: list[Repair] = Field(default_factory=list, max_length=128)
-    strength: int = Field(default=100, ge=0, le=100)
+    strength: int = Field(default=100, ge=0, le=200)
     stereo_width: float | None = Field(default=None, ge=0.5, le=1.5)
     guardrails: bool = True
     balance: str = "album"
@@ -201,12 +201,13 @@ def resolved_settings(settings: Settings) -> dict:
         raise HTTPException(400, "Unknown mastering preset")
     chain = dict(preset["chain"]) if preset else {}
     width = settings.stereo_width
+    curated = settings.preset.startswith("album-v1/")
     if settings.bands is not None:
         chain["eq"] = [band.model_dump() for band in settings.bands if band.enabled]
     if settings.eq_bypass:
         chain["eq"] = []
-    if settings.preset.startswith("album-v1/"):
-        # Preserve the original strength and width behavior for all older sessions.
+    if curated:
+        # Keep saved intensity units: the studio now displays 100 engine units as 50%.
         width = width if width is not None else chain.get("stereo", {}).get("width", 1)
         width = 1 + (width - 1) * settings.strength / 100
         if settings.strength == 0:
@@ -227,7 +228,8 @@ def resolved_settings(settings: Settings) -> dict:
         tools["ai_platform_safe"] = {"enabled": False}
     correction = _ai_tool_combo_chain(tools) if settings.cleanup_enabled else ""
     mastering = master_pack._voicing_filters_from_json(
-        {"chain": chain}, settings.strength, width, True, settings.guardrails
+        {"chain": chain}, settings.strength, width, True, settings.guardrails,
+        max_strength_pct=200 if curated else 100,
     )
     manual = [] if settings.eq_bypass else [
         master_pack._eq_filter_for_band(band.model_dump(), 1)

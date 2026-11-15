@@ -48,14 +48,21 @@ class AlbumPresetTests(unittest.TestCase):
 
         self.assertIn("slev=1.280", chain("album-v1/wide"))
         self.assertIn("slev=1.140", chain("album-v1/wide", 50))
+        self.assertIn("slev=1.500", chain("album-v1/wide", 200))
         self.assertIn("slev=0.900", chain("album-v1/wide", 50, stereo_width=.8))
         self.assertIn("acompressor=", chain("album-v1/punch"))
+        self.assertIn("treble=f=8500:t=q:w=0.7:g=2.4", chain("album-v1/clarity"))
+        self.assertIn("treble=f=8500:t=q:w=0.7:g=4.8", chain("album-v1/clarity", 200))
+        self.assertIn("ratio=1.960", chain("album-v1/punch"))
+        self.assertIn("ratio=2.400", chain("album-v1/punch", 200))
+        self.assertIn("ratio=2.920", chain("album-v1/punch", 200, guardrails=False))
         for name in album_api.ALBUM_VOICINGS:
             self.assertEqual(chain(f"album-v1/{name}", 0, stereo_width=1.4), "")
         self.assertEqual(chain("album-v1/clean"), "highpass=f=25:t=q:w=0.707")
         self.assertIn("acompressor=", chain("builtin/clean"))
         self.assertIn("highpass=f=28", chain("builtin/clean", 0))
         self.assertIn("slev=1.120", chain("builtin/wide", 50))
+        self.assertEqual(chain("builtin/wide", 200), chain("builtin/wide"))
 
 
 @unittest.skipUnless(shutil.which("ffmpeg"), "FFmpeg is required")

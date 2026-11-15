@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import meterURL from './meter.worklet.ts?worker&url';
 import type {MonitorMetrics} from './meterMath';
-import type {MeterMessage, MeterReading} from './meter.worklet';
+import type {MeterMessage, MeterReading, ProtectionMessage} from './meter.worklet';
 import {songClips, type ClipSpan} from './clipTimeline';
 
 export type Band = {type: string; freq_hz: number; gain_db: number; q: number; enabled?: boolean};
@@ -39,7 +39,7 @@ export function filterNode(context: BaseAudioContext, band: Band) {
 }
 
 export function monitor(media: HTMLAudioElement, sampleRate:number|undefined, report:(metrics:MonitorMetrics)=>void,
-                        unavailable:()=>void, reportClips:(clips:ClipSpan[])=>void) {
+                        unavailable:()=>void, reportClips:(clips:ClipSpan[])=>void, protectionFailed:()=>void) {
   const context = openContext(sampleRate);
   const input = context.createMediaElementSource(media);
   const analyser = context.createAnalyser();
@@ -51,14 +51,16 @@ export function monitor(media: HTMLAudioElement, sampleRate:number|undefined, re
   stereo.channelCountMode = 'explicit';
   const dry=context.createGain(), mono=context.createGain(), half=context.createGain();
   const stereoSplit=context.createChannelSplitter(2), folded=context.createChannelMerger(2);
+  const output=context.createGain();
+  output.connect(analyser);
   mono.gain.value=0;half.gain.value=.5;
-  stereo.connect(dry).connect(analyser);
+  stereo.connect(dry).connect(output);
   stereo.connect(stereoSplit);
   stereoSplit.connect(half,0);
   stereoSplit.connect(half,1);
   half.connect(folded,0,0);
   half.connect(folded,0,1);
-  folded.connect(mono).connect(analyser);
+  folded.connect(mono).connect(output);
   const splitter = context.createChannelSplitter(2);
   analyser.connect(splitter);
   const channels = [context.createAnalyser(), context.createAnalyser()];
@@ -68,10 +70,13 @@ export function monitor(media: HTMLAudioElement, sampleRate:number|undefined, re
     splitter.connect(channel, index);
   }
   let meter:AudioWorkletNode|undefined, meterOutput:GainNode|undefined, meterEpoch=0, closed=false;
+  let limiter:AudioWorkletNode|undefined, protect=false;
   let meterActive=!media.paused && media.readyState>=3;
   let timestamping=false, clipFrom=context.currentTime, stopClock=context.currentTime;
   const forgetClipTiming=()=>{clipFrom=context.currentTime;};
   const send=(message:MeterMessage)=>meter?.port.postMessage(message);
+  const sendProtection=(message:ProtectionMessage)=>limiter?.port.postMessage(message);
+  const resetProtection=()=>sendProtection({reset:true});
   const setActive=(active:boolean)=>{meterActive=active;send({active});};
   const play=()=>setActive(true);
   const stop=()=>{if (meterActive) stopClock=context.currentTime;setActive(false);};
@@ -80,6 +85,8 @@ export function monitor(media: HTMLAudioElement, sampleRate:number|undefined, re
   media.addEventListener('playing',play);
   for (const event of stopEvents) media.addEventListener(event,stop);
   for (const event of timingEvents) media.addEventListener(event,forgetClipTiming);
+  media.addEventListener('seeking',resetProtection);
+  media.addEventListener('emptied',resetProtection);
   void (async()=>{
     try {
       await context.audioWorklet.addModule(meterURL);
@@ -105,8 +112,25 @@ export function monitor(media: HTMLAudioElement, sampleRate:number|undefined, re
       send({epoch:meterEpoch});
       send({active:meterActive});
     } catch {
-      if (!closed) unavailable();
+      if (!closed) {unavailable();protectionFailed();}
+      return;
     }
+    try {
+      limiter=new AudioWorkletNode(context,'studio-peak-protection',{numberOfInputs:1,numberOfOutputs:1,
+        outputChannelCount:[2],channelCount:2,channelCountMode:'explicit'});
+      limiter.onprocessorerror=()=>{
+        if (closed || !limiter) return;
+        output.disconnect(limiter);
+        limiter.disconnect();
+        limiter.port.close();
+        limiter=undefined;
+        output.connect(analyser);
+        protectionFailed();
+      };
+      sendProtection({enabled:protect});
+      output.disconnect(analyser);
+      output.connect(limiter).connect(analyser);
+    } catch {if (!closed) protectionFailed();}
   })();
   type Path = {entry:AudioNode; mix:GainNode; nodes:AudioNode[]; filters:(IIRFilterNode|BiquadFilterNode)[]; timer?:ReturnType<typeof setTimeout>};
   let path:Path|undefined;
@@ -125,6 +149,11 @@ export function monitor(media: HTMLAudioElement, sampleRate:number|undefined, re
     setMono(enabled:boolean) {
       dry.gain.setTargetAtTime(enabled?0:1,context.currentTime,.008);
       mono.gain.setTargetAtTime(enabled?1:0,context.currentTime,.008);
+    },
+    setProtection(enabled:boolean) {
+      if (protect===enabled) return;
+      protect=enabled;
+      sendProtection({enabled});
     },
     resetMetrics(peakOnly=false) {send({epoch:++meterEpoch,peakOnly});},
     readPeaks(peaks: number[]) {
@@ -198,6 +227,8 @@ export function monitor(media: HTMLAudioElement, sampleRate:number|undefined, re
       media.removeEventListener('playing',play);
       for (const event of stopEvents) media.removeEventListener(event,stop);
       for (const event of timingEvents) media.removeEventListener(event,forgetClipTiming);
+      media.removeEventListener('seeking',resetProtection);
+      media.removeEventListener('emptied',resetProtection);
       if (meter) {
         stereo.disconnect(meter);
         analyser.disconnect(meter);
@@ -205,6 +236,9 @@ export function monitor(media: HTMLAudioElement, sampleRate:number|undefined, re
         meter.port.close();
       }
       meterOutput?.disconnect();
+      output.disconnect();
+      limiter?.disconnect();
+      limiter?.port.close();
       paths.forEach(disconnect);
       void context.close();
     }
