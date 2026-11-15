@@ -109,7 +109,7 @@
   .lower-controls{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem;margin-top:1rem}
   .lower-controls:not(:has(.legacy-voice)){grid-template-columns:minmax(0,1fr)}
   .legacy-voice{grid-column:span 2}
-  .stereo{background:var(--surface);border:1px solid var(--line);border-radius:.7rem;padding:.75rem}
+  .stereo{container:stereo / inline-size;background:var(--surface);border:1px solid var(--line);border-radius:.7rem;padding:.55rem .75rem}
   .band{display:flex;gap:.5rem;align-items:center;margin:.35rem 0}
   .band button{display:flex;justify-content:space-between;gap:.35rem;flex:1;text-align:left;font-size:.8rem}
   .band button span:last-child{white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--muted)}

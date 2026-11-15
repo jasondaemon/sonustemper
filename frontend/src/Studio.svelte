@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte';
   import EqPanel from './EqPanel.svelte';
+  import HelpTip from './HelpTip.svelte';
   import StereoMeter from './StereoMeter.svelte';
   import StereoCheck from './StereoCheck.svelte';
   import RepairTimeline from './RepairTimeline.svelte';
@@ -1924,16 +1925,35 @@
           {/if}
         {/snippet}
         {#snippet stereoControls()}
-          <strong>{activePreset?.compression ? 'Stereo and dynamics' : 'Stereo'}</strong>
-          <label class="inline-control"><span>Stereo width</span><input aria-label="Stereo width" type="range" min=".5" max="1.5" step=".01" bind:value={width} oninput={() => {eqEnabled=true;listenLive();}}><output>{effectiveWidth.toFixed(2)}</output></label>
-          {#if curatedPreset && strength!==100}<small>Effective width at {displayedStrength}% strength.</small>{/if}
-          <label class="check"><input type="checkbox" checked={protectPeaks} disabled={peakProtectionUnavailable}
-            onchange={(event)=>togglePeakProtection(event.currentTarget.checked)}> Protect against clipping</label>
-          <small>{peakProtectionUnavailable ? 'Live peak protection is unavailable in this browser.' : 'Live Monitor only. WAV export always follows the album peak ceiling.'}</small>
-          {#if activePreset?.compression}
-            <label class="check"><input type="checkbox" bind:checked={guardrails}> Compression guardrails</label>
-            <small>Use Compare Preset to hear compression. Live Monitor plays EQ and width only.</small>
-          {/if}
+          <div class="stereo-controls">
+            <div class="stereo-width">
+              <div class="stereo-heading">
+                <strong>Stereo &amp; dynamics</strong>
+                <HelpTip id="stereo-width-help" label="About stereo width">
+                  1.00 leaves stereo width unchanged.
+                  {#if curatedPreset}The readout shows the effective width at {displayedStrength}% strength.{/if}
+                </HelpTip>
+              </div>
+              <label class="inline-control"><span>Width</span><input aria-label="Stereo width" type="range" min=".5" max="1.5" step=".01"
+                bind:value={width} oninput={() => {eqEnabled=true;listenLive();}}><output>{effectiveWidth.toFixed(2)}</output></label>
+            </div>
+            <div class="tone-guardrails">
+              <div class="stereo-heading">
+                <strong>Guardrails</strong>
+                <HelpTip id="tone-guardrails-help" label="About guardrails">
+                  {peakProtectionUnavailable ? 'Clip protection is unavailable in this browser.' : 'Clip protection applies to Live Monitor only. WAV export keeps its album peak ceiling.'}
+                  {#if activePreset?.compression}<br>Compression limits keep preset compression in check. Hear it with Compare Preset.{/if}
+                </HelpTip>
+              </div>
+              <div class="guardrail-switches">
+                <label class="check"><input type="checkbox" checked={protectPeaks} disabled={peakProtectionUnavailable}
+                  onchange={(event)=>togglePeakProtection(event.currentTarget.checked)}> Clip protection</label>
+                {#if activePreset?.compression}
+                  <label class="check"><input type="checkbox" bind:checked={guardrails}> Compression limits</label>
+                {/if}
+              </div>
+            </div>
+          </div>
         {/snippet}
         {#snippet legacyVoice()}
           <VoiceControls bind:voice={voiceControls} onEdit={() => {eqEnabled=true;listenLive();}}/>
@@ -2280,6 +2300,17 @@
   .tone-message{display:block;margin:.3rem 0}
   .tone-scope{display:flex;flex-wrap:wrap;align-items:center;gap:.28rem .65rem;margin:.1rem 0 .65rem;padding:.45rem .6rem;border:1px solid var(--line);border-radius:.5rem;background:var(--surface)}
   .tone-scope label{margin:0;font-weight:650}
+  .stereo-controls{display:grid;gap:.45rem 1rem}
+  .stereo-heading{position:relative;display:flex;align-items:center;gap:.35rem;font-size:.82rem}
+  .stereo-width .inline-control{margin:0;min-height:1.8rem;grid-template-columns:max-content minmax(60px,1fr) 2.4rem}
+  .stereo-width input[type=range]{padding:0}
+  .tone-guardrails{border-block-start:1px solid var(--line);padding-block-start:.45rem}
+  .guardrail-switches{display:flex;flex-wrap:wrap;align-items:center;column-gap:.9rem}
+  .guardrail-switches label{margin:0;min-height:1.8rem;white-space:nowrap}
+  @container stereo (min-width:33rem){
+    .stereo-controls{grid-template-columns:minmax(0,1fr) auto}
+    .tone-guardrails{min-width:12rem;border-block-start:none;padding-block-start:0;border-inline-start:1px solid var(--line);padding-inline-start:1rem}
+  }
   .transport-controls{align-items:center}
   .stereo-check-slot{margin-inline-start:auto}
   .player-comparison{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.35rem;background:var(--accent-soft);color:var(--text);border:1px solid var(--line);border-radius:.45rem;padding:.42rem .6rem;font-size:.8rem}
