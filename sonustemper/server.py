@@ -4788,14 +4788,14 @@ def _spectrogram_for_path(target: Path, w: int, h: int, mode: str, drange: int, 
     cache_dir.mkdir(parents=True, exist_ok=True)
     stat = target.stat()
     axis = "aresample=48000," if album_axis else ""
-    bounds = f":fscale={scale}:start=20:stop=20000" if album_axis else ""
+    bounds = (":fscale=log:start=20:stop=20000" if scale == "log" else ":fscale=lin") if album_axis else ""
     key_raw = f"{target.resolve()}::{stat.st_mtime_ns}::{stat.st_size}::{width}::{height}::{scale}::{drange}::{stereo_mode}{bounds}"
     key = hashlib.sha256(key_raw.encode("utf-8")).hexdigest()
     out_path = cache_dir / f"{key}.png"
     if not out_path.exists():
         filt = (
             f"{axis}showspectrumpic=s={width}x{height}:mode={stereo_mode}:"
-            f"scale={'log' if album_axis else scale}:legend=disabled:color=viridis:drange={drange}{bounds}"
+            f"scale={scale}:legend=disabled:color=viridis:drange={drange}{bounds}"
         )
         with tempfile.TemporaryDirectory(prefix="spectrogram-", dir=cache_dir) as folder:
             rendered = Path(folder) / "image.png"

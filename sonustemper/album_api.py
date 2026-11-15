@@ -558,7 +558,7 @@ def prune_batch_auditions(root: Path) -> None:
         except (OSError, ValueError):
             continue
     for index, (modified, path) in enumerate(sorted(entries, reverse=True)):
-        if index >= 15 or time() - modified > BATCH_PREVIEW_AGE:
+        if index >= 5 or time() - modified > BATCH_PREVIEW_AGE:
             shutil.rmtree(path, ignore_errors=True)
 
 
@@ -608,10 +608,37 @@ def repair_batch_audition(settings: BatchAudition):
 @router.get("/api/albums/repair-batch-audition/{token}/{side}")
 def get_repair_batch_audition(token: UUID, side: Literal["before", "after"]):
     folder = PREVIEWS_DIR / "album-comparisons" / token.hex
-    path = folder / f"{side}.mp3"
+    path = folder / f"{side}.wav"
     if not path.is_file() or time() - folder.stat().st_mtime > BATCH_PREVIEW_AGE:
         raise HTTPException(404, "Comparison expired. Render it again.")
-    return FileResponse(path, media_type="audio/mpeg", headers={"Cache-Control": "private, no-store"})
+    return FileResponse(path, media_type="audio/wav", headers={"Cache-Control": "private, no-store"})
+
+
+@router.post("/api/albums/render-cleanup")
+def render_cleanup(settings: Settings):
+    if settings.source != "raw" or len(settings.tracks) != 1:
+        raise HTTPException(400, "Choose one raw track to render cleanup")
+    album = resolve_album(settings.location, settings.artist_folder, settings.album_folder)
+    track = selected_tracks(album, settings.source, settings.tracks)[0]
+    data = resolve_render(settings)
+    if not data["track_repairs"].get(track.name, data["repair_chain"]):
+        raise HTTPException(422, "Use repair before EQ for this track first")
+    if not compare_slots.acquire(blocking=False):
+        raise HTTPException(429, "Other previews are rendering. Try again in a moment.")
+    directory = None
+    try:
+        PREVIEWS_DIR.mkdir(exist_ok=True, parents=True)
+        directory = tempfile.TemporaryDirectory(prefix="cleanup-", dir=PREVIEWS_DIR)
+        target = Path(directory.name) / "cleanup.wav"
+        workflow.render_cleanup_audio(track, target, data)
+        return FileResponse(target, media_type="audio/wav", background=BackgroundTask(directory.cleanup))
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
+        if directory:
+            directory.cleanup()
+        logger.warning("Cleanup render failed for %s: %s", track.name, exc)
+        raise HTTPException(422, "Could not render post-cleanup audio") from exc
+    finally:
+        compare_slots.release()
 
 
 @router.post("/api/albums/preview")

@@ -7,7 +7,10 @@ import tempfile
 import unittest
 
 from sonustemper.album_cleanup import analyze, combine_noise_chains, repair_filter
-from sonustemper.album_workflow import compare_repair, compare_song_repairs, metrics, process_album_track, render_album, repair_batches, wavs
+from sonustemper.album_workflow import (
+    compare_repair, compare_song_repairs, metrics, process_album_track, render_album,
+    render_cleanup_audio, repair_batches, wavs,
+)
 
 
 def amplitude(path, start, frequency):
@@ -39,7 +42,7 @@ class AlbumCleanupTests(unittest.TestCase):
             ]
             settings = {"repair_chain": {"global": "", "tone": "", "fixes": fixes}}
             compare_song_repairs(track, settings, {"early", "late"}, folder)
-            before, after = folder / "before.mp3", folder / "after.mp3"
+            before, after = folder / "before.wav", folder / "after.wav"
 
             def ratio(path, position):
                 return amplitude(path, position, 3500) / amplitude(path, position, 400)
@@ -117,6 +120,8 @@ class AlbumCleanupTests(unittest.TestCase):
                                         "fixes":[{**fix, "filter":repair_filter(fix)}]}}
             comparison = album / "without-repair.wav"
             process_album_track(track, comparison, settings, skip_fix="one")
+            cleanup = album / "cleanup-playback.wav"
+            render_cleanup_audio(track, cleanup, settings)
             result, = render_album(album, wavs(album, "raw"), settings)
             final = album / "normalized" / result["wav"]
 
@@ -127,6 +132,8 @@ class AlbumCleanupTests(unittest.TestCase):
             self.assertAlmostEqual(ratio(final, 4.5), ratio(comparison, 4.5), places=3)
             self.assertLess(ratio(final, 2.5), .5 * ratio(comparison, 2.5))
             self.assertGreater(ratio(final, .75), ratio(track, .75) * 1.25)
+            self.assertAlmostEqual(ratio(cleanup, .75), ratio(track, .75), places=3)
+            self.assertLess(ratio(cleanup, 2.5), .5 * ratio(track, 2.5))
             before, after = compare_repair(track, settings, "one", 1, 4)
             self.assertTrue(before.startswith(b"RIFF") and after.startswith(b"RIFF"))
             self.assertEqual(len(before), len(after))

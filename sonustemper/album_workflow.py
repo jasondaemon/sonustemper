@@ -445,14 +445,22 @@ def compare_song_repairs(track: Path, settings: dict, bypass: set[str], folder: 
     }}}
     versions = []
     for name, render_settings in (("before", before), ("after", settings)):
-        rendered = folder / f"{name}.wav"
+        rendered = folder / f"{name}-float.wav"
         process_album_track(track, rendered, render_settings)
         versions.append((rendered, *metrics(rendered)))
     level = comparison_level(versions)
     for name, (path, lufs, _) in zip(("before", "after"), versions):
-        ffmpeg(path, folder / f"{name}.mp3", "-af", f"volume={level - lufs:.6f}dB",
-               "-ac", "2", "-ar", "48000", "-c:a", "libmp3lame", "-b:a", "320k")
+        ffmpeg(path, folder / f"{name}.wav", "-af", f"volume={level - lufs:.6f}dB",
+               "-ac", "2", "-ar", "48000", "-c:a", "pcm_s24le", "-bitexact")
         path.unlink()
+
+
+def render_cleanup_audio(track: Path, target: Path, settings: dict) -> None:
+    plan = settings.get("track_repairs", {}).get(track.name, settings.get("repair_chain"))
+    if plan is None:
+        raise ValueError("Use the repair-before-EQ chain to render cleanup")
+    data = {**settings, "track_repairs": {track.name: {**plan, "tone": ""}}}
+    process_album_track(track, target, data)
 
 
 def normalize(clean: Path, output: Path, gain: float, ceiling: float) -> tuple[float, float]:

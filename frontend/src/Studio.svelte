@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import EqPanel from './EqPanel.svelte';
   import StereoMeter from './StereoMeter.svelte';
   import RepairTimeline from './RepairTimeline.svelte';
@@ -71,9 +71,11 @@
   let promptText = $state(''), submissionLyrics = $state('');
   let promptLoading = $state(false), promptWorking = $state(false), promptLoaded = $state(false);
   let promptError = $state(''), promptMessage = $state('');
-  let sidecar = $state(false), auditionFormat = $state<"wav"|"mp3">("wav");
-  let previewURL = $state(''), previewKey = $state(''), previewBusy = $state(false);
-  let audition = $state(false), player = $state<HTMLAudioElement>();
+  let sidecar = $state(false), player = $state<HTMLAudioElement>();
+  type PlaybackMode = 'original'|'cleanup'|'live';
+  let playbackMode = $state<PlaybackMode>('original');
+  let cleanupAudio = $state<Record<string,{key:string;url:string}>>({});
+  let cleanupRunning = $state<Record<string,boolean>>({});
   let status = $state(''), error = $state(''), busy = $state(false);
   let results = $state<Result[]>([]);
   let exportStatus = $state(''), exportError = $state('');
@@ -112,8 +114,8 @@
   let specFailed = $state(false), specLoading = $state(false);
   let cursor = $state<{x:number;y:number}>();
   let playhead = $state(0);
-  const frequencyAt = (y:number) => Math.round(specScale === 'log' ? 20 * 1000 ** (1-y) : 20 + 19980 * (1-y));
-  const frequencyY = (hz:number) => 1 - (specScale === 'log' ? Math.log(hz/20)/Math.log(1000) : (hz-20)/19980);
+  const frequencyAt = (y:number) => Math.round(specScale === 'log' ? 20 * 1000 ** (1-y) : 24000 * (1-y));
+  const frequencyY = (hz:number) => 1 - (specScale === 'log' ? Math.log(hz/20)/Math.log(1000) : hz/24000);
   const asNoiseBox = (item:NoiseSettings) => ({
     x:item.apply_scope==='global' ? 0 : Math.min(1,item.t0_sec/sourceDuration),
     endX:item.apply_scope==='global' ? 1 : Math.min(1,item.t1_sec/sourceDuration),
@@ -124,7 +126,7 @@
   let engine = $state<ReturnType<typeof monitor>>();
   let monitorMedia:HTMLAudioElement | undefined;
   let spectrum = $state(''), cleanupCurve = $state(''), eqCurve = $state(''), scopePath = $state('');
-  let meterChannels = $state(emptyMeters()), original = $state(false);
+  let meterChannels = $state(emptyMeters());
   let outputClipped = $derived(meterChannels.some(channel => channel.clipped));
   let animation = 0;
   let selectionVersion = 0;
@@ -147,7 +149,7 @@
   let readyDraftKey = $state('');
   let draftKey = $derived('sonustemper:album:' + JSON.stringify([location, artist, album, source]));
   let albumSettings = $derived({balance, lufs, peak, artist:artistTag, album_artist:albumArtist,
-    album:albumTag, cover, year, sidecar, profile, auditionFormat});
+    album:albumTag, cover, year, sidecar, profile});
   function copy<T>(value:T):T {return JSON.parse(JSON.stringify(value));}
   const initialProcessing = {preset:'', bands:defaultBands(), voicing_enabled:false,
     voice_controls:{}, cleanup_enabled:false, corrections:{}, noise_enabled:false,
@@ -163,8 +165,16 @@
     tags:tagEdits, albumSettings, track});
   let settings = $derived({...keys, ...draft.defaults, tracks, ...albumSettings,
     tags:draft.tags, track_overrides:effectiveOverrides});
-  let previewSettings = $derived({...settings,audition_track:track,audition_format:auditionFormat});
-  let currentKey = $derived(JSON.stringify(previewSettings));
+  let cleanupSong = $derived(JSON.stringify([draftKey,track]));
+  let cleanupRequest = $derived({...keys,tracks:[track],cleanup_version:cleanupVersion,cleanup_enabled:cleanupEnabled,
+    repairs,corrections,voice_controls:voiceControls,noise_enabled:noiseEnabled,noise_selections:noiseSelections,voicing_enabled:false});
+  let cleanupKey = $derived(JSON.stringify(cleanupRequest));
+  let canRenderCleanup = $derived(Boolean(track && source==='raw' && (hasNoise || (cleanupEnabled &&
+    (repairs.some(fix=>fix.enabled && fix.amount>0) || Object.values(corrections).some(item=>item.enabled) ||
+      Object.values(voiceControls).some(item=>item.enabled && item.amount_db<0))))));
+  let cleanupBusy = $derived(Boolean(cleanupRunning[cleanupSong]));
+  let postReady = $derived(Boolean(cleanupAudio[cleanupSong]?.key===cleanupKey));
+  let audibleMode = $derived(source==='mastered' || (playbackMode==='cleanup' && !postReady) ? 'original' : playbackMode);
   let repairDuration = $derived(analysis?.duration ?? sourceDuration);
   let selectedFix = $derived(repairs.find(item => item.id === activeRepair));
   let bulkPlan = $derived(findingPlan((analysis?.findings ?? []).filter(item=>!ignoredFindings.includes(findingKey(item))),repairs,findingCut));
@@ -178,10 +188,18 @@
   let pendingBatchKey = $derived(JSON.stringify(['pending',keys,track,processing,bulkPlan.proposed]));
   let appliedBatchKey = $derived(JSON.stringify(['applied',keys,track,processing]));
   let batchVisible = $derived(Boolean(compareResult?.batch && compareResult.key===(compareResult.batch==='pending' ? pendingBatchKey : appliedBatchKey)));
-  let canAudition = $derived(Boolean(previewURL && previewKey === currentKey));
   let audioURL = $derived(track ? '/api/albums/audio?' + new URLSearchParams({...keys, track}) : '');
 
-  let playbackURL = $derived(noiseMode ? noiseURL : audition ? previewURL : audioURL);
+  let playbackURL = $derived(noiseMode ? noiseURL : audibleMode!=='original' && postReady ? cleanupAudio[cleanupSong].url : audioURL);
+  let lastMediaURL='', lastMediaSong='';
+
+  $effect.pre(() => {
+    const song=cleanupSong, url=playbackURL;
+    if (song===lastMediaSong && lastMediaURL && url && url!==lastMediaURL) {
+      untrack(() => {if (!removeSeekListener) restorePlayhead(url);});
+    }
+    lastMediaSong=song;lastMediaURL=url;
+  });
 
   $effect(() => {
     const media=comparePlayer;
@@ -379,7 +397,7 @@
     overrides=saved.overrides;
     tagEdits=saved.tags;
     const a=saved.albumSettings;
-    ({balance,lufs,peak,year,sidecar,profile,auditionFormat}=a);
+    ({balance,lufs,peak,year,sidecar,profile}=a);
     cover=library.covers?.some(item => item.name === a.cover) ? a.cover : '';
     artistTag=a.artist;albumArtist=a.album_artist;albumTag=a.album;
     await selectTrack();
@@ -448,7 +466,7 @@
   async function selectStage(preferredTrack?: string) {
     readyDraftKey=''; defaults=undefined; overrides={}; tagEdits={};
     balance='album'; profile='guiding-night'; selectProfile();
-    year=new Date().getFullYear(); sidecar=false; auditionFormat='wav';
+    year=new Date().getFullYear(); sidecar=false;
     artistTag=albumArtist=artist; albumTag=album;
     cover=library.covers?.find(item => item.name === 'cover.png')?.name ?? library.covers?.[0]?.name ?? '';
     status=''; exportStatus=''; exportError=''; results=[];
@@ -469,7 +487,7 @@
     noiseMode=''; sourceDuration=0; playhead=0; cursor=undefined; selection=undefined;
     dragStart=undefined;draggingNoise=false;
     specStart=0; specZoom=1; specWidth=1200;
-    audition = false; original = false; meterChannels = emptyMeters(); scopePath = '';
+    playbackMode='original';meterChannels=emptyMeters();scopePath='';
     analysis=undefined; analyzeBusy=false; cleanupError=''; activeFinding=undefined; activeRepair=''; repairRange=undefined; loopRange=false;
     appliedMessage='';lastApplied=undefined;
     ignoredFindings=[];
@@ -570,6 +588,7 @@
       plan.limited ? `${plan.limited} over the song limit` : ''].filter(Boolean);
     appliedMessage=`Applied ${additions.length} ${additions.length===1?'fix':'fixes'} at ${findingCut} dB${skipped.length ? ` · ${skipped.join(' · ')}` : ''}.`;
     cleanupError='';clearCompare();
+    if (all) void renderPostCleanup();
   }
 
   function findingStorageKey() {return `${draftKey}:skipped:${track}`;}
@@ -595,9 +614,9 @@
     if (!player || !activeFinding) return;
     loopRange=true;
     const start=Math.max(0,activeFinding.start-.25);
-    if (noiseMode || audition) restorePlayhead(audioURL,start,true);
+    if (playbackURL !== audioURL) restorePlayhead(audioURL,start,true);
     else {seekTo(start);void player.play().catch(()=>{});}
-    original=true;audition=false;noiseMode='';
+    playbackMode='original';noiseMode='';
   }
 
   function clearCompare() {
@@ -789,7 +808,6 @@
   let voiceBands = $derived(Object.entries(voiceControls).filter(([,control]) => control.enabled)
     .map(([name,control]) => band('peaking', control.freq_hz, control.amount_db, name==='deesser'?2:name==='deharsh'?1.5:1.2)));
   let toneBands = $derived(bands.map(item=>({...item,gain_db:item.gain_db*strength/100})));
-  let wholeRepairBands = $derived(cleanupEnabled && cleanupVersion === 2 ? repairs.filter(fix => fix.end === null).map(repairBand) : []);
   let repairCurves = $derived(repairs.map((fix,index) => ({id:fix.id, tone:repairColors[index%repairColors.length],
     path:drawCurve(offlineCurveContext ??= new OfflineAudioContext(1,1,48000), [{...repairBand(fix),enabled:true}]),
     enabled:cleanupEnabled && fix.enabled})));
@@ -799,11 +817,8 @@
   let combinedCurve = $derived(activeRepairIds && eqEnabled ? drawCurve(offlineCurveContext ??= new OfflineAudioContext(1,1,48000), [
     ...toneBands, ...cleanupBands, ...voiceBands, ...repairs.filter(fix=>activeRepairIds.split(',').includes(fix.id)).map(repairBand),
   ]) : '');
-  let liveBands = $derived(source==='raw' && !original && !audition && !noiseMode ? [
-    ...cleanupBands,...wholeRepairBands,
-    ...(cleanupVersion === 2 ? (cleanupEnabled ? voiceBands : []) : (eqEnabled ? voiceBands : [])),
-    ...(eqEnabled ? toneBands : []),
-  ] : []);
+  let liveEQ = $derived(source==='raw' && audibleMode==='live' && !noiseMode && eqEnabled);
+  let liveBands = $derived(liveEQ ? [...(cleanupVersion===1 ? voiceBands : []),...toneBands] : []);
 
   let offlineCurveContext: OfflineAudioContext | undefined;
 
@@ -834,7 +849,7 @@
   $effect(() => {
     const audio = engine;
     const valid = liveBands.filter(item => Number.isFinite(item.freq_hz) && Number.isFinite(item.gain_db) && Number.isFinite(item.q));
-    const widthValue = source==='raw' && !original && !audition && !noiseMode && eqEnabled
+    const widthValue = liveEQ
       ? (Number.isFinite(width) ? width : 1) : 1;
     audio?.update(valid,widthValue);
     const curveContext = audio?.context ?? (offlineCurveContext ??= new OfflineAudioContext(1, 1, 48000));
@@ -870,28 +885,27 @@
     };
     animation=requestAnimationFrame(frame);
   }
-  async function renderPreview() {
-    if (previewBusy) return;
-    previewBusy = true;
-    const signature = currentKey;
-    status = 'Rendering export audition…';
+  async function renderPostCleanup() {
+    if (cleanupBusy || !canRenderCleanup || !upgradeCleanup()) return;
+    const song=cleanupSong, signature=cleanupKey;
+    cleanupRunning[song]=true;cleanupError='';
     try {
-      const result = await fetch('/api/albums/preview', {method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify(previewSettings)});
-      if (!result.ok) throw new Error((await result.json()).detail || 'Preview failed');
+      const result = await fetch('/api/albums/render-cleanup', {method:'POST',headers:{'Content-Type':'application/json'},body:signature});
+      if (!result.ok) throw new Error((await result.json()).detail || 'Cleanup render failed');
       const blob = await result.blob();
-      if (signature !== currentKey) return;
-      const previous = previewURL;
-      const next = URL.createObjectURL(blob);
-      if (audition && !noiseMode) restorePlayhead(next);
-      previewURL = next;
+      if (song===cleanupSong && signature!==cleanupKey) return;
+      const previous=cleanupAudio[song]?.url;
+      delete cleanupAudio[song];
+      cleanupAudio[song]={key:signature,url:URL.createObjectURL(blob)};
       if (previous) URL.revokeObjectURL(previous);
-      previewKey = signature;
-      status = 'Preview ready';
-    } finally {
-      previewBusy = false;
-      if (status.startsWith('Rendering export')) status = '';
-    }
+      const stale=Object.keys(cleanupAudio).filter(key=>key!==cleanupSong && key!==song);
+      while (Object.keys(cleanupAudio).length>4 && stale.length) {
+        const key=stale.shift()!;
+        URL.revokeObjectURL(cleanupAudio[key].url);delete cleanupAudio[key];
+      }
+    } catch (cause) {
+      if (song===cleanupSong && signature===cleanupKey) cleanupError=String(cause instanceof Error ? cause.message : cause);
+    } finally {delete cleanupRunning[song];}
   }
 
   let removeSeekListener: (() => void) | undefined;
@@ -913,13 +927,10 @@
     removeSeekListener = () => element.removeEventListener('loadedmetadata', restore);
   }
 
-  function setPlayback(mode: 'original' | 'live' | 'export') {
-    if (mode === 'export' && !canAudition) return;
-    const useRender = mode === 'export';
-    if (noiseMode || audition !== useRender) restorePlayhead(useRender ? previewURL : audioURL);
+  function setPlayback(mode:PlaybackMode) {
+    if (mode==='cleanup' && !postReady) return;
     noiseMode = '';
-    original = mode === 'original';
-    audition = useRender;
+    playbackMode=mode;
   }
 
   function listenLive() {
@@ -962,8 +973,10 @@
     if (!box || !player || (box.endX-box.x)*event.currentTarget.clientWidth < 4 || box.endY-box.y < .01) return;
     const start=+(box.x*sourceDuration).toFixed(2), end=+(box.endX*sourceDuration).toFixed(2);
     if (end-start<.01) return;
+    const low=Math.max(20,frequencyAt(box.endY)),high=Math.min(20000,frequencyAt(box.y));
+    if (high<=low) {noiseError='Choose a band between 20 Hz and 20 kHz.';return;}
     editNoise();
-    noise={...defaultNoise,f_low:frequencyAt(box.endY),f_high:frequencyAt(box.y),t0_sec:start,t1_sec:end,apply_scope:'selection'};
+    noise={...defaultNoise,f_low:low,f_high:high,t0_sec:start,t1_sec:end,apply_scope:'selection'};
   }
 
   function editNoise(item?:NoiseSelection) {
@@ -983,7 +996,7 @@
     && (noise.apply_scope==='global' || (Number.isFinite(noise.t0_sec) && Number.isFinite(noise.t1_sec) && noise.t0_sec>=0
       && noise.t1_sec-noise.t0_sec>=.01 && noise.t1_sec<=Math.min(36000,sourceDuration+.01))));
 
-  function stopNoisePreview() {if (noiseMode) listenLive();}
+  function stopNoisePreview() {if (noiseMode) setPlayback(playbackMode);}
 
   function saveNoise() {
     noiseError='';
@@ -1007,7 +1020,7 @@
 
   async function auditionNoise(mode:'remove'|'solo') {
     const version=selectionVersion;
-    const build=()=>JSON.stringify({...keys,...processing,...(mode==='solo'?{noise}:{}),tracks:[track]});
+    const build=()=>JSON.stringify({...cleanupRequest,...(mode==='solo'?{noise}:{})});
     const payload=build();
     noiseBusy=true;
     try {
@@ -1079,7 +1092,7 @@
         }),
       ]);
     });
-    return () => { removeSeekListener?.(); clearCompare(); if (previewURL) URL.revokeObjectURL(previewURL); if (noiseURL) URL.revokeObjectURL(noiseURL); cancelAnimationFrame(animation); engine?.close(); };
+    return () => { removeSeekListener?.();clearCompare();for(const item of Object.values(cleanupAudio)) URL.revokeObjectURL(item.url);if (noiseURL) URL.revokeObjectURL(noiseURL);cancelAnimationFrame(animation);engine?.close(); };
   });
 </script>
 
@@ -1170,20 +1183,21 @@
                 range={repairRange} selected={activeRepair} enabled={cleanupEnabled} selectFinding={chooseFinding} selectFix={chooseRepair} setRange={setRepairRange}/></div>
             {/if}
             {#if waveError}<small>Waveform unavailable. Playback controls are available below.</small>{/if}
-            <audio controls preload="metadata" bind:this={player} onloadedmetadata={() => {if (!audition && !noiseMode && player) sourceDuration=player.duration;}}
+            <audio controls preload="metadata" bind:this={player} onloadedmetadata={() => {if (playbackURL===audioURL && player) sourceDuration=player.duration;}}
               ontimeupdate={updatePlayhead} onplay={startMonitoring} onemptied={() => {meterChannels=emptyMeters();scopePath='';}} src={playbackURL}></audio>
           </div>
           <StereoMeter channels={meterChannels} reset={() => meterChannels=emptyMeters()} />
         </div>
         <div class="row transport-controls">
           <button aria-pressed={compactPlayer} onclick={() => compactPlayer=!compactPlayer}>{compactPlayer ? "Expand player" : "Compact player"}</button>
-          <button aria-pressed={!noiseMode && (source === 'mastered' || original) && !audition} onclick={() => setPlayback('original')}>Original</button>
-          <button aria-pressed={!noiseMode && !audition && !original && source === 'raw'} disabled={source !== 'raw'} onclick={listenLive}>Live monitor</button>
-          <button disabled={previewBusy} onclick={() => action(renderPreview)}>{previewBusy ? 'Rendering audition…' : 'Render export audition'}</button>
-          <button aria-pressed={!noiseMode && audition} disabled={!canAudition} onclick={() => setPlayback('export')}>Hear export</button>
+          <div class="play-source" role="group" aria-label="Playback source">
+            <button aria-pressed={!noiseMode && audibleMode==='original'} onclick={() => setPlayback('original')}>Original</button>
+            <button aria-pressed={!noiseMode && audibleMode==='cleanup'} disabled={!postReady} title={postReady?'Cleanup only, with no live EQ':'Render cleanup first'} onclick={() => setPlayback('cleanup')}>Post Cleanup</button>
+            <button aria-pressed={!noiseMode && audibleMode==='live'} disabled={source !== 'raw'} onclick={listenLive}>Live Monitor</button>
+          </div>
           {#if noiseMode}<small>{noiseMode==='solo'?'Solo noise':'Filtered track'} audition</small>{/if}
-          {#if audition && !canAudition}<small>Previous export audition · render again for current settings</small>{/if}
-          <label>Audition format<select bind:value={auditionFormat}><option value="wav">Delivery WAV</option><option value="mp3">320 kbps MP3</option></select></label>
+          {#if cleanupBusy}<small role="status">Rendering cleanup WAV…</small>
+          {:else if !noiseMode && audibleMode==='live'}<small>Live EQ on {postReady?'Post Cleanup':'Original'}</small>{/if}
         </div>
       {/if}
     </div>
@@ -1198,10 +1212,16 @@
         <button onclick={() => action(saveSession)}>Save album session</button>
       </div>
       {#if source === 'raw'}
-      <details bind:this={cleanupPanel}><summary>Cleanup &amp; repair <input class="stage-toggle" type="checkbox" aria-label="Enable cleanup" bind:checked={cleanupEnabled} onclick={(event)=>event.stopPropagation()} onchange={() => {if (cleanupEnabled) listenLive();}}><span class="stage-status">{cleanupEnabled ? 'Enabled' : 'Off'}</span></summary>
+      <details bind:this={cleanupPanel}><summary>Cleanup &amp; repair <input class="stage-toggle" type="checkbox" aria-label="Enable cleanup" bind:checked={cleanupEnabled} onclick={(event)=>event.stopPropagation()}><span class="stage-status">{cleanupEnabled ? 'Enabled' : 'Off'}</span></summary>
         <div class="repair-header">
           <div><h3>Find problems before shaping the tone</h3><small>Analysis covers the whole song. Findings are suggestions and never change the audio on their own.</small></div>
           <button type="button" class="primary" disabled={analyzeBusy} onclick={analyzeSong}>{analyzeBusy ? 'Analyzing…' : 'Analyze full song'}</button>
+        </div>
+        <div class="cleanup-audio-actions">
+          <button type="button" disabled={!canRenderCleanup || cleanupBusy} onclick={renderPostCleanup}>{cleanupBusy?'Rendering cleanup WAV…':'Render cleanup'}</button>
+          {#if postReady}<span role="status">Post Cleanup ready</span>
+          {:else if cleanupAudio[cleanupSong]}<small>Cleanup settings changed. Render again to listen.</small>
+          {:else}<small>Renders cleanup only, without EQ or album loudness.</small>{/if}
         </div>
         {#if analyzeBusy}<p role="status">Scanning from start to finish. You can keep adjusting the song.</p>
         {:else if analysis}<p role="status">Analyzed {timeLabel(analysis.duration)} · {analysis.findings.length ? `${analysis.findings.length} findings` : 'No findings at these thresholds'}</p>{/if}
@@ -1209,9 +1229,9 @@
           <div class="finding-actions">
             <label><span>Suggested cut</span><input type="range" aria-label="Suggested cut" min=".5" max="6" step=".5" bind:value={findingCut}><output>{findingCut} dB</output></label>
             <button type="button" disabled={!bulkPlan.proposed.length || compareBusy || Boolean(batchBusy)} onclick={()=>renderBatchComparison('pending')}>{batchBusy==='pending'?'Rendering full song…':`Preview all (${bulkPlan.proposed.length})`}</button>
-            <button type="button" disabled={!bulkPlan.proposed.length} onclick={()=>applyFindings(true)} title="Add all uncovered findings in this song at the current cut">Apply all ({bulkPlan.proposed.length})</button>
+            <button type="button" disabled={!bulkPlan.proposed.length || cleanupBusy} onclick={()=>applyFindings(true)} title="Add all uncovered findings and render Post Cleanup">Apply all ({bulkPlan.proposed.length})</button>
             {#if lastApplied}<button type="button" onclick={undoFindings}>Undo last apply</button>{/if}
-            <small>Start around 1–2 dB. Preview all renders the song without applying anything. Apply all only changes the settings.</small>
+            <small>Start around 1–2 dB. Preview all doesn’t change your settings. Apply all also renders Post Cleanup.</small>
           </div>
         {/if}
         {#if appliedMessage}<p class="applied-message" role="status">{appliedMessage}</p>{/if}
@@ -1324,20 +1344,20 @@
           </div>
         {/if}
         <details class="repair-manual"><summary>Manual cleanup tools</summary>
-        <p>Live monitor approximates whole-song tonal changes. Use the comparison for range fixes or Hear export for the full chain.</p>
+        <p>Render cleanup to hear these changes on their own, then switch to Live Monitor to add EQ.</p>
         <div class="manual-tools">
           <div class="manual-tonal">
             <h3>Tonal adjustments</h3>
             {#each treatments.filter(item=>item.id!=='ai_reverb_reduce') as tool}
               <div class="treatment-option">
-                <label class="check"><input type="checkbox" bind:checked={corrections[tool.id].enabled} onchange={() => {cleanupEnabled=true;listenLive();}}> {tool.title}</label>
-                <input aria-label={tool.title + ' amount'} type="range" min="-6" max="4" step=".1" bind:value={corrections[tool.id].value} oninput={listenLive} disabled={!corrections[tool.id].enabled}><output>{corrections[tool.id].value} dB</output>
+                <label class="check"><input type="checkbox" bind:checked={corrections[tool.id].enabled} onchange={() => cleanupEnabled=true}> {tool.title}</label>
+                <input aria-label={tool.title + ' amount'} type="range" min="-6" max="4" step=".1" bind:value={corrections[tool.id].value} disabled={!corrections[tool.id].enabled}><output>{corrections[tool.id].value} dB</output>
               </div>
             {/each}
           </div>
           <details class="manual-tail">
             <summary>Stereo &amp; tail shaping <span class="stage-status">{corrections.ai_reverb_reduce.enabled?'On':'Off'}</span></summary>
-                <label class="check"><input type="checkbox" bind:checked={corrections.ai_reverb_reduce.enabled} onchange={() => {cleanupEnabled=true;listenLive();}}> Enable tail shaping</label>
+                <label class="check"><input type="checkbox" bind:checked={corrections.ai_reverb_reduce.enabled} onchange={() => cleanupEnabled=true}> Enable tail shaping</label>
                 {#each reverbControls as option}
                   <div class="treatment-option">
                     <label class="check"><input type="checkbox" disabled={!corrections.ai_reverb_reduce.enabled} checked={Boolean(reverbConfig[option.toggle])} onchange={(event)=>reverbConfig[option.toggle]=event.currentTarget.checked}> {option.title}</label>
@@ -1350,7 +1370,7 @@
                 <label class="gate-ratio">Gate ratio<input type="number" min="1.5" max="4" step=".1" disabled={!corrections.ai_reverb_reduce.enabled || !reverbConfig.enable_tail_gate} bind:value={reverbConfig.gate_ratio}></label>
                 <small>Shapes the mix; it does not detect or isolate reverb.</small>
           </details>
-          {#if cleanupVersion === 2}<div class="manual-voice"><VoiceControls bind:voice={voiceControls} onEdit={() => {cleanupEnabled=true;listenLive();}}/></div>{/if}
+          {#if cleanupVersion === 2}<div class="manual-voice"><VoiceControls bind:voice={voiceControls} onEdit={() => cleanupEnabled=true}/></div>{/if}
         </div>
         </details>
         {@render noisePanel()}
@@ -1385,7 +1405,7 @@
           <strong>Stereo and dynamics</strong>
           <label class="inline-control"><span>Stereo width</span><input aria-label="Stereo width" type="range" min=".5" max="1.5" step=".01" bind:value={width} oninput={() => {eqEnabled=true;listenLive();}}><output>{width.toFixed(2)}</output></label>
           <label class="check"><input type="checkbox" bind:checked={guardrails}> Compression guardrails</label>
-          {#if presetBase}<small>Preset compression is heard in the export audition.</small>{/if}
+          {#if presetBase}<small>Preset compression is applied when processing the album, not in Live Monitor.</small>{/if}
         {/snippet}
         {#snippet legacyVoice()}
           <VoiceControls bind:voice={voiceControls} onEdit={() => {eqEnabled=true;listenLive();}}/>
@@ -1414,6 +1434,11 @@
               onpointerdown={(event)=>{if (event.button!==0 || !(sourceDuration>0) || specFailed || specLoading) return; dragStart=selectionPoint(event);draggingNoise=true;event.currentTarget.setPointerCapture(event.pointerId);}}
               onpointermove={drawNoise} onpointerleave={() => cursor=undefined} onpointerup={finishNoise} onpointercancel={()=>{dragStart=undefined;draggingNoise=false;selection=undefined;}}>
               <img loading="lazy" alt="Source track spectrogram" src={specImage} onload={()=>specLoading=false} onerror={()=>{specFailed=true;specLoading=false;}}>
+              <div class="spec-grid" aria-hidden="true">
+                {#each specScale==='lin' ? [4800,9600,14400,19200] : [100,1000,10000] as freq}
+                  <span style:top={`${frequencyY(freq)*100}%`}></span>
+                {/each}
+              </div>
               {#if sourceDuration>0}
                 {#each noiseSelections as item,index (item.id)}
                   {@const box=asNoiseBox(item)}
@@ -1436,6 +1461,7 @@
             disabled={sourceDuration<=0} oninput={(event)=>{const time=+event.currentTarget.value;centerSpectrum(time);seekTo(time);}}>
         </div>
         <div class="overview-labels"><small>{timeLabel(specStart*sourceDuration)} – {timeLabel(specEnd*sourceDuration)} in view</small><small>Drag overview to scrub and move the close-up</small></div>
+        {#if noiseError}<p class="error" role="alert">{noiseError}</p>{/if}
         <div class="noise-workbench">
           <div class="noise-list">
             <div class="fix-heading"><h3>Noise selections <small>{noiseSelections.length}</small></h3><button type="button" onclick={()=>editNoise()}>New selection</button></div>
@@ -1474,7 +1500,6 @@
                 if(item) noise={...noise,...Object.fromEntries(Object.entries(item.noise).filter(([key,value])=>key in defaultNoise && typeof value==='number' && key!=='t0_sec' && key!=='t1_sec'))};
               }}><option value="">Manual</option>{#each noisePresets as item}<option value={item.origin+'/'+item.id}>{item.meta.title}</option>{/each}</select></label>
             </details>
-            {#if noiseError}<p class="error" role="alert">{noiseError}</p>{/if}
             <div class="row">
               <button type="button" class="primary" disabled={!validNoiseDraft} onclick={saveNoise}>{editingNoise?'Save selection':'Add selection'}</button>
               <button type="button" disabled={!validNoiseDraft||noiseBusy} onclick={()=>action(()=>auditionNoise('solo'))}>Solo selection</button>
@@ -1668,8 +1693,8 @@
   .session-controls{padding:.65rem 1rem;align-items:center}
   .session-controls strong{margin-right:auto}
   .transport-controls{align-items:center}
+  .play-source{display:flex;flex-wrap:wrap;gap:.28rem}
   .transport-controls button,.session-controls button{font-size:.83rem;padding:.42rem .6rem}
-  .transport-controls label{margin:0;max-width:10rem}
   details{padding:.85rem 1rem;margin:.65rem 0}
   summary{cursor:pointer;font-weight:650;padding:.25rem 0} details[open] summary{margin-bottom:.65rem}
   .player-panel{display:grid;grid-template-columns:minmax(0,1fr) clamp(3.8rem,8vw,5rem);gap:.55rem}
@@ -1683,6 +1708,8 @@
   .cleanup-layout .effect{height:190px}
   .repair-header,.fix-heading{display:flex;justify-content:space-between;align-items:center;gap:.45rem;flex-wrap:wrap}
   .repair-header h3,.cleanup-layout h3{margin:.35rem 0;font-size:.9rem}
+  .cleanup-audio-actions{display:flex;flex-wrap:wrap;align-items:center;gap:.45rem;margin:.55rem 0;font-size:.82rem}
+  .cleanup-audio-actions span{color:var(--good)}
   .findings-workbench{display:grid;gap:.55rem;align-items:start;margin:.55rem 0 .8rem}
   .findings-workbench.with-findings{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
   .findings-review{max-width:32rem;border:1px solid var(--line);border-radius:.55rem;padding:.45rem .62rem}
@@ -1777,6 +1804,7 @@
   .spectro-viewport{height:clamp(13rem,29vw,21rem)}
   .spectrogram{position:absolute;inset-block:0;touch-action:none;cursor:crosshair}
   .spectrogram img,.spec-overview img{display:block;width:100%;height:100%;pointer-events:none}
+  .spec-grid{position:absolute;inset:0;pointer-events:none}.spec-grid span{position:absolute;inset-inline:0;border-top:1px solid #ffffff18}
   .spectro-status{position:absolute;inset:50% auto auto 50%;transform:translate(-50%,-50%);padding:.3rem .5rem;background:var(--card);color:var(--text);border-radius:.3rem}
   .spec-overview{height:2.7rem;margin-top:.28rem}
   .spec-overview input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:ew-resize}

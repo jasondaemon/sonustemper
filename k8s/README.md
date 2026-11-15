@@ -106,6 +106,10 @@ before/after audition changes only that fix. **Apply all** adds uncovered
 findings at the current cut, leaves skipped findings, peak warnings, and existing fixes alone, and
 offers an undo. **Preview all** and **Compare applied suggestions** render a
 seekable, loudness-matched pair for the full song without writing to the album.
+**Apply all** also renders a temporary WAV for **Post Cleanup** playback. This
+version includes enabled cleanup and noise removal, but no creative EQ or album
+loudness. **Live Monitor** adds live EQ and stereo adjustments to that WAV (or
+to **Original** when no current cleanup render is available).
 New sessions
 run noise removal and repairs before **Tone & Stereo** (presets or custom EQ),
 then measure loudness for delivery. Older sessions retain their original order
@@ -117,6 +121,8 @@ overview. Save several time/frequency regions or whole-song bands for each
 track. Enabled entries run in list order, including when auditioning the
 filtered track. Solo previews only the selection being edited. Album-wide
 settings copy whole-song bands but keep time ranges on their own tracks.
+Linear shows the whole 0–24 kHz range with linear intensity; filters still use
+20 Hz–20 kHz. Log emphasizes quieter detail.
 
 **Prompts and Lyrics** reads and saves song files on the share. The two prompt
 editors share `styles/<song>.md`: style text comes first, followed by an optional
