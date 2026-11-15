@@ -275,7 +275,7 @@ def album_status(path: Path) -> dict:
         return {"playable": False, "pending": None}
     tracks = stages["raw"] or stages["mastered"]
     delivery = workflow.track_delivery(stages)
-    return {"playable": bool(tracks), "pending": sum(bool(delivery[name]) for name in tracks)}
+    return {"playable": bool(tracks), "pending": sum(not workflow.delivery_complete(delivery[name]) for name in tracks)}
 
 
 def artist_status(path: Path) -> dict:
@@ -305,7 +305,10 @@ def browse(location: str, artist_folder: str = "", album_folder: str = "", statu
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     tracks = list(dict.fromkeys(stages["raw"] + stages["mastered"]))
-    return {**stages, "delivery": workflow.track_delivery(stages), "covers": workflow.cover_options(album),
+    delivery = workflow.track_delivery(stages)
+    return {**stages, "delivery": delivery,
+            "processed": {name: workflow.delivery_complete(missing) for name, missing in delivery.items()},
+            "covers": workflow.cover_options(album),
             "text_status": workflow.track_text_status(album, tracks)}
 
 

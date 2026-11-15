@@ -34,7 +34,7 @@
       {/each}
     </svg>
     <div class="scale"><span>20 Hz</span><span>200 Hz</span><span>2 kHz</span><span>20 kHz</span></div>
-    {#if combined}<small>Solid: EQ. Dashed: EQ plus active tonal repairs at the playhead.</small>{/if}
+    <small class="legend" class:inactive={!combined} aria-hidden={!combined}>Solid: EQ. Dashed: EQ plus active tonal repairs at the playhead.</small>
   </div>
   <div class="controls">
     <div>
@@ -92,6 +92,8 @@
   .combined{stroke:var(--text);stroke-width:1.5;stroke-dasharray:5 4;opacity:.75}
   circle{fill:var(--chart-handle);stroke:var(--chart-line);cursor:grab}.off{opacity:.45}
   .scale{display:flex;justify-content:space-between;color:var(--muted);font-size:.75rem;margin:.4rem 0}
+  .legend{display:block}
+  .legend.inactive{visibility:hidden}
   .controls{display:grid;grid-template-columns:minmax(9rem,2fr) minmax(0,3fr);align-items:start;gap:.9rem}
   .parameters,label{display:grid;gap:.35rem}
   .parameters{align-content:start}

@@ -94,6 +94,9 @@ complete set to `mastered/` (when starting from raw), `clean/`, `normalized/`
 are replaced only after the full render; the source recordings and unrelated
 files stay untouched. **Update MP3 tags only** updates tags, cover art, and
 lyrics on previously published MP3s without re-encoding them.
+In the song list, a green check means a final WAV and its matching MP3
+are present. A dim check means the pair is incomplete. Intermediate clean
+WAVs are not required for this status.
 
 Starting from `raw/` bakes enabled cleanup, EQ, and noise removal into the audio
 before album loudness normalization. The final 24-bit WAV is written to a fresh

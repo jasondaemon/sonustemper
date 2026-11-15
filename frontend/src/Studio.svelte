@@ -39,7 +39,7 @@
   type TextKind = PromptKind | 'lyrics';
   type TrackText = Record<TextKind | 'draft', string>;
   type AlbumFiles = Partial<Record<'raw'|'mastered'|'clean'|'normalized'|'mp3s', string[]>> & {
-    delivery?:Record<string,string[]>; covers?:Cover[]; text_status?:Record<string,Partial<Record<TextKind,boolean>>>;
+    processed?:Record<string,boolean>; covers?:Cover[]; text_status?:Record<string,Partial<Record<TextKind,boolean>>>;
   };
   const promptButtons = [{kind:'style', label:'Style Prompt'}, {kind:'negative', label:'Negative Prompt'},
     {kind:'prompt', label:'Lyric Prompt'}] as const;
@@ -150,7 +150,7 @@
   let tagEdits = $state<Record<string,{title:string;number:string}>>({});
   let keys = $derived({location, artist_folder: artist, album_folder: album, source});
   let tracks = $derived(library[source] || []);
-  let pendingTracks = $derived(tracks.filter(name => library.delivery?.[name]?.length).length);
+  let pendingTracks = $derived(tracks.filter(name => !library.processed?.[name]).length);
   let processing = $derived({
     preset:presetBase, bands, voicing_enabled:eqEnabled, voice_controls:voiceControls,
     cleanup_enabled:cleanupEnabled, corrections, noise_enabled:noiseEnabled, noise_selections:noiseSelections,
@@ -1428,11 +1428,14 @@
         {/if}
         <ul class="library-list tracks">
           {#each tracks as item (item)}
-            {@const missing = library.delivery?.[item]}
-            <li><button aria-pressed={item === track} disabled={readyDraftKey !== draftKey} onclick={() => {if (track !== item) {rememberTrack(); track = item; void action(selectTrack);}}}>
-              <span>{item.replace(/\.wav$/i, '')}</span>
-              {#if missing?.length}<small class="pending">Missing {missing.join(', ')}</small>
-              {:else if missing}<small class="delivered">Processed</small>{/if}
+            {@const processed = library.processed?.[item] === true}
+            {@const name = item.replace(/\.wav$/i, '')}
+            {@const deliveryStatus = processed ? 'Processed' : 'Not processed'}
+            <li><button aria-label={`${name}, ${deliveryStatus}`} aria-pressed={item === track} disabled={readyDraftKey !== draftKey} onclick={() => {if (track !== item) {rememberTrack(); track = item; void action(selectTrack);}}}>
+              <span>{name}</span>
+              <span class="song-status" class:processed aria-hidden="true" title={deliveryStatus}>
+                <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m3.25 8 3.15 3.2 6.35-6.4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
             </button></li>
           {:else}<li class="empty-list">{loadingLibrary ? 'Loading…' : 'No WAVs in this album'}</li>{/each}
         </ul>
@@ -2066,6 +2069,10 @@
   .library-list{list-style:none;display:grid;gap:.25rem;margin:0;padding:0;max-height:clamp(6rem,20vh,15rem);overflow:auto}
   .tracks{max-height:none;overflow:visible}
   .library-list button{display:grid;justify-items:start;gap:.15rem;width:100%;text-align:left;padding:.4rem .48rem;overflow-wrap:anywhere;background:transparent;border-color:transparent;font-size:.83rem}
+  .tracks button{grid-template-columns:minmax(0,1fr) 1rem;align-items:center;gap:.4rem}
+  .song-status{display:grid;place-items:center;color:var(--muted);opacity:.42}
+  .song-status.processed{color:var(--good);opacity:1}
+  .song-status svg{width:.9rem;height:.9rem}
   .library-list button[aria-pressed=true]{background:var(--accent-soft);border-color:transparent;color:var(--text);font-weight:680}
   .library-list small,.empty-list{font-size:.69rem;color:var(--muted);font-weight:550}
   .library-list .pending,.library-list .delivered{padding:.08rem .35rem;border-radius:.45rem}

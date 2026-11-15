@@ -74,6 +74,10 @@ def track_delivery(stages: dict[str, list[str]]) -> dict[str, list[str]]:
     return missing
 
 
+def delivery_complete(missing: list[str]) -> bool:
+    return all(stage == "Clean WAV" for stage in missing)
+
+
 def delivery_paths(album: Path, tracks: list[Path]) -> set[str]:
     stems = {track.stem for track in tracks}
     return {f"{stage}/{path.name}" for stage, suffix in (("normalized", ".wav"), ("mp3s", ".mp3"), ("mp3s", ".lrc"))

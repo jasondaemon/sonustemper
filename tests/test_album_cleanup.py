@@ -8,10 +8,24 @@ import unittest
 
 from sonustemper.album_cleanup import analyze, combine_noise_chains, repair_filter
 from sonustemper.album_workflow import (
-    compare_repair, compare_song_repairs, compare_tone, metrics, process_album_track, render_album,
-    render_cleanup_audio, repair_batches, track_loudness, wavs,
+    compare_repair, compare_song_repairs, compare_tone, delivery_complete, metrics, process_album_track, render_album,
+    render_cleanup_audio, repair_batches, track_delivery, track_loudness, wavs,
 )
 from sonustemper.master_pack import _eq_filter_for_band
+
+
+class AlbumDeliveryStatusTests(unittest.TestCase):
+    def test_completed_status_requires_matching_final_pair_not_clean_intermediate(self):
+        suffix = " (Integrated -16.0 LUFS, True Peak -1.5 dB, Channel STEREO)"
+        stages = {
+            "raw": ["Complete.wav", "WAV only.wav", "MP3 only.wav", "Mismatch.wav"],
+            "mastered": [], "clean": ["WAV only.wav"],
+            "normalized": [f"{title}{suffix}.wav" for title in ("Complete", "WAV only", "Mismatch")],
+            "mp3s": [f"Complete{suffix}.mp3", "MP3 only.mp3", "Mismatch.mp3"],
+        }
+        delivery = track_delivery(stages)
+        self.assertEqual(delivery["Complete.wav"], ["Clean WAV"])
+        self.assertEqual([name for name, missing in delivery.items() if delivery_complete(missing)], ["Complete.wav"])
 
 
 def amplitude(path, start, frequency):
