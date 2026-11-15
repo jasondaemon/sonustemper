@@ -31,10 +31,21 @@ class AlbumReviewTests(unittest.TestCase):
             old_companion.unlink()  # Legacy albums have reviewed text but no companion yet.
             settings = {"source": "raw", "balance": "album", "lufs": -14, "peak": -1.5, "year": 2026}
             state = {}
-            outputs = workflow.render_album(album, tracks, settings, lambda **changes: state.update(changes),
-                                            review=True)
+            steps = []
+
+            def report(**changes):
+                state.update(changes)
+                if changes.get("progress"):
+                    steps.append(changes["progress"])
+
+            def check_steps():
+                total = steps[-1]["total"]
+                self.assertEqual(steps, [{"completed": i, "total": total} for i in range(total + 1)])
+
+            outputs = workflow.render_album(album, tracks, settings, report, review=True)
             work = album / state["work"]
             self.assertEqual(state["status"], "ready")
+            check_steps()
             self.assertFalse((album / "normalized").exists())
             self.assertEqual(outputs[0]["gain_db"], outputs[1]["gain_db"])
             self.assertLess(state["loudness"]["achieved_lufs"], -20)
@@ -54,7 +65,7 @@ class AlbumReviewTests(unittest.TestCase):
 
             def approve():
                 workflow.confirm_review(album, tracks, settings, work, state["review_assets"],
-                                        outputs, lambda **changes: state.update(changes), {})
+                                        outputs, report, {})
 
             workflow.write_track_text(album, tracks[0].stem, "lyrics", "Edited after review")
             with self.assertRaisesRegex(ValueError, "lyrics changed"):
@@ -78,8 +89,10 @@ class AlbumReviewTests(unittest.TestCase):
                 approve()
             self.assertEqual(foreign.read_text(), "[00:01.00]Hold on\n")
             foreign.unlink()
+            steps.clear()
             approve()
             self.assertEqual(state["status"], "complete")
+            check_steps()
             self.assertEqual(old_companion.read_text(), lyric + "\n")
             self.assertEqual(reviewed, {relative: workflow.digest(album / relative) for relative in reviewed})
             self.assertEqual(original, {track: workflow.digest(track) for track in tracks})
@@ -88,8 +101,10 @@ class AlbumReviewTests(unittest.TestCase):
             workflow.write_track_text(album, tracks[1].stem, "lyrics", "New reviewed lyrics")
             new_companion = album / "lyrics" / f"{tracks[1].stem}.lrc"
             new_companion.unlink()
-            workflow.render_album(album, tracks, {**settings, "metadata_only": True},
+            steps.clear()
+            workflow.render_album(album, tracks, {**settings, "metadata_only": True}, report,
                                   previous={row["track"]: row for row in outputs})
+            check_steps()
             self.assertFalse(foreign.exists())
             self.assertEqual((album / "mp3s" / second.with_suffix(".lrc").name).read_text(), "New reviewed lyrics\n")
             self.assertEqual(new_companion.read_text(), "New reviewed lyrics\n")

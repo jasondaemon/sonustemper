@@ -1045,7 +1045,7 @@ def publish_review(job: str, settings: Settings):
     data = resolve_render(settings)
     if key != state["album_key"] or json.dumps(data, sort_keys=True) != json.dumps(state["settings"], sort_keys=True):
         raise HTTPException(409, "Album settings changed. Review the album again.")
-    if not workflow.record(LIBRARY_DB, job, expected_status="ready", status="queued", stage="Queued to publish"):
+    if not workflow.record(LIBRARY_DB, job, expected_status="ready", status="queued", stage="Queued to publish", progress=None):
         raise HTTPException(409, "This review is no longer available. Review the album again.")
     worker.submit(execute_review_publish, job, album, tracks, state)
     return {"id": job}
@@ -1063,6 +1063,22 @@ def job_status(job: str):
         response["results"] = [{k: v for k, v in result.items() if k not in {"source_sha256", "output_sha256"}}
                                for result in response["results"]]
     return response
+
+
+@router.get("/api/albums/jobs/{job}/audio")
+def published_audio(job: str, track: str):
+    state = workflow.record(LIBRARY_DB, job)
+    if state.get("status") != "complete":
+        raise HTTPException(404, "Published album unavailable")
+    row = next((item for item in state["results"] if item["track"] == track), None)
+    if row is None:
+        raise HTTPException(404, "Song not in this album job")
+    settings = state["settings"]
+    album = resolve_album(settings["location"], settings["artist_folder"], settings["album_folder"])
+    path = workflow.publication_path(album, f"normalized/{row['wav']}")
+    if not path.is_file():
+        raise HTTPException(404, "Published WAV unavailable")
+    return FileResponse(path, media_type="audio/wav", headers={"Cache-Control": "no-store"})
 
 
 @router.get("/albums", include_in_schema=False)

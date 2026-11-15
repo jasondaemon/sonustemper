@@ -103,6 +103,10 @@ directly or prepare a fresh review. Reviews require a writable
 location for staging and are available for up to four hours. Raw recordings
 are untouched. **Update MP3 tags only** updates tags, cover art, and lyrics on
 previously published MP3s without re-encoding them.
+Album jobs lock the workspace in a modal while running. The bar counts
+completed work steps and shows the current operation and song below it.
+On success the modal becomes a standalone album playlist with cover art and
+WAV playback. Closing it stops playback and returns to the workspace.
 In the song list, a green check means a final WAV and its matching MP3
 are present. A dim check means the pair is incomplete. Intermediate clean
 WAVs are not required for this status.

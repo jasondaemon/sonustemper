@@ -713,15 +713,35 @@ def peak_time(path: Path) -> float | None:
     return None
 
 
+class AlbumProgress:
+    def __init__(self, report, total: int):
+        self.report = report
+        self.total = total
+        self.started = 0
+
+    def step(self, stage: str, track: str = "", track_number: int | None = None) -> None:
+        self.report(stage=stage, track=track, track_number=track_number,
+                    progress={"completed": self.started, "total": self.total})
+        self.started += 1
+
+    def finish(self, **changes) -> None:
+        if changes.get("status") in {"ready", "complete"}:
+            changes.update(track="", track_number=None, progress={"completed": self.total, "total": self.total})
+        self.report(**changes)
+
+
 def confirm_review(album: Path, tracks: list[Path], settings: dict, work: Path, assets: dict, outputs: list[dict],
                    report, previous: dict[str, dict]) -> None:
+    progress = AlbumProgress(report, len(tracks) + 2)
+    progress.step("Checking album, cover and lyrics")
     require_full_album(album, settings["source"], tracks)
     if [track.name for track in tracks] != [result["track"] for result in outputs]:
         raise ValueError("The album track list changed. Review it again.")
     cover = delivery_cover(album, settings.get("cover", ""))
     if review_assets(album, tracks, cover) != assets:
         raise ValueError("Cover art or lyrics changed. Review the album again.")
-    for track, row in zip(tracks, outputs):
+    for number, (track, row) in enumerate(zip(tracks, outputs), 1):
+        progress.step("Verifying reviewed audio", track.name, number)
         if digest(track) != row["source_sha256"]:
             raise ValueError(f"{track.name} changed. Review the album again.")
         for relative, fingerprint in row["output_sha256"].items():
@@ -730,7 +750,8 @@ def confirm_review(album: Path, tracks: list[Path], settings: dict, work: Path, 
     stages = {relative.split("/", 1)[0] for row in outputs for relative in row["files"]}
     for stage in stages:
         child(album, stage).mkdir(exist_ok=True)
-    publish_deliveries(album, tracks, work, outputs, stages, True, report, previous)
+    progress.step("Publishing delivery files")
+    publish_deliveries(album, tracks, work, outputs, stages, True, progress.finish, previous)
 
 
 def publish_deliveries(album: Path, tracks: list[Path], work: Path, outputs: list[dict], stages,
@@ -753,6 +774,11 @@ def render_album(album: Path, tracks: list[Path], settings: dict, report=lambda 
                  review: bool = False) -> list[dict]:
     if not tracks:
         raise ValueError("Choose at least one WAV")
+    tags_only = settings.get("metadata_only") and not audition
+    count = len(tracks)
+    total = count + 3 if tags_only else (5 * count + 4 + (count + 1 if review else 0))
+    progress = AlbumProgress(report if not audition else lambda **_: None, total)
+    progress.step("Checking source files")
     stage = settings["source"]
     if not audition:
         require_full_album(album, stage, tracks)
@@ -773,7 +799,7 @@ def render_album(album: Path, tracks: list[Path], settings: dict, report=lambda 
     retain_work = False
     def report_publication(**changes):
         nonlocal retain_work
-        report(**changes)
+        progress.finish(**changes)
         retain_work = bool(changes.get("publication"))
 
     try:
@@ -781,12 +807,13 @@ def render_album(album: Path, tracks: list[Path], settings: dict, report=lambda 
             report(work=work.name)
         for folder in output_stages:
             (work / folder).mkdir()
-        if settings.get("metadata_only") and not audition:
+        if tags_only:
             results = []
             paths, superseded = set(), set()
+            progress.step("Preparing album artwork")
             cover_data = render_artwork(work, cover)
             for index, track in enumerate(tracks, 1):
-                report(stage="Updating MP3 tags", track=track.name, track_number=index)
+                progress.step("Updating MP3 tags and lyrics", track.name, index)
                 result = previous.get(track.name)
                 if not result or result.get("source") != stage or result["source_sha256"] != fingerprints[track.name]:
                     raise ValueError(f"Render {track.name} before updating its tags")
@@ -819,12 +846,13 @@ def render_album(album: Path, tracks: list[Path], settings: dict, report=lambda 
                     files.append(companion)
                     checksums[companion] = digest(publication_path(work, companion))
                 results.append({**result, "files": files, "output_sha256": checksums})
+            progress.step("Publishing updated tags")
             require_full_album(album, stage, tracks)
             publish(album, work, paths, superseded, True, report_publication, results)
             return results
         clean_files = []
         for index, track in enumerate(tracks, 1):
-            report(stage="Processing song", track=track.name, track_number=index)
+            progress.step("Processing audio", track.name, index)
             mastered = track
             if stage == "raw":
                 mastered = work / "mastered" / track.name
@@ -838,8 +866,11 @@ def render_album(album: Path, tracks: list[Path], settings: dict, report=lambda 
             else:
                 ffmpeg(mastered, clean, "-c:a", "pcm_s24le", "-ac", "2", "-ar", "48000", "-bitexact")
             clean_files.append(clean)
-        report(stage="Measuring loudness", track="", track_number=None)
-        measurements = [metrics(path) for path in clean_files]
+        measurements = []
+        for index, path in enumerate(clean_files, 1):
+            progress.step("Measuring loudness and true peak", path.name, index)
+            measurements.append(metrics(path))
+        progress.step("Calculating delivery gain")
         loudness_target = settings["lufs"]
         ceiling = settings["peak"]
         limits = []
@@ -865,10 +896,11 @@ def render_album(album: Path, tracks: list[Path], settings: dict, report=lambda 
             else:
                 os.replace(output, destination)
             return []
+        progress.step("Preparing album artwork")
         cover_data = render_artwork(work, cover)
         outputs = []
         for index, (clean, gain, (_, clean_peak)) in enumerate(zip(clean_files, gains, measurements), 1):
-            report(stage="Building final WAV and MP3", track=clean.name, track_number=index)
+            progress.step("Writing final WAV", clean.name, index)
             if stage == "raw":
                 # The clean WAV has its own headroom limit before integer conversion.
                 clean_gain = min(0.0, -clean_peak - 0.1)
@@ -879,6 +911,7 @@ def render_album(album: Path, tracks: list[Path], settings: dict, report=lambda 
             stem = f"{clean.stem} (Integrated {lufs:.1f} LUFS, True Peak {peak:.1f} dB, Channel STEREO)"
             named = normalized.with_name(stem + ".wav")
             normalized.rename(named)
+            progress.step("Encoding MP3 and adding tags and lyrics", clean.name, index)
             mp3 = work / "mp3s" / (stem + ".mp3")
             encode_mp3(named, mp3)
             _, mp3_peak = metrics(mp3)
@@ -898,29 +931,33 @@ def render_album(album: Path, tracks: list[Path], settings: dict, report=lambda 
                             "source": stage, "source_sha256": fingerprints[clean.name], "files": files,
                             "output_sha256": {path: digest(work / path) for path in files}})
         if review:
-            report(stage="Checking delivery", track="", track_number=None)
-            for track, row in zip(tracks, outputs):
+            for index, (track, row) in enumerate(zip(tracks, outputs), 1):
+                progress.step("Measuring original for level-matched listening", track.name, index)
                 try:
                     row["source_lufs"], row["source_true_peak"] = metrics(track)
                 except ValueError:
                     # A silent source cannot be level matched, but can still be reviewed.
                     pass
+            progress.step("Checking album loudness and limiting peaks")
             limit_rows = [{"track": tracks[i].name, "gain_shortfall_db": round(diff, 1),
                            "time": peak_time(clean_files[i])} for i, diff in limits]
             achieved = integrated_album([work / "normalized" / row["wav"] for row in outputs], work)
             if review_assets(album, tracks, cover) != assets:
                 raise ValueError("Cover art or lyrics changed during review. Prepare the album again.")
-        for track in tracks:
+        for index, track in enumerate(tracks, 1):
+            progress.step("Verifying source recording", track.name, index)
             if digest(track) != fingerprints[track.name]:
                 raise ValueError(f"Source changed during render: {track.name}")
         require_full_album(album, stage, tracks)
         if review:
+            progress.step("Preparing the reviewed album")
             shutil.rmtree(work / "delivery", ignore_errors=True)
-            report(status="ready", stage="Ready to review", results=outputs, review_assets=assets, expires=time()+REVIEW_TTL,
+            progress.finish(status="ready", stage="Ready to review", results=outputs, review_assets=assets, expires=time()+REVIEW_TTL,
                    loudness={"target_lufs": loudness_target, "achieved_lufs": achieved, "ceiling": ceiling,
                              "balance": settings["balance"], "limits": limit_rows})
             retain_work = True
         else:
+            progress.step("Publishing delivery files")
             publish_deliveries(album, tracks, work, outputs, output_stages, settings.get("replace", False),
                                report_publication, previous)
         return outputs

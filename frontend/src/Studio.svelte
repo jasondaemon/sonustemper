@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte';
   import EqPanel from './EqPanel.svelte';
+  import AlbumJobDialog, {type AlbumDialog, type AlbumProgress} from './AlbumJobDialog.svelte';
   import HelpTip from './HelpTip.svelte';
   import StereoMeter from './StereoMeter.svelte';
   import StereoCheck from './StereoCheck.svelte';
@@ -41,7 +42,7 @@
   let albumMeasurement = $state<{key:string;busy:boolean;rows:Record<string,TrackLoudness|string>}>();
   let measureVersion=0;
   type AlbumJob = {status:string;stage:string;track?:string;track_number?:number;error?:string;results?:Result[];
-    loudness?:ReviewLoudness;expires?:number};
+    loudness?:ReviewLoudness;expires?:number;progress?:AlbumProgress};
   type Folder = {name:string; playable:boolean; pending:number|null};
   type Cover = {name:string; size:number};
   type PromptKind = 'style' | 'negative' | 'prompt';
@@ -105,6 +106,7 @@
   let status = $state(''), error = $state(''), busy = $state(false);
   let results = $state<Result[]>([]);
   let exportStatus = $state(''), exportError = $state('');
+  let jobDialog = $state<AlbumDialog>();
   let cleanupEnabled = $state(false), eqEnabled = $state(false), noiseEnabled = $state(false);
   let cleanupVersion = $state<1|2>(2), repairs = $state<Repair[]>([]);
   let repairRange = $state<Range>(), activeFinding = $state<Finding>(), activeRepair = $state('');
@@ -1537,12 +1539,31 @@
     const tagsOnly=action==='tags', reviewing=action==='review', ready=currentReview;
     const request = copy({...settings, replace:!tagsOnly, metadata_only:tagsOnly});
     const jobKey = draftKey, signature=reviewKey;
+    const dialogBase={
+      action:reviewing ? 'Preparing album review' : tagsOnly ? 'Updating MP3 tags' : 'Publishing album',
+      album:request.album || album,
+      artist:request.album_artist || request.artist || artist,
+      cover:request.cover ? '/api/albums/artwork?'+new URLSearchParams({...keys,name:request.cover,thumbnail:'true'}) : '',
+      trackCount:request.tracks.length,
+    };
+    const names=new Map(request.tracks.map((name,index)=>[name,songTags(name,index)]));
+    const openPlaylist=(id:string, rows:Result[], message:string, staged=false)=>{
+      const base=staged ? `reviews/${id}` : `jobs/${id}`;
+      jobDialog={...dialogBase,view:'player',message,songs:rows.map(row=>({
+        title:names.get(row.track)?.title || row.track.replace(/\.wav$/i,''),
+        number:names.get(row.track)?.number || '0',
+        url:'/api/albums/'+base+'/audio?'+new URLSearchParams({track:row.track}),
+        lufs:row.lufs,peak:row.true_peak,
+      }))};
+    };
+    player?.pause();
     if (reviewing) albumReview=undefined;
     if (action==='publish' && playbackMode==='review') {
-      player?.pause();
       setPlayback('original');
     }
     busy = true; results = []; exportError = ''; exportStatus = 'Submitting album…';
+    let progress:AlbumProgress|undefined;
+    jobDialog={...dialogBase,view:'progress',task:'Submitting album…'};
     try {
       if (tagsOnly && !(await api<{can_update_tags:boolean}>('preflight', request)).can_update_tags) {
         throw new Error('Publish the full album before updating its MP3 tags.');
@@ -1550,7 +1571,17 @@
       const endpoint=reviewing ? 'reviews' : action==='publish' && ready ? 'reviews/'+ready.id+'/publish' : 'jobs';
       const {id} = await api<{id:string}>(endpoint, request);
       for (;;) {
-        const job = await api<AlbumJob>('jobs/' + id);
+        const response=await fetch('/api/albums/jobs/'+id,{cache:'no-store',signal:AbortSignal.timeout(12000)}).catch(()=>null);
+        if (response?.status===404) throw new Error('The server lost this album job. Check the delivery files before trying again.');
+        const job:AlbumJob|undefined=response?.ok ? await response.json().catch(()=>undefined) : undefined;
+        if (!job) {
+          jobDialog={...dialogBase,view:'progress',task:'Reconnecting to the album job…',progress};
+          await new Promise(resolve=>setTimeout(resolve,1500));
+          continue;
+        }
+        progress=job.progress ?? progress;
+        jobDialog={...dialogBase,view:'progress',task:job.stage,progress,
+          song:job.track ? names.get(job.track)?.title || job.track : undefined,trackNumber:job.track_number};
         const trackProgress = job.track_number ? ` ${job.track_number} of ${request.tracks.length}` : '';
         if (draftKey === jobKey) exportStatus = job.stage + trackProgress + (job.track ? ' · ' + job.track : '');
         if (job.status === 'failed' || job.status === 'expired') throw new Error(job.error || 'Album job did not finish. Try again.');
@@ -1562,6 +1593,7 @@
               exportStatus='Ready to listen. No delivery files have been replaced.';
             } else exportStatus='Settings changed while rendering. Review the album again.';
           }
+          openPlaylist(id,job.results ?? [],'Review ready · Not published',true);
           break;
         }
         if (job.status === 'complete') {
@@ -1572,15 +1604,18 @@
             catch { if (draftKey === jobKey) exportError = 'Files were saved, but the library could not refresh.'; }
             if (draftKey === jobKey) exportStatus = tagsOnly ? 'MP3 tags updated.' : 'Album processed. All outputs published.';
           }
+          openPlaylist(id,job.results ?? [],tagsOnly?'MP3 tags updated':'Album published');
           break;
         }
         await new Promise(resolve => setTimeout(resolve, 800));
       }
     } catch (cause) {
+      const message=cause instanceof Error ? cause.message : String(cause);
+      jobDialog={...dialogBase,view:'error',error:message};
       if (draftKey === jobKey) {
         if (action==='publish') albumReview=undefined;
         exportStatus = '';
-        exportError = cause instanceof Error ? cause.message : String(cause);
+        exportError = message;
       }
     } finally { busy = false; }
   }
@@ -2383,6 +2418,8 @@
     <p class="status" aria-live="polite">{status}</p>
   </section>
 </main>
+
+{#if jobDialog}<AlbumJobDialog model={jobDialog} close={()=>jobDialog=undefined}/>{/if}
 
 <dialog bind:this={promptDialog} class="theme-dialog prompt-dialog" aria-labelledby="prompt-title"
   oncancel={(event) => {if (promptWorking || promptLoading) event.preventDefault();}}>
